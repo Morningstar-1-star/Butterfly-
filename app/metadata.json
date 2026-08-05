@@ -1,0 +1,6 @@
+{
+  "name": "Butterfly",
+  "description": "YouTube video streaming application powered by NewPipeExtractor with real-time stream decoding, adaptive player support, and comprehensive diagnostic reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

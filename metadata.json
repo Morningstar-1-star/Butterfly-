@@ -1,0 +1,6 @@
+{
+  "name": "Butterfly",
+  "description": "Real YouTube client using NewPipeExtractor and Media3 ExoPlayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
