@@ -43,7 +43,14 @@ class PluginRuntime(
      * Instantiates an active ContentProviderApi interface for this plugin.
      */
     fun createProviderApi(): ContentProviderApi {
-        return SandboxedContentProvider(this)
+        return JsProviderEngine(
+            context = context,
+            manifest = manifest,
+            pluginDir = pluginDir,
+            httpBridge = http,
+            storageBridge = storage,
+            logger = logger
+        )
     }
 
     private class SandboxedContentProvider(

@@ -88,6 +88,9 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.coil.compose)
 
+  // Mozilla Rhino JavaScript engine for executing JS providers
+  implementation("org.mozilla:rhino:1.7.15")
+
   // Media3 ExoPlayer
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.ui)
