@@ -80,7 +80,9 @@ data class PlayableStreamOption(
     val format: String,
     val isMuxed: Boolean, // Video + Audio combined
     val videoStream: VideoStream? = null,
-    val audioStream: AudioStream? = null
+    val audioStream: AudioStream? = null,
+    val videoUrl: String? = null,
+    val audioUrl: String? = null
 )
 
 data class CaptionOption(

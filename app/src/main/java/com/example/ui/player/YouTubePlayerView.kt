@@ -66,8 +66,8 @@ fun YouTubePlayerView(
         exoPlayer.clearMediaItems()
 
         if (streamOption != null) {
-            val videoUrl = streamOption.videoStream?.url
-            val audioUrl = streamOption.audioStream?.url
+            val videoUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
+            val audioUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
 
             if (streamOption.isMuxed && videoUrl != null) {
                 val builder = MediaItem.Builder().setUri(Uri.parse(videoUrl))

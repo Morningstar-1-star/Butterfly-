@@ -16,24 +16,49 @@ class PeerTubeProvider(
     override val providerId: String = "peertube"
     private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
 
+    private val instances = listOf(
+        serverUrl,
+        "https://framatube.org",
+        "https://tilvids.com",
+        "https://tube.voss.earth"
+    ).distinct()
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val start = pageToken?.toIntOrNull() ?: 0
-        val url = "$serverUrl/api/v1/videos?start=$start&count=20&sort=-createdAt"
-        val resp = http.get(url)
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
-
-        val items = parseVideoList(resp.body)
-        PagedResult(items = items, nextPageToken = (start + 20).toString(), hasMore = items.isNotEmpty())
+        for (serverUrl in instances) {
+            try {
+                val url = "$serverUrl/api/v1/videos?start=$start&count=20&sort=-createdAt"
+                val resp = http.get(url)
+                if (resp.statusCode == 200) {
+                    val items = parseVideoList(resp.body, serverUrl)
+                    if (items.isNotEmpty()) {
+                        return@withContext PagedResult(items = items, nextPageToken = (start + 20).toString(), hasMore = true)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        PagedResult(emptyList())
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val start = pageToken?.toIntOrNull() ?: 0
-        val url = "$serverUrl/api/v1/search/videos?search=$query&start=$start&count=20"
-        val resp = http.get(url)
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
-
-        val items = parseVideoList(resp.body)
-        PagedResult(items = items, nextPageToken = (start + 20).toString(), hasMore = items.isNotEmpty())
+        for (serverUrl in instances) {
+            try {
+                val url = "$serverUrl/api/v1/search/videos?search=$query&start=$start&count=20"
+                val resp = http.get(url)
+                if (resp.statusCode == 200) {
+                    val items = parseVideoList(resp.body, serverUrl)
+                    if (items.isNotEmpty()) {
+                        return@withContext PagedResult(items = items, nextPageToken = (start + 20).toString(), hasMore = true)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        PagedResult(emptyList())
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -175,7 +200,7 @@ class PeerTubeProvider(
         home().items.take(10)
     }
 
-    private fun parseVideoList(jsonStr: String): List<PluginVideoItem> {
+    private fun parseVideoList(jsonStr: String, currentServerUrl: String = serverUrl): List<PluginVideoItem> {
         val list = mutableListOf<PluginVideoItem>()
         val json = org.json.JSONObject(jsonStr)
         val data = json.optJSONArray("data") ?: org.json.JSONArray()
@@ -188,11 +213,11 @@ class PeerTubeProvider(
                     title = v.optString("name"),
                     uploaderName = channel?.optString("displayName") ?: "PeerTube Creator",
                     uploaderUrl = channel?.optString("url"),
-                    uploaderAvatarUrl = channel?.optJSONObject("avatar")?.optString("path")?.let { "$serverUrl$it" },
+                    uploaderAvatarUrl = channel?.optJSONObject("avatar")?.optString("path")?.let { if (it.startsWith("http")) it else "$serverUrl$it" },
                     viewCount = v.optLong("views", 0),
                     durationSeconds = v.optLong("duration", 0),
                     uploadDate = v.optString("publishedAt"),
-                    thumbnailUrl = v.optString("thumbnailPath")?.let { "$serverUrl$it" },
+                    thumbnailUrl = v.optString("thumbnailPath")?.let { if (it.startsWith("http")) it else "$serverUrl$it" },
                     providerId = providerId
                 )
             )
