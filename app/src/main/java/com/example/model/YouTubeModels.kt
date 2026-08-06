@@ -13,7 +13,9 @@ data class VideoItem(
     val viewCount: Long = -1,
     val durationSeconds: Long = -1,
     val uploadDate: String? = null,
-    val thumbnailUrl: String? = null
+    val thumbnailUrl: String? = null,
+    val providerId: String? = null,
+    val embedUrl: String? = null
 ) {
     val formattedDuration: String
         get() {
@@ -110,5 +112,18 @@ data class StreamData(
     val availableStreamOptions: List<PlayableStreamOption>,
     val selectedStreamOption: PlayableStreamOption?,
     val hlsUrl: String?,
-    val relatedVideos: List<VideoItem>
-)
+    val relatedVideos: List<VideoItem>,
+    val embedUrl: String? = null,
+    val providerId: String? = null,
+    val thumbnailUrl: String? = null
+) {
+    val effectiveThumbnailUrl: String?
+        get() {
+            if (!thumbnailUrl.isNullOrEmpty()) return thumbnailUrl
+            if (videoId.isNotEmpty() && !videoId.startsWith("http")) {
+                return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            }
+            if (!channelAvatarUrl.isNullOrEmpty()) return channelAvatarUrl
+            return null
+        }
+}

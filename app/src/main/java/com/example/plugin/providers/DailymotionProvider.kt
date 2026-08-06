@@ -28,7 +28,7 @@ class DailymotionProvider(
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val url = "https://api.dailymotion.com/videos?search=$query&fields=$fields&limit=20&page=$page"
+        val url = "https://api.dailymotion.com/videos?search=${java.net.URLEncoder.encode(query, "UTF-8")}&fields=$fields&limit=20&page=$page"
         val resp = http.get(url)
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 
@@ -61,24 +61,22 @@ class DailymotionProvider(
         val respMeta = http.get(metaUrl)
         val jsonMeta = JSONObject(respMeta.body)
 
-        // Dailymotion HLS embed stream URL
-        val embedUrl = "https://www.dailymotion.com/embed/video/$id"
-        val hlsStreamUrl = "https://www.dailymotion.com/cdn/manifest/video/$id.m3u8"
+        val embedUrl = "https://www.dailymotion.com/embed/video/$id?autoplay=1&ui-logo=0&ui-start-screen-info=0"
 
         PluginStreamInfo(
             id = id,
-            url = "https://www.dailymotion.com/video/$id",
+            url = embedUrl,
             title = jsonMeta.optString("title", "Dailymotion Video"),
             channelName = "Dailymotion",
             viewCount = jsonMeta.optLong("views_total", 0),
             likeCount = jsonMeta.optLong("bookmarks_total", 0),
-            description = jsonMeta.optString("description"),
-            hlsUrl = hlsStreamUrl,
+            description = jsonMeta.optString("description", "Dailymotion video stream"),
+            hlsUrl = null,
             videoStreams = listOf(
                 PluginVideoStream(
-                    url = hlsStreamUrl,
-                    qualityLabel = "Auto HLS",
-                    format = "m3u8",
+                    url = embedUrl,
+                    qualityLabel = "Embed Auto Play",
+                    format = "embed",
                     isMuxed = true
                 )
             )

@@ -1,24 +1,30 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -27,13 +33,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.AppScreen
+import com.example.model.VideoItem
 import com.example.ui.MainViewModel
-import com.example.ui.components.ErrorDiagnosticCard
-import com.example.ui.components.FeedErrorDiagnosticCard
-import com.example.ui.components.PoTokenDialog
-import com.example.ui.components.VideoCard
-import com.example.ui.components.VideoDetailsSection
-import com.example.ui.player.YouTubePlayerView
+import com.example.ui.components.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,15 +56,32 @@ fun HomeScreen(
     val activeVideoId by viewModel.activeVideoId.collectAsState()
     val extractionResult by viewModel.extractionResult.collectAsState()
     val isExtracting by viewModel.isExtracting.collectAsState()
-    val selectedOption by viewModel.selectedStreamOption.collectAsState()
-    val selectedCaption by viewModel.selectedCaptionOption.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val showShortsFeed by viewModel.showShortsFeed.collectAsState()
+
+    val userProfile by viewModel.userProfile.collectAsState()
+    val hasShownGreeting by viewModel.hasShownGreeting.collectAsState()
+    var showGreetingText by remember { mutableStateOf(!hasShownGreeting) }
+
+    LaunchedEffect(hasShownGreeting) {
+        if (!hasShownGreeting) {
+            showGreetingText = true
+            kotlinx.coroutines.delay(3800)
+            showGreetingText = false
+            viewModel.markGreetingShown()
+        }
+    }
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
-    var activeCategory by remember { mutableStateOf("Popular") }
+    var isSearchExpanded by remember { mutableStateOf(false) }
+    var activeCategory by remember { mutableStateOf("All") }
     val focusManager = LocalFocusManager.current
 
-    val categories = listOf("Popular", "Music", "Gaming", "News", "Technology", "Nature")
+    val categories = listOf("All", "APIJAV", "Eporner", "Dailymotion", "YouTube", "Gaming", "Podcasts", "Music")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
+
+    // StreamData extracted for player / mini player
+    val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
 
     if (showPoTokenDialog) {
         PoTokenDialog(
@@ -73,270 +92,414 @@ fun HomeScreen(
         )
     }
 
+    if (currentScreen == AppScreen.PLAYER) {
+        VideoPlayerScreen(
+            viewModel = viewModel,
+            onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+            modifier = modifier
+        )
+        return
+    }
+
+    if (currentScreen == AppScreen.SETTINGS) {
+        SettingsScreen(
+            viewModel = viewModel,
+            onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+            modifier = modifier
+        )
+        return
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
-            ) {
-                NavigationBarItem(
-                    selected = (currentScreen == AppScreen.HOME),
-                    onClick = { viewModel.navigateToScreen(AppScreen.HOME) },
-                    icon = { Icon(Icons.Default.PlayCircle, contentDescription = "Videos") },
-                    label = { Text("Videos") }
-                )
-                NavigationBarItem(
-                    selected = (currentScreen == AppScreen.PROVIDERS),
-                    onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) },
-                    icon = { Icon(Icons.Default.Extension, contentDescription = "Providers") },
-                    label = { Text("Providers") }
-                )
-            }
-        },
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayCircle,
-                            contentDescription = "Butterfly",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Butterfly",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        AssistChip(
-                            onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) },
-                            label = { Text(activeProviderName, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+            if (currentScreen != AppScreen.ACCOUNT) {
+                Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                // Top Action Header
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        androidx.compose.ui.graphics.Brush.linearGradient(
+                                            listOf(Color(0xFF8E24AA), Color(0xFFE91E63))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.foundation.Canvas(modifier = Modifier.size(20.dp)) {
+                                    val w = size.width
+                                    val h = size.height
+                                    val wingColor = Color.White
+                                    // Top Wings
+                                    drawCircle(
+                                        color = wingColor,
+                                        radius = w * 0.28f,
+                                        center = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.35f)
+                                    )
+                                    drawCircle(
+                                        color = wingColor,
+                                        radius = w * 0.28f,
+                                        center = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.35f)
+                                    )
+                                    // Bottom Wings
+                                    drawCircle(
+                                        color = wingColor.copy(alpha = 0.85f),
+                                        radius = w * 0.20f,
+                                        center = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.68f)
+                                    )
+                                    drawCircle(
+                                        color = wingColor.copy(alpha = 0.85f),
+                                        radius = w * 0.20f,
+                                        center = androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.68f)
+                                    )
+                                    // Body
+                                    drawLine(
+                                        color = Color(0xFF4A148C),
+                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.20f),
+                                        end = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.82f),
+                                        strokeWidth = w * 0.08f
+                                    )
+                                    // Antennae
+                                    drawLine(
+                                        color = Color(0xFF4A148C),
+                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
+                                        end = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.10f),
+                                        strokeWidth = w * 0.05f
+                                    )
+                                    drawLine(
+                                        color = Color(0xFF4A148C),
+                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
+                                        end = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.10f),
+                                        strokeWidth = w * 0.05f
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            AnimatedContent(
+                                targetState = showGreetingText,
+                                transitionSpec = {
+                                    if (targetState) {
+                                        (slideInHorizontally(
+                                            animationSpec = tween(600, easing = FastOutSlowInEasing),
+                                            initialOffsetX = { -it }
+                                        ) + fadeIn(animationSpec = tween(600))) togetherWith (
+                                            slideOutHorizontally(
+                                                animationSpec = tween(400),
+                                                targetOffsetX = { it }
+                                            ) + fadeOut(animationSpec = tween(400))
+                                        )
+                                    } else {
+                                        (slideInHorizontally(
+                                            animationSpec = tween(600, easing = FastOutSlowInEasing),
+                                            initialOffsetX = { -it }
+                                        ) + fadeIn(animationSpec = tween(600))) togetherWith (
+                                            slideOutHorizontally(
+                                                animationSpec = tween(400),
+                                                targetOffsetX = { it }
+                                            ) + fadeOut(animationSpec = tween(400))
+                                        )
+                                    }
+                                },
+                                label = "TopBarTitleAnimation"
+                            ) { isGreeting ->
+                                if (isGreeting) {
+                                    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                                    val timeGreeting = when (hour) {
+                                        in 4..11 -> "Good morning"
+                                        in 12..16 -> "Good afternoon"
+                                        in 17..21 -> "Good evening"
+                                        else -> "Good night"
+                                    }
+                                    Text(
+                                        text = "Hi, $timeGreeting, ${userProfile.name}!",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Butterfly",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 22.sp,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { isSearchExpanded = !isSearchExpanded }) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) }) {
-                        Icon(
-                            imageVector = Icons.Default.Extension,
-                            contentDescription = "Providers Screen",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = { showPoTokenDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.VpnKey,
-                            contentDescription = "PoToken Architecture",
-                            tint = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
+                    )
                 )
-            )
+
+                // Search Bar Expandable Box
+                AnimatedVisibility(visible = isSearchExpanded) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            placeholder = { Text("Search $activeProviderName...", fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            trailingIcon = {
+                                Row {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear")
+                                        }
+                                    }
+                                    IconButton(onClick = { isSearchExpanded = false }) {
+                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close Search")
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    focusManager.clearFocus()
+                                    viewModel.performSearch()
+                                }
+                            ),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // Source Provider Filter Chips
+                val availableProviders by viewModel.availableProviders.collectAsState()
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        val isSelected = (activeProviderId == "all")
+                        Surface(
+                            onClick = { viewModel.setActiveProvider("all") },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                                Text("All Sources", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    items(availableProviders) { provider ->
+                        val isSelected = (activeProviderId == provider.id)
+                        Surface(
+                            onClick = { viewModel.setActiveProvider(provider.id) },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                                Text(provider.name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentScreen) {
-                AppScreen.PROVIDERS -> {
-                    ProvidersScreen(viewModel = viewModel)
-                }
-                AppScreen.HOME -> {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Search Input Box
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { viewModel.updateSearchQuery(it) },
-                                placeholder = { Text("Search $activeProviderName or paste video URL...", fontSize = 13.sp) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+            if (isSearchExpanded) {
+                SearchScreen(
+                    viewModel = viewModel,
+                    onSelectVideo = { video ->
+                        viewModel.playVideo(video.id, video.providerId)
+                    },
+                    onCloseSearch = { isSearchExpanded = false }
+                )
+            } else {
+                AnimatedContent(
+                    targetState = currentScreen,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                         scaleIn(initialScale = 0.95f, animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)))
+                            .togetherWith(
+                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                scaleOut(targetScale = 1.05f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                            )
+                    },
+                    label = "screen_transition"
+                ) { screen ->
+                    when (screen) {
+                        AppScreen.PROVIDERS -> {
+                            ProvidersScreen(viewModel = viewModel)
+                        }
+
+                        AppScreen.EXPLORE -> {
+                            ExploreScreen(
+                                viewModel = viewModel,
+                                onMovieSelected = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
                                 },
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = {
-                                            viewModel.updateSearchQuery("")
-                                        }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Clear,
-                                                contentDescription = "Clear"
-                                            )
-                                        }
-                                    }
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(
-                                    onSearch = {
-                                        focusManager.clearFocus()
-                                        viewModel.performSearch()
-                                    }
-                                ),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                                onGenreSelected = { term ->
+                                    viewModel.updateSearchQuery(term)
+                                    viewModel.performSearch(term)
+                                    isSearchExpanded = true
+                                }
                             )
                         }
 
-                        // Quick Category Chips
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(categories) { category ->
-                                FilterChip(
-                                    selected = activeCategory == category,
-                                    onClick = {
-                                        activeCategory = category
-                                        if (category == "Popular") {
-                                            viewModel.loadTrending()
-                                        } else {
-                                            viewModel.updateSearchQuery(category)
-                                            viewModel.performSearch(category)
-                                        }
-                                    },
-                                    label = { Text(category, fontSize = 12.sp) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                    ),
-                                    shape = RoundedCornerShape(16.dp)
-                                )
-                            }
-                        }
+                    AppScreen.ACCOUNT -> {
+                        AccountScreen(
+                            viewModel = viewModel,
+                            onSelectVideo = { video ->
+                                viewModel.playVideo(video.id, video.providerId)
+                            },
+                            onToggleSearch = { isSearchExpanded = !isSearchExpanded },
+                            showShortsFeed = showShortsFeed,
+                            onToggleShortsFeed = { viewModel.setShowShortsFeed(it) }
+                        )
+                    }
 
-                        // Main Content Area
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 24.dp)
+                    AppScreen.SHORTS -> {
+                        val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                        ShortsSection(
+                            shorts = feedList,
+                            onSelectShort = { video ->
+                                viewModel.playVideo(video.id, video.providerId)
+                            },
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+
+                    AppScreen.SUBSCRIPTIONS -> {
+                        SubscriptionsContent(
+                            videos = trendingVideos,
+                            onSelectVideo = { video ->
+                                viewModel.playVideo(video.id, video.providerId)
+                            }
+                        )
+                    }
+
+                    AppScreen.SETTINGS -> {
+                        SettingsScreen(
+                            viewModel = viewModel,
+                            onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) }
+                        )
+                    }
+
+                    AppScreen.HOME -> {
+                        PullToRefreshBox(
+                            isRefreshing = isLoadingTrending || isSearching,
+                            onRefresh = { viewModel.refreshFeed() },
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            // ACTIVE PLAYER CONTAINER
-                            if (isExtracting) {
-                                item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
-                                            .background(Color.Black),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = "Fetching streams from $activeProviderName...",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Color.LightGray
-                                            )
-                                        }
-                                    }
-                                }
-                            } else if (extractionResult != null) {
-                                when (val res = extractionResult) {
-                                    is YouTubeExtractorHelper.ExtractionResult.Success -> {
-                                        item {
-                                            YouTubePlayerView(
-                                                streamOption = selectedOption,
-                                                hlsUrl = res.streamData.hlsUrl,
-                                                captionOption = selectedCaption
-                                            )
-                                        }
-                                        item {
-                                            VideoDetailsSection(
-                                                streamData = res.streamData,
-                                                selectedOption = selectedOption,
-                                                selectedCaption = selectedCaption,
-                                                onSelectOption = { viewModel.selectStreamOption(it) },
-                                                onSelectCaption = { viewModel.selectCaptionOption(it) }
-                                            )
-                                        }
-                                    }
-                                    is YouTubeExtractorHelper.ExtractionResult.Error -> {
-                                        item {
-                                            ErrorDiagnosticCard(
-                                                errorDetails = res.errorDetails,
-                                                onRetry = {
-                                                    activeVideoId?.let { id -> viewModel.playVideo(id) }
-                                                },
-                                                onOpenPoTokenConfig = {
-                                                    showPoTokenDialog = true
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 160.dp)
+                            ) {
+                                // SHORTS CAROUSEL SECTION (ONLY IF ENABLED)
+                                if (showShortsFeed) {
+                                    item {
+                                        val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                                        if (feedList.isNotEmpty()) {
+                                            Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PlayCircle,
+                                                        contentDescription = "Shorts",
+                                                        tint = Color.Red,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "Shorts",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
                                                 }
-                                            )
-                                        }
-                                    }
-                                    null -> {}
-                                }
-                            }
-
-                            // FEED HEADER
-                            item {
-                                Text(
-                                    text = if (searchResults.isNotEmpty()) "Search Results ($activeProviderName)" else "$activeProviderName Content",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                                )
-                            }
-
-                            // FEED ERROR DIAGNOSTIC DISPLAY
-                            if (feedError != null) {
-                                item {
-                                    FeedErrorDiagnosticCard(
-                                        errorDetails = feedError!!,
-                                        onRetry = {
-                                            if (activeCategory == "Popular" && searchQuery.isBlank()) {
-                                                viewModel.loadTrending()
-                                            } else {
-                                                viewModel.performSearch()
+                                                ShortsSection(
+                                                    shorts = feedList.take(6),
+                                                    onSelectShort = { video ->
+                                                        viewModel.playVideo(video.id, video.providerId)
+                                                    }
+                                                )
                                             }
                                         }
-                                    )
-                                }
-                            } else if (isSearching || isLoadingTrending) {
-                                item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
-                            } else {
-                                val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                                if (feedList.isEmpty()) {
+
+                                // MAIN FEED HEADER
+                                item {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (searchResults.isNotEmpty()) "Search Results ($activeProviderName)" else "$activeProviderName Content",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                }
+
+                                // FEED ERROR / LOADING / CARDS
+                                if (feedError != null) {
+                                    item {
+                                        FeedErrorDiagnosticCard(
+                                            errorDetails = feedError!!,
+                                            onRetry = {
+                                                if (activeCategory == "All" && searchQuery.isBlank()) {
+                                                    viewModel.loadTrending()
+                                                } else {
+                                                    viewModel.performSearch()
+                                                }
+                                            }
+                                        )
+                                    }
+                                } else if (isSearching || isLoadingTrending) {
                                     item {
                                         Box(
                                             modifier = Modifier
@@ -344,29 +507,218 @@ fun HomeScreen(
                                                 .padding(32.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(
-                                                text = "No videos found for $activeProviderName. Try searching or selecting another provider.",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Text(
+                                                    text = "Aggregating videos from $activeProviderName...",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
                                     }
                                 } else {
-                                    items(feedList, key = { it.id + it.title }) { video ->
-                                        VideoCard(
-                                            video = video,
-                                            onClick = {
-                                                viewModel.playVideo(video.id)
-                                            },
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                                        )
+                                    val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                                    if (feedList.isEmpty()) {
+                                        item {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "No videos found for $activeProviderName. Try selecting another category or provider.",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        items(feedList, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
+                                            VideoCard(
+                                                video = video,
+                                                onClick = {
+                                                    viewModel.playVideo(video.id, video.providerId)
+                                                },
+                                                onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                                                onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                                onSaveToPlaylist = { v ->
+                                                    val userPls = viewModel.userPlaylists.value
+                                                    if (userPls.isNotEmpty()) {
+                                                        viewModel.addToPlaylist(userPls.first().id, v)
+                                                    } else {
+                                                        viewModel.createPlaylist("Favorites")
+                                                        val updated = viewModel.userPlaylists.value
+                                                        if (updated.isNotEmpty()) {
+                                                            viewModel.addToPlaylist(updated.first().id, v)
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
+                    else -> {}
                 }
             }
+        }
+
+            // FLOATING MINI PLAYER AND LIQUID GLASS NAV BAR AT BOTTOM
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
+                    LiquidGlassMiniPlayer(
+                        streamData = currentStreamData,
+                        isPlaying = isPlaying,
+                        onTogglePlay = { viewModel.togglePlayback() },
+                        onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
+                        onClose = { viewModel.closeVideo() },
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                LiquidGlassNavBar(
+                    currentScreen = currentScreen,
+                    onSelectScreen = { screen -> viewModel.navigateToScreen(screen) },
+                    onToggleSearch = { isSearchExpanded = !isSearchExpanded }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExploreContent(
+    onSelectCategory: (String) -> Unit
+) {
+    val categories = listOf(
+        "APIJAV" to Icons.Default.Whatshot,
+        "Eporner" to Icons.Default.PlayArrow,
+        "Dailymotion" to Icons.Default.OndemandVideo,
+        "YouTube" to Icons.Default.VideoLibrary,
+        "Music" to Icons.Default.MusicNote,
+        "Gaming" to Icons.Default.SportsEsports,
+        "Podcasts" to Icons.Default.Podcasts
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(
+                text = "Explore Sources & Categories",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+        items(categories) { (name, icon) ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectCategory(name) },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = name,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubscriptionsContent(
+    videos: List<VideoItem>,
+    onSelectVideo: (VideoItem) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 120.dp)
+    ) {
+        item {
+            Text(
+                text = "Subscribed Channels",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(5) { index ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(64.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "C${index + 1}",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Channel ${index + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            Text(
+                text = "Latest Multi-Source Videos",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            )
+        }
+        items(videos) { video ->
+            VideoCard(
+                video = video,
+                onClick = { onSelectVideo(video) },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
         }
     }
 }

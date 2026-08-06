@@ -307,7 +307,8 @@ object YouTubeExtractorHelper {
                 availableStreamOptions = options,
                 selectedStreamOption = defaultSelectedOption,
                 hlsUrl = info.hlsUrl,
-                relatedVideos = related
+                relatedVideos = related,
+                thumbnailUrl = info.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/${info.id ?: urlOrId}/hqdefault.jpg"
             )
 
             ExtractionResult.Success(streamData)

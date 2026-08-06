@@ -2,7 +2,13 @@ package com.example.model
 
 enum class AppScreen {
     HOME,
-    PROVIDERS
+    EXPLORE,
+    SHORTS,
+    SUBSCRIPTIONS,
+    ACCOUNT,
+    PROVIDERS,
+    PLAYER,
+    SETTINGS
 }
 
 data class ProviderUiItem(
@@ -12,3 +18,18 @@ data class ProviderUiItem(
     val isEnabled: Boolean = true,
     val isDefault: Boolean = false
 )
+
+data class UserPlaylist(
+    val id: String,
+    val title: String,
+    val videos: List<VideoItem> = emptyList()
+)
+
+data class UserProfile(
+    val name: String = "Lucifer",
+    val handle: String = "@lucifer",
+    val bio: String = "Passionate video lover & content curator.",
+    val avatarUrl: String? = null,
+    val avatarPreset: String = "purple"
+)
+

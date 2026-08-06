@@ -80,7 +80,8 @@ data class PluginStreamInfo(
     val audioStreams: List<PluginAudioStream> = emptyList(),
     val subtitles: List<PluginSubtitle> = emptyList(),
     val hlsUrl: String? = null,
-    val httpHeaders: Map<String, String> = emptyMap()
+    val httpHeaders: Map<String, String> = emptyMap(),
+    val thumbnailUrl: String? = null
 )
 
 @JsonClass(generateAdapter = true)
