@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.ExtractorErrorDetails
 import com.example.model.ExtractorErrorType
+import com.example.model.FeedErrorDetails
 
 @Composable
 fun ErrorDiagnosticCard(
@@ -53,7 +54,7 @@ fun ErrorDiagnosticCard(
     onOpenPoTokenConfig: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isStackTraceExpanded by remember { mutableStateOf(false) }
+    var isStackTraceExpanded by remember { mutableStateOf(true) }
 
     val typeLabel = when (errorDetails.errorType) {
         ExtractorErrorType.PO_TOKEN_REQUIRED -> "PoToken Required"
@@ -99,7 +100,7 @@ fun ErrorDiagnosticCard(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Text(
-                    text = "Extraction Failure: $typeLabel",
+                    text = "Extraction Error: ${errorDetails.rawExceptionName.substringAfterLast('.')}",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.Bold
@@ -108,40 +109,32 @@ fun ErrorDiagnosticCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Error Reason Message
+            // Exception Class
             Text(
-                text = errorDetails.message,
+                text = "Class: ${errorDetails.rawExceptionName}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Yellow,
+                fontFamily = FontFamily.Monospace
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Error Message
+            Text(
+                text = "Message: ${errorDetails.message}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.SemiBold
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Technical Fix Suggestion
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(12.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "Technical Diagnosis & Resolution:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = errorDetails.technicalFixSuggestion,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            if (!errorDetails.causeInfo.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Cause: ${errorDetails.causeInfo}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.LightGray,
+                    fontFamily = FontFamily.Monospace
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -164,12 +157,10 @@ fun ErrorDiagnosticCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Retry Extraction", fontSize = 12.sp)
+                    Text("Retry", fontSize = 12.sp)
                 }
 
-                if (errorDetails.errorType == ExtractorErrorType.PO_TOKEN_REQUIRED ||
-                    errorDetails.errorType == ExtractorErrorType.SABR_PROTECTION
-                ) {
+                if (errorDetails.errorType == ExtractorErrorType.PO_TOKEN_REQUIRED) {
                     OutlinedButton(
                         onClick = onOpenPoTokenConfig,
                         modifier = Modifier.weight(1f)
@@ -223,7 +214,7 @@ fun ErrorDiagnosticCard(
                         .padding(12.dp)
                 ) {
                     Text(
-                        text = "Exception: ${errorDetails.rawExceptionName}",
+                        text = "Exception Stack Trace:",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Yellow,
                         fontFamily = FontFamily.Monospace,
@@ -232,7 +223,172 @@ fun ErrorDiagnosticCard(
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
-                            .height(180.dp)
+                            .height(220.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = errorDetails.fullStackTrace,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp
+                            ),
+                            color = Color.LightGray,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FeedErrorDiagnosticCard(
+    errorDetails: FeedErrorDetails,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isStackTraceExpanded by remember { mutableStateOf(true) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+        ),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.error)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Error,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Text(
+                    text = "Feed Exception: ${errorDetails.rawExceptionName.substringAfterLast('.')}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Class: ${errorDetails.rawExceptionName}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Yellow,
+                fontFamily = FontFamily.Monospace
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Message: ${errorDetails.message}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            if (!errorDetails.causeInfo.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Cause: ${errorDetails.causeInfo}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.LightGray,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            if (!errorDetails.urlOrQuery.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Target: ${errorDetails.urlOrQuery}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Retry Request", fontSize = 12.sp)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = { isStackTraceExpanded = !isStackTraceExpanded },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BugReport,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (isStackTraceExpanded) "Hide Exception Trace" else "View Full Technical Stack Trace", fontSize = 12.sp)
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = if (isStackTraceExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null
+                )
+            }
+
+            AnimatedVisibility(visible = isStackTraceExpanded) {
+                Column(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .fillMaxWidth()
+                        .background(
+                            color = Color.Black,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = "Full Exception Stack Trace:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Yellow,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .height(220.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
                         Text(

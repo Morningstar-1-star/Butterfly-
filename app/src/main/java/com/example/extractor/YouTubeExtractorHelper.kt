@@ -1,8 +1,11 @@
 package com.example.extractor
 
+import android.util.Log
 import com.example.model.CaptionOption
 import com.example.model.ExtractorErrorDetails
 import com.example.model.ExtractorErrorType
+import com.example.model.FeedErrorDetails
+import com.example.model.FeedResult
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
 import com.example.model.VideoItem
@@ -62,6 +65,105 @@ object YouTubeExtractorHelper {
         return ServiceList.YouTube
     }
 
+    private fun logDebug(tag: String, message: String) {
+        try {
+            Log.d(tag, message)
+        } catch (e: Throwable) {
+            println("[$tag] [DEBUG] $message")
+        }
+    }
+
+    private fun logWarn(tag: String, message: String) {
+        try {
+            Log.w(tag, message)
+        } catch (e: Throwable) {
+            println("[$tag] [WARN] $message")
+        }
+    }
+
+    private fun logError(tag: String, message: String, throwable: Throwable? = null) {
+        try {
+            if (throwable != null) Log.e(tag, message, throwable) else Log.e(tag, message)
+        } catch (e: Throwable) {
+            println("[$tag] [ERROR] $message")
+            throwable?.printStackTrace()
+        }
+    }
+
+    sealed class UrlParseResult {
+        data class ValidVideoId(val videoId: String) : UrlParseResult()
+        data class InvalidUrl(val message: String) : UrlParseResult()
+        object SearchQuery : UrlParseResult()
+    }
+
+    /**
+     * Parses input string to determine if it is a valid YouTube video ID, a YouTube URL,
+     * an invalid YouTube URL, or a search query.
+     */
+    fun parseYouTubeInput(input: String): UrlParseResult {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return UrlParseResult.SearchQuery
+
+        val rawIdRegex = Regex("^[a-zA-Z0-9_-]{11}$")
+
+        // Identifiers for URL attempts
+        val isUrlAttempt = trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) ||
+                trimmed.startsWith("www.", ignoreCase = true) ||
+                trimmed.contains("youtube.com", ignoreCase = true) ||
+                trimmed.contains("youtu.be", ignoreCase = true)
+
+        if (isUrlAttempt) {
+            // 1. youtube.com/watch?v=ID or m.youtube.com/watch?v=ID (parameter v can be anywhere in query)
+            val watchRegex = Regex("""[?&]v=([a-zA-Z0-9_-]{11})(?:[&?]|\b)""", RegexOption.IGNORE_CASE)
+            watchRegex.find(trimmed)?.groupValues?.get(1)?.let {
+                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from watch URL: '$trimmed'")
+                return UrlParseResult.ValidVideoId(it)
+            }
+
+            // 2. youtu.be/ID
+            val shortUrlRegex = Regex("""youtu\.be\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
+            shortUrlRegex.find(trimmed)?.groupValues?.get(1)?.let {
+                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from youtu.be URL: '$trimmed'")
+                return UrlParseResult.ValidVideoId(it)
+            }
+
+            // 3. youtube.com/shorts/ID
+            val shortsRegex = Regex("""youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
+            shortsRegex.find(trimmed)?.groupValues?.get(1)?.let {
+                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from shorts URL: '$trimmed'")
+                return UrlParseResult.ValidVideoId(it)
+            }
+
+            // 4. youtube.com/live/ID
+            val liveRegex = Regex("""youtube\.com\/live\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
+            liveRegex.find(trimmed)?.groupValues?.get(1)?.let {
+                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from live URL: '$trimmed'")
+                return UrlParseResult.ValidVideoId(it)
+            }
+
+            // 5. Generic embed/v path: youtube.com/embed/ID or youtube.com/v/ID
+            val embedRegex = Regex("""youtube\.com\/(?:embed|v)\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
+            embedRegex.find(trimmed)?.groupValues?.get(1)?.let {
+                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from embed/v URL: '$trimmed'")
+                return UrlParseResult.ValidVideoId(it)
+            }
+
+            // URL attempt detected but no valid 11-char video ID found
+            logWarn("YouTubeExtractor", "[PARSER] Invalid YouTube URL provided: '$trimmed'")
+            return UrlParseResult.InvalidUrl("Invalid YouTube URL")
+        }
+
+        // Raw 11-character video ID check
+        if (rawIdRegex.matches(trimmed)) {
+            logDebug("YouTubeExtractor", "[PARSER] Input matches raw 11-char video ID: '$trimmed'")
+            return UrlParseResult.ValidVideoId(trimmed)
+        }
+
+        // Plain search query
+        return UrlParseResult.SearchQuery
+    }
+
     sealed class ExtractionResult {
         data class Success(val streamData: StreamData) : ExtractionResult()
         data class Error(val errorDetails: ExtractorErrorDetails) : ExtractionResult()
@@ -70,11 +172,30 @@ object YouTubeExtractorHelper {
     fun fetchStreamData(urlOrId: String): ExtractionResult {
         ensureInitialized()
         val service = getYouTubeService()
-        val fullUrl = if (urlOrId.startsWith("http://") || urlOrId.startsWith("https://")) {
-            urlOrId
-        } else {
-            "https://www.youtube.com/watch?v=$urlOrId"
+
+        val videoId = when (val parsed = parseYouTubeInput(urlOrId)) {
+            is UrlParseResult.ValidVideoId -> parsed.videoId
+            is UrlParseResult.InvalidUrl -> {
+                return ExtractionResult.Error(
+                    ExtractorErrorDetails(
+                        errorType = ExtractorErrorType.UNAVAILABLE,
+                        message = "Invalid YouTube URL",
+                        rawExceptionName = "IllegalArgumentException",
+                        fullStackTrace = "Unable to extract a valid 11-character video ID from input: '$urlOrId'",
+                        urlOrId = urlOrId,
+                        technicalFixSuggestion = "Check the YouTube URL format and try again."
+                    )
+                )
+            }
+            is UrlParseResult.SearchQuery -> urlOrId.trim()
         }
+
+        val fullUrl = "https://www.youtube.com/watch?v=$videoId"
+
+        logDebug("YouTubeExtractor", "[TRACE] BEFORE StreamInfo.getInfo for videoId: '$videoId', fullUrl: '$fullUrl'")
+        println("=== [TRACE] BEFORE StreamInfo.getInfo ===")
+        println(" - Extracted video ID: $videoId")
+        println(" - Target URL: $fullUrl")
 
         return try {
             val info = StreamInfo.getInfo(service, fullUrl)
@@ -82,6 +203,17 @@ object YouTubeExtractorHelper {
             val progressiveStreams = info.videoStreams ?: emptyList()
             val videoOnlyStreams = info.videoOnlyStreams ?: emptyList()
             val audioStreams = info.audioStreams ?: emptyList()
+            val totalStreams = progressiveStreams.size + videoOnlyStreams.size + audioStreams.size
+
+            logDebug(
+                "YouTubeExtractor",
+                "[TRACE] AFTER StreamInfo.getInfo SUCCESS! videoId: '$videoId', Title: '${info.name}', Uploader: '${info.uploaderName}', Streams: $totalStreams"
+            )
+            println("=== [TRACE] AFTER StreamInfo.getInfo SUCCESS ===")
+            println(" - Extracted video ID: $videoId")
+            println(" - StreamInfo title: ${info.name}")
+            println(" - Uploader: ${info.uploaderName}")
+            println(" - Stream count: $totalStreams")
 
             val bestAudio = audioStreams.maxByOrNull { it.averageBitrate }
 
@@ -123,7 +255,7 @@ object YouTubeExtractorHelper {
                         rawExceptionName = "NoPlayableStreamsException",
                         fullStackTrace = "videoStreams: ${progressiveStreams.size}, videoOnlyStreams: ${videoOnlyStreams.size}, audioStreams: ${audioStreams.size}",
                         urlOrId = fullUrl,
-                        technicalFixSuggestion = "YouTube may have restricted stream formats for this video or enabled PoToken/SABR protection."
+                        technicalFixSuggestion = "YouTube returned no direct streams for this video URL."
                     )
                 )
             }
@@ -181,17 +313,21 @@ object YouTubeExtractorHelper {
             ExtractionResult.Success(streamData)
 
         } catch (e: Exception) {
+            logError("YouTubeExtractor", "Exception in fetchStreamData for $fullUrl", e)
+            e.printStackTrace()
+
             val sw = StringWriter()
             e.printStackTrace(PrintWriter(sw))
             val stackTraceStr = sw.toString()
-            val msg = e.message ?: "Unknown error during stream extraction"
+            val msg = e.message ?: "No exception message available (${e.javaClass.canonicalName ?: e.javaClass.name})"
+            val causeStr = e.cause?.let { "${it.javaClass.name}: ${it.message}" }
 
             val errorType = when {
                 e is ReCaptchaException -> ExtractorErrorType.RECAPTCHA_REQUIRED
                 e is GeographicRestrictionException -> ExtractorErrorType.GEO_RESTRICTED
                 e is ContentNotAvailableException -> ExtractorErrorType.UNAVAILABLE
                 e is IOException -> ExtractorErrorType.NETWORK_ERROR
-                msg.contains("PoToken", ignoreCase = true) || msg.contains("bot", ignoreCase = true) -> ExtractorErrorType.PO_TOKEN_REQUIRED
+                msg.contains("PoToken", ignoreCase = true) -> ExtractorErrorType.PO_TOKEN_REQUIRED
                 msg.contains("SABR", ignoreCase = true) -> ExtractorErrorType.SABR_PROTECTION
                 msg.contains("Signature", ignoreCase = true) || msg.contains("n-parameter", ignoreCase = true) -> ExtractorErrorType.SIGNATURE_DECRYPTION_FAILED
                 msg.contains("age", ignoreCase = true) -> ExtractorErrorType.AGE_RESTRICTED
@@ -199,32 +335,30 @@ object YouTubeExtractorHelper {
             }
 
             val suggestion = when (errorType) {
-                ExtractorErrorType.PO_TOKEN_REQUIRED -> "YouTube now mandates a Proof of Origin (PoToken) for this video stream. Integrate a PoToken generator to provide visitor tokens."
-                ExtractorErrorType.SABR_PROTECTION -> "YouTube SABR stream protection was triggered. Updated NewPipeExtractor rules are required."
-                ExtractorErrorType.SIGNATURE_DECRYPTION_FAILED -> "YouTube updated its JavaScript player signature cipher algorithm. NewPipeExtractor rules need updating."
-                ExtractorErrorType.RECAPTCHA_REQUIRED -> "YouTube flagged requests with reCAPTCHA. Retry later or resolve anti-bot challenge."
-                ExtractorErrorType.AGE_RESTRICTED -> "This video is age-restricted on YouTube and requires user authentication or age bypass."
-                ExtractorErrorType.GEO_RESTRICTED -> "This video is restricted in your current geographic location."
-                ExtractorErrorType.NETWORK_ERROR -> "Network request failed. Check your internet connection."
-                ExtractorErrorType.NO_PLAYABLE_STREAMS -> "No direct non-DRM streams were extracted."
-                ExtractorErrorType.UNAVAILABLE -> "This video has been removed or set to private on YouTube."
-                ExtractorErrorType.UNKNOWN -> "Extraction failed. Server-side YouTube changes or parser incompatibility."
+                ExtractorErrorType.PO_TOKEN_REQUIRED -> "YouTube exception explicitly references PoToken."
+                ExtractorErrorType.RECAPTCHA_REQUIRED -> "YouTube flagged requests with reCAPTCHA."
+                ExtractorErrorType.AGE_RESTRICTED -> "This video is age-restricted on YouTube."
+                ExtractorErrorType.GEO_RESTRICTED -> "This video is restricted in your geographic location."
+                ExtractorErrorType.NETWORK_ERROR -> "Network IO error."
+                ExtractorErrorType.UNAVAILABLE -> "This video is unavailable."
+                else -> "Exact Exception: ${e.javaClass.canonicalName ?: e.javaClass.name}"
             }
 
             ExtractionResult.Error(
                 ExtractorErrorDetails(
                     errorType = errorType,
                     message = msg,
-                    rawExceptionName = e.javaClass.simpleName,
+                    rawExceptionName = e.javaClass.canonicalName ?: e.javaClass.name,
                     fullStackTrace = stackTraceStr,
                     urlOrId = fullUrl,
+                    causeInfo = causeStr,
                     technicalFixSuggestion = suggestion
                 )
             )
         }
     }
 
-    fun searchVideos(query: String): List<VideoItem> {
+    fun searchVideos(query: String): FeedResult {
         ensureInitialized()
         return try {
             val service = getYouTubeService()
@@ -234,7 +368,7 @@ object YouTubeExtractorHelper {
                 ""
             )
             val searchInfo = SearchInfo.getInfo(searchExtractor)
-            searchInfo.relatedItems.filterIsInstance<StreamInfoItem>().map { item ->
+            val items = searchInfo.relatedItems.filterIsInstance<StreamInfoItem>().map { item ->
                 VideoItem(
                     id = item.url.substringAfter("v=").substringBefore("&"),
                     title = item.name ?: "",
@@ -247,32 +381,52 @@ object YouTubeExtractorHelper {
                     thumbnailUrl = item.thumbnails?.firstOrNull()?.url
                 )
             }
+            FeedResult.Success(items)
         } catch (e: Exception) {
-            emptyList()
+            logError("YouTubeExtractor", "Exception in searchVideos for query '$query'", e)
+            e.printStackTrace()
+
+            val sw = StringWriter()
+            e.printStackTrace(PrintWriter(sw))
+            val stackTraceStr = sw.toString()
+            val msg = e.message ?: "No error message provided (${e.javaClass.canonicalName ?: e.javaClass.name})"
+            val causeStr = e.cause?.let { "${it.javaClass.name}: ${it.message}" }
+
+            FeedResult.Error(
+                FeedErrorDetails(
+                    rawExceptionName = e.javaClass.canonicalName ?: e.javaClass.name,
+                    message = msg,
+                    fullStackTrace = stackTraceStr,
+                    causeInfo = causeStr,
+                    urlOrQuery = query
+                )
+            )
         }
     }
 
-    fun fetchTrendingVideos(): List<VideoItem> {
+    fun fetchTrendingVideos(): FeedResult {
         ensureInitialized()
         return try {
-            val service = getYouTubeService()
-            val kioskExtractor = service.kioskList.defaultKioskExtractor
-            val kioskInfo = KioskInfo.getInfo(kioskExtractor)
-            kioskInfo.relatedItems.filterIsInstance<StreamInfoItem>().map { item ->
-                VideoItem(
-                    id = item.url.substringAfter("v=").substringBefore("&"),
-                    title = item.name ?: "",
-                    uploaderName = item.uploaderName ?: "",
-                    uploaderUrl = item.uploaderUrl,
-                    uploaderAvatarUrl = item.uploaderAvatars?.firstOrNull()?.url,
-                    viewCount = item.viewCount,
-                    durationSeconds = item.duration,
-                    uploadDate = item.uploadDate?.offsetDateTime()?.toString(),
-                    thumbnailUrl = item.thumbnails?.firstOrNull()?.url
-                )
-            }
+            searchVideos("trending videos")
         } catch (e: Exception) {
-            emptyList()
+            logError("YouTubeExtractor", "Exception in fetchTrendingVideos", e)
+            e.printStackTrace()
+
+            val sw = StringWriter()
+            e.printStackTrace(PrintWriter(sw))
+            val stackTraceStr = sw.toString()
+            val msg = e.message ?: "No error message provided (${e.javaClass.canonicalName ?: e.javaClass.name})"
+            val causeStr = e.cause?.let { "${it.javaClass.name}: ${it.message}" }
+
+            FeedResult.Error(
+                FeedErrorDetails(
+                    rawExceptionName = e.javaClass.canonicalName ?: e.javaClass.name,
+                    message = msg,
+                    fullStackTrace = stackTraceStr,
+                    causeInfo = causeStr,
+                    urlOrQuery = "Trending Videos Feed"
+                )
+            )
         }
     }
 }

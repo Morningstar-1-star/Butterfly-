@@ -58,8 +58,22 @@ data class ExtractorErrorDetails(
     val rawExceptionName: String,
     val fullStackTrace: String,
     val urlOrId: String,
-    val technicalFixSuggestion: String
+    val causeInfo: String? = null,
+    val technicalFixSuggestion: String? = null
 )
+
+data class FeedErrorDetails(
+    val rawExceptionName: String,
+    val message: String,
+    val fullStackTrace: String,
+    val causeInfo: String? = null,
+    val urlOrQuery: String? = null
+)
+
+sealed class FeedResult {
+    data class Success(val items: List<VideoItem>) : FeedResult()
+    data class Error(val errorDetails: FeedErrorDetails) : FeedResult()
+}
 
 data class PlayableStreamOption(
     val qualityLabel: String,

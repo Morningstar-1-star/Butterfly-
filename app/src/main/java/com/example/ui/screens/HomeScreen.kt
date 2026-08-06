@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.example.extractor.YouTubeExtractorHelper
 import com.example.ui.MainViewModel
 import com.example.ui.components.ErrorDiagnosticCard
+import com.example.ui.components.FeedErrorDiagnosticCard
 import com.example.ui.components.PoTokenDialog
 import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoDetailsSection
@@ -73,6 +74,7 @@ fun HomeScreen(
     val isSearching by viewModel.isSearching.collectAsState()
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val isLoadingTrending by viewModel.isLoadingTrending.collectAsState()
+    val feedError by viewModel.feedError.collectAsState()
     val activeVideoId by viewModel.activeVideoId.collectAsState()
     val extractionResult by viewModel.extractionResult.collectAsState()
     val isExtracting by viewModel.isExtracting.collectAsState()
@@ -80,10 +82,10 @@ fun HomeScreen(
     val selectedCaption by viewModel.selectedCaptionOption.collectAsState()
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
-    var activeCategory by remember { mutableStateOf("Trending") }
+    var activeCategory by remember { mutableStateOf("Popular") }
     val focusManager = LocalFocusManager.current
 
-    val categories = listOf("Trending", "Music", "Gaming", "News", "Technology", "Nature")
+    val categories = listOf("Popular", "Music", "Gaming", "News", "Technology", "Nature")
 
     if (showPoTokenDialog) {
         PoTokenDialog(
@@ -196,7 +198,7 @@ fun HomeScreen(
                         selected = activeCategory == category,
                         onClick = {
                             activeCategory = category
-                            if (category == "Trending") {
+                            if (category == "Popular") {
                                 viewModel.loadTrending()
                             } else {
                                 viewModel.updateSearchQuery(category)
@@ -260,6 +262,26 @@ fun HomeScreen(
                                     onSelectCaption = { viewModel.selectCaptionOption(it) }
                                 )
                             }
+                            if (res.streamData.relatedVideos.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Related Videos",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                                items(res.streamData.relatedVideos, key = { "related_${it.id}_${it.title}" }) { relatedVideo ->
+                                    VideoCard(
+                                        video = relatedVideo,
+                                        onClick = {
+                                            viewModel.playVideo(relatedVideo.id)
+                                        },
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
                         }
                         is YouTubeExtractorHelper.ExtractionResult.Error -> {
                             item {
@@ -281,7 +303,7 @@ fun HomeScreen(
                 // FEED HEADER
                 item {
                     Text(
-                        text = if (searchResults.isNotEmpty()) "Search Results" else "Trending Videos",
+                        text = if (searchResults.isNotEmpty()) "Search Results" else "Popular Videos",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -289,10 +311,21 @@ fun HomeScreen(
                     )
                 }
 
-                // FEED CONTENT (Search or Trending)
-                val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-
-                if (isSearching || isLoadingTrending) {
+                // FEED ERROR DIAGNOSTIC DISPLAY
+                if (feedError != null) {
+                    item {
+                        FeedErrorDiagnosticCard(
+                            errorDetails = feedError!!,
+                            onRetry = {
+                                if (activeCategory == "Popular" && searchQuery.isBlank()) {
+                                    viewModel.loadTrending()
+                                } else {
+                                    viewModel.performSearch()
+                                }
+                            }
+                        )
+                    }
+                } else if (isSearching || isLoadingTrending) {
                     item {
                         Box(
                             modifier = Modifier
@@ -303,30 +336,33 @@ fun HomeScreen(
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         }
                     }
-                } else if (feedList.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No videos found. Try searching for a topic or video title above.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                    if (feedList.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No videos found. Try searching for a topic or video title above.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        items(feedList, key = { it.id + it.title }) { video ->
+                            VideoCard(
+                                video = video,
+                                onClick = {
+                                    viewModel.playVideo(video.id)
+                                },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                             )
                         }
-                    }
-                } else {
-                    items(feedList, key = { it.id + it.title }) { video ->
-                        VideoCard(
-                            video = video,
-                            onClick = {
-                                viewModel.playVideo(video.id)
-                            },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                        )
                     }
                 }
             }
