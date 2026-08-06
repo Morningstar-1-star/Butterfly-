@@ -85,6 +85,47 @@ class TorrentioAggregatorProvider(
 
         val videoStreams = mutableListOf<PluginVideoStream>()
 
+        // Direct Web Stream Options (Guaranteed working in WebView)
+        val vidsrcUrl = if (isTv) "https://vidsrc.to/embed/tv/$cleanId/1/1" else "https://vidsrc.to/embed/movie/$cleanId"
+        videoStreams.add(
+            PluginVideoStream(
+                url = vidsrcUrl,
+                qualityLabel = "VidSrc Pro HD (Auto Play)",
+                format = "embed",
+                isMuxed = true
+            )
+        )
+
+        val vidsrcMeUrl = if (isTv) "https://vidsrc.me/embed/tv?tmdb=$cleanId" else "https://vidsrc.me/embed/movie?tmdb=$cleanId"
+        videoStreams.add(
+            PluginVideoStream(
+                url = vidsrcMeUrl,
+                qualityLabel = "VidSrc Mirror Stream",
+                format = "embed",
+                isMuxed = true
+            )
+        )
+
+        val superEmbedUrl = if (isTv) "https://multitembed.com/direct.php?video_id=$cleanId&s=1&e=1" else "https://multitembed.com/direct.php?video_id=$cleanId"
+        videoStreams.add(
+            PluginVideoStream(
+                url = superEmbedUrl,
+                qualityLabel = "SuperEmbed Cinema",
+                format = "embed",
+                isMuxed = true
+            )
+        )
+
+        val embed2Url = if (isTv) "https://www.2embed.cc/embedtv/$cleanId&s=1&e=1" else "https://www.2embed.cc/embed/$cleanId"
+        videoStreams.add(
+            PluginVideoStream(
+                url = embed2Url,
+                qualityLabel = "2Embed HD Server",
+                format = "embed",
+                isMuxed = true
+            )
+        )
+
         if (imdbId.isNotEmpty() && imdbId.startsWith("tt")) {
             val streamUrl = if (isTv) {
                 "$BASE_URL/stream/series/$imdbId:1:1.json"
@@ -130,19 +171,6 @@ class TorrentioAggregatorProvider(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-        }
-
-        // Fallback VidSrc Stream
-        if (videoStreams.isEmpty()) {
-            val fallbackUrl = if (isTv) "https://vidsrc.to/embed/tv/$cleanId/1/1" else "https://vidsrc.to/embed/movie/$cleanId"
-            videoStreams.add(
-                PluginVideoStream(
-                    url = fallbackUrl,
-                    qualityLabel = "VidSrc Fallback Stream",
-                    format = "embed",
-                    isMuxed = true
-                )
-            )
         }
 
         PluginStreamInfo(

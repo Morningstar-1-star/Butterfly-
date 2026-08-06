@@ -719,6 +719,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (options.isEmpty()) return
         val firstWorking = options.firstOrNull { 
             val url = it.videoUrl ?: it.audioUrl ?: ""
+            url.isNotBlank() && !url.startsWith("magnet:")
+        } ?: options.firstOrNull {
+            val url = it.videoUrl ?: it.audioUrl ?: ""
             url.isNotBlank()
         } ?: options.first()
         _selectedStreamOption.value = firstWorking
