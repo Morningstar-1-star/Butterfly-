@@ -3,9 +3,7 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   pull_request:
 
 permissions:
@@ -16,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 21
@@ -25,18 +23,8 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Install Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-9.0-bin.zip
-          unzip -q gradle-9.0-bin.zip
-          echo "$PWD/gradle-9.0/bin" >> $GITHUB_PATH
-
-      - name: Generate Gradle Wrapper
-        run: |
-          gradle wrapper --no-daemon
-
-      - name: Make Wrapper Executable
-        run: chmod +x gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Create Debug Keystore
         run: |
@@ -52,17 +40,17 @@ jobs:
 
       - name: Create .env
         run: |
-          touch .env
-          echo "TMDB_API_KEY=${{ secrets.TMDB_API_KEY }}" >> .env
+          echo "TMDB_API_KEY=${{ secrets.TMDB_API_KEY }}" > .env
 
       - name: Build APK
         env:
           STORE_PASSWORD: android
           KEY_PASSWORD: android
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: Butterfly-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
