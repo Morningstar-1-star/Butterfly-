@@ -173,7 +173,7 @@ fun SearchScreen(
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
-                items(searchResults) { video ->
+                items(searchResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
                     VideoCard(
                         video = video,
                         onClick = { onSelectVideo(video) }

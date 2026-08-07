@@ -150,7 +150,7 @@ fun SettingsScreen(
                                 } else null
                             )
                         }
-                        items(availableProviders) { provider ->
+                        items(availableProviders.filter { it.id != "all" }) { provider ->
                             FilterChip(
                                 selected = (activeProviderId == provider.id),
                                 onClick = { viewModel.setActiveProvider(provider.id) },
@@ -172,7 +172,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    availableProviders.forEach { provider ->
+                    availableProviders.filter { it.id != "all" }.forEach { provider ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

@@ -37,25 +37,25 @@ interface ContentProviderApi {
     /**
      * Fetch comments for a video
      */
-    suspend fun getComments(idOrUrl: String, pageToken: String? = null): PagedResult<PluginComment>
+    suspend fun getComments(idOrUrl: String, pageToken: String? = null): PagedResult<PluginComment> = PagedResult(emptyList())
 
     /**
      * Fetch available subtitles/captions
      */
-    suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle>
+    suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> = emptyList()
 
     /**
      * Fetch channel profile & video uploads
      */
-    suspend fun getChannel(channelIdOrUrl: String): PluginChannel
+    suspend fun getChannel(channelIdOrUrl: String): PluginChannel = PluginChannel(id = channelIdOrUrl, name = "Channel")
 
     /**
      * Fetch playlist content
      */
-    suspend fun getPlaylist(playlistIdOrUrl: String): PluginPlaylist
+    suspend fun getPlaylist(playlistIdOrUrl: String): PluginPlaylist = PluginPlaylist(id = playlistIdOrUrl, title = "Playlist", uploaderName = "Provider")
 
     /**
      * Fetch related/recommended videos for a given video
      */
-    suspend fun getRecommendations(idOrUrl: String): List<PluginVideoItem>
+    suspend fun getRecommendations(idOrUrl: String): List<PluginVideoItem> = emptyList()
 }

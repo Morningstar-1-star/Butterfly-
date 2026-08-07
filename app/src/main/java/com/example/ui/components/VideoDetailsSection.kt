@@ -36,17 +36,25 @@ fun VideoDetailsSection(
     onSelectOption: (PlayableStreamOption) -> Unit,
     onSelectCaption: (CaptionOption?) -> Unit,
     onTagClick: ((String) -> Unit)? = null,
+    isLiked: Boolean = false,
+    isDisliked: Boolean = false,
+    isSaved: Boolean = false,
+    onLikeClick: () -> Unit = {},
+    onDislikeClick: () -> Unit = {},
+    onSaveClick: () -> Unit = {},
+    onSaveLongClick: () -> Unit = {},
+    onShareClick: () -> Unit = {},
+    onCommentsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var isQualityMenuExpanded by remember { mutableStateOf(false) }
     var isCaptionMenuExpanded by remember { mutableStateOf(false) }
-    var isLiked by remember { mutableStateOf(false) }
-    var isDisliked by remember { mutableStateOf(false) }
 
-    val formattedLikes = remember(streamData.likeCount) {
-        val likes = if (streamData.likeCount > 0) streamData.likeCount else 37000L
-        if (likes >= 1000) "${likes / 1000}K" else "$likes"
+    val formattedLikes = remember(streamData.likeCount, isLiked) {
+        val baseLikes = if (streamData.likeCount > 0) streamData.likeCount else 37000L
+        val total = if (isLiked) baseLikes + 1 else baseLikes
+        if (total >= 1000) "${total / 1000}K" else "$total"
     }
     val formattedDislikes = "5K"
 
@@ -181,10 +189,7 @@ fun VideoDetailsSection(
                     modifier = Modifier.padding(horizontal = 12.dp)
                 ) {
                     Row(
-                        modifier = Modifier.clickable {
-                            isLiked = !isLiked
-                            if (isLiked) isDisliked = false
-                        },
+                        modifier = Modifier.clickable { onLikeClick() },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -212,10 +217,7 @@ fun VideoDetailsSection(
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Row(
-                        modifier = Modifier.clickable {
-                            isDisliked = !isDisliked
-                            if (isDisliked) isLiked = false
-                        },
+                        modifier = Modifier.clickable { onDislikeClick() },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -236,10 +238,14 @@ fun VideoDetailsSection(
             }
 
             // Share Pill
-            ActionPill(icon = Icons.Outlined.Share, label = "Share")
+            ActionPill(icon = Icons.Outlined.Share, label = "Share", onClick = onShareClick)
 
             // Save Pill
-            ActionPill(icon = Icons.Outlined.BookmarkBorder, label = "Save")
+            ActionPill(
+                icon = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                label = if (isSaved) "Saved" else "Save",
+                onClick = onSaveClick
+            )
 
             // Download Pill
             ActionPill(icon = Icons.Outlined.Download, label = "Download")
@@ -284,7 +290,10 @@ fun VideoDetailsSection(
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    text = "${option.qualityLabel} (${option.format})",
+                                    text = option.qualityLabel,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     fontWeight = if (option == selectedOption) FontWeight.Bold else FontWeight.Normal
                                 )
                             },
@@ -437,7 +446,8 @@ fun VideoDetailsSection(
 @Composable
 private fun ActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String
+    label: String,
+    onClick: () -> Unit = {}
 ) {
     Surface(
         shape = RoundedCornerShape(24.dp),
@@ -445,7 +455,7 @@ private fun ActionPill(
         tonalElevation = 2.dp,
         modifier = Modifier
             .height(38.dp)
-            .clickable { }
+            .clickable { onClick() }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

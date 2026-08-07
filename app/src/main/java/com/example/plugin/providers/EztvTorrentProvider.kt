@@ -18,34 +18,14 @@ class EztvTorrentProvider(
 
     override val providerId: String = "eztv_torrents"
 
-    override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val page = pageToken?.toIntOrNull() ?: 1
-        val url = "$BASE_URL/get-torrents?limit=30&page=$page"
-        val resp = try { http.get(url) } catch (e: Exception) { return@withContext PagedResult(emptyList()) }
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
+    private val tmdbProvider by lazy { TmdbTorrentProvider(http) }
 
-        val (items, hasNext) = parseEztvList(resp.body)
-        PagedResult(
-            items = items,
-            nextPageToken = if (hasNext) (page + 1).toString() else null,
-            hasMore = hasNext
-        )
+    override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        tmdbProvider.home(pageToken)
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val page = pageToken?.toIntOrNull() ?: 1
-        // EZTV api uses imdb_id or general query on list
-        val url = "$BASE_URL/get-torrents?limit=30&page=$page"
-        val resp = try { http.get(url) } catch (e: Exception) { return@withContext PagedResult(emptyList()) }
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
-
-        val (items, hasNext) = parseEztvList(resp.body)
-        val filtered = items.filter { it.title.contains(query, ignoreCase = true) }
-        PagedResult(
-            items = if (filtered.isNotEmpty()) filtered else items,
-            nextPageToken = if (hasNext) (page + 1).toString() else null,
-            hasMore = hasNext
-        )
+        tmdbProvider.search(query, pageToken)
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -69,7 +49,7 @@ class EztvTorrentProvider(
             videoStreams.add(
                 PluginVideoStream(
                     url = magnetUrl,
-                    qualityLabel = "EZTV Magnet Torrent Stream",
+                    qualityLabel = "720p HDTV • EZTV",
                     format = "embed",
                     isMuxed = true
                 )
@@ -80,7 +60,7 @@ class EztvTorrentProvider(
         videoStreams.add(
             PluginVideoStream(
                 url = "https://multitembed.com/direct.php?video_id=$cleanId&s=1&e=1",
-                qualityLabel = "SuperEmbed TV Player",
+                qualityLabel = "HD • SuperEmbed",
                 format = "embed",
                 isMuxed = true
             )

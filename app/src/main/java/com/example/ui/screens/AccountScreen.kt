@@ -47,6 +47,60 @@ fun AccountScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
     var selectedPlaylist by remember { mutableStateOf<UserPlaylist?>(null) }
+    var isViewingWatchLaterDetail by remember { mutableStateOf(false) }
+
+    if (isViewingWatchLaterDetail) {
+        PlaylistDetailScreen(
+            title = "Watch later",
+            authorName = userProfile.name,
+            isWatchLater = true,
+            videos = watchLaterList,
+            onPlayVideo = { onSelectVideo(it) },
+            onPlayAll = {
+                if (watchLaterList.isNotEmpty()) {
+                    onSelectVideo(watchLaterList.first())
+                    watchLaterList.drop(1).forEach { viewModel.addToQueue(it) }
+                }
+            },
+            onShuffle = {
+                if (watchLaterList.isNotEmpty()) {
+                    val shuffled = watchLaterList.shuffled()
+                    onSelectVideo(shuffled.first())
+                    shuffled.drop(1).forEach { viewModel.addToQueue(it) }
+                }
+            },
+            onRemoveVideo = { viewModel.removeFromWatchLater(it) },
+            onBackClick = { isViewingWatchLaterDetail = false }
+        )
+        return
+    }
+
+    if (selectedPlaylist != null) {
+        val activePl = userPlaylists.firstOrNull { it.id == selectedPlaylist?.id } ?: selectedPlaylist!!
+        PlaylistDetailScreen(
+            title = activePl.title,
+            authorName = userProfile.name,
+            isWatchLater = false,
+            videos = activePl.videos,
+            onPlayVideo = { onSelectVideo(it) },
+            onPlayAll = {
+                if (activePl.videos.isNotEmpty()) {
+                    onSelectVideo(activePl.videos.first())
+                    activePl.videos.drop(1).forEach { viewModel.addToQueue(it) }
+                }
+            },
+            onShuffle = {
+                if (activePl.videos.isNotEmpty()) {
+                    val shuffled = activePl.videos.shuffled()
+                    onSelectVideo(shuffled.first())
+                    shuffled.drop(1).forEach { viewModel.addToQueue(it) }
+                }
+            },
+            onRemoveVideo = { video -> viewModel.removeFromPlaylist(activePl.id, video) },
+            onBackClick = { selectedPlaylist = null }
+        )
+        return
+    }
 
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf("") }
@@ -307,6 +361,7 @@ fun AccountScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clickable { isViewingWatchLaterDetail = true }
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -325,6 +380,10 @@ fun AccountScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onBackground
                             )
+                        }
+
+                        TextButton(onClick = { isViewingWatchLaterDetail = true }) {
+                            Text("View all", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 

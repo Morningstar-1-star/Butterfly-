@@ -166,8 +166,9 @@ fun ProvidersScreen(
             }
 
             item {
+                val displayProviders = providers.filter { it.id != "all" }
                 Text(
-                    text = "Installed Content Providers (${providers.size})",
+                    text = "Installed Content Providers (${displayProviders.size})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -175,7 +176,7 @@ fun ProvidersScreen(
                 )
             }
 
-            items(providers, key = { it.id }) { provider ->
+            items(providers.filter { it.id != "all" }, key = { it.id }) { provider ->
                 ProviderCard(
                     provider = provider,
                     isActive = (provider.id == activeProviderId),

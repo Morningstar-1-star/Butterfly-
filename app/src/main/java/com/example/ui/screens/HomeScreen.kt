@@ -318,7 +318,7 @@ fun HomeScreen(
                             }
                         }
                     }
-                    items(availableProviders) { provider ->
+                    items(availableProviders.filter { it.id != "all" }) { provider ->
                         val isSelected = (activeProviderId == provider.id)
                         Surface(
                             onClick = { viewModel.setActiveProvider(provider.id) },

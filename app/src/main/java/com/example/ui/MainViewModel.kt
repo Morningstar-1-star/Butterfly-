@@ -79,9 +79,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeProviderId = MutableStateFlow("all")
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
+    private val subTorrentProviderIds = setOf(
+        "yts_torrents", "eztv_torrents", "torrentio_aggregator", "torrent_api_multi", "tmdb_movies", "nyaa_si"
+    )
+
     private val _enabledProviderIds = MutableStateFlow<Set<String>>(
         setOf(
-            "all", "unified_torrents", "youtube", "tmdb_movies", "yts_torrents", "jikan_anime", "eztv_torrents", "torrentio_aggregator", "torrent_api_multi", "nyaa_si",
+            "all", "unified_torrents", "youtube", "jikan_anime",
             "dailymotion", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
             "peertube", "vimeo", "archive_org", "ted", "nasa", "direct_mp4", "direct_hls", "rss_video", "json"
         )
@@ -181,6 +185,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (pl.videos.none { it.id == video.id }) {
                     pl.copy(videos = pl.videos + video)
                 } else pl
+            } else pl
+        }
+    }
+
+    fun removeFromPlaylist(playlistId: String, video: VideoItem) {
+        _userPlaylists.value = _userPlaylists.value.map { pl ->
+            if (pl.id == playlistId) {
+                pl.copy(videos = pl.videos.filter { it.id != video.id })
             } else pl
         }
     }
@@ -367,12 +379,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         allNative.forEach { provider ->
             val id = provider.providerId
+            if (id in subTorrentProviderIds) return@forEach
+
             val name = getReadableProviderName(id)
+            val desc = if (id == "unified_torrents") {
+                "Aggregated torrent indexers (YTS, EZTV, Torrentio, TMDB, Nyaa & Torrent API)"
+            } else {
+                "Streaming provider ($id)"
+            }
             uiList.add(
                 ProviderUiItem(
                     id = id,
                     name = name,
-                    description = "Streaming provider ($id)",
+                    description = desc,
                     isEnabled = enabledSet.contains(id),
                     isDefault = (id == activeId)
                 )
@@ -384,14 +403,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun getReadableProviderName(id: String): String {
         return when (id) {
             "all" -> "All Sources (Mixed)"
-            "unified_torrents" -> "Unified Torrents (Auto Scanner)"
+            "unified_torrents" -> "Torrents (All Indexers)"
             "youtube" -> "YouTube"
-            "tmdb_movies" -> "TMDB Movies & TV"
-            "yts_torrents" -> "YTS Torrents"
-            "eztv_torrents" -> "EZTV Torrents"
-            "torrentio_aggregator" -> "Torrentio Multi"
-            "torrent_api_multi" -> "Torrent API Multi"
-            "nyaa_si" -> "Nyaa.si Anime"
+            "jikan_anime" -> "Anime (Jikan)"
             "dailymotion" -> "Dailymotion"
             "apijav_server" -> "APIJAV Server"
             "apijav_hentai" -> "APIJAV Hentai"
@@ -631,6 +645,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (targetProviderId.isNullOrEmpty() || targetProviderId == "all") {
             targetProviderId = if (_activeProviderId.value != "all") _activeProviderId.value else "dailymotion"
+        }
+        if (targetProviderId in subTorrentProviderIds || targetProviderId.contains("torrent")) {
+            targetProviderId = "unified_torrents"
         }
 
         Log.d("MainViewModel", "playVideo for: '$cleanIdOrUrl' on provider: $targetProviderId")

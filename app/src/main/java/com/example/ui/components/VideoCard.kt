@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -76,17 +77,15 @@ fun VideoCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed = interactionSource.collectIsPressedAsState().value
     var showBottomSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
-    val scope = rememberCoroutineScope()
 
-    val scale = animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
         ),
         label = "card_scale"
-    ).value
+    )
 
     Card(
         modifier = modifier
@@ -99,11 +98,11 @@ fun VideoCard(
                 interactionSource = interactionSource,
                 indication = null
             ) { onClick() },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column {
             // Thumbnail container with Duration Badge
@@ -111,14 +110,17 @@ fun VideoCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.Black)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 if (!video.thumbnailUrl.isNullOrEmpty()) {
                     AsyncImage(
-                        model = video.thumbnailUrl,
+                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(video.thumbnailUrl)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Box(
@@ -151,16 +153,37 @@ fun VideoCard(
                     )
                 }
 
+                // Episode count badge on bottom-left of thumbnail
+                if (!video.uploadDate.isNullOrEmpty() && video.uploadDate.contains("ep")) {
+                    val epPart = video.uploadDate.substringAfter("•").trim()
+                    Text(
+                        text = epPart,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
                 if (!video.providerId.isNullOrEmpty()) {
-                    val providerBadgeName = when (video.providerId) {
-                        "youtube" -> "YouTube"
-                        "dailymotion" -> "Dailymotion"
-                        "apijav_server" -> "APIJAV Server"
-                        "apijav_hentai" -> "APIJAV Hentai"
-                        "apijav_porn" -> "APIJAV Porn"
-                        "eporner" -> "Eporner"
-                        "peertube" -> "PeerTube"
-                        "vimeo" -> "Vimeo"
+                    val pid = video.providerId.lowercase()
+                    val providerBadgeName = when {
+                        pid == "youtube" -> "YouTube"
+                        pid == "dailymotion" -> "Dailymotion"
+                        pid == "apijav_server" -> "APIJAV Server"
+                        pid == "apijav_hentai" -> "APIJAV Hentai"
+                        pid == "apijav_porn" -> "APIJAV Porn"
+                        pid == "eporner" -> "Eporner"
+                        pid == "peertube" -> "PeerTube"
+                        pid == "vimeo" -> "Vimeo"
+                        pid == "unified_torrents" || pid.contains("torrent") || pid.contains("yts") || pid.contains("eztv") || pid.contains("nyaa") || pid.contains("tmdb") -> "Torrents"
                         else -> video.providerId.replaceFirstChar { it.uppercase() }
                     }
                     Text(
@@ -233,15 +256,29 @@ fun VideoCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
+                        text = video.uploaderName,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
                         text = buildString {
-                            append(video.uploaderName)
                             if (video.formattedViews.isNotEmpty()) {
-                                append(" • ")
                                 append(video.formattedViews)
+                            }
+                            if (!video.uploadDate.isNullOrEmpty()) {
+                                if (isNotEmpty()) append(" • ")
+                                append(video.uploadDate)
                             }
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -263,6 +300,8 @@ fun VideoCard(
     }
 
     if (showBottomSheet) {
+        val sheetState = rememberModalBottomSheetState()
+        val scope = rememberCoroutineScope()
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
             sheetState = sheetState,

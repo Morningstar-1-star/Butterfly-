@@ -48,6 +48,8 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.model.CaptionOption
 import com.example.model.PlayableStreamOption
@@ -95,6 +97,10 @@ fun UniversalVideoPlayer(
                 (url.startsWith("http") && !url.contains(".mp4") && !url.contains(".m3u8") && !url.contains("googlevideo.com"))
     }
 
+    // Playback Speed & Scaling Controls
+    var playbackSpeed by remember { mutableStateOf(1.0f) }
+    var resizeModeState by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+
     // Gesture Seek Notification Toast
     var seekNoticeText by remember { mutableStateOf<String?>(null) }
 
@@ -115,6 +121,10 @@ fun UniversalVideoPlayer(
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = true
         }
+    }
+
+    LaunchedEffect(playbackSpeed) {
+        exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
     }
 
     DisposableEffect(Unit) {
@@ -349,24 +359,14 @@ fun UniversalVideoPlayer(
                             }
 
                             tag = rawVideoUrl
-                            if (isMagnetLink) {
-                                val htmlContent = buildWebTorHtml(rawVideoUrl ?: "")
-                                loadDataWithBaseURL("https://webtor.io", htmlContent, "text/html", "UTF-8", null)
-                            } else {
-                                loadUrl(srcUrl)
-                            }
+                            loadUrl(srcUrl)
                         }
                     },
                     update = { webView ->
                         val currentRawUrl = webView.tag as? String
                         if (currentRawUrl != rawVideoUrl) {
                             webView.tag = rawVideoUrl
-                            if (isMagnetLink) {
-                                val htmlContent = buildWebTorHtml(rawVideoUrl ?: "")
-                                webView.loadDataWithBaseURL("https://webtor.io", htmlContent, "text/html", "UTF-8", null)
-                            } else {
-                                webView.loadUrl(srcUrl)
-                            }
+                            webView.loadUrl(srcUrl)
                         }
                         
                         val playPauseScript = if (isPlaying) {
@@ -435,14 +435,93 @@ fun UniversalVideoPlayer(
                     PlayerView(ctx).apply {
                         player = exoPlayer
                         useController = true
+                        resizeMode = resizeModeState
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                     }
                 },
+                update = { playerView ->
+                    playerView.resizeMode = resizeModeState
+                },
                 modifier = Modifier.fillMaxSize()
             )
+        }
+
+        // Top Overlay Bar: Speed, Aspect Ratio, & Source Toggle
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Speed Toggle Button
+            TextButton(
+                onClick = {
+                    playbackSpeed = when (playbackSpeed) {
+                        1.0f -> 1.25f
+                        1.25f -> 1.5f
+                        1.5f -> 2.0f
+                        2.0f -> 0.75f
+                        else -> 1.0f
+                    }
+                    seekNoticeText = "Speed: ${playbackSpeed}x"
+                },
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                Text(
+                    text = "${playbackSpeed}x",
+                    color = Color.Yellow,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Aspect Ratio / Fit Toggle Button
+            IconButton(
+                onClick = {
+                    resizeModeState = when (resizeModeState) {
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                    val label = when (resizeModeState) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom Mode"
+                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch Mode"
+                        else -> "Fit Mode"
+                    }
+                    seekNoticeText = "Display: $label"
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AspectRatio,
+                    contentDescription = "Aspect Ratio",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            // Web/Native Switch Toggle
+            IconButton(
+                onClick = {
+                    forceWebViewFallback = !forceWebViewFallback
+                    seekNoticeText = if (forceWebViewFallback) "Switched to Web Embed Engine" else "Switched to Native ExoPlayer"
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = if (isEmbedOrWebPage) Icons.Default.Public else Icons.Default.OndemandVideo,
+                    contentDescription = "Toggle Player Engine",
+                    tint = if (forceWebViewFallback) Color.Cyan else Color.LightGray,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
 
         // Gesture Seek Notice Overlay

@@ -7,46 +7,91 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 
 class EpornerProvider(
     private val http: HttpBridge = HttpBridge()
 ) : ContentProviderApi {
 
     override val providerId: String = "eporner"
-    private val baseUrl = "https://www.eporner.com/api/v2/web/search"
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val url = "$baseUrl/?query=hd&per_page=20&page=$page&thumbsize=big&order=top-weekly"
-        val resp = http.get(url)
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
-
-        val (items, hasMore) = parseVideoList(resp.body)
-        PagedResult(items = items, nextPageToken = (page + 1).toString(), hasMore = hasMore)
+        val url = "https://www.eporner.com/api/v2/video/search/?per_page=20&page=$page&thumbsize=big&order=latest&format=json"
+        fetchVideos(url, page)
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = "$baseUrl/?query=$encodedQuery&per_page=20&page=$page&thumbsize=big"
-        val resp = http.get(url)
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
+        val encodedQuery = try { URLEncoder.encode(query, "UTF-8") } catch (e: Exception) { query }
+        val url = "https://www.eporner.com/api/v2/video/search/?query=$encodedQuery&per_page=20&page=$page&thumbsize=big&order=top-monthly&format=json"
+        fetchVideos(url, page)
+    }
 
-        val (items, hasMore) = parseVideoList(resp.body)
-        PagedResult(items = items, nextPageToken = (page + 1).toString(), hasMore = hasMore)
+    private suspend fun fetchVideos(url: String, currentPage: Int): PagedResult<PluginVideoItem> {
+        val resp = http.get(url)
+        if (resp.statusCode != 200) return PagedResult(emptyList())
+
+        return try {
+            val json = JSONObject(resp.body)
+            val videosArr = json.optJSONArray("videos") ?: JSONArray()
+            val list = mutableListOf<PluginVideoItem>()
+
+            for (i in 0 until videosArr.length()) {
+                val item = videosArr.getJSONObject(i)
+                val id = item.optString("id")
+                val title = item.optString("title", "Video $id")
+                val thumbObj = item.optJSONObject("default_thumb")
+                val thumbUrl = thumbObj?.optString("src") ?: item.optString("default_thumb")
+                val duration = item.optLong("length_sec", 0L)
+                val views = item.optLong("views", 0L)
+
+                if (id.isNotBlank()) {
+                    list.add(
+                        PluginVideoItem(
+                            id = id,
+                            title = title,
+                            uploaderName = "Eporner",
+                            viewCount = views,
+                            durationSeconds = duration,
+                            thumbnailUrl = thumbUrl,
+                            providerId = providerId
+                        )
+                    )
+                }
+            }
+            val hasMore = list.isNotEmpty() && currentPage < json.optInt("total_pages", 100)
+            PagedResult(items = list, nextPageToken = (currentPage + 1).toString(), hasMore = hasMore)
+        } catch (e: Exception) {
+            PagedResult(emptyList())
+        }
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
         val id = extractId(idOrUrl)
-        val url = "$baseUrl/?id=$id&thumbsize=big"
+        val url = "https://www.eporner.com/api/v2/video/id/?id=$id&format=json"
         val resp = http.get(url)
         if (resp.statusCode == 200) {
-            val (items, _) = parseVideoList(resp.body)
-            if (items.isNotEmpty()) return@withContext items[0]
+            try {
+                val json = JSONObject(resp.body)
+                val thumbObj = json.optJSONObject("default_thumb")
+                val thumbUrl = thumbObj?.optString("src") ?: json.optString("default_thumb")
+                return@withContext PluginVideoItem(
+                    id = id,
+                    title = json.optString("title", "Eporner Video"),
+                    uploaderName = "Eporner",
+                    viewCount = json.optLong("views", 0L),
+                    durationSeconds = json.optLong("length_sec", 0L),
+                    thumbnailUrl = thumbUrl,
+                    providerId = providerId
+                )
+            } catch (e: Exception) {
+                // Fallback
+            }
         }
         PluginVideoItem(
             id = id,
-            title = "Eporner Video #$id",
+            title = "Eporner Video $id",
             uploaderName = "Eporner",
             providerId = providerId
         )
@@ -55,97 +100,68 @@ class EpornerProvider(
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
         val id = extractId(idOrUrl)
         val embedUrl = "https://www.eporner.com/embed/$id/"
-        var title = "Eporner Video"
-        var views = 0L
 
-        val resp = http.get("$baseUrl/?id=$id&thumbsize=big")
+        // Attempt API lookup to see if direct streams exist
+        val apiUrl = "https://www.eporner.com/api/v2/video/id/?id=$id&format=json"
+        val resp = http.get(apiUrl)
+        val videoStreams = mutableListOf<PluginVideoStream>()
+
         if (resp.statusCode == 200) {
             try {
                 val json = JSONObject(resp.body)
-                val arr = json.optJSONArray("videos") ?: JSONArray()
-                if (arr.length() > 0) {
-                    val v = arr.getJSONObject(0)
-                    title = v.optString("title", title)
-                    views = v.optLong("views", 0)
-                }
+                val embed = json.optString("embed", embedUrl)
+                videoStreams.add(
+                    PluginVideoStream(
+                        url = if (embed.isNotBlank()) embed else embedUrl,
+                        qualityLabel = "Embed Player (Auto)",
+                        format = "embed",
+                        isMuxed = true
+                    )
+                )
             } catch (e: Exception) {
-                e.printStackTrace()
+                videoStreams.add(
+                    PluginVideoStream(
+                        url = embedUrl,
+                        qualityLabel = "Embed Stream",
+                        format = "embed",
+                        isMuxed = true
+                    )
+                )
             }
+        } else {
+            videoStreams.add(
+                PluginVideoStream(
+                    url = embedUrl,
+                    qualityLabel = "Embed Stream",
+                    format = "embed",
+                    isMuxed = true
+                )
+            )
         }
 
         PluginStreamInfo(
             id = id,
             url = embedUrl,
-            title = title,
+            title = "Eporner Stream $id",
             channelName = "Eporner",
-            viewCount = views,
-            likeCount = 0,
-            description = "Eporner Embedded HD Stream",
-            hlsUrl = null,
-            videoStreams = listOf(
-                PluginVideoStream(
-                    url = embedUrl,
-                    qualityLabel = "Web Embed / Auto Play",
-                    format = "embed",
-                    isMuxed = true
-                )
-            )
+            description = "Eporner Video Player",
+            videoStreams = videoStreams
         )
     }
 
-    override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> {
-        return PagedResult(emptyList())
-    }
-
-    override suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> {
-        return emptyList()
-    }
-
-    override suspend fun getChannel(channelIdOrUrl: String): PluginChannel {
-        return PluginChannel(id = channelIdOrUrl, name = "Eporner Studio")
-    }
-
-    override suspend fun getPlaylist(playlistIdOrUrl: String): PluginPlaylist {
-        return PluginPlaylist(id = playlistIdOrUrl, title = "Eporner Playlist", uploaderName = "Eporner")
-    }
-
-    override suspend fun getRecommendations(idOrUrl: String): List<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val resp = http.get("$baseUrl/?query=popular&per_page=10&thumbsize=big")
-        if (resp.statusCode == 200) parseVideoList(resp.body).first else emptyList()
-    }
-
-    private fun parseVideoList(jsonStr: String): Pair<List<PluginVideoItem>, Boolean> {
-        val list = mutableListOf<PluginVideoItem>()
-        return try {
-            val json = JSONObject(jsonStr)
-            val arr = json.optJSONArray("videos") ?: JSONArray()
-            val totalPages = json.optInt("total_pages", 1)
-            val page = json.optInt("page", 1)
-
-            for (i in 0 until arr.length()) {
-                val v = arr.getJSONObject(i)
-                list.add(
-                    PluginVideoItem(
-                        id = v.optString("id"),
-                        title = v.optString("title"),
-                        uploaderName = "Eporner",
-                        uploaderAvatarUrl = null,
-                        viewCount = v.optLong("views", 0),
-                        durationSeconds = v.optLong("length_sec", 0),
-                        uploadDate = v.optString("added"),
-                        thumbnailUrl = v.optString("default_thumb")
-                            .ifEmpty { v.optString("big_thumb") },
-                        providerId = providerId
-                    )
-                )
-            }
-            Pair(list, page < totalPages)
-        } catch (e: Exception) {
-            Pair(emptyList(), false)
-        }
-    }
+    override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> =
+        PagedResult(emptyList())
 
     private fun extractId(input: String): String {
-        return input.substringAfterLast("/").substringAfterLast("=").substringBefore("-").substringBefore(".")
+        val clean = input.trim()
+        if (clean.contains("eporner.com/video-")) {
+            val after = clean.substringAfter("eporner.com/video-")
+            return after.substringBefore("/")
+        }
+        if (clean.contains("eporner.com/embed/")) {
+            val after = clean.substringAfter("eporner.com/embed/")
+            return after.substringBefore("/")
+        }
+        return clean
     }
 }

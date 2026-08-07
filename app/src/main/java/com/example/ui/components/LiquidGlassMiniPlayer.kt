@@ -85,7 +85,10 @@ fun LiquidGlassMiniPlayer(
             ) {
                 if (!thumbUrl.isNullOrEmpty()) {
                     AsyncImage(
-                        model = thumbUrl,
+                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(thumbUrl)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = streamData.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

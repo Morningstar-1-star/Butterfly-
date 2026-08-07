@@ -42,7 +42,7 @@ class UnifiedTorrentProvider(
                 }
             }
             val results = jobs.awaitAll().flatten()
-            val deduplicated = results.distinctBy { it.id.lowercase() }
+            val deduplicated = results.distinctBy { it.id.lowercase() }.map { it.copy(providerId = providerId) }
             PagedResult(
                 items = deduplicated,
                 nextPageToken = pageToken,
@@ -63,7 +63,7 @@ class UnifiedTorrentProvider(
                 }
             }
             val results = jobs.awaitAll().flatten()
-            val deduplicated = results.distinctBy { it.id.lowercase() }
+            val deduplicated = results.distinctBy { it.id.lowercase() }.map { it.copy(providerId = providerId) }
             PagedResult(
                 items = deduplicated,
                 nextPageToken = pageToken,
@@ -131,12 +131,13 @@ class UnifiedTorrentProvider(
                     } else {
                         url
                     }
-                    combinedVideoStreams.add(stream.copy(url = formattedUrl))
+                    val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel(stream.qualityLabel)
+                    combinedVideoStreams.add(stream.copy(url = formattedUrl, qualityLabel = cleanLabel))
                 }
             }
 
-            // Deduplicate streams by video URL or quality label
-            val deduplicatedStreams = combinedVideoStreams.distinctBy { it.url ?: it.qualityLabel }
+            // Deduplicate streams by clean quality label or URL
+            val formattedServerStreams = combinedVideoStreams.distinctBy { (it.url ?: "") + "_" + it.qualityLabel }
 
             PluginStreamInfo(
                 id = idOrUrl,
@@ -145,7 +146,7 @@ class UnifiedTorrentProvider(
                 channelName = channel,
                 channelAvatarUrl = avatar,
                 description = desc,
-                videoStreams = deduplicatedStreams,
+                videoStreams = formattedServerStreams,
                 audioStreams = combinedAudioStreams.distinctBy { it.url },
                 subtitles = combinedSubtitles.distinctBy { it.url },
                 thumbnailUrl = thumb
