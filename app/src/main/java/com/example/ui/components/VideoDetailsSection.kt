@@ -405,11 +405,19 @@ fun VideoDetailsSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Genre Suggestion Tags
-        val genreTags = listOf("Action", "Thriller", "Sci-Fi", "Anime", "Comedy", "Drama", "Fantasy", "Trending")
+        // Video Tags (clean without '#')
+        val dynamicTags = remember(streamData.title, streamData.channelName) {
+            val stopWords = setOf("with", "from", "that", "this", "what", "video", "official", "full", "hd", "4k", "2024", "2025", "2026", "the", "and", "for", "you", "about", "are", "have", "more")
+            val extracted = (streamData.title + " " + streamData.channelName)
+                .split(" ", "-", "_", "|", "/", ":", ",", "[", "]", "(", ")")
+                .map { it.replace("#", "").trim() }
+                .filter { word -> word.length >= 3 && word.lowercase() !in stopWords && word.any { c -> c.isLetter() } }
+                .distinctBy { it.lowercase() }
+            if (extracted.size >= 3) extracted.take(6) else listOf("Spider-Man", "Action", "Gameplay", "Trailer", "Knowledge", "Adventure", "Funny")
+        }
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "Genre Tags",
+                text = "Tags & Categories",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -421,12 +429,13 @@ fun VideoDetailsSection(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                genreTags.forEach { tag ->
+                dynamicTags.forEach { tag ->
+                    val cleanTag = tag.replace("#", "").trim()
                     SuggestionChip(
-                        onClick = { onTagClick?.invoke(tag) },
+                        onClick = { onTagClick?.invoke(cleanTag) },
                         label = {
                             Text(
-                                text = "#$tag",
+                                text = cleanTag,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
                             )

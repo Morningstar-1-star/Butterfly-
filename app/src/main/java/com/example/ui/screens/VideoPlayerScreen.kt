@@ -227,10 +227,12 @@ fun VideoPlayerScreen(
                                 onLikeClick = {
                                     isLiked = !isLiked
                                     if (isLiked) isDisliked = false
+                                    activeVideoId?.let { id -> viewModel.toggleLikeVideo(id) }
                                 },
                                 onDislikeClick = {
                                     isDisliked = !isDisliked
                                     if (isDisliked) isLiked = false
+                                    activeVideoId?.let { id -> viewModel.toggleDislikeVideo(id) }
                                 },
                                 onSaveClick = {
                                     currentVideoItem?.let { video ->

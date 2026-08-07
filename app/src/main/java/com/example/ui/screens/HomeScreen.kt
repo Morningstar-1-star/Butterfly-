@@ -26,6 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -59,6 +63,10 @@ fun HomeScreen(
     val isPlaying by viewModel.isPlaying.collectAsState()
     val showShortsFeed by viewModel.showShortsFeed.collectAsState()
 
+    val watchProgressMap by viewModel.watchProgressMap.collectAsState()
+    val watchHistory by viewModel.watchHistory.collectAsState()
+    val recommendedVideos by viewModel.recommendedVideos.collectAsState()
+
     val userProfile by viewModel.userProfile.collectAsState()
     val hasShownGreeting by viewModel.hasShownGreeting.collectAsState()
     var showGreetingText by remember { mutableStateOf(!hasShownGreeting) }
@@ -75,7 +83,51 @@ fun HomeScreen(
     var showPoTokenDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var activeCategory by remember { mutableStateOf("All") }
+    var isBottomBarVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
+
+    var accumulatedScroll by remember { mutableFloatStateOf(0f) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+
+                // Reset direction accumulator when scroll direction flips so threshold is immediate and responsive
+                if (delta > 0f && accumulatedScroll < 0f) {
+                    accumulatedScroll = 0f
+                } else if (delta < 0f && accumulatedScroll > 0f) {
+                    accumulatedScroll = 0f
+                }
+
+                accumulatedScroll += delta
+
+                // Finger swiping UP (scrolling down feed -> delta < 0): HIDE bars
+                if (delta < 0f && accumulatedScroll < -15f && isBottomBarVisible) {
+                    isBottomBarVisible = false
+                    accumulatedScroll = 0f
+                }
+                // Finger swiping DOWN (scrolling up feed -> delta > 0): SHOW bars
+                else if (delta > 0f && accumulatedScroll > 10f && !isBottomBarVisible) {
+                    isBottomBarVisible = true
+                    accumulatedScroll = 0f
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                // If user pulls down at top edge, ensure top/bottom bars are immediately restored
+                if (available.y > 0f && !isBottomBarVisible) {
+                    isBottomBarVisible = true
+                    accumulatedScroll = 0f
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     val categories = listOf("All", "APIJAV", "Eporner", "Dailymotion", "YouTube", "Gaming", "Podcasts", "Music")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
@@ -111,12 +163,50 @@ fun HomeScreen(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            AnimatedVisibility(
+                visible = isBottomBarVisible,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
+                        LiquidGlassMiniPlayer(
+                            streamData = currentStreamData,
+                            isPlaying = isPlaying,
+                            onTogglePlay = { viewModel.togglePlayback() },
+                            onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
+                            onClose = { viewModel.closeVideo() },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    LiquidGlassNavBar(
+                        currentScreen = currentScreen,
+                        onSelectScreen = { screen ->
+                            isSearchExpanded = false
+                            viewModel.navigateToScreen(screen)
+                        }
+                    )
+                }
+            }
+        },
         topBar = {
             if (currentScreen != AppScreen.ACCOUNT) {
-                Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
-                // Top Action Header
+                AnimatedVisibility(
+                    visible = isBottomBarVisible,
+                    enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                        // Top Action Header
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -237,8 +327,8 @@ fun HomeScreen(
                     actions = {
                         IconButton(onClick = { isSearchExpanded = !isSearchExpanded }) {
                             Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
+                                imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = if (isSearchExpanded) "Close Search" else "Search",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -247,56 +337,6 @@ fun HomeScreen(
                         containerColor = MaterialTheme.colorScheme.background
                     )
                 )
-
-                // Search Bar Expandable Box
-                AnimatedVisibility(visible = isSearchExpanded) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.updateSearchQuery(it) },
-                            placeholder = { Text("Search $activeProviderName...", fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            },
-                            trailingIcon = {
-                                Row {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear")
-                                        }
-                                    }
-                                    IconButton(onClick = { isSearchExpanded = false }) {
-                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close Search")
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(
-                                onSearch = {
-                                    focusManager.clearFocus()
-                                    viewModel.performSearch()
-                                }
-                            ),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
 
                 // Source Provider Filter Chips
                 val availableProviders by viewModel.availableProviders.collectAsState()
@@ -336,6 +376,7 @@ fun HomeScreen(
             }
         }
     }
+}
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -408,6 +449,7 @@ fun HomeScreen(
                     AppScreen.SUBSCRIPTIONS -> {
                         SubscriptionsContent(
                             videos = trendingVideos,
+                            watchProgressMap = watchProgressMap,
                             onSelectVideo = { video ->
                                 viewModel.playVideo(video.id, video.providerId)
                             }
@@ -539,6 +581,7 @@ fun HomeScreen(
                                         items(feedList, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
                                             VideoCard(
                                                 video = video,
+                                                watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                                                 onClick = {
                                                     viewModel.playVideo(video.id, video.providerId)
                                                 },
@@ -564,42 +607,17 @@ fun HomeScreen(
                             }
                         }
                     }
-
+                    AppScreen.PLAYER -> {}
                     else -> {}
                 }
             }
         }
-
-            // FLOATING MINI PLAYER AND LIQUID GLASS NAV BAR AT BOTTOM
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
-                    LiquidGlassMiniPlayer(
-                        streamData = currentStreamData,
-                        isPlaying = isPlaying,
-                        onTogglePlay = { viewModel.togglePlayback() },
-                        onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
-                        onClose = { viewModel.closeVideo() },
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-
-                LiquidGlassNavBar(
-                    currentScreen = currentScreen,
-                    onSelectScreen = { screen -> viewModel.navigateToScreen(screen) },
-                    onToggleSearch = { isSearchExpanded = !isSearchExpanded }
-                )
-            }
-        }
     }
+}
 }
 
 @Composable
-private fun ExploreContent(
+fun ExploreContent(
     onSelectCategory: (String) -> Unit
 ) {
     val categories = listOf(
@@ -656,8 +674,9 @@ private fun ExploreContent(
 }
 
 @Composable
-private fun SubscriptionsContent(
+fun SubscriptionsContent(
     videos: List<VideoItem>,
+    watchProgressMap: Map<String, Float> = emptyMap(),
     onSelectVideo: (VideoItem) -> Unit
 ) {
     LazyColumn(
@@ -716,6 +735,7 @@ private fun SubscriptionsContent(
         items(videos) { video ->
             VideoCard(
                 video = video,
+                watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                 onClick = { onSelectVideo(video) },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )

@@ -327,10 +327,12 @@ fun UniversalVideoPlayer(
                                 })();
                             """.trimIndent()
 
+                            var scriptInjected = false
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     super.onProgressChanged(view, newProgress)
-                                    if (newProgress >= 15) {
+                                    if (newProgress >= 70 && !scriptInjected) {
+                                        scriptInjected = true
                                         view?.evaluateJavascript(cleanPlayerScript, null)
                                     }
                                 }
@@ -359,14 +361,24 @@ fun UniversalVideoPlayer(
                             }
 
                             tag = rawVideoUrl
-                            loadUrl(srcUrl)
+                            if (isMagnetLink) {
+                                val htmlContent = buildWebTorHtml(rawVideoUrl ?: "")
+                                loadDataWithBaseURL("https://webtor.io", htmlContent, "text/html", "UTF-8", null)
+                            } else {
+                                loadUrl(srcUrl)
+                            }
                         }
                     },
                     update = { webView ->
                         val currentRawUrl = webView.tag as? String
                         if (currentRawUrl != rawVideoUrl) {
                             webView.tag = rawVideoUrl
-                            webView.loadUrl(srcUrl)
+                            if (isMagnetLink) {
+                                val htmlContent = buildWebTorHtml(rawVideoUrl ?: "")
+                                webView.loadDataWithBaseURL("https://webtor.io", htmlContent, "text/html", "UTF-8", null)
+                            } else {
+                                webView.loadUrl(srcUrl)
+                            }
                         }
                         
                         val playPauseScript = if (isPlaying) {

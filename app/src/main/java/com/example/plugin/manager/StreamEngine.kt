@@ -94,12 +94,13 @@ class StreamEngine(
                 StreamType.DIRECT_HLS -> 120
                 StreamType.DIRECT_MP4 -> 100
                 StreamType.DIRECT_DASH -> 90
-                StreamType.EMBED_PAGE -> 60
-                StreamType.MAGNET -> 40
-                StreamType.UNKNOWN -> 20
+                StreamType.MAGNET -> 85
+                StreamType.EMBED_PAGE -> 80
+                StreamType.UNKNOWN -> 30
             }
 
             val resScore = when {
+                stream.qualityLabel.contains("4k", ignoreCase = true) || stream.qualityLabel.contains("2160", ignoreCase = true) || stream.height >= 2160 -> 70
                 stream.qualityLabel.contains("1080", ignoreCase = true) || stream.height >= 1080 -> 50
                 stream.qualityLabel.contains("720", ignoreCase = true) || stream.height >= 720 -> 35
                 stream.qualityLabel.contains("480", ignoreCase = true) || stream.height >= 480 -> 20

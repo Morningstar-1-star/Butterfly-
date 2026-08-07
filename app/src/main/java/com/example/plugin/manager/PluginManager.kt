@@ -42,6 +42,8 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(UnifiedTorrentProvider())
         registerNativeProvider(YouTubeProvider())
         registerNativeProvider(TmdbTorrentProvider())
+        registerNativeProvider(WatchModeProvider())
+        registerNativeProvider(ArchiveOrgProvider())
         registerNativeProvider(YtsTorrentProvider())
         registerNativeProvider(JikanAnimeProvider())
         registerNativeProvider(EztvTorrentProvider())

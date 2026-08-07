@@ -48,20 +48,27 @@ fun SearchScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
+    val trendingVideos by viewModel.trendingVideos.collectAsState()
     val focusManager = LocalFocusManager.current
 
-    val trendingQueries = listOf(
-        "Spider-Man: Brand New Day",
-        "The Odyssey",
-        "Evil Dead Burn",
-        "The Shards",
-        "My Life with the Walter Boys",
-        "Star Wars: Visions Presents - The Ninth Jedi",
-        "Deadpool & Wolverine",
-        "Dune: Part Two",
-        "House of the Dragon S2",
-        "Oppenheimer"
-    )
+    val trendingQueries = remember(trendingVideos) {
+        if (trendingVideos.isNotEmpty()) {
+            trendingVideos.map { it.title }.distinct().take(10)
+        } else {
+            listOf(
+                "Spider-Man: Brand New Day",
+                "The Odyssey",
+                "Evil Dead Burn",
+                "The Shards",
+                "My Life with the Walter Boys",
+                "Star Wars: Visions",
+                "Deadpool & Wolverine",
+                "Dune: Part Two",
+                "House of the Dragon",
+                "Oppenheimer"
+            )
+        }
+    }
 
     Column(
         modifier = modifier

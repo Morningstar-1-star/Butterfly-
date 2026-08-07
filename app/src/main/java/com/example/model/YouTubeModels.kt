@@ -15,8 +15,24 @@ data class VideoItem(
     val uploadDate: String? = null,
     val thumbnailUrl: String? = null,
     val providerId: String? = null,
-    val embedUrl: String? = null
+    val embedUrl: String? = null,
+    val tags: List<String> = emptyList()
 ) {
+    val cleanTags: List<String>
+        get() {
+            val listTags = tags.map { it.replace("#", "").trim() }.filter { it.isNotEmpty() }
+            if (listTags.isNotEmpty()) return listTags.distinct().take(5)
+
+            val stopWords = setOf("with", "from", "that", "this", "what", "video", "official", "full", "hd", "4k", "2024", "2025", "2026", "the", "and", "for", "you", "about", "are", "have", "more")
+            val extracted = (title + " " + uploaderName)
+                .split(" ", "-", "_", "|", "/", ":", ",", "[", "]", "(", ")")
+                .map { it.replace("#", "").trim() }
+                .filter { word -> word.length >= 3 && word.lowercase() !in stopWords && word.any { c -> c.isLetter() } }
+                .distinctBy { it.lowercase() }
+
+            return extracted.take(5)
+        }
+
     val formattedDuration: String
         get() {
             if (durationSeconds <= 0) return ""

@@ -149,6 +149,144 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _watchLaterList = MutableStateFlow<List<VideoItem>>(emptyList())
     val watchLaterList: StateFlow<List<VideoItem>> = _watchLaterList.asStateFlow()
 
+    // Watch History, Watch Progress (YouTube-style red bar), Likes & Dislikes Pattern Understanding
+    private val _watchHistory = MutableStateFlow<List<VideoItem>>(emptyList())
+    val watchHistory: StateFlow<List<VideoItem>> = _watchHistory.asStateFlow()
+
+    private val _likedVideoIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedVideoIds: StateFlow<Set<String>> = _likedVideoIds.asStateFlow()
+
+    private val _dislikedVideoIds = MutableStateFlow<Set<String>>(emptySet())
+    val dislikedVideoIds: StateFlow<Set<String>> = _dislikedVideoIds.asStateFlow()
+
+    private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
+
+    private val _watchPositionMsMap = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
+
+    private val _recommendedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
+    val recommendedVideos: StateFlow<List<VideoItem>> = _recommendedVideos.asStateFlow()
+
+    fun updateRecommendedVideosAsync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _recommendedVideos.value = getRecommendedVideos()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error updating recommendations", e)
+            }
+        }
+    }
+
+    fun recordWatchProgress(videoId: String, currentPositionMs: Long, totalDurationMs: Long) {
+        if (totalDurationMs <= 0) return
+        val fraction = (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+        _watchProgressMap.value = _watchProgressMap.value + (videoId to fraction)
+        _watchPositionMsMap.value = _watchPositionMsMap.value + (videoId to currentPositionMs)
+    }
+
+    fun recordVideoView(video: VideoItem) {
+        val filtered = _watchHistory.value.filterNot { it.id == video.id }
+        _watchHistory.value = listOf(video) + filtered
+        // Initialize default progress if not recorded
+        if (!_watchProgressMap.value.containsKey(video.id)) {
+            _watchProgressMap.value = _watchProgressMap.value + (video.id to 0.15f)
+        }
+        updateRecommendedVideosAsync()
+    }
+
+    fun toggleLikeVideo(videoId: String) {
+        val current = _likedVideoIds.value
+        if (current.contains(videoId)) {
+            _likedVideoIds.value = current - videoId
+        } else {
+            _likedVideoIds.value = current + videoId
+            _dislikedVideoIds.value = _dislikedVideoIds.value - videoId
+        }
+        updateRecommendedVideosAsync()
+    }
+
+    fun toggleDislikeVideo(videoId: String) {
+        val current = _dislikedVideoIds.value
+        if (current.contains(videoId)) {
+            _dislikedVideoIds.value = current - videoId
+        } else {
+            _dislikedVideoIds.value = current + videoId
+            _likedVideoIds.value = _likedVideoIds.value - videoId
+        }
+        updateRecommendedVideosAsync()
+    }
+
+    /**
+     * Pattern Understanding & Recommendation Engine:
+     * Analyzes user watch history, liked video titles, channel names, and clean tags
+     * to rank content matching user preferences (e.g., Spider-Man, Marvel, specific channels or keywords).
+     */
+    fun getRecommendedVideos(): List<VideoItem> {
+        val allAvailable = (_trendingVideos.value + _searchResults.value).distinctBy { (it.providerId ?: "") + "_" + it.id }
+        if (allAvailable.isEmpty()) return emptyList()
+
+        val history = _watchHistory.value
+        val likedIds = _likedVideoIds.value
+        val dislikedIds = _dislikedVideoIds.value
+
+        if (history.isEmpty() && likedIds.isEmpty()) {
+            return allAvailable.take(10)
+        }
+
+        // Collect favorite keywords, tags, and uploader names
+        val positiveKeywords = mutableListOf<String>()
+        val likedVideos = allAvailable.filter { likedIds.contains(it.id) }
+
+        (history.take(10) + likedVideos).forEach { item ->
+            positiveKeywords.addAll(item.cleanTags)
+            positiveKeywords.addAll(item.title.split(" ", "-", "_", "|", ":", ",").map { it.lowercase().trim() })
+            positiveKeywords.add(item.uploaderName.lowercase().trim())
+        }
+
+        val stopWords = setOf("with", "from", "that", "this", "what", "video", "official", "full", "hd", "4k", "2024", "2025", "2026", "the", "and", "for", "you", "about", "are", "have", "more", "a", "an", "of", "in", "on")
+        val keywordFreq = positiveKeywords
+            .map { it.replace("#", "").lowercase().trim() }
+            .filter { it.length >= 3 && it !in stopWords }
+            .groupingBy { it }
+            .eachCount()
+
+        val scoredList = allAvailable.map { video ->
+            if (dislikedIds.contains(video.id)) {
+                return@map video to -100.0f
+            }
+
+            var score = 0.0f
+
+            // Uploader preference boost
+            if (history.any { it.uploaderName.equals(video.uploaderName, ignoreCase = true) }) {
+                score += 15.0f
+            }
+
+            // Keyword / Tag match boost
+            val videoTokens = (video.cleanTags + video.title.split(" ", "-", "_", "|", ":", ",")).map { it.replace("#", "").lowercase().trim() }
+            videoTokens.forEach { token ->
+                val count = keywordFreq[token] ?: 0
+                if (count > 0) {
+                    score += (count * 5.0f)
+                }
+            }
+
+            // Small boost for high view count / freshness
+            if (video.viewCount > 0) {
+                score += kotlin.math.log10(video.viewCount.toDouble()).toFloat()
+            }
+
+            video to score
+        }
+
+        return scoredList
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .distinctBy { (it.providerId ?: "") + "_" + it.id }
+            .take(15)
+    }
+
     private val _userPlaylists = MutableStateFlow<List<UserPlaylist>>(emptyList())
     val userPlaylists: StateFlow<List<UserPlaylist>> = _userPlaylists.asStateFlow()
 
@@ -414,6 +552,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "peertube" -> "PeerTube"
             "vimeo" -> "Vimeo"
             "archive_org" -> "Archive.org"
+            "watchmode" -> "WatchMode Cinema & TV"
             "ted" -> "TED Talks"
             "nasa" -> "NASA TV"
             "direct_mp4" -> "Direct MP4 Stream"
@@ -424,33 +563,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _recentSearches = MutableStateFlow<List<String>>(
-        listOf(
-            "Lost Girls & Love Hotels",
-            "Ballerina",
-            "The White Lotus",
-            "John Carpenter's Suburban Scream",
-            "Spiderman",
-            "Detention",
-            "Summerslam 2026",
-            "Missing 2009"
-        )
-    )
+    private val searchPrefs = getApplication<Application>().getSharedPreferences("user_recent_searches", android.content.Context.MODE_PRIVATE)
+
+    private fun loadRecentSearches(): List<String> {
+        val raw = searchPrefs.getString("recent_history", null) ?: return emptyList()
+        return try {
+            raw.split("|||").filter { it.isNotBlank() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun saveRecentSearches(list: List<String>) {
+        searchPrefs.edit().putString("recent_history", list.joinToString("|||")).apply()
+    }
+
+    private val _recentSearches = MutableStateFlow<List<String>>(loadRecentSearches())
     val recentSearches: StateFlow<List<String>> = _recentSearches.asStateFlow()
 
     fun addRecentSearch(query: String) {
         val q = query.trim()
         if (q.isBlank()) return
         val filtered = _recentSearches.value.filterNot { it.equals(q, ignoreCase = true) }
-        _recentSearches.value = listOf(q) + filtered.take(9)
+        val updated = (listOf(q) + filtered).take(10)
+        _recentSearches.value = updated
+        saveRecentSearches(updated)
     }
 
     fun removeRecentSearch(query: String) {
-        _recentSearches.value = _recentSearches.value.filterNot { it.equals(query, ignoreCase = true) }
+        val updated = _recentSearches.value.filterNot { it.equals(query, ignoreCase = true) }
+        _recentSearches.value = updated
+        saveRecentSearches(updated)
     }
 
     fun clearAllRecentSearches() {
         _recentSearches.value = emptyList()
+        saveRecentSearches(emptyList())
     }
 
     fun updateSearchQuery(query: String) {
@@ -528,6 +676,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 _searchResults.value = combined
+                updateRecommendedVideosAsync()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Search failed: ${e.localizedMessage}", e)
                 _searchResults.value = emptyList()
@@ -619,6 +768,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 _trendingVideos.value = combined
+                updateRecommendedVideosAsync()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed: ${e.localizedMessage}", e)
                 _trendingVideos.value = emptyList()
@@ -651,6 +801,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         Log.d("MainViewModel", "playVideo for: '$cleanIdOrUrl' on provider: $targetProviderId")
+
+        // Record in watch history for pattern understanding & recommendation engine
+        val currentMatch = (_searchResults.value + _trendingVideos.value).firstOrNull { it.id == cleanIdOrUrl }
+        if (currentMatch != null) {
+            recordVideoView(currentMatch)
+        } else {
+            recordVideoView(VideoItem(id = cleanIdOrUrl, title = cleanIdOrUrl, uploaderName = targetProviderId ?: "Video", providerId = targetProviderId))
+        }
 
         _activeVideoId.value = cleanIdOrUrl
         _isExtracting.value = true

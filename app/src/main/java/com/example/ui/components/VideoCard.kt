@@ -57,6 +57,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Surface
 import com.example.model.VideoItem
 import kotlinx.coroutines.launch
 
@@ -66,6 +71,7 @@ fun VideoCard(
     video: VideoItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    watchProgressFraction: Float = 0f,
     onPlayNextInQueue: ((VideoItem) -> Unit)? = null,
     onSaveToWatchLater: ((VideoItem) -> Unit)? = null,
     onSaveToPlaylist: ((VideoItem) -> Unit)? = null,
@@ -201,6 +207,24 @@ fun VideoCard(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
+
+                // Red YouTube-style Watch Progress Bar on bottom of thumbnail
+                if (watchProgressFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(3.5.dp)
+                            .background(Color.DarkGray.copy(alpha = 0.6f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(watchProgressFraction.coerceIn(0.01f, 1f))
+                                .background(Color.Red)
+                        )
+                    }
+                }
             }
 
             // Info Section
@@ -282,6 +306,32 @@ fun VideoCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    // Clean tags display (without '#')
+                    val tags = remember(video.id, video.title, video.uploaderName, video.tags) { video.cleanTags }
+                    if (tags.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(tags.take(4)) { tag ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.height(20.dp)
+                                ) {
+                                    Text(
+                                        text = tag,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // THREE-DOTS CONTEXT MENU BUTTON
