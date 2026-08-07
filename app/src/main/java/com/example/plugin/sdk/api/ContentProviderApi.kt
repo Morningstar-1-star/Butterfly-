@@ -15,6 +15,11 @@ interface ContentProviderApi {
     val providerId: String
 
     /**
+     * Provider Capabilities descriptor
+     */
+    val capabilities: ProviderCapabilities get() = ProviderCapabilities()
+
+    /**
      * Fetch homepage feed / recommendations
      */
     suspend fun home(pageToken: String? = null): PagedResult<PluginVideoItem>

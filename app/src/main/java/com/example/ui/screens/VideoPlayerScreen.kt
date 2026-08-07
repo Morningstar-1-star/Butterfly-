@@ -55,11 +55,14 @@ fun VideoPlayerScreen(
     val availableProviders by viewModel.availableProviders.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val watchLaterList by viewModel.watchLaterList.collectAsState()
+    val watchPositionMsMap by viewModel.watchPositionMsMap.collectAsState()
     val userPlaylists by viewModel.userPlaylists.collectAsState()
 
     val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
     val providerId = currentStreamData?.providerId
     val providerName = availableProviders.firstOrNull { it.id == providerId }?.name ?: providerId ?: "Video Player"
+
+    val initialPositionMs = remember(activeVideoId) { activeVideoId?.let { watchPositionMsMap[it] } ?: 0L }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -179,7 +182,12 @@ fun VideoPlayerScreen(
                                 captionOption = selectedCaption,
                                 embedUrl = res.streamData.embedUrl,
                                 providerId = providerId,
-                                isPlaying = isPlaying
+                                isPlaying = isPlaying,
+                                videoId = activeVideoId,
+                                initialPositionMs = initialPositionMs,
+                                onProgressUpdate = { pos, dur ->
+                                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
+                                }
                             )
                         }
                         is YouTubeExtractorHelper.ExtractionResult.Error -> {

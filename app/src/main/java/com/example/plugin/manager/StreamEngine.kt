@@ -1,6 +1,8 @@
 package com.example.plugin.manager
 
+import android.content.Context
 import android.util.Log
+import com.example.intelligence.SourceIntelligenceEngine
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamFailureReason
 import com.example.model.StreamType
@@ -23,8 +25,13 @@ data class RankedStream(
 
 class StreamEngine(
     private val healthMonitor: ProviderHealthMonitor = ProviderHealthMonitor(),
-    private val streamValidator: StreamValidator = StreamValidator()
+    private val streamValidator: StreamValidator = StreamValidator(),
+    private val context: Context? = null
 ) {
+
+    private val intelligenceEngine: SourceIntelligenceEngine? by lazy {
+        context?.let { SourceIntelligenceEngine.getInstance(it) }
+    }
 
     suspend fun searchAndRankStreams(
         providers: List<ContentProviderApi>,
@@ -57,17 +64,20 @@ class StreamEngine(
         queryOrId: String
     ): Pair<ContentProviderApi, PluginStreamInfo>? {
         val startTime = System.currentTimeMillis()
+        intelligenceEngine?.recordRequestStart(provider.providerId)
+
         return try {
-            val result = withTimeoutOrNull(8000L) {
+            val result = withTimeoutOrNull(6000L) { // 6s strict timeout per prompt
                 provider.getStreams(queryOrId)
             }
             val latency = System.currentTimeMillis() - startTime
 
             if (result != null) {
                 healthMonitor.recordSuccess(provider.providerId, latency)
+                intelligenceEngine?.recordRequestSuccess(provider.providerId, latency)
                 Pair(provider, result)
             } else {
-                Log.w("StreamEngine", "Provider ${provider.providerId} timed out (>8s)")
+                Log.w("StreamEngine", "Provider ${provider.providerId} timed out (>6s)")
                 healthMonitor.recordFailure(provider.providerId, StreamFailureReason.TIMEOUT)
                 null
             }
@@ -84,6 +94,7 @@ class StreamEngine(
         streamInfo: PluginStreamInfo
     ): List<RankedStream> = withContext(Dispatchers.Default) {
         val results = mutableListOf<RankedStream>()
+        val intelScore = intelligenceEngine?.getIntelligenceScore(providerId) ?: 75.0
 
         // Process video streams
         for (stream in streamInfo.videoStreams) {
@@ -107,8 +118,18 @@ class StreamEngine(
                 else -> 10
             }
 
+            // Codec preference score (AV1 -> HEVC -> H.264)
+            val codecBonus = when {
+                stream.codec.equals("AV1", ignoreCase = true) || stream.qualityLabel.contains("AV1", ignoreCase = true) -> 35
+                stream.codec.equals("HEVC", ignoreCase = true) || stream.qualityLabel.contains("HEVC", ignoreCase = true) || stream.qualityLabel.contains("H265", ignoreCase = true) -> 25
+                stream.codec.equals("H264", ignoreCase = true) || stream.qualityLabel.contains("H264", ignoreCase = true) || stream.qualityLabel.contains("AVC", ignoreCase = true) -> 10
+                else -> 5
+            }
+
             val latencyBonus = maxOf(0, (3000 - validation.latencyMs).toInt() / 100)
-            val totalScore = typeScore + resScore + latencyBonus
+            val intelBonus = (intelScore / 2.0).toInt() // Source Intelligence boost
+
+            val totalScore = typeScore + resScore + codecBonus + latencyBonus + intelBonus
 
             val option = PlayableStreamOption(
                 qualityLabel = "${providerName} - ${stream.qualityLabel}",
@@ -150,7 +171,7 @@ class StreamEngine(
                 results.add(
                     RankedStream(
                         option = option,
-                        score = typeScore,
+                        score = typeScore + (intelScore / 2.0).toInt(),
                         providerId = providerId,
                         streamType = validation.streamType,
                         validationLatencyMs = validation.latencyMs

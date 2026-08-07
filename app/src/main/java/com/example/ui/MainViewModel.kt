@@ -401,6 +401,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeVideo() {
+        com.example.ui.player.GlobalPlayerManager.stopAndClear()
         _activeVideoId.value = null
         _extractionResult.value = null
         _selectedStreamOption.value = null

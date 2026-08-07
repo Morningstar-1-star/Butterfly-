@@ -29,10 +29,12 @@ import com.example.model.StreamData
 @Composable
 fun LiquidGlassMiniPlayer(
     streamData: StreamData?,
+    progressFraction: Float = 0f,
     isPlaying: Boolean,
     onTogglePlay: () -> Unit,
     onExpand: () -> Unit,
     onClose: () -> Unit,
+    onNext: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (streamData == null) return
@@ -59,7 +61,7 @@ fun LiquidGlassMiniPlayer(
         Column(modifier = Modifier.fillMaxWidth()) {
             // Animated Top Playback Progress Indicator Line
             LinearProgressIndicator(
-                progress = { 0.42f },
+                progress = { progressFraction.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp),
@@ -132,7 +134,7 @@ fun LiquidGlassMiniPlayer(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = streamData.title.ifEmpty { "New things on the way from Apple" },
+                    text = streamData.title.ifBlank { "Playing Video" },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
@@ -141,7 +143,7 @@ fun LiquidGlassMiniPlayer(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = streamData.channelName.ifEmpty { "Apple" },
+                    text = streamData.channelName.ifBlank { streamData.providerId ?: "Media Stream" },
                     style = MaterialTheme.typography.labelSmall,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -165,7 +167,7 @@ fun LiquidGlassMiniPlayer(
 
             // Skip Next Button
             IconButton(
-                onClick = { },
+                onClick = onNext,
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(

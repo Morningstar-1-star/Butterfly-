@@ -8,20 +8,39 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Unified Torrent Provider that consolidates all torrent indexers (Torrentio, YTS, EZTV, 1337x, Nyaa, PirateBay, TMDB)
- * into a single unified stream source with high-speed mirror auto-scanning.
+ * Unified Torrent Aggregator Provider that merges, deduplicates, and ranks
+ * results across all independent torrent/debrid plugins (Torrentio, MediaFusion, Orion,
+ * Comet, KnightCrawler, Zilean, VidSrc, TorBox, EasyDebrid, Jackett/Prowlarr, YTS, EZTV, Nyaa, TMDB).
  */
 class UnifiedTorrentProvider(
     private val http: HttpBridge = HttpBridge()
 ) : ContentProviderApi {
 
     override val providerId: String = "unified_torrents"
+    override val capabilities: ProviderCapabilities = ProviderCapabilities(
+        supportsSearch = true,
+        supportsMovie = true,
+        supportsSeries = true,
+        supportsAnime = true,
+        supportsTorrent = true,
+        supportsSubtitles = true
+    )
 
     private val subProviders: List<ContentProviderApi> by lazy {
         listOf(
             TorrentioAggregatorProvider(http),
+            MediaFusionProvider(http),
+            CometProvider(http),
+            KnightCrawlerProvider(http),
+            ZileanProvider(http),
+            VidSrcProvider(http),
+            OrionProvider(http),
+            TorBoxProvider(http),
+            EasyDebridProvider(http),
+            JackettProwlarrProvider(http),
             TorrentApiMultiProvider(http),
             YtsTorrentProvider(http),
             EztvTorrentProvider(http),
@@ -35,9 +54,11 @@ class UnifiedTorrentProvider(
             val jobs = subProviders.map { provider ->
                 async {
                     try {
-                        provider.home(pageToken).items
+                        withTimeoutOrNull(6000L) {
+                            provider.home(pageToken).items
+                        } ?: emptyList()
                     } catch (e: Exception) {
-                        emptyList<PluginVideoItem>()
+                        emptyList()
                     }
                 }
             }
@@ -56,9 +77,11 @@ class UnifiedTorrentProvider(
             val jobs = subProviders.map { provider ->
                 async {
                     try {
-                        provider.search(query, pageToken).items
+                        withTimeoutOrNull(6000L) {
+                            provider.search(query, pageToken).items
+                        } ?: emptyList()
                     } catch (e: Exception) {
-                        emptyList<PluginVideoItem>()
+                        emptyList()
                     }
                 }
             }
@@ -74,12 +97,14 @@ class UnifiedTorrentProvider(
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
         val firstResult = subProviders.firstNotNullOfOrNull {
-            try { it.getVideo(idOrUrl) } catch (e: Exception) { null }
+            try {
+                withTimeoutOrNull(3000L) { it.getVideo(idOrUrl) }
+            } catch (e: Exception) { null }
         }
         firstResult ?: PluginVideoItem(
             id = idOrUrl,
             title = "Unified Stream $idOrUrl",
-            uploaderName = "Unified Torrents (Auto Scanner)",
+            uploaderName = "Unified Torrents Engine",
             providerId = providerId
         )
     }
@@ -89,7 +114,9 @@ class UnifiedTorrentProvider(
             val jobs = subProviders.map { provider ->
                 async {
                     try {
-                        provider.getStreams(idOrUrl)
+                        withTimeoutOrNull(7000L) {
+                            provider.getStreams(idOrUrl)
+                        }
                     } catch (e: Exception) {
                         null
                     }
@@ -100,24 +127,16 @@ class UnifiedTorrentProvider(
             val combinedVideoStreams = mutableListOf<PluginVideoStream>()
             val combinedAudioStreams = mutableListOf<PluginAudioStream>()
             val combinedSubtitles = mutableListOf<PluginSubtitle>()
-            var mainTitle = "Unified Torrent Stream"
+            var mainTitle = "Unified Stream"
             var desc: String? = null
-            var channel: String = "Unified Torrents Engine"
+            var channel: String = "Unified Torrents Aggregator"
             var avatar: String? = null
             var thumb: String? = null
 
-            val serverNamePrefixes = listOf(
-                "Mhl-ply", "Ophm", "VidStpm", "VidHndi", "VidEnd", 
-                "Torrentio", "VidFast", "PeerStream", "Nitro-Mux", "Lolly"
-            )
-
-            var idx = 0
             streamInfos.forEach { info ->
-                if (mainTitle == "Unified Torrent Stream" && info.title.isNotBlank()) {
-                    mainTitle = info.title
-                }
+                if (mainTitle == "Unified Stream" && info.title.isNotBlank()) mainTitle = info.title
                 if (desc.isNullOrBlank()) desc = info.description
-                if (channel == "Unified Torrents Engine" && info.channelName.isNotBlank()) channel = info.channelName
+                if (channel == "Unified Torrents Aggregator" && info.channelName.isNotBlank()) channel = info.channelName
                 if (avatar.isNullOrBlank()) avatar = info.channelAvatarUrl
                 if (thumb.isNullOrBlank()) thumb = info.thumbnailUrl
 
@@ -136,8 +155,26 @@ class UnifiedTorrentProvider(
                 }
             }
 
-            // Deduplicate streams by clean quality label or URL
-            val formattedServerStreams = combinedVideoStreams.distinctBy { (it.url ?: "") + "_" + it.qualityLabel }
+            // Deduplicate streams
+            val rawStreams = combinedVideoStreams.distinctBy { (it.url ?: "") + "_" + it.qualityLabel }
+
+            // Rank streams using Codec Preference (AV1 -> HEVC -> H.264) + Resolution + Quality
+            val rankedStreams = rawStreams.sortedByDescending { stream ->
+                var score = 0
+                // Codec score
+                when {
+                    stream.codec.equals("AV1", ignoreCase = true) || stream.qualityLabel.contains("AV1", ignoreCase = true) -> score += 100
+                    stream.codec.equals("HEVC", ignoreCase = true) || stream.qualityLabel.contains("HEVC", ignoreCase = true) || stream.qualityLabel.contains("H265", ignoreCase = true) -> score += 70
+                    stream.codec.equals("H264", ignoreCase = true) || stream.qualityLabel.contains("H264", ignoreCase = true) || stream.qualityLabel.contains("AVC", ignoreCase = true) -> score += 40
+                    else -> score += 20
+                }
+                // Resolution score
+                if (stream.qualityLabel.contains("4K", ignoreCase = true) || stream.height >= 2160) score += 50
+                else if (stream.qualityLabel.contains("1080", ignoreCase = true) || stream.height >= 1080) score += 30
+                else if (stream.qualityLabel.contains("720", ignoreCase = true) || stream.height >= 720) score += 15
+
+                score
+            }
 
             PluginStreamInfo(
                 id = idOrUrl,
@@ -146,7 +183,7 @@ class UnifiedTorrentProvider(
                 channelName = channel,
                 channelAvatarUrl = avatar,
                 description = desc,
-                videoStreams = formattedServerStreams,
+                videoStreams = rankedStreams,
                 audioStreams = combinedAudioStreams.distinctBy { it.url },
                 subtitles = combinedSubtitles.distinctBy { it.url },
                 thumbnailUrl = thumb
@@ -154,23 +191,19 @@ class UnifiedTorrentProvider(
         }
     }
 
-    override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> {
-        return PagedResult(emptyList())
-    }
+    override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> = PagedResult(emptyList())
 
-    override suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> {
-        return emptyList()
-    }
+    override suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> = emptyList()
 
     override suspend fun getRecommendations(idOrUrl: String): List<PluginVideoItem> = withContext(Dispatchers.IO) {
         subProviders.firstOrNull()?.getRecommendations(idOrUrl) ?: emptyList()
     }
 
     override suspend fun getChannel(channelIdOrUrl: String): PluginChannel = withContext(Dispatchers.IO) {
-        PluginChannel(id = "unified_torrents", name = "Unified Torrents (Auto Scanner)")
+        PluginChannel(id = "unified_torrents", name = "Unified Torrents Aggregator")
     }
 
     override suspend fun getPlaylist(playlistIdOrUrl: String): PluginPlaylist = withContext(Dispatchers.IO) {
-        PluginPlaylist(id = "unified_torrents", title = "Unified Torrents Collection", uploaderName = "Auto Scanner")
+        PluginPlaylist(id = "unified_torrents", title = "Unified Torrents Collection", uploaderName = "Aggregator Engine")
     }
 }

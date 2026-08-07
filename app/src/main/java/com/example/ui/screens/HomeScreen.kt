@@ -133,7 +133,34 @@ fun HomeScreen(
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
 
     // StreamData extracted for player / mini player
-    val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
+    val currentStreamData = remember(extractionResult, activeVideoId, searchResults, trendingVideos) {
+        (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
+            ?: activeVideoId?.let { id ->
+                val match = (searchResults + trendingVideos).firstOrNull { it.id == id }
+                if (match != null) {
+                    com.example.model.StreamData(
+                        videoId = match.id,
+                        videoUrl = "",
+                        title = match.title,
+                        channelName = match.uploaderName,
+                        thumbnailUrl = match.thumbnailUrl,
+                        providerId = match.providerId
+                    )
+                } else {
+                    com.example.model.StreamData(
+                        videoId = id,
+                        videoUrl = "",
+                        title = id,
+                        channelName = "Media Stream",
+                        thumbnailUrl = null,
+                        providerId = null
+                    )
+                }
+            }
+    }
+    val globalProgress by com.example.ui.player.GlobalPlayerManager.progressFraction.collectAsState()
+    val globalIsPlaying by com.example.ui.player.GlobalPlayerManager.isPlaying.collectAsState()
+    val activeVideoProgress = if (globalProgress > 0f) globalProgress else (activeVideoId?.let { watchProgressMap[it] } ?: 0f)
 
     if (showPoTokenDialog) {
         PoTokenDialog(
@@ -180,10 +207,18 @@ fun HomeScreen(
                     if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
                         LiquidGlassMiniPlayer(
                             streamData = currentStreamData,
-                            isPlaying = isPlaying,
-                            onTogglePlay = { viewModel.togglePlayback() },
+                            progressFraction = activeVideoProgress,
+                            isPlaying = globalIsPlaying,
+                            onTogglePlay = {
+                                com.example.ui.player.GlobalPlayerManager.togglePlayPause()
+                                viewModel.togglePlayback()
+                            },
                             onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
-                            onClose = { viewModel.closeVideo() },
+                            onClose = {
+                                com.example.ui.player.GlobalPlayerManager.stopAndClear()
+                                viewModel.closeVideo()
+                            },
+                            onNext = { viewModel.playNextInQueue() },
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }

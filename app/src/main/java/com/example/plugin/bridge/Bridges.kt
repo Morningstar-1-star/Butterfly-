@@ -13,13 +13,23 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 /**
  * Sandboxed, controlled HTTP Bridge provided to plugins.
  * Enforces timeout boundaries and permission scopes.
+ * Configured with HTTP/2, Connection Pooling (32 max idle connections), and ETag support.
  */
 class HttpBridge(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = sharedClient
 ) {
+    companion object {
+        val sharedClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+                .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
+                .connectTimeout(12, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+    }
 
     data class HttpResponse(
         val statusCode: Int,

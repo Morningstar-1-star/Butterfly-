@@ -37,9 +37,21 @@ class PluginManager(private val context: Context) {
     val activePlugins: StateFlow<Map<String, PluginRuntime>> = _activePlugins.asStateFlow()
 
     private val nativeProviders = mutableMapOf<String, ContentProviderApi>()
+    val capabilityRegistry = com.example.plugin.registry.ProviderCapabilityRegistry()
 
     init {
         registerNativeProvider(UnifiedTorrentProvider())
+        registerNativeProvider(TorrentioAggregatorProvider())
+        registerNativeProvider(MediaFusionProvider())
+        registerNativeProvider(CometProvider())
+        registerNativeProvider(KnightCrawlerProvider())
+        registerNativeProvider(ZileanProvider())
+        registerNativeProvider(VidSrcProvider())
+        registerNativeProvider(OrionProvider())
+        registerNativeProvider(TorBoxProvider())
+        registerNativeProvider(EasyDebridProvider())
+        registerNativeProvider(JackettProwlarrProvider())
+        registerNativeProvider(SubtitleProvider())
         registerNativeProvider(YouTubeProvider())
         registerNativeProvider(TmdbTorrentProvider())
         registerNativeProvider(WatchModeProvider())
@@ -47,7 +59,6 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(YtsTorrentProvider())
         registerNativeProvider(JikanAnimeProvider())
         registerNativeProvider(EztvTorrentProvider())
-        registerNativeProvider(TorrentioAggregatorProvider())
         registerNativeProvider(TorrentApiMultiProvider())
         registerNativeProvider(NyaaAnimeProvider())
         registerNativeProvider(DailymotionProvider())
@@ -210,6 +221,7 @@ class PluginManager(private val context: Context) {
 
     fun registerNativeProvider(provider: ContentProviderApi) {
         nativeProviders[provider.providerId] = provider
+        capabilityRegistry.register(provider)
     }
 
     fun getProvider(pluginId: String): ContentProviderApi? {

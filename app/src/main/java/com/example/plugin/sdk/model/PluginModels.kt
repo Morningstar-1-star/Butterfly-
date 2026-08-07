@@ -3,6 +3,17 @@ package com.example.plugin.sdk.model
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
+data class ProviderCapabilities(
+    val supportsSearch: Boolean = true,
+    val supportsMovie: Boolean = true,
+    val supportsSeries: Boolean = true,
+    val supportsAnime: Boolean = false,
+    val supportsTorrent: Boolean = false,
+    val supportsLive: Boolean = false,
+    val supportsSubtitles: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
 data class PluginManifest(
     val id: String,
     val name: String,

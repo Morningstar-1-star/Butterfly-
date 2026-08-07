@@ -66,6 +66,9 @@ fun UniversalVideoPlayer(
     embedUrl: String? = null,
     providerId: String? = null,
     isPlaying: Boolean = true,
+    videoId: String? = null,
+    initialPositionMs: Long = 0L,
+    onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -111,88 +114,36 @@ fun UniversalVideoPlayer(
         }
     }
 
-    val okHttpClient = remember { OkHttpClient.Builder().build() }
-    val dataSourceFactory = remember {
-        OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    }
-
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-        }
-    }
+    val exoPlayer = remember(context) { GlobalPlayerManager.getExoPlayer(context) }
 
     LaunchedEffect(playbackSpeed) {
-        exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+        GlobalPlayerManager.setPlaybackSpeed(playbackSpeed)
     }
 
-    DisposableEffect(Unit) {
-        val listener = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                playerError = error.localizedMessage ?: "Playback error occurred"
-                forceWebViewFallback = true
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
+    // Continuous progress tracking loop
+    val curPos by GlobalPlayerManager.currentPositionMs.collectAsState()
+    val durMs by GlobalPlayerManager.durationMs.collectAsState()
+
+    LaunchedEffect(curPos, durMs) {
+        if (durMs > 0 && curPos >= 0) {
+            onProgressUpdate(curPos, durMs)
         }
     }
 
     LaunchedEffect(isPlaying) {
-        exoPlayer.playWhenReady = isPlaying
+        if (isPlaying) GlobalPlayerManager.play() else GlobalPlayerManager.pause()
     }
 
-    LaunchedEffect(streamOption, hlsUrl, captionOption, isEmbedOrWebPage) {
-        if (!isEmbedOrWebPage && !rawVideoUrl.isNullOrEmpty()) {
-            playerError = null
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-
-            try {
-                if (streamOption != null) {
-                    val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
-                    val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
-
-                    if (streamOption.isMuxed && vUrl != null) {
-                        val builder = MediaItem.Builder().setUri(Uri.parse(vUrl))
-                        if (captionOption != null) {
-                            val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(captionOption.url))
-                                .setMimeType(MimeTypes.TEXT_VTT)
-                                .setLanguage(captionOption.languageCode)
-                                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                                .build()
-                            builder.setSubtitleConfigurations(listOf(subtitleConfig))
-                        }
-                        exoPlayer.setMediaItem(builder.build())
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
-                    } else if (!streamOption.isMuxed && vUrl != null && aUrl != null) {
-                        val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
-                        val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(MediaItem.fromUri(Uri.parse(aUrl)))
-
-                        val mergedSource = MergingMediaSource(videoSource, audioSource)
-                        exoPlayer.setMediaSource(mergedSource)
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
-                    }
-                } else if (!hlsUrl.isNullOrEmpty()) {
-                    val mediaItem = MediaItem.fromUri(Uri.parse(hlsUrl))
-                    exoPlayer.setMediaItem(mediaItem)
-                    exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
-                }
-            } catch (e: Exception) {
-                playerError = e.localizedMessage
-                forceWebViewFallback = true
-            }
-        } else {
-            exoPlayer.stop()
-        }
+    LaunchedEffect(streamOption, hlsUrl, captionOption, isEmbedOrWebPage, videoId) {
+        GlobalPlayerManager.prepareAndPlay(
+            context = context,
+            streamData = null,
+            streamOption = streamOption,
+            hlsUrl = hlsUrl,
+            captionOption = captionOption,
+            embedUrl = embedUrl,
+            initialPos = initialPositionMs
+        )
     }
 
     Box(
@@ -207,12 +158,12 @@ fun UniversalVideoPlayer(
                         if (offset.x < halfWidth) {
                             seekNoticeText = "◄◄ 10s Rewind"
                             if (!isEmbedOrWebPage) {
-                                exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
+                                GlobalPlayerManager.seekTo(exoPlayer.currentPosition - 10000)
                             }
                         } else {
                             seekNoticeText = "10s Forward ►►"
                             if (!isEmbedOrWebPage) {
-                                exoPlayer.seekTo((exoPlayer.currentPosition + 10000).coerceAtMost(exoPlayer.duration))
+                                GlobalPlayerManager.seekTo(exoPlayer.currentPosition + 10000)
                             }
                         }
                     }
@@ -380,13 +331,6 @@ fun UniversalVideoPlayer(
                                 webView.loadUrl(srcUrl)
                             }
                         }
-                        
-                        val playPauseScript = if (isPlaying) {
-                            "(function(){ var vids = document.querySelectorAll('video'); vids.forEach(function(v){ try { v.play(); } catch(e){} }); })();"
-                        } else {
-                            "(function(){ var vids = document.querySelectorAll('video'); vids.forEach(function(v){ try { v.pause(); } catch(e){} }); })();"
-                        }
-                        webView.evaluateJavascript(playPauseScript, null)
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -532,6 +476,36 @@ fun UniversalVideoPlayer(
                     contentDescription = "Toggle Player Engine",
                     tint = if (forceWebViewFallback) Color.Cyan else Color.LightGray,
                     modifier = Modifier.size(16.dp)
+                )
+            }
+
+            // Hidden Developer Panel Bug Button
+            var showDevPanel by remember { mutableStateOf(false) }
+            IconButton(
+                onClick = { showDevPanel = true },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BugReport,
+                    contentDescription = "Developer Diagnostic Panel",
+                    tint = Color(0xFFFFD700),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            if (showDevPanel) {
+                com.example.ui.components.DeveloperPanelDialog(
+                    healthMonitor = remember { com.example.plugin.manager.ProviderHealthMonitor() },
+                    rawJsonResponse = streamOption?.videoUrl ?: rawVideoUrl ?: "",
+                    currentMagnetOrUrl = rawVideoUrl ?: "",
+                    exoPlayerLogs = listOf(
+                        "ExoPlayer Initialized [Native Media3]",
+                        "Playing State: $isPlaying",
+                        "Source: ${streamOption?.qualityLabel ?: "Default Direct Source"}",
+                        "Codec Preference: AV1 -> HEVC -> H.264",
+                        "Fallback Engine Ready: Web Embed Active ($forceWebViewFallback)"
+                    ),
+                    onDismiss = { showDevPanel = false }
                 )
             }
         }

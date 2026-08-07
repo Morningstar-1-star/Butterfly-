@@ -13,6 +13,9 @@ fun YouTubePlayerView(
     embedUrl: String? = null,
     providerId: String? = null,
     isPlaying: Boolean = true,
+    videoId: String? = null,
+    initialPositionMs: Long = 0L,
+    onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     UniversalVideoPlayer(
@@ -22,6 +25,9 @@ fun YouTubePlayerView(
         embedUrl = embedUrl,
         providerId = providerId,
         isPlaying = isPlaying,
+        videoId = videoId,
+        initialPositionMs = initialPositionMs,
+        onProgressUpdate = onProgressUpdate,
         modifier = modifier
     )
 }

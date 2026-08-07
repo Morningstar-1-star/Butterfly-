@@ -108,6 +108,24 @@ fun ProvidersScreen(
                     }
                 },
                 actions = {
+                    var showDevPanelInScreen by remember { mutableStateOf(false) }
+
+                    IconButton(onClick = { showDevPanelInScreen = true }) {
+                        Icon(
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = "Developer Diagnostic Panel",
+                            tint = Color(0xFFFFD700)
+                        )
+                    }
+
+                    if (showDevPanelInScreen) {
+                        com.example.ui.components.DeveloperPanelDialog(
+                            healthMonitor = remember { com.example.plugin.manager.ProviderHealthMonitor() },
+                            rawJsonResponse = "System Diagnostic Payload OK",
+                            onDismiss = { showDevPanelInScreen = false }
+                        )
+                    }
+
                     IconButton(onClick = { showAddSourceDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.Add,
