@@ -136,6 +136,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun selectServerIndex(index: Int) {
+        val currentNode = _serverScanState.value.nodes.getOrNull(index - 1)
+        _serverScanState.value = _serverScanState.value.copy(activeServerIndex = index)
+        if (currentNode != null) {
+            selectServerNode(currentNode.id)
+        }
+    }
+
     private val _showShortsFeed = MutableStateFlow(false)
     val showShortsFeed: StateFlow<Boolean> = _showShortsFeed.asStateFlow()
 

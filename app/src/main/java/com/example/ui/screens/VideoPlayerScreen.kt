@@ -57,6 +57,7 @@ fun VideoPlayerScreen(
     val watchLaterList by viewModel.watchLaterList.collectAsState()
     val watchPositionMsMap by viewModel.watchPositionMsMap.collectAsState()
     val userPlaylists by viewModel.userPlaylists.collectAsState()
+    val serverScanState by viewModel.serverScanState.collectAsState()
 
     val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
     val providerId = currentStreamData?.providerId
@@ -73,6 +74,25 @@ fun VideoPlayerScreen(
     var showCommentsSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
+    var selectedPlayerTab by remember { mutableStateOf(com.example.ui.components.PlayerTab.SEASONS_EPISODES) }
+
+    val trendingVideos by viewModel.trendingVideos.collectAsState()
+
+    val seasonsAndEpisodes = remember(currentStreamData) {
+        currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
+    }
+
+    val relatedContent = remember(currentStreamData, trendingVideos) {
+        currentStreamData?.let { com.example.util.SeriesDataHelper.getRelatedContent(it, trendingVideos) } ?: emptyList()
+    }
+
+    val recommendedContent = remember(currentStreamData, trendingVideos) {
+        currentStreamData?.let { com.example.util.SeriesDataHelper.getRecommendedContent(it, trendingVideos) } ?: emptyList()
+    }
+
+    val playerComments = remember(currentStreamData) {
+        currentStreamData?.let { com.example.util.SeriesDataHelper.generateComments(it) } ?: emptyList()
+    }
 
     val currentVideoItem = remember(currentStreamData, activeVideoId) {
         currentStreamData?.let { data ->
@@ -268,69 +288,103 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    // Divider
+                    // Interactive Player Tab Bar (Seasons & Episodes, Related, Recommended, Comments)
                     item {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            com.example.ui.components.PlayerTabBar(
+                                selectedTab = selectedPlayerTab,
+                                onTabSelected = { selectedPlayerTab = it },
+                                commentsCount = playerComments.size
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
                     }
 
-                    // Up Next Header
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Up Next & Recommendations",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            AssistChip(
-                                onClick = { },
-                                label = { Text("Autoplay On", fontSize = 11.sp) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
+                    // TAB CONTENT RENDERER
+                    when (selectedPlayerTab) {
+                        com.example.ui.components.PlayerTab.SEASONS_EPISODES -> {
+                            item {
+                                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    com.example.ui.components.SeasonsAndEpisodesView(
+                                        seasons = seasonsAndEpisodes,
+                                        activeVideoId = activeVideoId,
+                                        onEpisodeClick = { episode ->
+                                            viewModel.playVideo(episode.id, episode.providerId)
+                                        }
                                     )
                                 }
-                            )
-                        }
-                    }
-
-                    // Recommended Videos List
-                    val recommendations = currentStreamData?.relatedVideos ?: emptyList()
-                    if (recommendations.isNotEmpty()) {
-                        items(recommendations) { video ->
-                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                                VideoCard(
-                                    video = video,
-                                    onClick = {
-                                        viewModel.playVideo(video.id, video.providerId)
-                                    }
-                                )
                             }
                         }
-                    } else {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Loading recommendations...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        com.example.ui.components.PlayerTab.RELATED -> {
+                            if (relatedContent.isNotEmpty()) {
+                                items(relatedContent) { video ->
+                                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                        VideoCard(
+                                            video = video,
+                                            onClick = {
+                                                viewModel.playVideo(video.id, video.providerId)
+                                            }
+                                        )
+                                    }
+                                }
+                            } else {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No related videos found.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        com.example.ui.components.PlayerTab.RECOMMENDED -> {
+                            if (recommendedContent.isNotEmpty()) {
+                                items(recommendedContent) { video ->
+                                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                        VideoCard(
+                                            video = video,
+                                            onClick = {
+                                                viewModel.playVideo(video.id, video.providerId)
+                                            }
+                                        )
+                                    }
+                                }
+                            } else {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No recommendations available.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        com.example.ui.components.PlayerTab.COMMENTS -> {
+                            item {
+                                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    com.example.ui.components.CommentsSectionView(
+                                        comments = playerComments,
+                                        onAddComment = { text ->
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Comment posted!")
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

@@ -167,7 +167,8 @@ fun AutoServerScannerView(
                             .clip(CircleShape)
                             .background(
                                 when (node.state) {
-                                    NodeScanState.SCANNING -> Color(0xFF1E1E22)
+                                    NodeScanState.QUEUE -> Color(0xFF1E1E22)
+                                    NodeScanState.CHECKING, NodeScanState.CONNECTING -> Color(0xFF2A2A30)
                                     NodeScanState.SUCCESS -> if (isSelected) Color(0xFF00C853) else Color(0xFF1B5E20)
                                     NodeScanState.FAILED -> Color(0xFFB71C1C)
                                 }
@@ -176,7 +177,7 @@ fun AutoServerScannerView(
                                 width = if (isSelected) 2.5.dp else 1.dp,
                                 color = when {
                                     isSelected -> Color(0xFFFFD600)
-                                    node.state == NodeScanState.SCANNING -> Color(0xFFFFD600).copy(alpha = 0.4f)
+                                    node.state == NodeScanState.CHECKING || node.state == NodeScanState.CONNECTING -> Color(0xFFFFD600).copy(alpha = 0.6f)
                                     node.state == NodeScanState.SUCCESS -> Color(0xFF00E676).copy(alpha = 0.6f)
                                     else -> Color(0xFFFF5252).copy(alpha = 0.4f)
                                 },
@@ -185,7 +186,10 @@ fun AutoServerScannerView(
                         contentAlignment = Alignment.Center
                     ) {
                         when (node.state) {
-                            NodeScanState.SCANNING -> {
+                            NodeScanState.QUEUE -> {
+                                Text("—", color = Color.Gray, fontSize = 14.sp)
+                            }
+                            NodeScanState.CHECKING, NodeScanState.CONNECTING -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     color = Color(0xFFFFD600),

@@ -1,7 +1,9 @@
 package com.example.model
 
 enum class NodeScanState {
-    SCANNING,
+    QUEUE,
+    CHECKING,
+    CONNECTING,
     SUCCESS,
     FAILED
 }
@@ -9,9 +11,10 @@ enum class NodeScanState {
 data class ServerNode(
     val id: String,
     val name: String,
-    val providerName: String,
-    val quality: String,
-    val state: NodeScanState = NodeScanState.SCANNING,
+    val description: String = "",
+    val providerName: String = "",
+    val quality: String = "4K UHD HDR",
+    val state: NodeScanState = NodeScanState.QUEUE,
     val pingMs: Long = 0L,
     val streamOption: PlayableStreamOption? = null
 )
@@ -23,5 +26,7 @@ data class ServerScanState(
     val remainingCount: Int = 0,
     val nodes: List<ServerNode> = emptyList(),
     val selectedNodeId: String? = null,
-    val statusMessage: String = "Scanning high-speed servers..."
+    val activeServerIndex: Int = 1, // Server 1, Server 2, Server 3, Server 4
+    val statusMessage: String = "Scanning high-speed torrent servers..."
 )
+

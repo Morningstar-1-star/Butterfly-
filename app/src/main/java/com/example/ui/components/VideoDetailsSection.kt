@@ -415,39 +415,21 @@ fun VideoDetailsSection(
                 .distinctBy { it.lowercase() }
             if (extracted.size >= 3) extracted.take(6) else listOf("Spider-Man", "Action", "Gameplay", "Trailer", "Knowledge", "Adventure", "Funny")
         }
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = "Tags & Categories",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                dynamicTags.forEach { tag ->
-                    val cleanTag = tag.replace("#", "").trim()
-                    SuggestionChip(
-                        onClick = { onTagClick?.invoke(cleanTag) },
-                        label = {
-                            Text(
-                                text = cleanTag,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    )
-                }
+        // Cast Section
+        var castList by remember(streamData.videoId, streamData.title) {
+            mutableStateOf(com.example.util.SeriesDataHelper.generateCast(streamData))
+        }
+
+        androidx.compose.runtime.LaunchedEffect(streamData.videoId, streamData.title) {
+            val tmdbCast = com.example.util.TMDBHelper.fetchCast(streamData.title)
+            if (tmdbCast.isNotEmpty()) {
+                castList = tmdbCast
             }
+        }
+
+        if (castList.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            CastSection(castList = castList)
         }
     }
 }
