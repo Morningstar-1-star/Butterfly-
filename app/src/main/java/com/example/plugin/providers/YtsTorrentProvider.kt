@@ -20,6 +20,17 @@ class YtsTorrentProvider(
 
     override val capabilities: ProviderCapabilities = ProviderCapabilities(supportsTorrent = true)
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "YTS Torrents Engine",
+            enabled = true,
+            endpoint = BASE_URL,
+            supportsTorrents = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val url = "$BASE_URL/list_movies.json?limit=20&page=$page&sort_by=download_count"
@@ -229,8 +240,8 @@ class YtsTorrentProvider(
             val scoreVal = if (rating > 0) String.format("%.1f", rating) else "7.9"
             val metadataStr = "★ $scoreVal • $year"
 
-            val simulatedViews = (10000..90000).random().toLong()
-            val simulatedDuration = (95..160).random() * 60L
+            val downloads = m.optLong("download_count", 0L)
+            val runtimeMins = m.optLong("runtime", 0L)
 
             list.add(
                 PluginVideoItem(
@@ -238,8 +249,8 @@ class YtsTorrentProvider(
                     title = title,
                     uploaderName = studioName,
                     uploadDate = metadataStr,
-                    viewCount = simulatedViews,
-                    durationSeconds = simulatedDuration,
+                    viewCount = downloads,
+                    durationSeconds = runtimeMins * 60L,
                     thumbnailUrl = cover,
                     providerId = providerId
                 )
@@ -256,7 +267,7 @@ class YtsTorrentProvider(
             lower.contains("fast") || lower.contains("jurassic") || lower.contains("oppenheimer") -> "Universal Pictures"
             lower.contains("dune") || lower.contains("rings") || lower.contains("warner") -> "Warner Bros. Pictures"
             lower.contains("sonic") || lower.contains("top gun") || lower.contains("mission") -> "Paramount Pictures"
-            else -> listOf("Universal Pictures", "Paramount Pictures", "Columbia Pictures", "20th Century Studios", "Warner Bros. Pictures", "Lionsgate Films").random()
+            else -> "YTS Movie"
         }
     }
 

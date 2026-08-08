@@ -151,19 +151,8 @@ object GlobalPlayerManager {
             return
         }
 
-        val urlLower = rawUrl.lowercase()
-        val fmtLower = streamOption?.format?.lowercase() ?: ""
-        val isEmbed = fmtLower == "embed" ||
-                urlLower.startsWith("magnet:") ||
-                urlLower.contains("embed") ||
-                urlLower.contains("eporner.com") ||
-                urlLower.contains("apijav") ||
-                urlLower.contains("dailymotion.com") ||
-                urlLower.contains("vimeo.com") ||
-                urlLower.contains("peertube") ||
-                urlLower.contains("nvembed") ||
-                urlLower.contains("mvembed") ||
-                (urlLower.startsWith("http") && !urlLower.contains(".mp4") && !urlLower.contains(".m3u8") && !urlLower.contains("googlevideo.com"))
+        val sourceType = com.example.model.PlaybackDecisionResolver.determineSourceType(rawUrl, streamOption?.format)
+        val isEmbed = sourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
 
         _isEmbedOrWebPage.value = isEmbed
 

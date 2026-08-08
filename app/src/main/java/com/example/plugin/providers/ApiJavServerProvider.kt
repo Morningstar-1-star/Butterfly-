@@ -48,7 +48,7 @@ abstract class ApiJavBaseProvider(
                 val thumbUrl = item.optString("thumbnail")
                 val durationStr = item.optString("duration")
                 val duration = parseDuration(durationStr)
-                val views = item.optLong("views", (10000..95000).random().toLong())
+                val views = item.optLong("views", 0L)
                 val studio = item.optString("studio").ifBlank { providerName }
                 val code = item.optString("code")
                 val likes = item.optLong("likes", 0L)
@@ -60,7 +60,7 @@ abstract class ApiJavBaseProvider(
                         id = id,
                         title = title,
                         uploaderName = displayUploader,
-                        uploadDate = "★ ${(8..9).random()}.${(0..9).random()} • ${if (likes > 0) "$likes Likes" else "HD"}",
+                        uploadDate = if (likes > 0) "$likes Likes" else null,
                         viewCount = views,
                         durationSeconds = duration,
                         thumbnailUrl = thumbUrl,
@@ -71,27 +71,12 @@ abstract class ApiJavBaseProvider(
             val hasMore = list.isNotEmpty()
             PagedResult(items = list, nextPageToken = (currentPage + 1).toString(), hasMore = hasMore)
         } catch (e: Exception) {
-            fallbackScrape(currentPage)
+            PagedResult(items = emptyList())
         }
     }
 
     private fun fallbackScrape(page: Int): PagedResult<PluginVideoItem> {
-        val list = mutableListOf<PluginVideoItem>()
-        for (i in 1..10) {
-            list.add(
-                PluginVideoItem(
-                    id = "apijav_${providerId}_${page}_$i",
-                    title = "[$providerName] HD Japanese Stream #$i (Page $page)",
-                    uploaderName = providerName,
-                    uploadDate = "★ 9.2 • 2026",
-                    viewCount = (15000..98000).random().toLong(),
-                    durationSeconds = (25..60).random() * 60L,
-                    thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
-                    providerId = providerId
-                )
-            )
-        }
-        return PagedResult(items = list, nextPageToken = (page + 1).toString(), hasMore = true)
+        return PagedResult(items = emptyList())
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {

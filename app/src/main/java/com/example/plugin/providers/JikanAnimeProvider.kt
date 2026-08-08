@@ -18,6 +18,18 @@ class JikanAnimeProvider(
 
     override val providerId: String = "jikan_anime"
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "Jikan MyAnimeList",
+            enabled = true,
+            endpoint = BASE_URL,
+            supportsDirectStreams = true,
+            supportsTorrents = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val url = "$BASE_URL/top/anime?page=$page&limit=20"
@@ -231,22 +243,21 @@ class JikanAnimeProvider(
 
             val studiosArr = anime.optJSONArray("studios")
             val studioName = if (studiosArr != null && studiosArr.length() > 0) {
-                studiosArr.getJSONObject(0).optString("name", "MAPPA")
+                studiosArr.getJSONObject(0).optString("name", "Anime Studio")
             } else {
-                listOf("MAPPA", "Toei Animation", "Kyoto Animation", "Madhouse", "Wit Studio", "Ufotable", "Bones", "A-1 Pictures", "CloverWorks").random()
+                "Anime Studio"
             }
 
-            val simulatedViews = (15000..95000).random().toLong()
-            val simulatedDuration = (22..28).random() * 60L
+            val members = anime.optLong("members", 0L)
 
             list.add(
                 PluginVideoItem(
                     id = "$malId",
                     title = title,
                     uploaderName = studioName,
-                    uploadDate = metadataStr,
-                    viewCount = simulatedViews,
-                    durationSeconds = simulatedDuration,
+                    uploadDate = if (score > 0) "★ ${String.format("%.1f", score)}" else null,
+                    viewCount = members,
+                    durationSeconds = 0L,
                     thumbnailUrl = poster,
                     providerId = providerId
                 )

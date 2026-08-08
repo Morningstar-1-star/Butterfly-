@@ -33,7 +33,8 @@ class TorrentResolver {
      */
     suspend fun resolveTorrent(
         magnetOrHash: String,
-        title: String = "Torrent Stream"
+        title: String = "Torrent Stream",
+        apiKey: String? = null
     ): ResolvedTorrentStream? = withContext(Dispatchers.IO) {
         val infoHash = TorrentUtils.extractInfoHash(magnetOrHash) ?: return@withContext null
         Log.d("TorrentResolver", "[Torrent] Resolving infoHash: $infoHash for title: $title")
@@ -51,17 +52,21 @@ class TorrentResolver {
             }
         }
 
-        // 2. Try TorBox API if user configured an API token (requires Authorization Bearer token)
-        val apiKey = System.getenv("TORBOX_API_KEY") ?: ""
-        if (apiKey.isNotBlank()) {
-            val torboxResult = resolveTorBoxHash(infoHash, apiKey)
+        // 2. Try TorBox API if user configured an API token
+        val effectiveKey = apiKey?.trim() ?: ""
+        if (effectiveKey.isNotBlank()) {
+            val torboxResult = resolveTorBoxHash(infoHash, effectiveKey)
             if (torboxResult != null) {
                 Log.d("TorrentResolver", "[Torrent] Resolved via TorBox API: ${torboxResult.playableUrl}")
                 return@withContext torboxResult
+            } else {
+                Log.w("TorrentResolver", "[Torrent] TorBox API resolution returned null for infoHash $infoHash")
             }
+        } else {
+            Log.w("TorrentResolver", "[Torrent] TorBox API key not configured. Debrid resolution skipped.")
         }
 
-        Log.d("TorrentResolver", "[Torrent] No direct HTTP/Debrid stream available for infoHash $infoHash. Will stream via embedded WebTorrent player.")
+        Log.d("TorrentResolver", "[Torrent] No direct HTTP/Debrid stream available for infoHash $infoHash.")
         null
     }
 

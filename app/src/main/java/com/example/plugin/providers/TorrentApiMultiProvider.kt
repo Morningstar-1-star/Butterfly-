@@ -22,6 +22,17 @@ class TorrentApiMultiProvider(
 
     override val providerId: String = "torrent_api_multi"
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "1337x / TGx / PirateBay Multi Indexer",
+            enabled = true,
+            endpoint = TORRENT_API_BASE,
+            supportsTorrents = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val url = "https://api.themoviedb.org/3/trending/all/day?api_key=$TMDB_API_KEY&page=$page"
@@ -220,26 +231,23 @@ class TorrentApiMultiProvider(
             val voteAvg = item.optDouble("vote_average", 7.8)
             val formattedScore = if (voteAvg > 0) String.format("%.1f", voteAvg) else "8.0"
 
-            val studioName = getStudioName(title, isTv)
+            val voteCount = item.optLong("vote_count", 0L)
             val metadataStr = if (isTv) {
-                "★ $formattedScore • $year • S${(1..4).random()} • ${(12..30).random()} ep"
+                "★ $formattedScore • $year • TV"
             } else {
                 "★ $formattedScore • $year"
             }
 
             val imgPath = if (backdrop.isNotEmpty()) "https://image.tmdb.org/t/p/w780$backdrop" else if (poster.isNotEmpty()) "https://image.tmdb.org/t/p/w500$poster" else null
 
-            val simulatedViews = (11000..96000).random().toLong()
-            val simulatedDuration = if (isTv) (25..60).random() * 60L else (90..165).random() * 60L
-
             list.add(
                 PluginVideoItem(
                     id = if (isTv) "tv_$id" else "$id",
                     title = title,
-                    uploaderName = studioName,
+                    uploaderName = getStudioName(title, isTv),
                     uploadDate = metadataStr,
-                    viewCount = simulatedViews,
-                    durationSeconds = simulatedDuration,
+                    viewCount = voteCount,
+                    durationSeconds = 0L,
                     thumbnailUrl = imgPath,
                     providerId = providerId
                 )
@@ -253,16 +261,10 @@ class TorrentApiMultiProvider(
         return when {
             lower.contains("spider") || lower.contains("avengers") || lower.contains("marvel") || lower.contains("iron man") || lower.contains("thor") -> "Marvel Studios"
             lower.contains("batman") || lower.contains("superman") || lower.contains("joker") || lower.contains("dc") -> "DC Studios"
-            lower.contains("odyssey") || lower.contains("fast") || lower.contains("jurassic") || lower.contains("minions") || lower.contains("oppenheimer") -> "Universal Pictures"
-            lower.contains("star wars") || lower.contains("avatar") || lower.contains("silo") || lower.contains("simpsons") || lower.contains("futurama") -> "20th Century Fox Television"
-            lower.contains("evil dead") || lower.contains("backrooms") || lower.contains("conjuring") -> "Atomic Monster"
-            lower.contains("obsession") || lower.contains("devil") || lower.contains("mouth") -> "Tea Shop Productions"
-            lower.contains("rings") || lower.contains("dune") || lower.contains("warner") -> "New Line Cinema"
-            lower.contains("walking") || lower.contains("amc") -> "AMC Studios"
-            lower.contains("amazon") || lower.contains("mgm") || lower.contains("boys") -> "Amazon MGM Studios"
+            lower.contains("star wars") || lower.contains("avatar") -> "20th Century Studios"
             lower.contains("paramount") || lower.contains("sonic") || lower.contains("top gun") -> "Paramount Pictures"
-            isTv -> listOf("AMC Studios", "20th Century Fox Television", "HBO Entertainment", "Netflix Studios", "Amazon MGM Studios", "Warner Bros. Television").random()
-            else -> listOf("Universal Pictures", "Paramount Pictures", "Columbia Pictures", "20th Century Studios", "Warner Bros. Pictures", "Atlas Entertainment").random()
+            isTv -> "TV Network"
+            else -> "Film Studio"
         }
     }
 

@@ -109,6 +109,7 @@ class UnifiedTorrentProvider(
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
+        val identity = com.example.util.MediaIdResolver.resolve(idOrUrl)
         coroutineScope {
             val jobs = subProviders.map { provider ->
                 async {

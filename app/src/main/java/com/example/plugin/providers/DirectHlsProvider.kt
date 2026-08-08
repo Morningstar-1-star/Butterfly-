@@ -9,28 +9,22 @@ class DirectHlsProvider : ContentProviderApi {
 
     override val providerId: String = "direct_hls"
 
-    override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val sampleList = listOf(
-            PluginVideoItem(
-                id = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-                title = "Big Buck Bunny (HLS Stream)",
-                uploaderName = "Mux Test Streams",
-                thumbnailUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500",
-                providerId = providerId
-            ),
-            PluginVideoItem(
-                id = "https://playertest.longtailvideo.com/adaptive/bipbop/gear4/prog_index.m3u8",
-                title = "Apple BipBop Adaptive HLS Test",
-                uploaderName = "JWPlayer / Apple",
-                thumbnailUrl = "https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0?w=500",
-                providerId = providerId
-            )
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "Direct HLS / M3U8 Stream Loader",
+            enabled = true,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
         )
-        PagedResult(items = sampleList)
+    }
+
+    override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        PagedResult(items = emptyList())
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        if (query.startsWith("http") && (query.contains(".m3u8") || query.contains(".m3u"))) {
+        if (query.startsWith("http", ignoreCase = true) && (query.contains(".m3u8", ignoreCase = true) || query.contains(".m3u", ignoreCase = true))) {
             PagedResult(
                 items = listOf(
                     PluginVideoItem(
@@ -42,7 +36,7 @@ class DirectHlsProvider : ContentProviderApi {
                 )
             )
         } else {
-            home(pageToken)
+            PagedResult(items = emptyList())
         }
     }
 
@@ -56,13 +50,9 @@ class DirectHlsProvider : ContentProviderApi {
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        PluginStreamInfo(
-            id = idOrUrl,
-            url = idOrUrl,
-            title = idOrUrl.substringAfterLast("/"),
-            channelName = "Live HLS Stream",
-            hlsUrl = idOrUrl,
-            videoStreams = listOf(
+        val isValidUrl = idOrUrl.startsWith("http", ignoreCase = true)
+        val streams = if (isValidUrl) {
+            listOf(
                 PluginVideoStream(
                     url = idOrUrl,
                     qualityLabel = "Adaptive HLS",
@@ -70,6 +60,15 @@ class DirectHlsProvider : ContentProviderApi {
                     isMuxed = true
                 )
             )
+        } else emptyList()
+
+        PluginStreamInfo(
+            id = idOrUrl,
+            url = streams.firstOrNull()?.url ?: "",
+            title = idOrUrl.substringAfterLast("/"),
+            channelName = "Live HLS Stream",
+            hlsUrl = if (isValidUrl) idOrUrl else null,
+            videoStreams = streams
         )
     }
 
@@ -90,6 +89,6 @@ class DirectHlsProvider : ContentProviderApi {
     }
 
     override suspend fun getRecommendations(idOrUrl: String): List<PluginVideoItem> = withContext(Dispatchers.IO) {
-        home().items
+        emptyList()
     }
 }

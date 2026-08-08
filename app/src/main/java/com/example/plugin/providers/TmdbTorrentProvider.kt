@@ -20,6 +20,18 @@ class TmdbTorrentProvider(
 
     override val providerId: String = "tmdb_movies"
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "TMDB Movies & Series",
+            enabled = true,
+            endpoint = BASE_URL,
+            supportsDirectStreams = true,
+            supportsTorrents = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val url = "$BASE_URL/trending/all/day?api_key=$API_KEY&page=$page"
@@ -224,26 +236,23 @@ class TmdbTorrentProvider(
             val voteAvg = item.optDouble("vote_average", 7.5)
             val formattedScore = if (voteAvg > 0) String.format("%.1f", voteAvg) else "7.8"
 
-            val studioName = getStudioName(title, isTv)
+            val voteCount = item.optLong("vote_count", 0L)
             val metadataStr = if (isTv) {
-                "★ $formattedScore • $year • S${(1..4).random()} • ${(12..30).random()} ep"
+                "★ $formattedScore • $year • TV"
             } else {
                 "★ $formattedScore • $year"
             }
 
             val imgPath = if (backdrop.isNotEmpty()) "https://image.tmdb.org/t/p/w780$backdrop" else if (poster.isNotEmpty()) "$IMAGE_BASE_URL$poster" else null
 
-            val simulatedViews = (10000..99000).random().toLong()
-            val simulatedDuration = if (isTv) (25..60).random() * 60L else (90..165).random() * 60L
-
             list.add(
                 PluginVideoItem(
                     id = if (isTv) "tv_$id" else "$id",
                     title = title,
-                    uploaderName = studioName,
+                    uploaderName = getStudioName(title, isTv),
                     uploadDate = metadataStr,
-                    viewCount = simulatedViews,
-                    durationSeconds = simulatedDuration,
+                    viewCount = voteCount,
+                    durationSeconds = 0L,
                     thumbnailUrl = imgPath,
                     providerId = providerId
                 )
@@ -257,16 +266,10 @@ class TmdbTorrentProvider(
         return when {
             lower.contains("spider") || lower.contains("avengers") || lower.contains("marvel") || lower.contains("iron man") || lower.contains("thor") -> "Marvel Studios"
             lower.contains("batman") || lower.contains("superman") || lower.contains("joker") || lower.contains("dc") -> "DC Studios"
-            lower.contains("odyssey") || lower.contains("fast") || lower.contains("jurassic") || lower.contains("minions") || lower.contains("oppenheimer") -> "Universal Pictures"
-            lower.contains("star wars") || lower.contains("avatar") || lower.contains("silo") || lower.contains("simpsons") || lower.contains("futurama") -> "20th Century Fox Television"
-            lower.contains("evil dead") || lower.contains("backrooms") || lower.contains("conjuring") -> "Atomic Monster"
-            lower.contains("obsession") || lower.contains("devil") || lower.contains("mouth") -> "Tea Shop Productions"
-            lower.contains("rings") || lower.contains("dune") || lower.contains("warner") -> "New Line Cinema"
-            lower.contains("walking") || lower.contains("amc") -> "AMC Studios"
-            lower.contains("amazon") || lower.contains("mgm") || lower.contains("boys") -> "Amazon MGM Studios"
+            lower.contains("star wars") || lower.contains("avatar") -> "20th Century Studios"
             lower.contains("paramount") || lower.contains("sonic") || lower.contains("top gun") -> "Paramount Pictures"
-            isTv -> listOf("AMC Studios", "20th Century Fox Television", "HBO Entertainment", "Netflix Studios", "Amazon MGM Studios", "Warner Bros. Television").random()
-            else -> listOf("Universal Pictures", "Paramount Pictures", "Columbia Pictures", "20th Century Studios", "Warner Bros. Pictures", "Atlas Entertainment").random()
+            isTv -> "TV Network"
+            else -> "Film Studio"
         }
     }
 

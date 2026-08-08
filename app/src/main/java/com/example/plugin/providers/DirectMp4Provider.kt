@@ -1,6 +1,5 @@
 package com.example.plugin.providers
 
-import com.example.plugin.bridge.HttpBridge
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.*
 import kotlinx.coroutines.Dispatchers
@@ -10,35 +9,22 @@ class DirectMp4Provider : ContentProviderApi {
 
     override val providerId: String = "direct_mp4"
 
-    override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val sampleList = listOf(
-            PluginVideoItem(
-                id = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                title = "Big Buck Bunny (Direct MP4)",
-                uploaderName = "Blender Foundation",
-                thumbnailUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500",
-                providerId = providerId
-            ),
-            PluginVideoItem(
-                id = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                title = "Elephant's Dream (Direct MP4)",
-                uploaderName = "Blender Foundation",
-                thumbnailUrl = "https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0?w=500",
-                providerId = providerId
-            ),
-            PluginVideoItem(
-                id = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                title = "For Bigger Blazes (Direct MP4)",
-                uploaderName = "Google Chromecast",
-                thumbnailUrl = "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500",
-                providerId = providerId
-            )
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "Direct MP4 Stream Loader",
+            enabled = true,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
         )
-        PagedResult(items = sampleList)
+    }
+
+    override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        PagedResult(items = emptyList())
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        if (query.startsWith("http") && query.contains(".mp4")) {
+        if (query.startsWith("http", ignoreCase = true) && query.contains(".mp4", ignoreCase = true)) {
             PagedResult(
                 items = listOf(
                     PluginVideoItem(
@@ -50,7 +36,7 @@ class DirectMp4Provider : ContentProviderApi {
                 )
             )
         } else {
-            home(pageToken)
+            PagedResult(items = emptyList())
         }
     }
 
@@ -64,19 +50,24 @@ class DirectMp4Provider : ContentProviderApi {
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        PluginStreamInfo(
-            id = idOrUrl,
-            url = idOrUrl,
-            title = idOrUrl.substringAfterLast("/"),
-            channelName = "Direct Stream",
-            videoStreams = listOf(
+        val isValidUrl = idOrUrl.startsWith("http", ignoreCase = true)
+        val streams = if (isValidUrl) {
+            listOf(
                 PluginVideoStream(
                     url = idOrUrl,
-                    qualityLabel = "1080p",
+                    qualityLabel = "Direct MP4",
                     format = "mp4",
                     isMuxed = true
                 )
             )
+        } else emptyList()
+
+        PluginStreamInfo(
+            id = idOrUrl,
+            url = streams.firstOrNull()?.url ?: "",
+            title = idOrUrl.substringAfterLast("/"),
+            channelName = "Direct Stream",
+            videoStreams = streams
         )
     }
 
@@ -97,6 +88,6 @@ class DirectMp4Provider : ContentProviderApi {
     }
 
     override suspend fun getRecommendations(idOrUrl: String): List<PluginVideoItem> = withContext(Dispatchers.IO) {
-        home().items
+        emptyList()
     }
 }

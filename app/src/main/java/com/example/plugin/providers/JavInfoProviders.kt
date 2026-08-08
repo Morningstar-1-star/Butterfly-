@@ -16,6 +16,17 @@ class JavInfoFanzaProvider(
     override val providerId: String = "javinfo_fanza"
     private val apiBase = "https://api.javinfo.dev/movie"
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "FANZA / JavInfo Provider",
+            enabled = true,
+            endpoint = apiBase,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     private val defaultPopularCodes = listOf(
         "SSIS-001", "CAWD-001", "IPX-100", "STSK-236", "HMDNV-949",
         "SIRO-5681", "MIAB-001", "JUL-001", "ADN-001", "MIDE-001"
@@ -36,7 +47,7 @@ class JavInfoFanzaProvider(
                     title = "[$code] FANZA High Definition JAV",
                     uploaderName = "FANZA • JavInfo",
                     uploadDate = "★ 9.8 • 2026",
-                    viewCount = (35000..150000).random().toLong(),
+                    viewCount = 0L,
                     durationSeconds = 7200L,
                     thumbnailUrl = "https://pics.dmm.co.jp/digital/video/${code.lowercase().replace("-", "")}/${code.lowercase().replace("-", "")}pl.jpg",
                     providerId = providerId
@@ -58,7 +69,7 @@ class JavInfoFanzaProvider(
                 title = "[$cleanCode] FANZA Official JAV Stream",
                 uploaderName = "FANZA • JavInfo",
                 uploadDate = "★ 9.6 • 2026",
-                viewCount = (40000..180000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = 7200L,
                 thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                 providerId = providerId
@@ -138,7 +149,7 @@ class JavInfoFanzaProvider(
                 title = title.ifBlank { "[$dvdId] FANZA Video" },
                 uploaderName = "$dvdId • $makerStr",
                 uploadDate = "★ 9.8 • $releaseDate",
-                viewCount = (50000..200000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = runtime * 60L,
                 thumbnailUrl = jacketUrl.ifBlank { "https://pics.dmm.co.jp/digital/video/${dvdId.lowercase().replace("-", "")}/${dvdId.lowercase().replace("-", "")}pl.jpg" },
                 providerId = providerId
@@ -160,6 +171,17 @@ class JavInfoJavDbProvider(
     override val providerId: String = "javinfo_javdb"
     private val apiBase = "https://api.javinfo.dev/movie"
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "JavDB / JavInfo Provider",
+            enabled = true,
+            endpoint = apiBase,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     private val defaultPopularCodes = listOf(
         "CAWD-001", "SSIS-001", "IPX-100", "STSK-236", "HMDNV-949",
         "SIRO-5681", "MIAB-001", "JUL-001", "ADN-001", "MIDE-001"
@@ -180,7 +202,7 @@ class JavInfoJavDbProvider(
                     title = "[$code] JavDB High Definition Release",
                     uploaderName = "JavDB • JavInfo",
                     uploadDate = "★ 9.6 • 2026",
-                    viewCount = (30000..140000).random().toLong(),
+                    viewCount = 0L,
                     durationSeconds = 7200L,
                     thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                     providerId = providerId
@@ -202,7 +224,7 @@ class JavInfoJavDbProvider(
                 title = "[$cleanCode] JavDB Video Entry",
                 uploaderName = "JavDB • JavInfo",
                 uploadDate = "★ 9.5 • 2026",
-                viewCount = (35000..160000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = 7200L,
                 thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                 providerId = providerId
@@ -318,7 +340,7 @@ class JavInfoJavDbProvider(
                 title = "[$dvdId] JavDB Multi-Source Release",
                 uploaderName = "$dvdId • JavDB",
                 uploadDate = "★ $score ($voteCount votes)",
-                viewCount = (40000..190000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = runtime * 60L,
                 thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                 providerId = providerId

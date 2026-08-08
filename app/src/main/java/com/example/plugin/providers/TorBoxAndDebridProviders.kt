@@ -1,8 +1,11 @@
 package com.example.plugin.providers
 
+import android.content.Context
 import com.example.plugin.bridge.HttpBridge
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.*
+import com.example.util.DebridSettingsManager
+import com.example.utils.TorrentUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -21,10 +24,27 @@ class TorBoxProvider(
         supportsTorrent = true
     )
 
+    override fun getProviderConfig(context: Context?): ProviderConfig {
+        val key = if (context != null) DebridSettingsManager.getTorBoxApiKey(context) else ""
+        val hasKey = key.isNotBlank()
+        return ProviderConfig(
+            id = providerId,
+            name = "TorBox Debrid API",
+            enabled = true,
+            endpoint = "https://api.torbox.app",
+            requiresApiKey = true,
+            apiKey = if (hasKey) key else null,
+            supportsDirectStreams = true,
+            supportsTorrents = true,
+            supportsDebrid = true,
+            healthStatus = if (hasKey) ProviderHealthStatus.READY else ProviderHealthStatus.CONFIGURATION_REQUIRED
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = search("popular", pageToken)
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        PagedResult(listOf(PluginVideoItem(id = "torbox_$query", title = "TorBox: $query", uploaderName = "TorBox Debrid API", providerId = providerId)))
+        PagedResult(emptyList())
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -32,16 +52,20 @@ class TorBoxProvider(
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        val streams = listOf(
-            PluginVideoStream(
-                url = "https://api.torbox.app/v1/api/torrents/requestdl?hash=$idOrUrl",
-                qualityLabel = "TorBox High Speed Direct Cache 1080p",
-                format = "mp4",
-                height = 1080,
-                codec = "HEVC"
+        val videoStreams = mutableListOf<PluginVideoStream>()
+        val hash = TorrentUtils.extractInfoHash(idOrUrl)
+        if (hash != null) {
+            val magnet = TorrentUtils.formatMagnetUrl(hash, "TorBox Torrent")
+            videoStreams.add(
+                PluginVideoStream(
+                    url = magnet,
+                    qualityLabel = "TorBox Debrid Target Torrent",
+                    format = "torrent",
+                    isMuxed = true
+                )
             )
-        )
-        PluginStreamInfo(id = idOrUrl, url = streams.first().url, title = "TorBox Debrid Stream", channelName = "TorBox", videoStreams = streams)
+        }
+        PluginStreamInfo(id = idOrUrl, url = videoStreams.firstOrNull()?.url ?: "", title = "TorBox Debrid Stream", channelName = "TorBox", videoStreams = videoStreams)
     }
 }
 
@@ -60,10 +84,24 @@ class EasyDebridProvider(
         supportsTorrent = true
     )
 
+    override fun getProviderConfig(context: Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "EasyDebrid Cloud",
+            enabled = true,
+            endpoint = "https://easydebrid.com",
+            requiresApiKey = true,
+            supportsDirectStreams = true,
+            supportsTorrents = true,
+            supportsDebrid = true,
+            healthStatus = ProviderHealthStatus.CONFIGURATION_REQUIRED
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = search("popular", pageToken)
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        PagedResult(listOf(PluginVideoItem(id = "easy_$query", title = "EasyDebrid: $query", uploaderName = "EasyDebrid Cloud", providerId = providerId)))
+        PagedResult(emptyList())
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -71,16 +109,7 @@ class EasyDebridProvider(
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        val streams = listOf(
-            PluginVideoStream(
-                url = "https://easydebrid.com/api/v1/link/unrestrict?link=$idOrUrl",
-                qualityLabel = "EasyDebrid Instant Cloud 1080p",
-                format = "mp4",
-                height = 1080,
-                codec = "H264"
-            )
-        )
-        PluginStreamInfo(id = idOrUrl, url = streams.first().url, title = "EasyDebrid Stream", channelName = "EasyDebrid", videoStreams = streams)
+        PluginStreamInfo(id = idOrUrl, url = "", title = "EasyDebrid Stream", channelName = "EasyDebrid", videoStreams = emptyList())
     }
 }
 
@@ -100,10 +129,23 @@ class JackettProwlarrProvider(
         supportsTorrent = true
     )
 
+    override fun getProviderConfig(context: Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "Jackett / Prowlarr Self-Hosted Indexer",
+            enabled = true,
+            endpoint = "http://localhost:9696",
+            requiresApiKey = true,
+            supportsDirectStreams = false,
+            supportsTorrents = true,
+            healthStatus = ProviderHealthStatus.CONFIGURATION_REQUIRED
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = search("latest", pageToken)
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        PagedResult(listOf(PluginVideoItem(id = "jp_$query", title = "Prowlarr Indexer: $query", uploaderName = "Jackett/Prowlarr", providerId = providerId)))
+        PagedResult(emptyList())
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -111,15 +153,6 @@ class JackettProwlarrProvider(
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        val streams = listOf(
-            PluginVideoStream(
-                url = "magnet:?xt=urn:btih:$idOrUrl&dn=ProwlarrResult",
-                qualityLabel = "Prowlarr Multitracker Magnet 1080p",
-                format = "magnet",
-                height = 1080,
-                codec = "HEVC"
-            )
-        )
-        PluginStreamInfo(id = idOrUrl, url = streams.first().url, title = "Prowlarr Magnet Stream", channelName = "Jackett/Prowlarr", videoStreams = streams)
+        PluginStreamInfo(id = idOrUrl, url = "", title = "Prowlarr Magnet Stream", channelName = "Jackett/Prowlarr", videoStreams = emptyList())
     }
 }

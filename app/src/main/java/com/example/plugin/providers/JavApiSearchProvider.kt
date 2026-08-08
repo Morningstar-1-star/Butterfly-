@@ -21,6 +21,17 @@ class JavApiSearchProvider(
         "HMDNV-949", "SIRO-5681", "MIAB-001", "JUL-001", "ADN-001"
     )
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "JavAPI Search Engine",
+            enabled = true,
+            endpoint = baseUrl,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val items = mutableListOf<PluginVideoItem>()
@@ -36,7 +47,7 @@ class JavApiSearchProvider(
                     title = "[$code] Aggregated JAV Search & Scrapers",
                     uploaderName = "JavDB + 8 Scrapers • javapi",
                     uploadDate = "★ 9.7 • 2026",
-                    viewCount = (30000..160000).random().toLong(),
+                    viewCount = 0L,
                     durationSeconds = 7200L,
                     thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                     providerId = providerId
@@ -59,7 +70,7 @@ class JavApiSearchProvider(
                 title = "[$cleanCode] Aggregated JAV Video",
                 uploaderName = "JavDB + Scrapers",
                 uploadDate = "★ 9.4 • 2026",
-                viewCount = (35000..180000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = 7200L,
                 thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                 providerId = providerId
@@ -212,7 +223,7 @@ class JavApiSearchProvider(
                 title = title,
                 uploaderName = "$number • $maker",
                 uploadDate = "★ $score • JavDB + Scrapers",
-                viewCount = (30000..180000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = duration * 60L,
                 thumbnailUrl = thumbUrl.ifBlank { coverUrl },
                 providerId = providerId

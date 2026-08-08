@@ -54,7 +54,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pluginManager = PluginManager(application)
     val repositoryManager = RepositoryManager(application, pluginManager)
     val extensionManager = ExtensionManager(application, pluginManager, repositoryManager)
-    private val sourcePipelineEngine = com.example.plugin.manager.SourcePipelineEngine()
+    private val sourcePipelineEngine = com.example.plugin.manager.SourcePipelineEngine(context = application)
+
+    private val _torBoxApiKey = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getTorBoxApiKey(application)
+    )
+    val torBoxApiKey: StateFlow<String> = _torBoxApiKey.asStateFlow()
+
+    fun updateTorBoxApiKey(key: String) {
+        com.example.util.DebridSettingsManager.setTorBoxApiKey(getApplication(), key)
+        _torBoxApiKey.value = key.trim()
+    }
+
+    private val _orionApiKey = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getOrionApiKey(application)
+    )
+    val orionApiKey: StateFlow<String> = _orionApiKey.asStateFlow()
+
+    fun updateOrionApiKey(key: String) {
+        com.example.util.DebridSettingsManager.setOrionApiKey(getApplication(), key)
+        _orionApiKey.value = key.trim()
+    }
+
+    private val _cometUrl = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getCometEndpoint(application)
+    )
+    val cometUrl: StateFlow<String> = _cometUrl.asStateFlow()
+
+    fun updateCometUrl(url: String) {
+        com.example.util.DebridSettingsManager.setCometEndpoint(getApplication(), url)
+        _cometUrl.value = url.trim()
+    }
+
+    private val _mediaFusionUrl = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getMediaFusionEndpoint(application)
+    )
+    val mediaFusionUrl: StateFlow<String> = _mediaFusionUrl.asStateFlow()
+
+    fun updateMediaFusionUrl(url: String) {
+        com.example.util.DebridSettingsManager.setMediaFusionEndpoint(getApplication(), url)
+        _mediaFusionUrl.value = url.trim()
+    }
+
+    private val _zileanUrl = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getZileanEndpoint(application)
+    )
+    val zileanUrl: StateFlow<String> = _zileanUrl.asStateFlow()
+
+    fun updateZileanUrl(url: String) {
+        com.example.util.DebridSettingsManager.setZileanEndpoint(getApplication(), url)
+        _zileanUrl.value = url.trim()
+    }
 
     private val _failedSourceLogs = MutableStateFlow<List<com.example.model.FailedSourceLog>>(emptyList())
     val failedSourceLogs: StateFlow<List<com.example.model.FailedSourceLog>> = _failedSourceLogs.asStateFlow()
@@ -735,7 +785,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val activeId = _activeProviderId.value
                 val combined = mutableListOf<VideoItem>()
-                val pageToken = if (forceRefresh) (1..5).random().toString() else null
+                val pageToken: String? = null
 
                 if (activeId == "all") {
                     val activeProviders = pluginManager.getAllAvailableProviders().filter {
@@ -852,47 +902,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val provider = pluginManager.getProvider(targetProviderId)
-                if (provider != null) {
-                    val streamInfo = provider.getStreams(cleanIdOrUrl)
-                    val primaryRecs = try { provider.getRecommendations(cleanIdOrUrl) } catch (e: Exception) { emptyList() }
-                    val primaryVideoItems = primaryRecs.map { item ->
-                        VideoItem(
-                            id = item.id,
-                            title = item.title,
-                            uploaderName = item.uploaderName,
-                            uploaderUrl = item.uploaderUrl,
-                            uploaderAvatarUrl = item.uploaderAvatarUrl,
-                            viewCount = item.viewCount,
-                            durationSeconds = item.durationSeconds,
-                            uploadDate = item.uploadDate,
-                            thumbnailUrl = item.thumbnailUrl,
-                            providerId = targetProviderId
-                        )
-                    }
+                val apiKey = com.example.util.DebridSettingsManager.getTorBoxApiKey(getApplication())
+                val allProviders = pluginManager.getAllAvailableProviders()
+                val enabledProvidersList = if (_enabledProviderIds.value.contains("all") || _enabledProviderIds.value.isEmpty()) {
+                    allProviders
+                } else {
+                    allProviders.filter { _enabledProviderIds.value.contains(it.providerId) }
+                }
 
-                    // MULTI-SOURCE RECOMMENDATIONS: Interleave recommendations with different active providers & sources
-                    val otherSourceItems = (_trendingVideos.value + _searchResults.value)
-                        .filter { it.providerId != targetProviderId && it.id != cleanIdOrUrl }
-                        .distinctBy { (it.providerId ?: "") + "_" + it.id }
+                val pipelineResult = sourcePipelineEngine.discoverAndRankStreams(
+                    idOrUrl = cleanIdOrUrl,
+                    providers = enabledProvidersList,
+                    torBoxApiKey = apiKey,
+                    targetProviderId = targetProviderId
+                )
 
-                    val multiSourceRecs = mutableListOf<VideoItem>()
-                    val maxItems = maxOf(primaryVideoItems.size, otherSourceItems.size)
-                    for (i in 0 until maxItems) {
-                        if (i < primaryVideoItems.size) multiSourceRecs.add(primaryVideoItems[i])
-                        if (i < otherSourceItems.size) multiSourceRecs.add(otherSourceItems[i])
-                    }
+                if (pipelineResult.failedLogs.isNotEmpty()) {
+                    pipelineResult.failedLogs.forEach { recordFailedSource(it) }
+                }
 
-                    val recVideoItems = if (multiSourceRecs.isNotEmpty()) {
-                        multiSourceRecs.distinctBy { (it.providerId ?: "") + "_" + it.id }.take(20)
-                    } else {
-                        _trendingVideos.value.filter { it.id != cleanIdOrUrl }.take(15)
-                    }
-
-                    val streamData = streamInfo.toStreamData(targetProviderId, recVideoItems)
+                if (pipelineResult.playableStreams.isNotEmpty()) {
+                    val streamData = StreamData(
+                        videoId = cleanIdOrUrl,
+                        title = currentMatch?.title ?: cleanIdOrUrl,
+                        channelName = currentMatch?.uploaderName ?: targetProviderId ?: "Butterfly Stream",
+                        availableStreamOptions = pipelineResult.playableStreams,
+                        selectedStreamOption = pipelineResult.playableStreams.first(),
+                        captionOptions = emptyList(),
+                        relatedVideos = _trendingVideos.value.filter { it.id != cleanIdOrUrl }.take(15)
+                    )
                     _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                     _selectedStreamOption.value = streamData.selectedStreamOption
-                    _selectedCaptionOption.value = streamData.captionOptions.firstOrNull()
+                    _selectedCaptionOption.value = null
                     startServerAutoScanner(streamData.availableStreamOptions)
                 } else {
                     val result = YouTubeExtractorHelper.fetchStreamData(cleanIdOrUrl)

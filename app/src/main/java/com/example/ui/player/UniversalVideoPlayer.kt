@@ -79,27 +79,13 @@ fun UniversalVideoPlayer(
     var playerError by remember { mutableStateOf<String?>(null) }
     var forceWebViewFallback by remember { mutableStateOf(false) }
 
-    val isMagnetLink = remember(rawVideoUrl) {
-        val url = rawVideoUrl?.lowercase() ?: ""
-        url.startsWith("magnet:") || url.contains("magnet:?xt=")
+    val playbackSourceType = remember(rawVideoUrl, streamOption, forceWebViewFallback) {
+        if (forceWebViewFallback) com.example.model.PlaybackSourceType.EMBED_WEBVIEW
+        else com.example.model.PlaybackDecisionResolver.determineSourceType(rawVideoUrl, streamOption?.format)
     }
 
-    val isEmbedOrWebPage = remember(rawVideoUrl, streamOption, forceWebViewFallback, isMagnetLink) {
-        if (isMagnetLink) return@remember false // Magnets are handled by TorrentResolver -> ExoPlayer pipeline
-        if (forceWebViewFallback) return@remember true
-        val url = rawVideoUrl?.lowercase() ?: ""
-        val fmt = streamOption?.format?.lowercase() ?: ""
-        fmt == "embed" ||
-                url.contains("embed") ||
-                url.contains("eporner.com") ||
-                url.contains("apijav") ||
-                url.contains("dailymotion.com") ||
-                url.contains("vimeo.com") ||
-                url.contains("peertube") ||
-                url.contains("nvembed") ||
-                url.contains("mvembed") ||
-                (url.startsWith("http") && !url.contains(".mp4") && !url.contains(".m3u8") && !url.contains(".mkv") && !url.contains("googlevideo.com"))
-    }
+    val isMagnetLink = playbackSourceType == com.example.model.PlaybackSourceType.MAGNET
+    val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
 
     // Playback Speed & Scaling Controls
     var playbackSpeed by remember { mutableStateOf(1.0f) }

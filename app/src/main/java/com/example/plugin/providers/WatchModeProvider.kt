@@ -22,6 +22,17 @@ class WatchModeProvider(
 
     override val providerId: String = "watchmode"
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "WatchMode Streaming Aggregator",
+            enabled = true,
+            endpoint = BASE_URL,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val url = "$BASE_URL/list-titles/?apiKey=$API_KEY&limit=25&page=$page"
@@ -249,7 +260,7 @@ class WatchModeProvider(
                     title = title,
                     uploaderName = if (isTv) "TV Series (WatchMode)" else "Movie (WatchMode)",
                     uploadDate = metadataStr,
-                    viewCount = (15000..85000).random().toLong(),
+                    viewCount = 0L,
                     durationSeconds = if (isTv) 2700L else 6600L,
                     thumbnailUrl = null,
                     providerId = providerId

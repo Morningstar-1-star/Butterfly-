@@ -201,6 +201,150 @@ fun SettingsScreen(
                         }
                     }
 
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    val torBoxKey by viewModel.torBoxApiKey.collectAsState()
+                    var keyInput by remember(torBoxKey) { mutableStateOf(torBoxKey) }
+
+                    val orionKey by viewModel.orionApiKey.collectAsState()
+                    var orionInput by remember(orionKey) { mutableStateOf(orionKey) }
+
+                    val cometUrl by viewModel.cometUrl.collectAsState()
+                    var cometInput by remember(cometUrl) { mutableStateOf(cometUrl) }
+
+                    val mediaFusionUrl by viewModel.mediaFusionUrl.collectAsState()
+                    var mediaFusionInput by remember(mediaFusionUrl) { mutableStateOf(mediaFusionUrl) }
+
+                    val zileanUrl by viewModel.zileanUrl.collectAsState()
+                    var zileanInput by remember(zileanUrl) { mutableStateOf(zileanUrl) }
+
+                    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column {
+                            Text(
+                                text = "TorBox Debrid API Key",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Required to resolve and stream cached torrent magnets directly via Debrid",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = keyInput,
+                                onValueChange = {
+                                    keyInput = it
+                                    viewModel.updateTorBoxApiKey(it)
+                                },
+                                placeholder = { Text("Enter TorBox API Key...") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Orion Stremio API Key",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Required for Orion indexer queries (returns CONFIGURATION_REQUIRED if empty)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = orionInput,
+                                onValueChange = {
+                                    orionInput = it
+                                    viewModel.updateOrionApiKey(it)
+                                },
+                                placeholder = { Text("Enter Orion API Key...") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Comet Stremio Add-on Endpoint",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Base URL for Comet Stremio streams (e.g. https://comet.elfhosted.com)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = cometInput,
+                                onValueChange = {
+                                    cometInput = it
+                                    viewModel.updateCometUrl(it)
+                                },
+                                placeholder = { Text("https://comet.elfhosted.com") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "MediaFusion Stremio Add-on Endpoint",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Base URL for MediaFusion streams (e.g. https://mediafusion.elfhosted.com)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = mediaFusionInput,
+                                onValueChange = {
+                                    mediaFusionInput = it
+                                    viewModel.updateMediaFusionUrl(it)
+                                },
+                                placeholder = { Text("https://mediafusion.elfhosted.com") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Zilean DMM Indexer Endpoint",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Base URL for Zilean DMM metadata searches (e.g. https://zilean.elfhosted.com)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = zileanInput,
+                                onValueChange = {
+                                    zileanInput = it
+                                    viewModel.updateZileanUrl(it)
+                                },
+                                placeholder = { Text("https://zilean.elfhosted.com") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(
                         onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) },

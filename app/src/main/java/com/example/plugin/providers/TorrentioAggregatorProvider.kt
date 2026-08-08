@@ -1,5 +1,6 @@
 package com.example.plugin.providers
 
+import android.util.Log
 import com.example.plugin.bridge.HttpBridge
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.*
@@ -60,48 +61,19 @@ class TorrentioAggregatorProvider(
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        val cleanId = extractId(idOrUrl)
-        val isTv = idOrUrl.contains("tv_")
-        val type = if (isTv) "tv" else "movie"
-
-        // Parse Season and Episode dynamically if passed in idOrUrl (e.g. "tv_12345:2:3")
-        var season = 1
-        var episode = 1
-        if (isTv && idOrUrl.contains(":")) {
-            val parts = idOrUrl.split(":")
-            if (parts.size >= 3) {
-                season = parts[1].toIntOrNull() ?: 1
-                episode = parts[2].toIntOrNull() ?: 1
-            }
-        }
-
-        // Fetch IMDB ID from TMDB
-        val detailsUrl = "https://api.themoviedb.org/3/$type/$cleanId?api_key=$TMDB_API_KEY&append_to_response=external_ids"
-        var imdbId = ""
-        var title = "Torrent Stream"
-        var overview = ""
-
-        try {
-            val resp = http.get(detailsUrl)
-            if (resp.statusCode == 200) {
-                val json = JSONObject(resp.body)
-                title = json.optString("title").ifEmpty { json.optString("name", title) }
-                overview = json.optString("overview", "")
-                val extIds = json.optJSONObject("external_ids")
-                imdbId = extIds?.optString("imdb_id", "") ?: ""
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        val identity = com.example.util.MediaIdResolver.resolve(idOrUrl)
+        val stremioId = identity.toStremioImdbId()
+        Log.d("TorrentioProvider", "Requesting Torrentio streams for ID: $stremioId (raw: $idOrUrl)")
 
         val videoStreams = mutableListOf<PluginVideoStream>()
 
         // 1. Torrentio Streams (Prioritized)
-        if (imdbId.isNotEmpty() && imdbId.startsWith("tt")) {
+        if (stremioId != null) {
+            val isTv = identity.mediaType == com.example.model.MediaType.TV
             val streamUrl = if (isTv) {
-                "$BASE_URL/stream/series/$imdbId:$season:$episode.json"
+                "$BASE_URL/stream/series/$stremioId.json"
             } else {
-                "$BASE_URL/stream/movie/$imdbId.json"
+                "$BASE_URL/stream/movie/$stremioId.json"
             }
 
             try {
@@ -127,7 +99,7 @@ class TorrentioAggregatorProvider(
                                 )
                             )
                         } else if (infoHash.isNotEmpty()) {
-                            val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl(infoHash, "$title S${season}E${episode}")
+                            val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl(infoHash, streamTitle)
                             val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $streamTitle", "Torrentio")
                             videoStreams.add(
                                 PluginVideoStream(
@@ -146,11 +118,11 @@ class TorrentioAggregatorProvider(
         }
 
         PluginStreamInfo(
-            id = cleanId,
-            url = videoStreams.firstOrNull()?.url ?: "https://torrentio.strem.fun",
-            title = title,
+            id = idOrUrl,
+            url = videoStreams.firstOrNull()?.url ?: "",
+            title = "Torrentio Stream",
             channelName = "Torrentio Multi-Indexer",
-            description = overview,
+            description = "",
             videoStreams = videoStreams
         )
     }
@@ -199,26 +171,23 @@ class TorrentioAggregatorProvider(
             val voteAvg = item.optDouble("vote_average", 7.6)
             val formattedScore = if (voteAvg > 0) String.format("%.1f", voteAvg) else "7.9"
 
-            val studioName = getStudioName(title, isTv)
+            val voteCount = item.optLong("vote_count", 0L)
             val metadataStr = if (isTv) {
-                "★ $formattedScore • $year • S${(1..4).random()} • ${(12..30).random()} ep"
+                "★ $formattedScore • $year • TV"
             } else {
                 "★ $formattedScore • $year"
             }
 
             val imgPath = if (backdrop.isNotEmpty()) "https://image.tmdb.org/t/p/w780$backdrop" else if (poster.isNotEmpty()) "https://image.tmdb.org/t/p/w500$poster" else null
 
-            val simulatedViews = (12000..98000).random().toLong()
-            val simulatedDuration = if (isTv) (25..60).random() * 60L else (90..165).random() * 60L
-
             list.add(
                 PluginVideoItem(
                     id = if (isTv) "tv_$id" else "$id",
                     title = title,
-                    uploaderName = studioName,
+                    uploaderName = getStudioName(title, isTv),
                     uploadDate = metadataStr,
-                    viewCount = simulatedViews,
-                    durationSeconds = simulatedDuration,
+                    viewCount = voteCount,
+                    durationSeconds = 0L,
                     thumbnailUrl = imgPath,
                     providerId = providerId
                 )
@@ -232,16 +201,10 @@ class TorrentioAggregatorProvider(
         return when {
             lower.contains("spider") || lower.contains("avengers") || lower.contains("marvel") || lower.contains("iron man") || lower.contains("thor") -> "Marvel Studios"
             lower.contains("batman") || lower.contains("superman") || lower.contains("joker") || lower.contains("dc") -> "DC Studios"
-            lower.contains("odyssey") || lower.contains("fast") || lower.contains("jurassic") || lower.contains("minions") || lower.contains("oppenheimer") -> "Universal Pictures"
-            lower.contains("star wars") || lower.contains("avatar") || lower.contains("silo") || lower.contains("simpsons") || lower.contains("futurama") -> "20th Century Fox Television"
-            lower.contains("evil dead") || lower.contains("backrooms") || lower.contains("conjuring") -> "Atomic Monster"
-            lower.contains("obsession") || lower.contains("devil") || lower.contains("mouth") -> "Tea Shop Productions"
-            lower.contains("rings") || lower.contains("dune") || lower.contains("warner") -> "New Line Cinema"
-            lower.contains("walking") || lower.contains("amc") -> "AMC Studios"
-            lower.contains("amazon") || lower.contains("mgm") || lower.contains("boys") -> "Amazon MGM Studios"
+            lower.contains("star wars") || lower.contains("avatar") -> "20th Century Studios"
             lower.contains("paramount") || lower.contains("sonic") || lower.contains("top gun") -> "Paramount Pictures"
-            isTv -> listOf("AMC Studios", "20th Century Fox Television", "HBO Entertainment", "Netflix Studios", "Amazon MGM Studios", "Warner Bros. Television").random()
-            else -> listOf("Universal Pictures", "Paramount Pictures", "Columbia Pictures", "20th Century Studios", "Warner Bros. Pictures", "Atlas Entertainment").random()
+            isTv -> "TV Production"
+            else -> "Feature Studio"
         }
     }
 

@@ -52,7 +52,7 @@ class EztvTorrentProvider(
                 PluginVideoStream(
                     url = magnetUrl,
                     qualityLabel = "720p HDTV • EZTV",
-                    format = "embed",
+                    format = "torrent",
                     isMuxed = true
                 )
             )

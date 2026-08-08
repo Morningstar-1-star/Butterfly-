@@ -20,6 +20,17 @@ interface ContentProviderApi {
     val capabilities: ProviderCapabilities get() = ProviderCapabilities()
 
     /**
+     * Get Provider Configuration & Health Status
+     */
+    fun getProviderConfig(context: android.content.Context? = null): ProviderConfig = ProviderConfig(
+        id = providerId,
+        name = providerId.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() },
+        enabled = true,
+        supportsTorrents = capabilities.supportsTorrent,
+        healthStatus = ProviderHealthStatus.READY
+    )
+
+    /**
      * Fetch homepage feed / recommendations
      */
     suspend fun home(pageToken: String? = null): PagedResult<PluginVideoItem>

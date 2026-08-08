@@ -23,6 +23,17 @@ class JavInfoMissAvProvider(
         "SNIS-001", "SIVR-001", "TEK-001", "ABP-123", "FC2-2026"
     )
 
+    override fun getProviderConfig(context: android.content.Context?): ProviderConfig {
+        return ProviderConfig(
+            id = providerId,
+            name = "JavInfo / MissAV Provider",
+            enabled = true,
+            endpoint = apiBase,
+            supportsDirectStreams = true,
+            healthStatus = ProviderHealthStatus.READY
+        )
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val items = mutableListOf<PluginVideoItem>()
@@ -43,7 +54,7 @@ class JavInfoMissAvProvider(
                         title = "[$code] JAV High Definition Stream (MissAV)",
                         uploaderName = "MissAV • JavInfo",
                         uploadDate = "★ 9.4 • 2026",
-                        viewCount = (25000..120000).random().toLong(),
+                        viewCount = 0L,
                         durationSeconds = 7200L,
                         thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                         providerId = providerId
@@ -71,7 +82,7 @@ class JavInfoMissAvProvider(
                     title = "[$cleanQuery] JAV Full Length Video (MissAV)",
                     uploaderName = "MissAV • JavInfo",
                     uploadDate = "★ 9.2 • 2026",
-                    viewCount = (30000..150000).random().toLong(),
+                    viewCount = 0L,
                     durationSeconds = 6000L,
                     thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                     providerId = providerId
@@ -226,7 +237,7 @@ class JavInfoMissAvProvider(
                 title = title.ifBlank { "[$dvdId] MissAV JAV Video" },
                 uploaderName = if (studio.isNotBlank()) "$dvdId • $studio" else dvdId,
                 uploadDate = "★ 9.5 • HLS Stream",
-                viewCount = (18000..95000).random().toLong(),
+                viewCount = 0L,
                 durationSeconds = runtimeMins * 60L,
                 thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
                 providerId = providerId

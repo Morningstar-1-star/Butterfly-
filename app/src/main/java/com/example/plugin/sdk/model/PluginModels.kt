@@ -11,6 +11,59 @@ enum class ProviderType {
     OTHER
 }
 
+enum class ProviderHealthStatus {
+    READY,
+    CONFIGURATION_REQUIRED,
+    NETWORK_ERROR,
+    API_ERROR,
+    NO_RESULTS,
+    RATE_LIMITED,
+    DISABLED
+}
+
+@JsonClass(generateAdapter = true)
+data class ProviderConfig(
+    val id: String,
+    val name: String,
+    val enabled: Boolean = true,
+    val endpoint: String = "",
+    val requiresApiKey: Boolean = false,
+    val apiKey: String? = null,
+    val supportedMediaTypes: List<String> = listOf("movie", "series", "anime"),
+    val supportsDirectStreams: Boolean = true,
+    val supportsTorrents: Boolean = false,
+    val supportsDebrid: Boolean = false,
+    val supportsWebView: Boolean = false,
+    val healthStatus: ProviderHealthStatus = ProviderHealthStatus.READY,
+    val lastSuccessfulRequest: Long? = null,
+    val lastError: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ProviderResult(
+    val providerId: String,
+    val status: ProviderHealthStatus,
+    val streams: List<PluginVideoStream> = emptyList(),
+    val error: String? = null,
+    val latencyMs: Long = 0L
+)
+
+@JsonClass(generateAdapter = true)
+data class StreamSource(
+    val providerId: String,
+    val name: String,
+    val url: String,
+    val infoHash: String? = null,
+    val magnetUri: String? = null,
+    val quality: String? = null,
+    val codec: String? = null,
+    val size: Long? = null,
+    val seeders: Int? = null,
+    val sourceType: String? = null,
+    val headers: Map<String, String> = emptyMap(),
+    val behaviorHints: Map<String, String> = emptyMap()
+)
+
 @JsonClass(generateAdapter = true)
 data class ProviderCapabilities(
     val supportsSearch: Boolean = true,
