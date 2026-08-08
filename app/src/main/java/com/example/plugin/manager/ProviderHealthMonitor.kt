@@ -7,9 +7,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 
 enum class ProviderHealthStatus {
+    ONLINE,
+    DEGRADED,
+    OFFLINE,
+    TIMEOUT,
+    INVALID_RESPONSE,
+    // Legacy aliases for backwards compatibility
     ALIVE,
     SLOW,
-    OFFLINE,
     BLOCKED,
     MAINTENANCE
 }
@@ -44,7 +49,7 @@ class ProviderHealthMonitor {
         val current = healthMap[providerId] ?: return
         val newSuccess = current.successCount + 1
         val newAvgLatency = if (current.avgLatencyMs == 0L) latencyMs else (current.avgLatencyMs + latencyMs) / 2
-        val newStatus = if (newAvgLatency > 4000) ProviderHealthStatus.SLOW else ProviderHealthStatus.ALIVE
+        val newStatus = if (newAvgLatency > 3000) ProviderHealthStatus.DEGRADED else ProviderHealthStatus.ONLINE
 
         healthMap[providerId] = current.copy(
             status = newStatus,
@@ -62,10 +67,11 @@ class ProviderHealthMonitor {
         val newConsecutive = current.consecutiveFailures + 1
 
         val newStatus = when {
-            reason == StreamFailureReason.CLOUDFLARE_BLOCKED -> ProviderHealthStatus.BLOCKED
-            reason == StreamFailureReason.HTTP_403_FORBIDDEN -> ProviderHealthStatus.BLOCKED
+            reason == StreamFailureReason.TIMEOUT -> ProviderHealthStatus.TIMEOUT
+            reason == StreamFailureReason.PARSING_FAILED -> ProviderHealthStatus.INVALID_RESPONSE
+            reason == StreamFailureReason.CLOUDFLARE_BLOCKED || reason == StreamFailureReason.HTTP_403_FORBIDDEN -> ProviderHealthStatus.DEGRADED
             newConsecutive >= 3 -> ProviderHealthStatus.OFFLINE
-            newConsecutive >= 2 -> ProviderHealthStatus.SLOW
+            newConsecutive >= 2 -> ProviderHealthStatus.DEGRADED
             else -> current.status
         }
 

@@ -79,6 +79,7 @@ fun VideoPlayerScreen(
     var selectedPlayerTab by remember { mutableStateOf(com.example.ui.components.PlayerTab.SEASONS_EPISODES) }
 
     val trendingVideos by viewModel.trendingVideos.collectAsState()
+    val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
 
     val seasonsAndEpisodes = remember(currentStreamData) {
         currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
@@ -209,6 +210,7 @@ fun VideoPlayerScreen(
                         isPlaying = isPlaying,
                         videoId = activeVideoId,
                         initialPositionMs = initialPositionMs,
+                        failedSourceLogs = failedSourceLogs,
                         onProgressUpdate = { pos, dur ->
                             activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
                         }

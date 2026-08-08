@@ -40,6 +40,7 @@ fun DeveloperPanelDialog(
     rawJsonResponse: String = "",
     currentMagnetOrUrl: String = "",
     exoPlayerLogs: List<String> = emptyList(),
+    failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -50,7 +51,7 @@ fun DeveloperPanelDialog(
     val reportsState by intelligenceEngine.reportsState.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Providers & Health", "ExoPlayer Logs", "JSON & Magnet", "Source Intelligence")
+    val tabs = listOf("Providers & Health", "Failed Sources", "ExoPlayer Logs", "JSON & Magnet", "Source Intelligence")
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -139,9 +140,112 @@ fun DeveloperPanelDialog(
                 Box(modifier = Modifier.weight(1f)) {
                     when (selectedTab) {
                         0 -> ProviderHealthTab(healthRecords = healthState.values.toList(), intelReports = reportsState)
-                        1 -> ExoPlayerLogsTab(logs = exoPlayerLogs)
-                        2 -> JsonAndMagnetTab(rawJson = rawJsonResponse, magnetUrl = currentMagnetOrUrl)
-                        3 -> SourceIntelligenceTab(reportsState = reportsState)
+                        1 -> FailedSourcesTab(logs = failedSourceLogs)
+                        2 -> ExoPlayerLogsTab(logs = exoPlayerLogs)
+                        3 -> JsonAndMagnetTab(rawJson = rawJsonResponse, magnetUrl = currentMagnetOrUrl)
+                        4 -> SourceIntelligenceTab(reportsState = reportsState)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FailedSourcesTab(
+    logs: List<com.example.model.FailedSourceLog>
+) {
+    if (logs.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No failed sources recorded. All discovered streams are clean & playable!", style = MaterialTheme.typography.bodyMedium)
+        }
+    } else {
+        val dateFormat = remember { java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US) }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(logs.reversed()) { log ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${log.providerId.uppercase()} • ${log.sourceTitle}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = log.stage.name,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Error: ${log.errorType}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "HTTP Status: ${log.httpStatus ?: "N/A"}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = "URL Type: ${log.urlType}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Reason: ${log.failureReason}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Timestamp: ${dateFormat.format(java.util.Date(log.timestampMs))}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            color = Color.Gray
+                        )
+
+                        if (log.rawUrl.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = log.rawUrl,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }
@@ -188,11 +292,12 @@ private fun ProviderHealthTab(
                                     .clip(CircleShape)
                                     .background(
                                         when (record.status) {
-                                            ProviderHealthStatus.ALIVE -> Color(0xFF4CAF50)
-                                            ProviderHealthStatus.SLOW -> Color(0xFFFF9800)
+                                            ProviderHealthStatus.ONLINE, ProviderHealthStatus.ALIVE -> Color(0xFF4CAF50)
+                                            ProviderHealthStatus.DEGRADED, ProviderHealthStatus.SLOW -> Color(0xFFFF9800)
                                             ProviderHealthStatus.OFFLINE -> Color(0xFFF44336)
+                                            ProviderHealthStatus.TIMEOUT, ProviderHealthStatus.INVALID_RESPONSE -> Color(0xFFE91E63)
                                             ProviderHealthStatus.BLOCKED -> Color(0xFF9C27B0)
-                                            ProviderHealthStatus.MAINTENANCE -> Color.Gray
+                                            else -> Color.Gray
                                         }
                                     )
                             )

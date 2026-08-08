@@ -15,6 +15,7 @@ fun YouTubePlayerView(
     isPlaying: Boolean = true,
     videoId: String? = null,
     initialPositionMs: Long = 0L,
+    failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -27,6 +28,7 @@ fun YouTubePlayerView(
         isPlaying = isPlaying,
         videoId = videoId,
         initialPositionMs = initialPositionMs,
+        failedSourceLogs = failedSourceLogs,
         onProgressUpdate = onProgressUpdate,
         modifier = modifier
     )

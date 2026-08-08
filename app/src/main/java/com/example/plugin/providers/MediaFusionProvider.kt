@@ -54,42 +54,54 @@ class MediaFusionProvider(
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
         val cleanId = idOrUrl.replace("tt", "").replace("mf_", "")
-        val streamUrl = "$baseUrl/stream/movie/tt$cleanId.json"
+        val formattedImdb = if (cleanId.startsWith("tt")) cleanId else "tt$cleanId"
+        val isTv = idOrUrl.contains("series") || idOrUrl.contains("tv_")
+        val streamUrl = if (isTv) "$baseUrl/stream/series/$formattedImdb:1:1.json" else "$baseUrl/stream/movie/$formattedImdb.json"
+        
         val streams = mutableListOf<PluginVideoStream>()
 
         try {
             val response = http.get(streamUrl)
             if (response.statusCode == 200 && response.body.isNotBlank()) {
-                // Parse Stremio format streams
-                streams.add(
-                    PluginVideoStream(
-                        url = "$baseUrl/stream/play/mf_$cleanId.mp4",
-                        qualityLabel = "MediaFusion 1080p HEVC Multi-Audio",
-                        format = "mp4",
-                        height = 1080,
-                        codec = "HEVC"
-                    )
-                )
+                val json = org.json.JSONObject(response.body)
+                val streamArr = json.optJSONArray("streams") ?: org.json.JSONArray()
+                for (i in 0 until streamArr.length()) {
+                    val st = streamArr.getJSONObject(i)
+                    val title = st.optString("title", "MediaFusion Stream ${i + 1}")
+                    val name = st.optString("name", "MediaFusion")
+                    val url = st.optString("url")
+                    val infoHash = st.optString("infoHash")
+
+                    val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $title", "MediaFusion")
+                    if (url.isNotEmpty()) {
+                        streams.add(
+                            PluginVideoStream(
+                                url = url,
+                                qualityLabel = cleanLabel,
+                                format = if (url.contains(".m3u8")) "hls" else "mp4",
+                                isMuxed = true
+                            )
+                        )
+                    } else if (infoHash.isNotEmpty()) {
+                        val magnet = com.example.utils.TorrentUtils.formatMagnetUrl(infoHash, title)
+                        streams.add(
+                            PluginVideoStream(
+                                url = magnet,
+                                qualityLabel = cleanLabel,
+                                format = "torrent",
+                                isMuxed = true
+                            )
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
-            // Fallback stream
-        }
-
-        if (streams.isEmpty()) {
-            streams.add(
-                PluginVideoStream(
-                    url = "$baseUrl/manifest.json",
-                    qualityLabel = "MediaFusion 4K Debrid Stream",
-                    format = "mp4",
-                    height = 2160,
-                    codec = "HEVC"
-                )
-            )
+            e.printStackTrace()
         }
 
         PluginStreamInfo(
             id = idOrUrl,
-            url = streams.first().url,
+            url = streams.firstOrNull()?.url ?: "",
             title = "MediaFusion Stream",
             channelName = "MediaFusion Debrid",
             videoStreams = streams

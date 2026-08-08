@@ -145,15 +145,6 @@ class WatchModeProvider(
                 )
             )
 
-            val superEmbedUrl = if (isTv) "https://multitembed.com/direct.php?video_id=$effectiveTmdbId&s=1&e=1" else "https://multitembed.com/direct.php?video_id=$effectiveTmdbId"
-            streams.add(
-                PluginVideoStream(
-                    url = superEmbedUrl,
-                    qualityLabel = "HD • SuperEmbed",
-                    format = "embed",
-                    isMuxed = true
-                )
-            )
         }
 
         // If IMDB ID is present, fetch Torrentio streams

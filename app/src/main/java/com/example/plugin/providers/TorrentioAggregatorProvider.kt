@@ -64,6 +64,17 @@ class TorrentioAggregatorProvider(
         val isTv = idOrUrl.contains("tv_")
         val type = if (isTv) "tv" else "movie"
 
+        // Parse Season and Episode dynamically if passed in idOrUrl (e.g. "tv_12345:2:3")
+        var season = 1
+        var episode = 1
+        if (isTv && idOrUrl.contains(":")) {
+            val parts = idOrUrl.split(":")
+            if (parts.size >= 3) {
+                season = parts[1].toIntOrNull() ?: 1
+                episode = parts[2].toIntOrNull() ?: 1
+            }
+        }
+
         // Fetch IMDB ID from TMDB
         val detailsUrl = "https://api.themoviedb.org/3/$type/$cleanId?api_key=$TMDB_API_KEY&append_to_response=external_ids"
         var imdbId = ""
@@ -85,50 +96,10 @@ class TorrentioAggregatorProvider(
 
         val videoStreams = mutableListOf<PluginVideoStream>()
 
-        // Direct Web Stream Options (Guaranteed working in WebView)
-        val vidsrcUrl = if (isTv) "https://vidsrc.to/embed/tv/$cleanId/1/1" else "https://vidsrc.to/embed/movie/$cleanId"
-        videoStreams.add(
-            PluginVideoStream(
-                url = vidsrcUrl,
-                qualityLabel = "VidSrc Pro HD (Auto Play)",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
-        val vidsrcMeUrl = if (isTv) "https://vidsrc.me/embed/tv?tmdb=$cleanId" else "https://vidsrc.me/embed/movie?tmdb=$cleanId"
-        videoStreams.add(
-            PluginVideoStream(
-                url = vidsrcMeUrl,
-                qualityLabel = "VidSrc Mirror Stream",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
-        val superEmbedUrl = if (isTv) "https://multitembed.com/direct.php?video_id=$cleanId&s=1&e=1" else "https://multitembed.com/direct.php?video_id=$cleanId"
-        videoStreams.add(
-            PluginVideoStream(
-                url = superEmbedUrl,
-                qualityLabel = "SuperEmbed Cinema",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
-        val embed2Url = if (isTv) "https://www.2embed.cc/embedtv/$cleanId&s=1&e=1" else "https://www.2embed.cc/embed/$cleanId"
-        videoStreams.add(
-            PluginVideoStream(
-                url = embed2Url,
-                qualityLabel = "2Embed HD Server",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
+        // 1. Torrentio Streams (Prioritized)
         if (imdbId.isNotEmpty() && imdbId.startsWith("tt")) {
             val streamUrl = if (isTv) {
-                "$BASE_URL/stream/series/$imdbId:1:1.json"
+                "$BASE_URL/stream/series/$imdbId:$season:$episode.json"
             } else {
                 "$BASE_URL/stream/movie/$imdbId.json"
             }
@@ -151,18 +122,18 @@ class TorrentioAggregatorProvider(
                                 PluginVideoStream(
                                     url = url,
                                     qualityLabel = cleanLabel,
-                                    format = if (url.contains(".m3u8")) "hls" else "mp4",
+                                    format = if (url.contains(".m3u8")) "hls" else if (url.contains(".mp4") || url.contains(".mkv")) "mp4" else "torrent",
                                     isMuxed = true
                                 )
                             )
                         } else if (infoHash.isNotEmpty()) {
-                            val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl(infoHash, title)
+                            val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl(infoHash, "$title S${season}E${episode}")
                             val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $streamTitle", "Torrentio")
                             videoStreams.add(
                                 PluginVideoStream(
                                     url = magnetUrl,
                                     qualityLabel = cleanLabel,
-                                    format = "embed",
+                                    format = "torrent",
                                     isMuxed = true
                                 )
                             )

@@ -68,6 +68,12 @@ object GlobalPlayerManager {
         _firstFrameRendered.value = false
     }
 
+    private var playbackFailedListener: (() -> Unit)? = null
+
+    fun setPlaybackFailedListener(listener: (() -> Unit)?) {
+        playbackFailedListener = listener
+    }
+
     fun getExoPlayer(context: Context): ExoPlayer {
         if (exoPlayerInstance == null) {
             val player = ExoPlayer.Builder(context.applicationContext).build()
@@ -95,6 +101,7 @@ object GlobalPlayerManager {
                 override fun onPlayerError(error: PlaybackException) {
                     _playerError.value = error.localizedMessage ?: "Playback error"
                     _isPlaying.value = false
+                    playbackFailedListener?.invoke()
                 }
             })
             exoPlayerInstance = player

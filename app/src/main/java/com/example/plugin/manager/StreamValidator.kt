@@ -36,6 +36,7 @@ class StreamValidator {
         if (cleanUrl.startsWith("magnet:", ignoreCase = true)) {
             val hasXt = cleanUrl.contains("xt=urn:btih:", ignoreCase = true)
             return@withContext if (hasXt) {
+                // Magnet has valid infoHash metadata, but requires resolution before playback
                 StreamValidationResult(
                     isValid = true,
                     url = cleanUrl,

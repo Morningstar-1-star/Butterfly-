@@ -44,7 +44,6 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(TorrentioAggregatorProvider())
         registerNativeProvider(MediaFusionProvider())
         registerNativeProvider(CometProvider())
-        registerNativeProvider(KnightCrawlerProvider())
         registerNativeProvider(ZileanProvider())
         registerNativeProvider(VidSrcProvider())
         registerNativeProvider(OrionProvider())

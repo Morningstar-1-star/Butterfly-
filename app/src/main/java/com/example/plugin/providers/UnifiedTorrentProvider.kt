@@ -34,7 +34,6 @@ class UnifiedTorrentProvider(
             TorrentioAggregatorProvider(http),
             MediaFusionProvider(http),
             CometProvider(http),
-            KnightCrawlerProvider(http),
             ZileanProvider(http),
             VidSrcProvider(http),
             OrionProvider(http),
@@ -155,11 +154,33 @@ class UnifiedTorrentProvider(
                 }
             }
 
-            // Deduplicate streams
-            val rawStreams = combinedVideoStreams.distinctBy { (it.url ?: "") + "_" + it.qualityLabel }
+            // Deduplicate streams strictly by InfoHash and Normalized URL
+            val seenHashes = mutableSetOf<String>()
+            val seenUrls = mutableSetOf<String>()
+            val deduplicatedList = mutableListOf<PluginVideoStream>()
+
+            for (stream in combinedVideoStreams) {
+                val url = stream.url ?: continue
+                var hash: String? = null
+                if (url.contains("xt=urn:btih:", ignoreCase = true)) {
+                    val match = Regex("xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})", RegexOption.IGNORE_CASE).find(url)
+                    hash = match?.groupValues?.get(1)?.lowercase()
+                }
+
+                if (hash != null) {
+                    if (seenHashes.contains(hash)) continue
+                    seenHashes.add(hash)
+                    deduplicatedList.add(stream)
+                } else {
+                    val norm = url.trim().replace(Regex("([?&])(utm_[^&]+|_t=[^&]+|ref=[^&]+)"), "")
+                    if (seenUrls.contains(norm)) continue
+                    seenUrls.add(norm)
+                    deduplicatedList.add(stream)
+                }
+            }
 
             // Rank streams using Codec Preference (AV1 -> HEVC -> H.264) + Resolution + Quality
-            val rankedStreams = rawStreams.sortedByDescending { stream ->
+            val rankedStreams = deduplicatedList.sortedByDescending { stream ->
                 var score = 0
                 // Codec score
                 when {

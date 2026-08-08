@@ -111,9 +111,6 @@ class TorrentApiMultiProvider(
             
             // 2. MediaFusion
             fetchAddonStreams("https://mediafusion.elfhosted.com/stream/$queryPath", "MediaFusion", videoStreams)
-            
-            // 3. KnightCrawler
-            fetchAddonStreams("https://knightcrawler.elfhosted.com/stream/$queryPath", "KnightCrawler", videoStreams)
         }
 
         // Add 1337x / TGx / VidSrc fallback players

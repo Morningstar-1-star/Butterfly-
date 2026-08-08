@@ -58,16 +58,6 @@ class EztvTorrentProvider(
             )
         }
 
-        // Add SuperEmbed for TV Series
-        videoStreams.add(
-            PluginVideoStream(
-                url = "https://multitembed.com/direct.php?video_id=$cleanId&s=1&e=1",
-                qualityLabel = "HD • SuperEmbed",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
         PluginStreamInfo(
             id = cleanId,
             url = videoStreams.firstOrNull()?.url ?: "https://eztv.re",

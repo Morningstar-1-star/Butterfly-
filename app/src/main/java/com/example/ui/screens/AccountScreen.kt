@@ -577,7 +577,7 @@ fun AccountScreen(
                         value = editAvatarUrl,
                         onValueChange = { editAvatarUrl = it },
                         label = { Text("Custom Avatar Image URL (Optional)") },
-                        placeholder = { Text("https://example.com/avatar.jpg") },
+                        placeholder = { Text("https://i.imgur.com/avatar.jpg") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )

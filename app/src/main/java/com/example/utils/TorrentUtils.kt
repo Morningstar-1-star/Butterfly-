@@ -91,7 +91,6 @@ object TorrentUtils {
             lower.contains("nyaa") -> "Nyaa"
             lower.contains("tmdb") -> "TMDB"
             lower.contains("mediafusion") -> "MediaFusion"
-            lower.contains("knightcrawler") -> "KnightCrawler"
             lower.contains("torrent_api") || lower.contains("torrent api") -> "Torrent API"
             fallbackProvider.isNotEmpty() -> fallbackProvider
             else -> ""
@@ -127,5 +126,86 @@ object TorrentUtils {
         }
 
         return if (sizeMatch != null) "$mainLabel ($sizeMatch)" else mainLabel
+    }
+
+    /**
+     * Extracts a 40-character hexadecimal infoHash from a magnet link or raw hash string.
+     */
+    fun extractInfoHash(rawOrMagnet: String): String? {
+        if (rawOrMagnet.isBlank()) return null
+        val clean = rawOrMagnet.trim()
+        val match = Regex("""([a-fA-F0-9]{40})""").find(clean)
+        if (match != null) return match.value.lowercase()
+        val match32 = Regex("""([a-zA-Z2-7]{32})""").find(clean)
+        return match32?.value?.lowercase()
+    }
+
+    /**
+     * Extracts seeders count from torrent title/description if present (e.g., "👤 42", "S: 120").
+     */
+    fun parseSeeders(text: String): Int {
+        val lower = text.lowercase()
+        val match = Regex("""(?:👤|s:|seeders?:?\s*)(\d+)""").find(lower)
+        if (match != null) {
+            return match.groupValues[1].toIntOrNull() ?: 0
+        }
+        return 0
+    }
+
+    /**
+     * Extracts size in bytes from text (e.g., "1.8 GB", "750 MB").
+     */
+    fun parseSizeBytes(text: String): Long {
+        val match = Regex("""(\d+(?:\.\d+)?)\s*(GB|MB|KB)""", RegexOption.IGNORE_CASE).find(text)
+            ?: return 0L
+        val value = match.groupValues[1].toDoubleOrNull() ?: return 0L
+        return when (match.groupValues[2].uppercase()) {
+            "GB" -> (value * 1024 * 1024 * 1024).toLong()
+            "MB" -> (value * 1024 * 1024).toLong()
+            "KB" -> (value * 1024).toLong()
+            else -> 0L
+        }
+    }
+
+    /**
+     * Calculates a health/ranking score for a torrent option based on seeders, size, resolution, and provider.
+     */
+    fun calculateTorrentScore(
+        qualityLabel: String,
+        seeders: Int = 0,
+        sizeBytes: Long = 0L,
+        providerName: String = ""
+    ): Int {
+        var score = 0
+        val lower = qualityLabel.lowercase()
+
+        // Resolution score
+        when {
+            lower.contains("4k") || lower.contains("2160p") -> score += 100
+            lower.contains("1080p") -> score += 80
+            lower.contains("720p") -> score += 50
+            else -> score += 30
+        }
+
+        // Codec score
+        if (lower.contains("av1")) score += 30
+        else if (lower.contains("hevc") || lower.contains("h265") || lower.contains("x265")) score += 20
+
+        // Seeders score
+        score += minOf(seeders * 2, 100)
+
+        // File size sanity check (prefer 1GB - 15GB for streaming)
+        val sizeGb = sizeBytes.toDouble() / (1024 * 1024 * 1024)
+        when {
+            sizeGb in 1.0..10.0 -> score += 40
+            sizeGb in 0.5..1.0 -> score += 20
+            sizeGb > 25.0 -> score -= 10 // Huge 40GB+ files take long to buffer
+        }
+
+        // Provider reliability score
+        if (providerName.contains("Torrentio", ignoreCase = true)) score += 30
+        if (providerName.contains("YTS", ignoreCase = true)) score += 25
+
+        return score
     }
 }

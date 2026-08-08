@@ -33,3 +33,25 @@ enum class StreamType {
     MAGNET,
     UNKNOWN
 }
+
+enum class SourceLifecycleStage {
+    DISCOVERED,
+    PARSED,
+    VALIDATED,
+    RESOLVING,
+    PLAYABLE,
+    FAILED
+}
+
+data class FailedSourceLog(
+    val providerId: String,
+    val sourceTitle: String,
+    val rawUrl: String,
+    val errorType: String,
+    val httpStatus: Int?,
+    val urlType: String,
+    val stage: SourceLifecycleStage,
+    val failureReason: String,
+    val timestampMs: Long = System.currentTimeMillis()
+)
+

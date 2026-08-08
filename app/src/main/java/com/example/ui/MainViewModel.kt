@@ -54,6 +54,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pluginManager = PluginManager(application)
     val repositoryManager = RepositoryManager(application, pluginManager)
     val extensionManager = ExtensionManager(application, pluginManager, repositoryManager)
+    private val sourcePipelineEngine = com.example.plugin.manager.SourcePipelineEngine()
+
+    private val _failedSourceLogs = MutableStateFlow<List<com.example.model.FailedSourceLog>>(emptyList())
+    val failedSourceLogs: StateFlow<List<com.example.model.FailedSourceLog>> = _failedSourceLogs.asStateFlow()
+
+    private val _showFailedSources = MutableStateFlow<Boolean>(false)
+    val showFailedSources: StateFlow<Boolean> = _showFailedSources.asStateFlow()
+
+    fun toggleShowFailedSources() {
+        _showFailedSources.value = !_showFailedSources.value
+    }
+
+    fun recordFailedSource(log: com.example.model.FailedSourceLog) {
+        _failedSourceLogs.value = (_failedSourceLogs.value + log).takeLast(100)
+    }
 
     // Theme & Appearance Settings
     private val _themeMode = MutableStateFlow(ThemeMode.AMOLED_DARK)
@@ -905,16 +920,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val torrentResolver = com.example.plugin.manager.TorrentResolver()
+
+    init {
+        // Wire GlobalPlayerManager error listener for automatic fallback
+        com.example.ui.player.GlobalPlayerManager.setPlaybackFailedListener {
+            tryNextFallbackStream()
+        }
+    }
+
     private fun startServerAutoScanner(options: List<PlayableStreamOption>) {
         if (options.isEmpty()) return
-        val firstWorking = options.firstOrNull { 
-            val url = it.videoUrl ?: it.audioUrl ?: ""
-            url.isNotBlank() && !url.startsWith("magnet:")
-        } ?: options.firstOrNull {
-            val url = it.videoUrl ?: it.audioUrl ?: ""
-            url.isNotBlank()
-        } ?: options.first()
-        _selectedStreamOption.value = firstWorking
+        viewModelScope.launch(Dispatchers.IO) {
+            var selected: PlayableStreamOption? = null
+            for (option in options) {
+                val url = option.videoUrl ?: option.audioUrl ?: ""
+                if (url.isBlank()) continue
+
+                if (url.startsWith("magnet:") || option.format.equals("torrent", ignoreCase = true)) {
+                    val resolved = torrentResolver.resolveTorrent(url)
+                    if (resolved != null) {
+                        selected = option.copy(videoUrl = resolved.playableUrl, format = if (resolved.isHls) "hls" else "mp4")
+                        break
+                    }
+                } else {
+                    selected = option
+                    break
+                }
+            }
+            _selectedStreamOption.value = selected ?: options.firstOrNull()
+        }
+    }
+
+    fun tryNextFallbackStream() {
+        val current = _selectedStreamOption.value ?: return
+        val ext = _extractionResult.value
+        if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
+            val options = ext.streamData.availableStreamOptions
+            val currentIndex = options.indexOfFirst { it.videoUrl == current.videoUrl || it.qualityLabel == current.qualityLabel }
+            if (currentIndex >= 0 && currentIndex + 1 < options.size) {
+                val nextOption = options[currentIndex + 1]
+                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto falling back to option ${currentIndex + 1}: '${nextOption.qualityLabel}'")
+                viewModelScope.launch(Dispatchers.IO) {
+                    val url = nextOption.videoUrl ?: ""
+                    if (url.startsWith("magnet:") || nextOption.format.equals("torrent", ignoreCase = true)) {
+                        val resolved = torrentResolver.resolveTorrent(url)
+                        if (resolved != null) {
+                            _selectedStreamOption.value = nextOption.copy(videoUrl = resolved.playableUrl, format = if (resolved.isHls) "hls" else "mp4")
+                        } else {
+                            tryNextFallbackStream() // Recursively try next if resolution fails
+                        }
+                    } else {
+                        _selectedStreamOption.value = nextOption
+                    }
+                }
+            }
+        }
     }
 
     fun selectStreamOption(option: PlayableStreamOption) {
@@ -947,7 +1008,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val streamOptions = mutableListOf<PlayableStreamOption>()
+        val seenInfoHashes = mutableSetOf<String>()
+        val seenUrls = mutableSetOf<String>()
+
         videoStreams.forEach { vs ->
+            val rawUrl = vs.url ?: return@forEach
+            val infoHash = sourcePipelineEngine.extractInfoHash(rawUrl)
+
+            if (infoHash != null) {
+                if (seenInfoHashes.contains(infoHash)) {
+                    val log = com.example.model.FailedSourceLog(
+                        providerId = providerId,
+                        sourceTitle = vs.qualityLabel,
+                        rawUrl = rawUrl,
+                        errorType = "DUPLICATE_TORRENT",
+                        httpStatus = null,
+                        urlType = "MAGNET",
+                        stage = com.example.model.SourceLifecycleStage.PARSED,
+                        failureReason = "Duplicate infoHash: $infoHash"
+                    )
+                    recordFailedSource(log)
+                    return@forEach
+                }
+                seenInfoHashes.add(infoHash)
+            } else {
+                val normUrl = sourcePipelineEngine.normalizeUrl(rawUrl)
+                if (seenUrls.contains(normUrl)) {
+                    val log = com.example.model.FailedSourceLog(
+                        providerId = providerId,
+                        sourceTitle = vs.qualityLabel,
+                        rawUrl = rawUrl,
+                        errorType = "DUPLICATE_EMBED",
+                        httpStatus = null,
+                        urlType = "EMBED_DIRECT",
+                        stage = com.example.model.SourceLifecycleStage.PARSED,
+                        failureReason = "Duplicate normalized URL: $normUrl"
+                    )
+                    recordFailedSource(log)
+                    return@forEach
+                }
+                seenUrls.add(normUrl)
+            }
+
             val isVsTorrent = isTorrentProvider || vs.format.equals("torrent", ignoreCase = true) || vs.format.equals("p2p", ignoreCase = true) || vs.url.startsWith("magnet:")
             val vsType = if (isVsTorrent) com.example.plugin.sdk.model.ProviderType.TORRENT else pType
 

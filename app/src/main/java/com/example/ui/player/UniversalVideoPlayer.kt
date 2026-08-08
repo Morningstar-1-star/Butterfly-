@@ -68,6 +68,7 @@ fun UniversalVideoPlayer(
     isPlaying: Boolean = true,
     videoId: String? = null,
     initialPositionMs: Long = 0L,
+    failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -84,7 +85,7 @@ fun UniversalVideoPlayer(
     }
 
     val isEmbedOrWebPage = remember(rawVideoUrl, streamOption, forceWebViewFallback, isMagnetLink) {
-        if (isMagnetLink) return@remember true
+        if (isMagnetLink) return@remember false // Magnets are handled by TorrentResolver -> ExoPlayer pipeline
         if (forceWebViewFallback) return@remember true
         val url = rawVideoUrl?.lowercase() ?: ""
         val fmt = streamOption?.format?.lowercase() ?: ""
@@ -97,7 +98,7 @@ fun UniversalVideoPlayer(
                 url.contains("peertube") ||
                 url.contains("nvembed") ||
                 url.contains("mvembed") ||
-                (url.startsWith("http") && !url.contains(".mp4") && !url.contains(".m3u8") && !url.contains("googlevideo.com"))
+                (url.startsWith("http") && !url.contains(".mp4") && !url.contains(".m3u8") && !url.contains(".mkv") && !url.contains("googlevideo.com"))
     }
 
     // Playback Speed & Scaling Controls
@@ -506,6 +507,7 @@ fun UniversalVideoPlayer(
                         "Codec Preference: AV1 -> HEVC -> H.264",
                         "Fallback Engine Ready: Web Embed Active ($forceWebViewFallback)"
                     ),
+                    failedSourceLogs = failedSourceLogs,
                     onDismiss = { showDevPanel = false }
                 )
             }

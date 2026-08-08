@@ -122,39 +122,6 @@ class TmdbTorrentProvider(
             )
         )
 
-        // 2. VidSrc.me Embed Stream
-        val vidsrcMeUrl = if (isTv) "https://vidsrc.me/embed/tv?tmdb=$cleanId" else "https://vidsrc.me/embed/movie?tmdb=$cleanId"
-        streams.add(
-            PluginVideoStream(
-                url = vidsrcMeUrl,
-                qualityLabel = "VidSrc.me Embed",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
-        // 3. SuperEmbed / MultiEmbed
-        val superEmbedUrl = if (isTv) "https://multitembed.com/direct.php?video_id=$cleanId&s=1&e=1" else "https://multitembed.com/direct.php?video_id=$cleanId"
-        streams.add(
-            PluginVideoStream(
-                url = superEmbedUrl,
-                qualityLabel = "SuperEmbed Cinema",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
-        // 4. 2Embed
-        val embed2Url = if (isTv) "https://www.2embed.cc/embedtv/$cleanId&s=1&e=1" else "https://www.2embed.cc/embed/$cleanId"
-        streams.add(
-            PluginVideoStream(
-                url = embed2Url,
-                qualityLabel = "2Embed HD",
-                format = "embed",
-                isMuxed = true
-            )
-        )
-
         // 5. Torrentio Stremio Torrent Stream (If IMDB ID is present)
         if (imdbId.isNotEmpty() && imdbId.startsWith("tt")) {
             val torrentioUrl = if (isTv) {
