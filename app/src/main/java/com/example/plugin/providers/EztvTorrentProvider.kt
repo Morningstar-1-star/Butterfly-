@@ -18,6 +18,8 @@ class EztvTorrentProvider(
 
     override val providerId: String = "eztv_torrents"
 
+    override val capabilities: ProviderCapabilities = ProviderCapabilities(supportsTorrent = true)
+
     private val tmdbProvider by lazy { TmdbTorrentProvider(http) }
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {

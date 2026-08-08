@@ -18,6 +18,8 @@ class NyaaAnimeProvider(
 
     override val providerId: String = "nyaa_si"
 
+    override val capabilities: ProviderCapabilities = ProviderCapabilities(supportsTorrent = true, supportsAnime = true)
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         // Fetch Jikan Top Anime to power Nyaa search items with rich posters

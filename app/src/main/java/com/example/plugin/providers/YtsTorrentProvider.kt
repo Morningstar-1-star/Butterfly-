@@ -18,6 +18,8 @@ class YtsTorrentProvider(
 
     override val providerId: String = "yts_torrents"
 
+    override val capabilities: ProviderCapabilities = ProviderCapabilities(supportsTorrent = true)
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val url = "$BASE_URL/list_movies.json?limit=20&page=$page&sort_by=download_count"

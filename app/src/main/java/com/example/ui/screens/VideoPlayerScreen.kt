@@ -35,8 +35,10 @@ import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.ErrorDiagnosticCard
+import com.example.ui.components.TorrentArtworkOverlay
 import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoDetailsSection
+import com.example.ui.player.GlobalPlayerManager
 import com.example.ui.player.YouTubePlayerView
 import kotlinx.coroutines.launch
 
@@ -105,6 +107,19 @@ fun VideoPlayerScreen(
             )
         }
     }
+
+    val firstFrameRendered by GlobalPlayerManager.firstFrameRendered.collectAsState()
+
+    val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
+    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption) {
+        (activeProviderItem?.isTorrent == true) ||
+                (currentStreamData?.isTorrent == true) ||
+                (selectedOption?.isTorrent == true)
+    }
+
+    val displayPosterUrl = currentStreamData?.effectiveThumbnailUrl ?: currentVideoItem?.thumbnailUrl
+    val displayTitle = currentStreamData?.title ?: currentVideoItem?.title ?: ""
+    val extractionError = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Error)?.errorDetails
 
     val isSavedInWatchLater = currentVideoItem != null && watchLaterList.any { it.id == currentVideoItem.id }
 
@@ -183,45 +198,35 @@ fun VideoPlayerScreen(
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                if (isExtracting) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color.White)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Loading video stream from $providerName...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.LightGray
-                        )
-                    }
-                } else if (extractionResult != null) {
-                    when (val res = extractionResult) {
-                        is YouTubeExtractorHelper.ExtractionResult.Success -> {
-                            YouTubePlayerView(
-                                streamOption = selectedOption,
-                                hlsUrl = res.streamData.hlsUrl,
-                                captionOption = selectedCaption,
-                                embedUrl = res.streamData.embedUrl,
-                                providerId = providerId,
-                                isPlaying = isPlaying,
-                                videoId = activeVideoId,
-                                initialPositionMs = initialPositionMs,
-                                onProgressUpdate = { pos, dur ->
-                                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                                }
-                            )
+                if (extractionResult is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    val res = extractionResult as YouTubeExtractorHelper.ExtractionResult.Success
+                    YouTubePlayerView(
+                        streamOption = selectedOption,
+                        hlsUrl = res.streamData.hlsUrl,
+                        captionOption = selectedCaption,
+                        embedUrl = res.streamData.embedUrl,
+                        providerId = providerId,
+                        isPlaying = isPlaying,
+                        videoId = activeVideoId,
+                        initialPositionMs = initialPositionMs,
+                        onProgressUpdate = { pos, dur ->
+                            activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
                         }
-                        is YouTubeExtractorHelper.ExtractionResult.Error -> {
-                            ErrorDiagnosticCard(
-                                errorDetails = res.errorDetails,
-                                onRetry = {
-                                    activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
-                                },
-                                onOpenPoTokenConfig = {}
-                            )
-                        }
-                        null -> {}
-                    }
+                    )
                 }
+
+                TorrentArtworkOverlay(
+                    isTorrent = isTorrentStream,
+                    title = displayTitle,
+                    posterUrl = displayPosterUrl,
+                    isExtracting = isExtracting,
+                    statusMessage = "Loading video stream from $providerName...",
+                    firstFrameRendered = firstFrameRendered,
+                    extractionError = extractionError,
+                    onRetry = {
+                        activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
+                    }
+                )
             }
 
             // CONTAINER FOR SCROLLABLE CONTENT & STICKY LIQUID GLASS FLOATING ACTION TOOLBAR

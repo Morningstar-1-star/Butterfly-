@@ -1,5 +1,7 @@
 package com.example.model
 
+import com.example.plugin.sdk.model.ProviderType
+
 enum class AppScreen {
     HOME,
     EXPLORE,
@@ -16,8 +18,11 @@ data class ProviderUiItem(
     val name: String,
     val description: String = "",
     val isEnabled: Boolean = true,
-    val isDefault: Boolean = false
-)
+    val isDefault: Boolean = false,
+    val providerType: ProviderType = ProviderType.OTHER
+) {
+    val isTorrent: Boolean get() = providerType == ProviderType.TORRENT
+}
 
 data class UserPlaylist(
     val id: String,

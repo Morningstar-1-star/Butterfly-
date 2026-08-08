@@ -308,6 +308,7 @@ fun UniversalVideoPlayer(
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     view?.evaluateJavascript(cleanPlayerScript, null)
+                                    GlobalPlayerManager.notifyFirstFrameRendered()
                                 }
                             }
 

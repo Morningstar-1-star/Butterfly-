@@ -55,15 +55,34 @@ object GlobalPlayerManager {
     private val _isEmbedOrWebPage = MutableStateFlow(false)
     val isEmbedOrWebPage: StateFlow<Boolean> = _isEmbedOrWebPage.asStateFlow()
 
+    private val _firstFrameRendered = MutableStateFlow(false)
+    val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
+
     private var currentLoadedMediaKey: String? = null
+
+    fun notifyFirstFrameRendered() {
+        _firstFrameRendered.value = true
+    }
+
+    fun resetFirstFrameState() {
+        _firstFrameRendered.value = false
+    }
 
     fun getExoPlayer(context: Context): ExoPlayer {
         if (exoPlayerInstance == null) {
             val player = ExoPlayer.Builder(context.applicationContext).build()
             player.playWhenReady = true
             player.addListener(object : Player.Listener {
+                override fun onRenderedFirstFrame() {
+                    _firstFrameRendered.value = true
+                }
+
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _isPlaying.value = playing
+                    if (playing) {
+                        // Fallback trigger if surface didn't emit onRenderedFirstFrame
+                        _firstFrameRendered.value = true
+                    }
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
@@ -149,6 +168,7 @@ object GlobalPlayerManager {
             return
         }
 
+        _firstFrameRendered.value = false
         currentLoadedMediaKey = mediaKey
 
         if (!isEmbed) {

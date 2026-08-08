@@ -534,13 +534,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 "Streaming provider ($id)"
             }
+
+            val isTorrent = provider.capabilities.supportsTorrent || provider.capabilities.providerType == com.example.plugin.sdk.model.ProviderType.TORRENT
+            val pType = if (isTorrent) com.example.plugin.sdk.model.ProviderType.TORRENT else provider.capabilities.providerType
+
             uiList.add(
                 ProviderUiItem(
                     id = id,
                     name = name,
                     description = desc,
                     isEnabled = enabledSet.contains(id),
-                    isDefault = (id == activeId)
+                    isDefault = (id == activeId),
+                    providerType = pType
                 )
             )
         }
@@ -825,6 +830,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedStreamOption.value = null
         _selectedCaptionOption.value = null
         _isPlaying.value = true
+        com.example.ui.player.GlobalPlayerManager.resetFirstFrameState()
 
         // Immediately navigate to dedicated player screen
         _currentScreen.value = AppScreen.PLAYER
@@ -923,6 +929,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         providerId: String,
         recommendations: List<VideoItem>
     ): StreamData {
+        val provider = pluginManager.getProvider(providerId)
+        val isTorrentProvider = provider?.capabilities?.supportsTorrent == true ||
+                provider?.capabilities?.providerType == com.example.plugin.sdk.model.ProviderType.TORRENT ||
+                providerId == "unified_torrents" ||
+                providerId.contains("torrent")
+
+        val pType = if (isTorrentProvider) com.example.plugin.sdk.model.ProviderType.TORRENT else (provider?.capabilities?.providerType ?: com.example.plugin.sdk.model.ProviderType.OTHER)
+
         val captions = subtitles.map { sub ->
             CaptionOption(
                 languageName = sub.languageName,
@@ -934,6 +948,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val streamOptions = mutableListOf<PlayableStreamOption>()
         videoStreams.forEach { vs ->
+            val isVsTorrent = isTorrentProvider || vs.format.equals("torrent", ignoreCase = true) || vs.format.equals("p2p", ignoreCase = true) || vs.url.startsWith("magnet:")
+            val vsType = if (isVsTorrent) com.example.plugin.sdk.model.ProviderType.TORRENT else pType
+
             streamOptions.add(
                 PlayableStreamOption(
                     qualityLabel = vs.qualityLabel,
@@ -942,7 +959,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     videoStream = null,
                     audioStream = null,
                     videoUrl = vs.url,
-                    audioUrl = null
+                    audioUrl = null,
+                    providerType = vsType
                 )
             )
         }
@@ -968,7 +986,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             relatedVideos = recommendations,
             embedUrl = url,
             providerId = providerId,
-            thumbnailUrl = thumbnailUrl
+            thumbnailUrl = thumbnailUrl,
+            providerType = pType
         )
     }
 

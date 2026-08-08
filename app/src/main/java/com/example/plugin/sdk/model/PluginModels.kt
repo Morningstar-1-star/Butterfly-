@@ -2,6 +2,15 @@ package com.example.plugin.sdk.model
 
 import com.squareup.moshi.JsonClass
 
+enum class ProviderType {
+    TORRENT,
+    HTTP,
+    EMBED,
+    HLS,
+    DIRECT_MP4,
+    OTHER
+}
+
 @JsonClass(generateAdapter = true)
 data class ProviderCapabilities(
     val supportsSearch: Boolean = true,
@@ -10,7 +19,8 @@ data class ProviderCapabilities(
     val supportsAnime: Boolean = false,
     val supportsTorrent: Boolean = false,
     val supportsLive: Boolean = false,
-    val supportsSubtitles: Boolean = false
+    val supportsSubtitles: Boolean = false,
+    val providerType: ProviderType = if (supportsTorrent) ProviderType.TORRENT else ProviderType.OTHER
 )
 
 @JsonClass(generateAdapter = true)

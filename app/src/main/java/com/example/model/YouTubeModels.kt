@@ -1,5 +1,6 @@
 package com.example.model
 
+import com.example.plugin.sdk.model.ProviderType
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import org.schabi.newpipe.extractor.stream.VideoStream
@@ -100,8 +101,15 @@ data class PlayableStreamOption(
     val videoStream: VideoStream? = null,
     val audioStream: AudioStream? = null,
     val videoUrl: String? = null,
-    val audioUrl: String? = null
-)
+    val audioUrl: String? = null,
+    val providerType: ProviderType = ProviderType.OTHER
+) {
+    val isTorrent: Boolean
+        get() = providerType == ProviderType.TORRENT ||
+                format.equals("torrent", ignoreCase = true) ||
+                format.equals("p2p", ignoreCase = true) ||
+                (videoUrl?.startsWith("magnet:") == true)
+}
 
 data class CaptionOption(
     val languageName: String,
@@ -131,8 +139,12 @@ data class StreamData(
     val relatedVideos: List<VideoItem> = emptyList(),
     val embedUrl: String? = null,
     val providerId: String? = null,
-    val thumbnailUrl: String? = null
+    val thumbnailUrl: String? = null,
+    val providerType: ProviderType = ProviderType.OTHER
 ) {
+    val isTorrent: Boolean
+        get() = providerType == ProviderType.TORRENT || selectedStreamOption?.isTorrent == true || availableStreamOptions.any { it.isTorrent }
+
     val effectiveThumbnailUrl: String?
         get() {
             if (!thumbnailUrl.isNullOrEmpty()) return thumbnailUrl
