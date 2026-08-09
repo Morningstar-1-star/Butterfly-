@@ -7,6 +7,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import coil.Coil
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import com.example.ui.MainViewModel
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -19,6 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setupHighRefreshRate()
+        setupCoilCache()
 
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
@@ -30,6 +36,30 @@ class MainActivity : ComponentActivity() {
             ) {
                 HomeScreen(viewModel = viewModel)
             }
+        }
+    }
+
+    private fun setupCoilCache() {
+        try {
+            val imageLoader = ImageLoader.Builder(applicationContext)
+                .memoryCache {
+                    MemoryCache.Builder(applicationContext)
+                        .maxSizePercent(0.25)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(applicationContext.cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(250 * 1024 * 1024) // 250MB fast disk cache
+                        .build()
+                }
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .crossfade(true)
+                .build()
+            Coil.setImageLoader(imageLoader)
+        } catch (e: Exception) {
+            // Optional
         }
     }
 

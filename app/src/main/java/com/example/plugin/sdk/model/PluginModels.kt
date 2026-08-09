@@ -166,7 +166,11 @@ data class PluginComment(
     val content: String,
     val publishedTime: String? = null,
     val likeCount: Long = 0,
-    val replyCount: Long = 0
+    val replyCount: Long = 0,
+    val rating: Float? = null,
+    val reviewTitle: String? = null,
+    val isSpoiler: Boolean = false,
+    val dislikeCount: Long = 0
 )
 
 @JsonClass(generateAdapter = true)

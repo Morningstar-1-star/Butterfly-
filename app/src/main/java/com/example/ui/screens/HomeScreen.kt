@@ -85,51 +85,7 @@ fun HomeScreen(
     var showPoTokenDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var activeCategory by remember { mutableStateOf("All") }
-    var isBottomBarVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
-
-    var accumulatedScroll by remember { mutableFloatStateOf(0f) }
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-
-                // Reset direction accumulator when scroll direction flips so threshold is immediate and responsive
-                if (delta > 0f && accumulatedScroll < 0f) {
-                    accumulatedScroll = 0f
-                } else if (delta < 0f && accumulatedScroll > 0f) {
-                    accumulatedScroll = 0f
-                }
-
-                accumulatedScroll += delta
-
-                // Finger swiping UP (scrolling down feed -> delta < 0): HIDE bars
-                if (delta < 0f && accumulatedScroll < -15f && isBottomBarVisible) {
-                    isBottomBarVisible = false
-                    accumulatedScroll = 0f
-                }
-                // Finger swiping DOWN (scrolling up feed -> delta > 0): SHOW bars
-                else if (delta > 0f && accumulatedScroll > 10f && !isBottomBarVisible) {
-                    isBottomBarVisible = true
-                    accumulatedScroll = 0f
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                // If user pulls down at top edge, ensure top/bottom bars are immediately restored
-                if (available.y > 0f && !isBottomBarVisible) {
-                    isBottomBarVisible = true
-                    accumulatedScroll = 0f
-                }
-                return Offset.Zero
-            }
-        }
-    }
 
     val categories = listOf("All", "APIJAV", "Eporner", "Dailymotion", "YouTube", "Gaming", "Podcasts", "Music")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
@@ -192,62 +148,49 @@ fun HomeScreen(
     }
 
     Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(nestedScrollConnection),
+        modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            AnimatedVisibility(
-                visible = isBottomBarVisible,
-                enter = expandVertically(expandFrom = Alignment.Bottom, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(200)),
-                exit = shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeOut(animationSpec = tween(200))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
-                        LiquidGlassMiniPlayer(
-                            streamData = currentStreamData,
-                            progressFraction = activeVideoProgress,
-                            isPlaying = globalIsPlaying,
-                            onTogglePlay = {
-                                com.example.ui.player.GlobalPlayerManager.togglePlayPause()
-                                viewModel.togglePlayback()
-                            },
-                            onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
-                            onClose = {
-                                com.example.ui.player.GlobalPlayerManager.stopAndClear()
-                                viewModel.closeVideo()
-                            },
-                            onNext = { viewModel.playNextInQueue() },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    LiquidGlassNavBar(
-                        currentScreen = currentScreen,
-                        onSelectScreen = { screen ->
-                            isSearchExpanded = false
-                            viewModel.navigateToScreen(screen)
-                        }
+                if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
+                    LiquidGlassMiniPlayer(
+                        streamData = currentStreamData,
+                        progressFraction = activeVideoProgress,
+                        isPlaying = globalIsPlaying,
+                        onTogglePlay = {
+                            com.example.ui.player.GlobalPlayerManager.togglePlayPause()
+                            viewModel.togglePlayback()
+                        },
+                        onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
+                        onClose = {
+                            com.example.ui.player.GlobalPlayerManager.stopAndClear()
+                            viewModel.closeVideo()
+                        },
+                        onNext = { viewModel.playNextInQueue() },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
+
+                LiquidGlassNavBar(
+                    currentScreen = currentScreen,
+                    onSelectScreen = { screen ->
+                        isSearchExpanded = false
+                        viewModel.navigateToScreen(screen)
+                    }
+                )
             }
         },
         topBar = {
             if (currentScreen != AppScreen.ACCOUNT) {
-                AnimatedVisibility(
-                    visible = isBottomBarVisible,
-                    enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideInVertically(initialOffsetY = { -it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(200)),
-                    exit = shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeOut(animationSpec = tween(200))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.background)
-                    ) {
-                        // Top Action Header
+                    // Top Action Header
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -422,7 +365,6 @@ fun HomeScreen(
             }
         }
     }
-}
     ) { innerPadding ->
         Box(
             modifier = Modifier

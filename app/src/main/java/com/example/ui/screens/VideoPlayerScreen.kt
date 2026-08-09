@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -93,8 +95,25 @@ fun VideoPlayerScreen(
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
 
-    val seasonsAndEpisodes = remember(currentStreamData) {
-        currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
+    var seasonsAndEpisodes by remember(currentStreamData?.videoId) {
+        mutableStateOf<List<com.example.model.SeriesSeason>>(
+            currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
+        )
+    }
+
+    LaunchedEffect(currentStreamData?.videoId) {
+        if (currentStreamData != null) {
+            try {
+                val tmdbSeasons = com.example.util.TMDBHelper.fetchTvSeasonsAndEpisodes(currentStreamData)
+                if (tmdbSeasons.isNotEmpty()) {
+                    seasonsAndEpisodes = tmdbSeasons
+                }
+            } catch (e: Exception) {
+                // Keep initial generated seasons
+            }
+        } else {
+            seasonsAndEpisodes = emptyList()
+        }
     }
 
     val relatedContent = remember(currentStreamData, trendingVideos) {
@@ -105,9 +124,43 @@ fun VideoPlayerScreen(
         currentStreamData?.let { com.example.util.SeriesDataHelper.getRecommendedContent(it, trendingVideos) } ?: emptyList()
     }
 
-    val playerComments = remember(currentStreamData) {
-        currentStreamData?.let { com.example.util.SeriesDataHelper.generateComments(it) } ?: emptyList()
+    val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
+    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption) {
+        (activeProviderItem?.isTorrent == true) ||
+                (currentStreamData?.isTorrent == true) ||
+                (selectedOption?.isTorrent == true)
     }
+
+    var fetchedComments by remember(currentStreamData?.videoId, activeVideoId) {
+        mutableStateOf<List<com.example.model.VideoComment>>(emptyList())
+    }
+    var isCommentsLoading by remember(currentStreamData?.videoId, activeVideoId) {
+        mutableStateOf(false)
+    }
+    var torrentReviewsResult by remember(currentStreamData?.videoId, activeVideoId) {
+        mutableStateOf<com.example.util.TorrentReviewsResult?>(null)
+    }
+
+    LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
+        if (currentStreamData != null) {
+            isCommentsLoading = true
+            val titleToFetch = currentStreamData.title
+            val vid = activeVideoId ?: currentStreamData.videoId
+            val res = com.example.util.TorrentReviewFetcher.fetchReviewsForTorrent(
+                title = titleToFetch,
+                videoId = vid,
+                providerId = providerId
+            )
+            torrentReviewsResult = res
+            fetchedComments = res.reviews
+            isCommentsLoading = false
+        } else {
+            fetchedComments = emptyList()
+            isCommentsLoading = false
+        }
+    }
+
+    val playerComments = fetchedComments
 
     val currentVideoItem = remember(currentStreamData, activeVideoId) {
         currentStreamData?.let { data ->
@@ -122,13 +175,6 @@ fun VideoPlayerScreen(
     }
 
     val firstFrameRendered by GlobalPlayerManager.firstFrameRendered.collectAsState()
-
-    val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
-    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption) {
-        (activeProviderItem?.isTorrent == true) ||
-                (currentStreamData?.isTorrent == true) ||
-                (selectedOption?.isTorrent == true)
-    }
 
     val displayPosterUrl = currentStreamData?.effectiveThumbnailUrl ?: currentVideoItem?.thumbnailUrl
     val displayTitle = currentStreamData?.title ?: currentVideoItem?.title ?: ""
@@ -314,7 +360,7 @@ fun VideoPlayerScreen(
                                 selectedTab = selectedPlayerTab,
                                 onTabSelected = { selectedPlayerTab = it },
                                 showSeasonsTab = isTvSeries,
-                                commentsCount = playerComments.size
+                                commentsCount = torrentReviewsResult?.totalCount ?: playerComments.size
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                         }
@@ -402,7 +448,10 @@ fun VideoPlayerScreen(
                                             coroutineScope.launch {
                                                 snackbarHostState.showSnackbar("Comment posted!")
                                             }
-                                        }
+                                        },
+                                        isTorrent = isTorrentStream,
+                                        isLoading = isCommentsLoading,
+                                        totalReviewsCountText = torrentReviewsResult?.let { "${it.totalCount}" }
                                     )
                                 }
                             }
@@ -726,64 +775,27 @@ fun VideoPlayerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                Text(
-                    text = "Comments (342)",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                com.example.ui.components.CommentsSectionView(
+                    comments = playerComments,
+                    onAddComment = { text ->
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Comment posted!")
+                        }
+                    },
+                    isTorrent = isTorrentStream,
+                    isLoading = isCommentsLoading,
+                    totalReviewsCountText = torrentReviewsResult?.let { "${it.totalCount}" }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                listOf(
-                    "Alex Smith" to "Awesome video! The liquid glass design looks incredible 🔥",
-                    "Sarah Tech" to "So smooth! Love the floating toolbar at the bottom.",
-                    "Dev Community" to "Super clean UX and fast streaming options."
-                ).forEach { (user, comment) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = user.take(1),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = user,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = comment,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = { showCommentsSheet = false },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Close Comments")
+                    Text("Close")
                 }
             }
         }

@@ -104,53 +104,34 @@ object SeriesDataHelper {
                 )
             }
         } else {
-            // Generate show-specific episodes for Season 1 so NO UNRELATED movies or adult clips leak in!
-            val s1Titles = listOf(
-                "Episode 2: Space Odyssey & Beyond",
-                "Episode 3: The Mystery Unfolds",
-                "Episode 4: Unexpected Encounters",
-                "Episode 5: Shadows of the Past",
-                "Episode 6: The Final Frontier",
-                "Episode 7: Truth Revealed",
-                "Episode 8: Season Finale"
-            )
-            s1Titles.forEachIndexed { index, epTitle ->
-                val epNum = index + 2
+            // Generate clean show-specific episodes for Season 1
+            for (epNum in 2..8) {
                 season1Episodes.add(
                     EpisodeItem(
-                        id = streamData.videoId,
+                        id = "${streamData.videoId}_s1_e$epNum",
                         seasonNumber = 1,
                         episodeNumber = epNum,
-                        title = "$baseShowTitle - $epTitle",
-                        durationText = "${22 + (epNum * 2 % 10)}:15",
+                        title = "Episode $epNum",
+                        durationText = "45m",
                         thumbnailUrl = thumb,
                         providerId = providerId,
-                        viewsText = "${950 - epNum * 40}K views"
+                        viewsText = "★ 8.${(5..9).random()} IMDb"
                     )
                 )
             }
         }
 
-        // Season 2 (Show-specific)
-        val season2Titles = listOf(
-            "Episode 1: New Beginnings",
-            "Episode 2: Parallel Universes",
-            "Episode 3: Time Distortion",
-            "Episode 4: The Great Escape",
-            "Episode 5: Cosmic Collision",
-            "Episode 6: Season 2 Finale"
-        )
-        val season2Episodes = season2Titles.mapIndexed { index, epTitle ->
-            val epNum = index + 1
+        // Season 2
+        val season2Episodes = (1..6).map { epNum ->
             EpisodeItem(
-                id = streamData.videoId,
+                id = "${streamData.videoId}_s2_e$epNum",
                 seasonNumber = 2,
                 episodeNumber = epNum,
-                title = "$baseShowTitle - $epTitle",
-                durationText = "28:40",
+                title = "Episode $epNum",
+                durationText = "45m",
                 thumbnailUrl = thumb,
                 providerId = providerId,
-                viewsText = "1.1M views"
+                viewsText = "★ 8.${(5..9).random()} IMDb"
             )
         }
 

@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -70,9 +72,10 @@ fun VideoDetailsSection(
     var mediaDetails by remember(streamData.videoId, streamData.title) {
         mutableStateOf<MediaDetailInfo?>(null)
     }
+    var selectedCastMemberForSheet by remember { mutableStateOf<CastMember?>(null) }
 
     LaunchedEffect(streamData.videoId, streamData.title) {
-        mediaDetails = TMDBHelper.fetchMediaDetails(streamData.title)
+        mediaDetails = TMDBHelper.fetchMediaDetails(streamData.title, streamData.videoId)
     }
 
     val formattedLikes = remember(streamData.likeCount, isLiked) {
@@ -593,7 +596,12 @@ fun VideoDetailsSection(
             MediaSubTab.CAST_AND_CREW -> {
                 val castList = mediaDetails?.cast ?: emptyList()
                 if (castList.isNotEmpty()) {
-                    CastSection(castList = castList)
+                    CastSection(
+                        castList = castList,
+                        onCastClick = { member ->
+                            selectedCastMemberForSheet = member
+                        }
+                    )
                 } else {
                     Box(
                         modifier = Modifier
@@ -609,13 +617,11 @@ fun VideoDetailsSection(
             MediaSubTab.SCREENSHOTS -> {
                 val screenshots = mediaDetails?.screenshots ?: emptyList()
                 if (screenshots.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        screenshots.forEach { imageUrl ->
+                        items(screenshots, key = { it }) { imageUrl ->
                             Card(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
@@ -796,6 +802,17 @@ fun VideoDetailsSection(
                 }
             }
         }
+    }
+
+    // Cast Filmography Sheet
+    selectedCastMemberForSheet?.let { member ->
+        CastFilmographySheet(
+            castMember = member,
+            onDismiss = { selectedCastMemberForSheet = null },
+            onSelectFilmographyItem = { filmItem ->
+                onTagClick?.invoke(filmItem.title)
+            }
+        )
     }
 }
 

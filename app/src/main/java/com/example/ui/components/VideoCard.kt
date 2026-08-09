@@ -104,7 +104,7 @@ fun VideoCard(
                 interactionSource = interactionSource,
                 indication = null
             ) { onClick() },
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -120,10 +120,7 @@ fun VideoCard(
             ) {
                 if (!video.thumbnailUrl.isNullOrEmpty()) {
                     AsyncImage(
-                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                            .data(video.thumbnailUrl)
-                            .crossfade(true)
-                            .build(),
+                        model = video.thumbnailUrl,
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

@@ -3,7 +3,19 @@ package com.example.model
 data class CastMember(
     val name: String,
     val role: String? = null,
-    val avatarUrl: String? = null
+    val avatarUrl: String? = null,
+    val personId: Int? = null
+)
+
+data class CastFilmographyItem(
+    val id: String,
+    val title: String,
+    val mediaType: String, // "movie" or "tv"
+    val posterUrl: String? = null,
+    val backdropUrl: String? = null,
+    val releaseYear: String = "2024",
+    val character: String = "",
+    val voteAverage: Double = 8.0
 )
 
 data class EpisodeItem(
@@ -30,7 +42,13 @@ data class VideoComment(
     val commentText: String,
     val timeAgo: String = "2 hours ago",
     val likeCount: Int = 0,
-    val isLikedByMe: Boolean = false
+    val dislikeCount: Int = 0,
+    val isLikedByMe: Boolean = false,
+    val isDislikedByMe: Boolean = false,
+    val rating: Float? = null,
+    val reviewTitle: String? = null,
+    val isSpoiler: Boolean = false,
+    val totalReviewsCountText: String? = null
 )
 
 data class VideoTrailerClip(

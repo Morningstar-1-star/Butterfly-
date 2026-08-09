@@ -193,7 +193,26 @@ class TmdbTorrentProvider(
     }
 
     override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> = withContext(Dispatchers.IO) {
-        PagedResult(emptyList())
+        val result = com.example.util.TorrentReviewFetcher.fetchReviewsForTorrent(
+            title = idOrUrl,
+            videoId = idOrUrl,
+            providerId = providerId
+        )
+        val pluginComments = result.reviews.map { vc ->
+            PluginComment(
+                id = vc.id,
+                authorName = vc.authorName,
+                authorAvatarUrl = vc.authorAvatarUrl,
+                content = vc.commentText,
+                publishedTime = vc.timeAgo,
+                likeCount = vc.likeCount.toLong(),
+                dislikeCount = vc.dislikeCount.toLong(),
+                rating = vc.rating,
+                reviewTitle = vc.reviewTitle,
+                isSpoiler = vc.isSpoiler
+            )
+        }
+        PagedResult(pluginComments)
     }
 
     override suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> = withContext(Dispatchers.IO) {
