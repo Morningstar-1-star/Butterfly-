@@ -2,6 +2,8 @@ package com.example.db
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -38,17 +40,76 @@ interface SourceMetricsDao {
 }
 
 @Database(
-    entities = [ResponseCacheEntity::class, SourceMetricsEntity::class],
-    version = 1,
+    entities = [
+        ResponseCacheEntity::class,
+        SourceMetricsEntity::class,
+        WatchHistoryEntity::class,
+        BookmarkEntity::class,
+        LikedVideoEntity::class,
+        UserPlaylistEntity::class
+    ],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun responseCacheDao(): ResponseCacheDao
     abstract fun sourceMetricsDao(): SourceMetricsDao
+    abstract fun userDataDao(): UserDataDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `watch_history` (
+                        `videoId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `channelName` TEXT NOT NULL,
+                        `thumbnailUrl` TEXT,
+                        `duration` TEXT NOT NULL,
+                        `progressFraction` REAL NOT NULL,
+                        `providerId` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`videoId`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `watch_later_bookmarks` (
+                        `videoId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `channelName` TEXT NOT NULL,
+                        `thumbnailUrl` TEXT,
+                        `duration` TEXT NOT NULL,
+                        `providerId` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`videoId`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `liked_videos` (
+                        `videoId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `channelName` TEXT NOT NULL,
+                        `thumbnailUrl` TEXT,
+                        `duration` TEXT NOT NULL,
+                        `providerId` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`videoId`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `user_playlists` (
+                        `id` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `videosJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+            }
+        }
 
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -56,7 +117,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
-                ).fallbackToDestructiveMigration().build()
+                )
+                .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigrationOnDowngrade()
+                .build()
                 INSTANCE = instance
                 instance
             }

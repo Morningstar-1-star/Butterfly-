@@ -75,7 +75,8 @@ object GlobalPlayerManager {
     }
 
     fun getExoPlayer(context: Context): ExoPlayer {
-        if (exoPlayerInstance == null) {
+        val existing = exoPlayerInstance
+        return if (existing == null) {
             val player = ExoPlayer.Builder(context.applicationContext).build()
             player.playWhenReady = true
             player.addListener(object : Player.Listener {
@@ -106,8 +107,10 @@ object GlobalPlayerManager {
             })
             exoPlayerInstance = player
             startProgressTracker()
+            player
+        } else {
+            existing
         }
-        return exoPlayerInstance!!
     }
 
     private fun startProgressTracker() {

@@ -36,6 +36,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+import com.example.db.AppDatabase
+import com.example.db.WatchHistoryEntity
+import com.example.db.BookmarkEntity
+import com.example.db.LikedVideoEntity
+import com.example.db.UserPlaylistEntity
+import org.json.JSONArray
+import org.json.JSONObject
+
 enum class ThemeMode {
     AMOLED_DARK,
     LIGHT
@@ -51,6 +59,45 @@ enum class AppAccentColor(val label: String, val color: Color) {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val userDataDao = AppDatabase.getInstance(application).userDataDao()
+
+    private fun serializeVideos(videos: List<VideoItem>): String {
+        val arr = JSONArray()
+        videos.forEach { v ->
+            val obj = JSONObject()
+            obj.put("id", v.id)
+            obj.put("title", v.title)
+            obj.put("uploaderName", v.uploaderName)
+            obj.put("thumbnailUrl", v.thumbnailUrl)
+            obj.put("providerId", v.providerId)
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    private fun deserializeVideos(jsonStr: String): List<VideoItem> {
+        if (jsonStr.isBlank()) return emptyList()
+        return try {
+            val arr = JSONArray(jsonStr)
+            val list = mutableListOf<VideoItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    VideoItem(
+                        id = obj.optString("id"),
+                        title = obj.optString("title"),
+                        uploaderName = obj.optString("uploaderName"),
+                        thumbnailUrl = obj.optString("thumbnailUrl").takeIf { it.isNotBlank() },
+                        providerId = obj.optString("providerId").takeIf { !it.isNullOrEmpty() },
+                        durationSeconds = 0L
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
     val pluginManager = PluginManager(application)
     val repositoryManager = RepositoryManager(application, pluginManager)
     val extensionManager = ExtensionManager(application, pluginManager, repositoryManager)
@@ -289,6 +336,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_watchProgressMap.value.containsKey(video.id)) {
             _watchProgressMap.value = _watchProgressMap.value + (video.id to 0.15f)
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.insertWatchHistory(
+                WatchHistoryEntity(
+                    videoId = video.id,
+                    title = video.title,
+                    channelName = video.uploaderName,
+                    thumbnailUrl = video.thumbnailUrl,
+                    providerId = video.providerId,
+                    progressFraction = _watchProgressMap.value[video.id] ?: 0.15f
+                )
+            )
+        }
         updateRecommendedVideosAsync()
     }
 
@@ -296,9 +355,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = _likedVideoIds.value
         if (current.contains(videoId)) {
             _likedVideoIds.value = current - videoId
+            viewModelScope.launch(Dispatchers.IO) {
+                userDataDao.deleteLikedVideo(videoId)
+            }
         } else {
             _likedVideoIds.value = current + videoId
             _dislikedVideoIds.value = _dislikedVideoIds.value - videoId
+            viewModelScope.launch(Dispatchers.IO) {
+                val matchingItem = (_searchResults.value + _trendingVideos.value + _watchHistory.value).firstOrNull { it.id == videoId }
+                userDataDao.insertLikedVideo(
+                    LikedVideoEntity(
+                        videoId = videoId,
+                        title = matchingItem?.title ?: videoId,
+                        channelName = matchingItem?.uploaderName ?: "",
+                        thumbnailUrl = matchingItem?.thumbnailUrl,
+                        providerId = matchingItem?.providerId
+                    )
+                )
+            }
         }
         updateRecommendedVideosAsync()
     }
@@ -402,23 +476,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addToWatchLater(video: VideoItem) {
         if (_watchLaterList.value.none { it.id == video.id }) {
             _watchLaterList.value = listOf(video) + _watchLaterList.value
+            viewModelScope.launch(Dispatchers.IO) {
+                userDataDao.insertBookmark(
+                    BookmarkEntity(
+                        videoId = video.id,
+                        title = video.title,
+                        channelName = video.uploaderName,
+                        thumbnailUrl = video.thumbnailUrl,
+                        providerId = video.providerId
+                    )
+                )
+            }
         }
     }
 
     fun removeFromWatchLater(video: VideoItem) {
         _watchLaterList.value = _watchLaterList.value.filter { it.id != video.id }
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.deleteBookmark(video.id)
+        }
     }
 
     fun createPlaylist(title: String) {
-        val newPl = UserPlaylist(id = System.currentTimeMillis().toString(), title = title, videos = emptyList())
+        val newId = System.currentTimeMillis().toString()
+        val newPl = UserPlaylist(id = newId, title = title, videos = emptyList())
         _userPlaylists.value = _userPlaylists.value + newPl
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.insertOrUpdatePlaylist(
+                UserPlaylistEntity(id = newId, title = title, videosJson = "[]")
+            )
+        }
     }
 
     fun addToPlaylist(playlistId: String, video: VideoItem) {
         _userPlaylists.value = _userPlaylists.value.map { pl ->
             if (pl.id == playlistId) {
                 if (pl.videos.none { it.id == video.id }) {
-                    pl.copy(videos = pl.videos + video)
+                    val updated = pl.copy(videos = pl.videos + video)
+                    viewModelScope.launch(Dispatchers.IO) {
+                        userDataDao.insertOrUpdatePlaylist(
+                            UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                        )
+                    }
+                    updated
                 } else pl
             } else pl
         }
@@ -427,8 +527,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun removeFromPlaylist(playlistId: String, video: VideoItem) {
         _userPlaylists.value = _userPlaylists.value.map { pl ->
             if (pl.id == playlistId) {
-                pl.copy(videos = pl.videos.filter { it.id != video.id })
+                val updated = pl.copy(videos = pl.videos.filter { it.id != video.id })
+                viewModelScope.launch(Dispatchers.IO) {
+                    userDataDao.insertOrUpdatePlaylist(
+                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                    )
+                }
+                updated
             } else pl
+        }
+    }
+
+    fun deletePlaylist(playlistId: String) {
+        _userPlaylists.value = _userPlaylists.value.filter { it.id != playlistId }
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.deletePlaylist(playlistId)
         }
     }
 
@@ -511,10 +624,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            repositoryManager.loadRepositories()
-            extensionManager.refreshExtensions()
-            refreshProvidersList()
-            setActiveProvider("all")
+            launch {
+                userDataDao.getWatchHistoryFlow().collect { historyEntities ->
+                    _watchHistory.value = historyEntities.map { entity ->
+                        VideoItem(
+                            id = entity.videoId,
+                            title = entity.title,
+                            uploaderName = entity.channelName,
+                            thumbnailUrl = entity.thumbnailUrl,
+                            providerId = entity.providerId
+                        )
+                    }
+                    val progressMap = historyEntities.associate { it.videoId to it.progressFraction }
+                    _watchProgressMap.value = _watchProgressMap.value + progressMap
+                }
+            }
+            launch {
+                userDataDao.getBookmarksFlow().collect { bookmarkEntities ->
+                    _watchLaterList.value = bookmarkEntities.map { entity ->
+                        VideoItem(
+                            id = entity.videoId,
+                            title = entity.title,
+                            uploaderName = entity.channelName,
+                            thumbnailUrl = entity.thumbnailUrl,
+                            providerId = entity.providerId
+                        )
+                    }
+                }
+            }
+            launch {
+                userDataDao.getLikedVideosFlow().collect { likedEntities ->
+                    _likedVideoIds.value = likedEntities.map { it.videoId }.toSet()
+                }
+            }
+            launch {
+                userDataDao.getPlaylistsFlow().collect { playlistEntities ->
+                    _userPlaylists.value = playlistEntities.map { entity ->
+                        UserPlaylist(
+                            id = entity.id,
+                            title = entity.title,
+                            videos = deserializeVideos(entity.videosJson)
+                        )
+                    }
+                }
+            }
+            launch {
+                repositoryManager.loadRepositories()
+                extensionManager.refreshExtensions()
+                refreshProvidersList()
+                setActiveProvider("all")
+            }
         }
     }
 
