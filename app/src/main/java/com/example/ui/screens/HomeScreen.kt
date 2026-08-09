@@ -85,7 +85,25 @@ fun HomeScreen(
     var showPoTokenDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var activeCategory by remember { mutableStateOf("All") }
+    var isBarsVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(currentScreen, isSearchExpanded) {
+        isBarsVisible = true
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -15f) {
+                    if (isBarsVisible) isBarsVisible = false
+                } else if (available.y > 15f) {
+                    if (!isBarsVisible) isBarsVisible = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     val categories = listOf("All", "APIJAV", "Eporner", "Dailymotion", "YouTube", "Gaming", "Podcasts", "Music")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
@@ -148,223 +166,237 @@ fun HomeScreen(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+            AnimatedVisibility(
+                visible = isBarsVisible || isSearchExpanded,
+                enter = slideInVertically(initialOffsetY = { it }) + expandVertically(expandFrom = Alignment.Bottom),
+                exit = slideOutVertically(targetOffsetY = { it }) + shrinkVertically(shrinkTowards = Alignment.Bottom)
             ) {
-                if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
-                    LiquidGlassMiniPlayer(
-                        streamData = currentStreamData,
-                        progressFraction = activeVideoProgress,
-                        isPlaying = globalIsPlaying,
-                        onTogglePlay = {
-                            com.example.ui.player.GlobalPlayerManager.togglePlayPause()
-                            viewModel.togglePlayback()
-                        },
-                        onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
-                        onClose = {
-                            com.example.ui.player.GlobalPlayerManager.stopAndClear()
-                            viewModel.closeVideo()
-                        },
-                        onNext = { viewModel.playNextInQueue() },
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
+                        LiquidGlassMiniPlayer(
+                            streamData = currentStreamData,
+                            progressFraction = activeVideoProgress,
+                            isPlaying = globalIsPlaying,
+                            onTogglePlay = {
+                                com.example.ui.player.GlobalPlayerManager.togglePlayPause()
+                                viewModel.togglePlayback()
+                            },
+                            onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
+                            onClose = {
+                                com.example.ui.player.GlobalPlayerManager.stopAndClear()
+                                viewModel.closeVideo()
+                            },
+                            onNext = { viewModel.playNextInQueue() },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    LiquidGlassNavBar(
+                        currentScreen = currentScreen,
+                        onSelectScreen = { screen ->
+                            isSearchExpanded = false
+                            viewModel.navigateToScreen(screen)
+                        }
                     )
                 }
-
-                LiquidGlassNavBar(
-                    currentScreen = currentScreen,
-                    onSelectScreen = { screen ->
-                        isSearchExpanded = false
-                        viewModel.navigateToScreen(screen)
-                    }
-                )
             }
         },
         topBar = {
-            if (currentScreen != AppScreen.ACCOUNT) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background)
-                ) {
-                    // Top Action Header
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        androidx.compose.ui.graphics.Brush.linearGradient(
-                                            listOf(Color(0xFF8E24AA), Color(0xFFE91E63))
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                androidx.compose.foundation.Canvas(modifier = Modifier.size(20.dp)) {
-                                    val w = size.width
-                                    val h = size.height
-                                    val wingColor = Color.White
-                                    // Top Wings
-                                    drawCircle(
-                                        color = wingColor,
-                                        radius = w * 0.28f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.35f)
-                                    )
-                                    drawCircle(
-                                        color = wingColor,
-                                        radius = w * 0.28f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.35f)
-                                    )
-                                    // Bottom Wings
-                                    drawCircle(
-                                        color = wingColor.copy(alpha = 0.85f),
-                                        radius = w * 0.20f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.68f)
-                                    )
-                                    drawCircle(
-                                        color = wingColor.copy(alpha = 0.85f),
-                                        radius = w * 0.20f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.68f)
-                                    )
-                                    // Body
-                                    drawLine(
-                                        color = Color(0xFF4A148C),
-                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.20f),
-                                        end = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.82f),
-                                        strokeWidth = w * 0.08f
-                                    )
-                                    // Antennae
-                                    drawLine(
-                                        color = Color(0xFF4A148C),
-                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
-                                        end = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.10f),
-                                        strokeWidth = w * 0.05f
-                                    )
-                                    drawLine(
-                                        color = Color(0xFF4A148C),
-                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
-                                        end = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.10f),
-                                        strokeWidth = w * 0.05f
+            AnimatedVisibility(
+                visible = isBarsVisible || isSearchExpanded,
+                enter = slideInVertically(initialOffsetY = { -it }) + expandVertically(expandFrom = Alignment.Top),
+                exit = slideOutVertically(targetOffsetY = { -it }) + shrinkVertically(shrinkTowards = Alignment.Top)
+            ) {
+                if (currentScreen != AppScreen.ACCOUNT) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.background)
+                    ) {
+                        // Top Action Header
+                        TopAppBar(
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                androidx.compose.ui.graphics.Brush.linearGradient(
+                                                    listOf(Color(0xFF8E24AA), Color(0xFFE91E63))
+                                                )
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        androidx.compose.foundation.Canvas(modifier = Modifier.size(20.dp)) {
+                                            val w = size.width
+                                            val h = size.height
+                                            val wingColor = Color.White
+                                            // Top Wings
+                                            drawCircle(
+                                                color = wingColor,
+                                                radius = w * 0.28f,
+                                                center = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.35f)
+                                            )
+                                            drawCircle(
+                                                color = wingColor,
+                                                radius = w * 0.28f,
+                                                center = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.35f)
+                                            )
+                                            // Bottom Wings
+                                            drawCircle(
+                                                color = wingColor.copy(alpha = 0.85f),
+                                                radius = w * 0.20f,
+                                                center = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.68f)
+                                            )
+                                            drawCircle(
+                                                color = wingColor.copy(alpha = 0.85f),
+                                                radius = w * 0.20f,
+                                                center = androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.68f)
+                                            )
+                                            // Body
+                                            drawLine(
+                                                color = Color(0xFF4A148C),
+                                                start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.20f),
+                                                end = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.82f),
+                                                strokeWidth = w * 0.08f
+                                            )
+                                            // Antennae
+                                            drawLine(
+                                                color = Color(0xFF4A148C),
+                                                start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
+                                                end = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.10f),
+                                                strokeWidth = w * 0.05f
+                                            )
+                                            drawLine(
+                                                color = Color(0xFF4A148C),
+                                                start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
+                                                end = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.10f),
+                                                strokeWidth = w * 0.05f
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    AnimatedContent(
+                                        targetState = showGreetingText,
+                                        transitionSpec = {
+                                            if (targetState) {
+                                                (slideInHorizontally(
+                                                    animationSpec = tween(600, easing = FastOutSlowInEasing),
+                                                    initialOffsetX = { -it }
+                                                ) + fadeIn(animationSpec = tween(600))) togetherWith (
+                                                    slideOutHorizontally(
+                                                        animationSpec = tween(400),
+                                                        targetOffsetX = { it }
+                                                    ) + fadeOut(animationSpec = tween(400))
+                                                )
+                                            } else {
+                                                (slideInHorizontally(
+                                                    animationSpec = tween(600, easing = FastOutSlowInEasing),
+                                                    initialOffsetX = { -it }
+                                                ) + fadeIn(animationSpec = tween(600))) togetherWith (
+                                                    slideOutHorizontally(
+                                                        animationSpec = tween(400),
+                                                        targetOffsetX = { it }
+                                                    ) + fadeOut(animationSpec = tween(400))
+                                                )
+                                            }
+                                        },
+                                        label = "TopBarTitleAnimation"
+                                    ) { isGreeting ->
+                                        if (isGreeting) {
+                                            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                                            val timeGreeting = when (hour) {
+                                                in 4..11 -> "Good morning"
+                                                in 12..16 -> "Good afternoon"
+                                                in 17..21 -> "Good evening"
+                                                else -> "Good night"
+                                            }
+                                            Text(
+                                                text = "Hi, $timeGreeting, ${userProfile.name}!",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "Butterfly",
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 22.sp,
+                                                color = MaterialTheme.colorScheme.onBackground
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            actions = {
+                                IconButton(onClick = {
+                                    if (isSearchExpanded) {
+                                        viewModel.clearSearch()
+                                    }
+                                    isSearchExpanded = !isSearchExpanded
+                                }) {
+                                    Icon(
+                                        imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                                        contentDescription = if (isSearchExpanded) "Close Search" else "Search",
+                                        tint = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            AnimatedContent(
-                                targetState = showGreetingText,
-                                transitionSpec = {
-                                    if (targetState) {
-                                        (slideInHorizontally(
-                                            animationSpec = tween(600, easing = FastOutSlowInEasing),
-                                            initialOffsetX = { -it }
-                                        ) + fadeIn(animationSpec = tween(600))) togetherWith (
-                                            slideOutHorizontally(
-                                                animationSpec = tween(400),
-                                                targetOffsetX = { it }
-                                            ) + fadeOut(animationSpec = tween(400))
-                                        )
-                                    } else {
-                                        (slideInHorizontally(
-                                            animationSpec = tween(600, easing = FastOutSlowInEasing),
-                                            initialOffsetX = { -it }
-                                        ) + fadeIn(animationSpec = tween(600))) togetherWith (
-                                            slideOutHorizontally(
-                                                animationSpec = tween(400),
-                                                targetOffsetX = { it }
-                                            ) + fadeOut(animationSpec = tween(400))
-                                        )
-                                    }
-                                },
-                                label = "TopBarTitleAnimation"
-                            ) { isGreeting ->
-                                if (isGreeting) {
-                                    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                                    val timeGreeting = when (hour) {
-                                        in 4..11 -> "Good morning"
-                                        in 12..16 -> "Good afternoon"
-                                        in 17..21 -> "Good evening"
-                                        else -> "Good night"
-                                    }
-                                    Text(
-                                        text = "Hi, $timeGreeting, ${userProfile.name}!",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                } else {
-                                    Text(
-                                        text = "Butterfly",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 22.sp,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            if (isSearchExpanded) {
-                                viewModel.clearSearch()
-                            }
-                            isSearchExpanded = !isSearchExpanded
-                        }) {
-                            Icon(
-                                imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                                contentDescription = if (isSearchExpanded) "Close Search" else "Search",
-                                tint = MaterialTheme.colorScheme.onSurface
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background
                             )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
-                    )
-                )
+                        )
 
-                // Source Provider Filter Chips
-                val availableProviders by viewModel.availableProviders.collectAsState()
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        val isSelected = (activeProviderId == "all")
-                        Surface(
-                            onClick = { viewModel.setActiveProvider("all") },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.height(32.dp)
+                        // Source Provider Filter Chips
+                        val availableProviders by viewModel.availableProviders.collectAsState()
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                                Text("All Sources", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            item {
+                                val isSelected = (activeProviderId == "all")
+                                Surface(
+                                    onClick = { viewModel.setActiveProvider("all") },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                                        Text("All Sources", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
-                        }
-                    }
-                    items(availableProviders.filter { it.id != "all" }) { provider ->
-                        val isSelected = (activeProviderId == provider.id)
-                        Surface(
-                            onClick = { viewModel.setActiveProvider(provider.id) },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                                Text(provider.name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            items(availableProviders.filter { it.id != "all" }) { provider ->
+                                val isSelected = (activeProviderId == provider.id)
+                                Surface(
+                                    onClick = { viewModel.setActiveProvider(provider.id) },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                                        Text(provider.name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
     ) { innerPadding ->
         Box(
             modifier = Modifier
