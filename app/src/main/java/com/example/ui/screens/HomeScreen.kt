@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -66,6 +67,7 @@ fun HomeScreen(
     val watchProgressMap by viewModel.watchProgressMap.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
     val recommendedVideos by viewModel.recommendedVideos.collectAsState()
+    val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
 
     val userProfile by viewModel.userProfile.collectAsState()
     val hasShownGreeting by viewModel.hasShownGreeting.collectAsState()
@@ -197,8 +199,8 @@ fun HomeScreen(
         bottomBar = {
             AnimatedVisibility(
                 visible = isBottomBarVisible,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                enter = expandVertically(expandFrom = Alignment.Bottom, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeOut(animationSpec = tween(200))
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -237,10 +239,14 @@ fun HomeScreen(
             if (currentScreen != AppScreen.ACCOUNT) {
                 AnimatedVisibility(
                     visible = isBottomBarVisible,
-                    enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
+                    enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideInVertically(initialOffsetY = { -it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(200)),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(280, easing = FastOutSlowInEasing)) + slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(280, easing = FastOutSlowInEasing)) + fadeOut(animationSpec = tween(200))
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.background)
+                    ) {
                         // Top Action Header
                 TopAppBar(
                     title = {
@@ -360,7 +366,12 @@ fun HomeScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { isSearchExpanded = !isSearchExpanded }) {
+                        IconButton(onClick = {
+                            if (isSearchExpanded) {
+                                viewModel.clearSearch()
+                            }
+                            isSearchExpanded = !isSearchExpanded
+                        }) {
                             Icon(
                                 imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
                                 contentDescription = if (isSearchExpanded) "Close Search" else "Search",
@@ -424,7 +435,10 @@ fun HomeScreen(
                     onSelectVideo = { video ->
                         viewModel.playVideo(video.id, video.providerId)
                     },
-                    onCloseSearch = { isSearchExpanded = false }
+                    onCloseSearch = {
+                        viewModel.clearSearch()
+                        isSearchExpanded = false
+                    }
                 )
             } else {
                 AnimatedContent(
@@ -596,7 +610,8 @@ fun HomeScreen(
                                         }
                                     }
                                 } else {
-                                    val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                                    val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                                    val feedList = rawFeed.filterNot { hiddenVideoIds.contains(it.id) }
                                     if (feedList.isEmpty()) {
                                         item {
                                             Box(
@@ -633,6 +648,9 @@ fun HomeScreen(
                                                             viewModel.addToPlaylist(updated.first().id, v)
                                                         }
                                                     }
+                                                },
+                                                onNotInterested = { v ->
+                                                    viewModel.markNotInterested(v)
                                                 },
                                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                                             )

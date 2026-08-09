@@ -125,6 +125,7 @@ enum class PlayerTab {
 fun PlayerTabBar(
     selectedTab: PlayerTab,
     onTabSelected: (PlayerTab) -> Unit,
+    showSeasonsTab: Boolean = true,
     commentsCount: Int = 14,
     modifier: Modifier = Modifier
 ) {
@@ -135,13 +136,15 @@ fun PlayerTabBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Tab 1: SEASONS & EPISODES
-        TabPill(
-            label = "SEASONS & EPISODES",
-            icon = Icons.Outlined.Tv,
-            isSelected = selectedTab == PlayerTab.SEASONS_EPISODES,
-            onClick = { onTabSelected(PlayerTab.SEASONS_EPISODES) }
-        )
+        if (showSeasonsTab) {
+            // Tab 1: SEASONS & EPISODES
+            TabPill(
+                label = "SEASONS & EPISODES",
+                icon = Icons.Outlined.Tv,
+                isSelected = selectedTab == PlayerTab.SEASONS_EPISODES,
+                onClick = { onTabSelected(PlayerTab.SEASONS_EPISODES) }
+            )
+        }
 
         // Tab 2: Related
         TabPill(

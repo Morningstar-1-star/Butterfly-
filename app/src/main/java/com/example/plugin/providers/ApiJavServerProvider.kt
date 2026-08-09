@@ -159,7 +159,7 @@ abstract class ApiJavBaseProvider(
             url = embedUrl,
             title = "$providerName Stream $id",
             channelName = providerName,
-            description = "Connected to $baseUrl",
+            description = "",
             videoStreams = videoStreams
         )
     }

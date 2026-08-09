@@ -1,10 +1,13 @@
 package com.example.ui.player
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -39,6 +42,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -102,6 +108,7 @@ fun UniversalVideoPlayer(
     }
 
     val exoPlayer = remember(context) { GlobalPlayerManager.getExoPlayer(context) }
+    val seekSecs = remember(context) { com.example.util.DebridSettingsManager.getDoubleTapSeekSecs(context) }
 
     LaunchedEffect(playbackSpeed) {
         GlobalPlayerManager.setPlaybackSpeed(playbackSpeed)
@@ -136,21 +143,24 @@ fun UniversalVideoPlayer(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
             .aspectRatio(16f / 9f)
             .background(Color.Black)
-            .pointerInput(Unit) {
+            .pointerInput(seekSecs) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
                         val halfWidth = size.width / 2
+                        val seekMs = seekSecs * 1000L
                         if (offset.x < halfWidth) {
-                            seekNoticeText = "◄◄ 10s Rewind"
+                            seekNoticeText = "◄◄ ${seekSecs}s Rewind"
                             if (!isEmbedOrWebPage) {
-                                GlobalPlayerManager.seekTo(exoPlayer.currentPosition - 10000)
+                                GlobalPlayerManager.seekTo(exoPlayer.currentPosition - seekMs)
                             }
                         } else {
-                            seekNoticeText = "10s Forward ►►"
+                            seekNoticeText = "${seekSecs}s Forward ►►"
                             if (!isEmbedOrWebPage) {
-                                GlobalPlayerManager.seekTo(exoPlayer.currentPosition + 10000)
+                                GlobalPlayerManager.seekTo(exoPlayer.currentPosition + seekMs)
                             }
                         }
                     }
@@ -212,65 +222,145 @@ fun UniversalVideoPlayer(
                                                 .site-header, .site-footer, .webtor-header, .download-box,
                                                 .webtor-promo, .promo-banner, .unlock-banner, .ad-box,
                                                 div[class*="promo"], div[class*="unlock"], div[class*="banner"],
-                                                p[class*="promo"], span[class*="promo"], a[class*="promo"] {
+                                                p[class*="promo"], span[class*="promo"], a[class*="promo"],
+                                                .logo, .brand, div[class*="logo"], div[class*="brand"], a[class*="logo"],
+                                                div[class*="top"], .mvapm-logo, .site-title, [class*="apijav"], [class*="APIJAV"],
+                                                .servers, .server-list, .servers-list, #servers, .server-tabs, .server-btn,
+                                                .server_list, .servers_list, .selector, .server-select, .nav-server, .header-server,
+                                                .ep-servers, #server-list, .servers-tab, .server-box, .servers-box,
+                                                ul[class*="server"], li[class*="server"], .nav-tabs, .nav-item, .nav-link,
+                                                .server-item, .server-node, .server-group, .server-items, .server-buttons,
+                                                div[class*="server-"], div[class*="-server"], div[class*="servers"],
+                                                .switches, .select-server, ul[class*="tab"], div[class*="tab-"], .tab-content,
+                                                div[class*="direct"], button[class*="direct"], span[class*="direct"], .direct-node,
+                                                div[class*="node"], div[class*="server"], .server-switcher, #server-switcher,
+                                                div[style*="position: absolute; top: 0"], div[style*="position:fixed; top:0"],
+                                                .watermark, .logo-watermark, .player-logo, .jw-logo, .vjs-watermark {
                                                     display: none !important;
                                                     visibility: hidden !important;
                                                     height: 0 !important;
+                                                    max-height: 0 !important;
                                                     opacity: 0 !important;
                                                     pointer-events: none !important;
-                                                }
-                                                html, body {
-                                                    background-color: #000000 !important;
                                                     margin: 0 !important;
                                                     padding: 0 !important;
                                                     overflow: hidden !important;
+                                                }
+                                                html, body, #player, .player, .video-player, .player-container, #player-container,
+                                                .embed-responsive, iframe, video, object, embed, .jwplayer, .vjs-tech, .video-js,
+                                                #video-player, #main-player, .dplayer, .plyr, #vjs_video_3, .video-content {
+                                                    background-color: #000000 !important;
+                                                    margin: 0 !important;
+                                                    padding: 0 !important;
+                                                    width: 100% !important;
+                                                    height: 100% !important;
+                                                    max-width: 100% !important;
+                                                    max-height: 100% !important;
+                                                    box-sizing: border-box !important;
+                                                    border: none !important;
+                                                    overflow: hidden !important;
+                                                    object-fit: cover !important;
+                                                }
+                                                video {
+                                                    object-fit: contain !important;
+                                                    width: 100vw !important;
+                                                    height: 100vh !important;
                                                 }
                                             `;
                                             (document.head || document.documentElement).appendChild(style);
                                         }
 
-                                        function forcePlayAll() {
-                                            var playSelectors = [
-                                                'button.play', '.play-button', '.vjs-big-play-button', '.ytp-large-play-button',
-                                                '.play_btn', '[aria-label="Play"]', '.plyr__control--overlaid', '.jw-icon-display',
-                                                'div[class*="play"]', 'a[class*="play"]', '.p-button', '#play_button', '.play-overlay',
-                                                '.video-play-btn', '.overlay-play'
-                                            ];
-                                            playSelectors.forEach(function(sel) {
-                                                var els = document.querySelectorAll(sel);
-                                                els.forEach(function(el) {
-                                                    try { el.click(); } catch(e){}
-                                                });
-                                            });
-
-                                            var vids = document.querySelectorAll('video');
-                                            vids.forEach(function(v) {
-                                                try {
-                                                    v.muted = false;
-                                                    var p = v.play();
-                                                    if (p !== undefined) {
-                                                        p.catch(function() {
-                                                            v.muted = true;
-                                                            v.play().catch(function(){});
-                                                        });
+                                        function cleanDomAndPlay() {
+                                            try {
+                                                var targets = document.querySelectorAll('div, ul, li, nav, header, span, a, p, button');
+                                                targets.forEach(function(el) {
+                                                    var txt = (el.textContent || '').trim().toUpperCase();
+                                                    if ((txt.includes('PRO HD') || txt.includes('ALT 1') || txt.includes('AVDB') || txt.includes('APIJAV') || txt.includes('DIRECT')) &&
+                                                        !el.querySelector('video') && !el.querySelector('iframe')) {
+                                                        el.style.display = 'none';
+                                                        el.style.visibility = 'hidden';
+                                                        el.style.height = '0px';
+                                                        el.style.pointerEvents = 'none';
                                                     }
-                                                } catch(e){}
-                                            });
+                                                });
+                                            } catch(e) {}
+
+                                            try {
+                                                var vids = document.querySelectorAll('video');
+                                                vids.forEach(function(v) {
+                                                    v.style.width = '100vw';
+                                                    v.style.height = '100vh';
+                                                    v.style.objectFit = 'contain';
+                                                    if (v.parentElement && v.parentElement.tagName !== 'BODY') {
+                                                        v.parentElement.style.width = '100vw';
+                                                        v.parentElement.style.height = '100vh';
+                                                        v.parentElement.style.margin = '0';
+                                                        v.parentElement.style.padding = '0';
+                                                    }
+                                                });
+                                            } catch(e) {}
+
+                                            try {
+                                                var playSelectors = [
+                                                    'button.play', '.play-button', '.vjs-big-play-button', '.ytp-large-play-button',
+                                                    '.play_btn', '[aria-label="Play"]', '.plyr__control--overlaid', '.jw-icon-display',
+                                                    'div[class*="play"]', 'a[class*="play"]', '.p-button', '#play_button', '.play-overlay',
+                                                    '.video-play-btn', '.overlay-play', '.click-to-play', '.play-icon', '.play_icon',
+                                                    'div[onclick*="play"]', '.play-trigger', '#play'
+                                                ];
+                                                playSelectors.forEach(function(sel) {
+                                                    var els = document.querySelectorAll(sel);
+                                                    els.forEach(function(el) {
+                                                        try {
+                                                            el.click();
+                                                            var ev = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+                                                            el.dispatchEvent(ev);
+                                                        } catch(e){}
+                                                    });
+                                                });
+
+                                                var centerX = window.innerWidth / 2;
+                                                var centerY = window.innerHeight / 2;
+                                                var centerEl = document.elementFromPoint(centerX, centerY);
+                                                if (centerEl && !centerEl.tagName.match(/VIDEO/i) && !centerEl.tagName.match(/HTML/i) && !centerEl.tagName.match(/BODY/i)) {
+                                                    try {
+                                                        centerEl.click();
+                                                        var ev = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+                                                        centerEl.dispatchEvent(ev);
+                                                    } catch(e){}
+                                                }
+
+                                                var vids = document.querySelectorAll('video');
+                                                vids.forEach(function(v) {
+                                                    try {
+                                                        v.muted = false;
+                                                        var p = v.play();
+                                                        if (p !== undefined) {
+                                                            p.catch(function() {
+                                                                v.muted = true;
+                                                                v.play().catch(function(){});
+                                                            });
+                                                        }
+                                                    } catch(e){}
+                                                });
+                                            } catch(e){}
                                         }
 
-                                        forcePlayAll();
-                                        setTimeout(forcePlayAll, 500);
-                                        setTimeout(forcePlayAll, 1200);
+                                        cleanDomAndPlay();
+                                        var loopCount = 0;
+                                        var playInterval = setInterval(function() {
+                                            cleanDomAndPlay();
+                                            loopCount++;
+                                            if (loopCount > 25) { clearInterval(playInterval); }
+                                        }, 350);
                                     } catch(e){}
                                 })();
                             """.trimIndent()
 
-                            var scriptInjected = false
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     super.onProgressChanged(view, newProgress)
-                                    if (newProgress >= 70 && !scriptInjected) {
-                                        scriptInjected = true
+                                    if (newProgress >= 40) {
                                         view?.evaluateJavascript(cleanPlayerScript, null)
                                     }
                                 }
@@ -374,12 +464,16 @@ fun UniversalVideoPlayer(
                 }
             }
         } else {
+            val currentPlayerContext = LocalContext.current
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         player = exoPlayer
                         useController = true
                         resizeMode = resizeModeState
+                        setFullscreenButtonClickListener { isFullscreen ->
+                            toggleFullscreen(currentPlayerContext)
+                        }
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -393,108 +487,42 @@ fun UniversalVideoPlayer(
             )
         }
 
-        // Top Overlay Bar: Speed, Aspect Ratio, & Source Toggle
+        // Floating Action Buttons Row (Bottom Right: Fullscreen & Picture-in-Picture)
+        val playerScreenContext = LocalContext.current
         Row(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(8.dp)
-                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .align(Alignment.BottomEnd)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Speed Toggle Button
-            TextButton(
-                onClick = {
-                    playbackSpeed = when (playbackSpeed) {
-                        1.0f -> 1.25f
-                        1.25f -> 1.5f
-                        1.5f -> 2.0f
-                        2.0f -> 0.75f
-                        else -> 1.0f
-                    }
-                    seekNoticeText = "Speed: ${playbackSpeed}x"
-                },
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
-            ) {
-                Text(
-                    text = "${playbackSpeed}x",
-                    color = Color.Yellow,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Aspect Ratio / Fit Toggle Button
+            // PiP Mode Button
             IconButton(
-                onClick = {
-                    resizeModeState = when (resizeModeState) {
-                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    }
-                    val label = when (resizeModeState) {
-                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom Mode"
-                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch Mode"
-                        else -> "Fit Mode"
-                    }
-                    seekNoticeText = "Display: $label"
-                },
-                modifier = Modifier.size(28.dp)
+                onClick = { enterPipMode(playerScreenContext) },
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.Default.AspectRatio,
-                    contentDescription = "Aspect Ratio",
+                    imageVector = Icons.Default.PictureInPicture,
+                    contentDescription = "Picture in Picture Mode",
                     tint = Color.White,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            // Web/Native Switch Toggle
+            // Fullscreen / Landscape Toggle Button
             IconButton(
-                onClick = {
-                    forceWebViewFallback = !forceWebViewFallback
-                    seekNoticeText = if (forceWebViewFallback) "Switched to Web Embed Engine" else "Switched to Native ExoPlayer"
-                },
-                modifier = Modifier.size(28.dp)
+                onClick = { toggleFullscreen(playerScreenContext) },
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
             ) {
                 Icon(
-                    imageVector = if (isEmbedOrWebPage) Icons.Default.Public else Icons.Default.OndemandVideo,
-                    contentDescription = "Toggle Player Engine",
-                    tint = if (forceWebViewFallback) Color.Cyan else Color.LightGray,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
-            // Hidden Developer Panel Bug Button
-            var showDevPanel by remember { mutableStateOf(false) }
-            IconButton(
-                onClick = { showDevPanel = true },
-                modifier = Modifier.size(28.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.BugReport,
-                    contentDescription = "Developer Diagnostic Panel",
-                    tint = Color(0xFFFFD700),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
-            if (showDevPanel) {
-                com.example.ui.components.DeveloperPanelDialog(
-                    healthMonitor = remember { com.example.plugin.manager.ProviderHealthMonitor() },
-                    rawJsonResponse = streamOption?.videoUrl ?: rawVideoUrl ?: "",
-                    currentMagnetOrUrl = rawVideoUrl ?: "",
-                    exoPlayerLogs = listOf(
-                        "ExoPlayer Initialized [Native Media3]",
-                        "Playing State: $isPlaying",
-                        "Source: ${streamOption?.qualityLabel ?: "Default Direct Source"}",
-                        "Codec Preference: AV1 -> HEVC -> H.264",
-                        "Fallback Engine Ready: Web Embed Active ($forceWebViewFallback)"
-                    ),
-                    failedSourceLogs = failedSourceLogs,
-                    onDismiss = { showDevPanel = false }
+                    imageVector = Icons.Default.Fullscreen,
+                    contentDescription = "Toggle Fullscreen / Landscape",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -590,4 +618,45 @@ private fun buildWebTorHtml(magnetUrl: String): String {
         </body>
         </html>
     """.trimIndent()
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+private fun toggleFullscreen(context: Context) {
+    val activity = context.findActivity() ?: return
+    val currentOrientation = activity.requestedOrientation
+    val isLandscape = currentOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
+            currentOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
+    if (isLandscape) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        controller.show(WindowInsetsCompat.Type.systemBars())
+    } else {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+}
+
+private fun enterPipMode(context: Context) {
+    val activity = context.findActivity() ?: return
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        try {
+            val params = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(android.util.Rational(16, 9))
+                .build()
+            activity.enterPictureInPictureMode(params)
+        } catch (e: Exception) {
+            Toast.makeText(context, "PiP Mode not supported on this device", Toast.LENGTH_SHORT).show()
+        }
+    }
 }

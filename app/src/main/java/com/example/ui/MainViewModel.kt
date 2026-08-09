@@ -106,6 +106,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _zileanUrl.value = url.trim()
     }
 
+    private val _javInfoApiKey = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getJavInfoApiKey(application)
+    )
+    val javInfoApiKey: StateFlow<String> = _javInfoApiKey.asStateFlow()
+
+    fun updateJavInfoApiKey(key: String) {
+        com.example.util.DebridSettingsManager.setJavInfoApiKey(getApplication(), key)
+        _javInfoApiKey.value = key.trim()
+    }
+
     private val _failedSourceLogs = MutableStateFlow<List<com.example.model.FailedSourceLog>>(emptyList())
     val failedSourceLogs: StateFlow<List<com.example.model.FailedSourceLog>> = _failedSourceLogs.asStateFlow()
 
@@ -151,7 +161,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _enabledProviderIds = MutableStateFlow<Set<String>>(
         setOf(
             "all", "unified_torrents", "youtube", "jikan_anime",
-            "dailymotion", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
+            "dailymotion", "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
             "peertube", "vimeo", "archive_org", "ted", "nasa", "direct_mp4", "direct_hls", "rss_video", "json"
         )
     )
@@ -231,6 +241,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _dislikedVideoIds = MutableStateFlow<Set<String>>(emptySet())
     val dislikedVideoIds: StateFlow<Set<String>> = _dislikedVideoIds.asStateFlow()
+
+    private val _hiddenVideoIds = MutableStateFlow<Set<String>>(emptySet())
+    val hiddenVideoIds: StateFlow<Set<String>> = _hiddenVideoIds.asStateFlow()
+
+    fun markNotInterested(video: VideoItem) {
+        _hiddenVideoIds.value = _hiddenVideoIds.value + video.id
+        _trendingVideos.value = _trendingVideos.value.filterNot { it.id == video.id }
+        _searchResults.value = _searchResults.value.filterNot { it.id == video.id }
+    }
+
+    fun clearSearch() {
+        _searchQuery.value = ""
+        _searchResults.value = emptyList()
+    }
 
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
@@ -624,6 +648,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "youtube" -> "YouTube"
             "jikan_anime" -> "Anime (Jikan)"
             "dailymotion" -> "Dailymotion"
+            "javinfo" -> "JavInfo API"
             "apijav_server" -> "APIJAV Server"
             "apijav_hentai" -> "APIJAV Hentai"
             "apijav_porn" -> "APIJAV Porn"
@@ -936,12 +961,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _selectedCaptionOption.value = null
                     startServerAutoScanner(streamData.availableStreamOptions)
                 } else {
-                    val result = YouTubeExtractorHelper.fetchStreamData(cleanIdOrUrl)
-                    _extractionResult.value = result
-                    if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
-                        _selectedStreamOption.value = result.streamData.selectedStreamOption
-                        _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
-                        startServerAutoScanner(result.streamData.availableStreamOptions)
+                    if (targetProviderId == "youtube" || cleanIdOrUrl.contains("youtube.com", ignoreCase = true) || cleanIdOrUrl.contains("youtu.be", ignoreCase = true)) {
+                        val result = YouTubeExtractorHelper.fetchStreamData(cleanIdOrUrl)
+                        _extractionResult.value = result
+                        if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
+                            _selectedStreamOption.value = result.streamData.selectedStreamOption
+                            _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
+                            startServerAutoScanner(result.streamData.availableStreamOptions)
+                        }
+                    } else {
+                        _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Error(
+                            ExtractorErrorDetails(
+                                errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                                message = "No playable stream sources found for '$cleanIdOrUrl' on provider '$targetProviderId'.",
+                                rawExceptionName = "StreamExtractionException",
+                                fullStackTrace = "Pipeline returned empty streams for non-YouTube provider $targetProviderId",
+                                urlOrId = cleanIdOrUrl
+                            )
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -961,7 +998,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val torrentResolver = com.example.plugin.manager.TorrentResolver()
+    private val torrentResolver = com.example.plugin.manager.TorrentResolver(application)
 
     init {
         // Wire GlobalPlayerManager error listener for automatic fallback
@@ -979,7 +1016,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (url.isBlank()) continue
 
                 if (url.startsWith("magnet:") || option.format.equals("torrent", ignoreCase = true)) {
-                    val resolved = torrentResolver.resolveTorrent(url)
+                    val resolved = torrentResolver.resolveTorrent(url, apiKey = _torBoxApiKey.value)
                     if (resolved != null) {
                         selected = option.copy(videoUrl = resolved.playableUrl, format = if (resolved.isHls) "hls" else "mp4")
                         break
@@ -1005,7 +1042,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch(Dispatchers.IO) {
                     val url = nextOption.videoUrl ?: ""
                     if (url.startsWith("magnet:") || nextOption.format.equals("torrent", ignoreCase = true)) {
-                        val resolved = torrentResolver.resolveTorrent(url)
+                        val resolved = torrentResolver.resolveTorrent(url, apiKey = _torBoxApiKey.value)
                         if (resolved != null) {
                             _selectedStreamOption.value = nextOption.copy(videoUrl = resolved.playableUrl, format = if (resolved.isHls) "hls" else "mp4")
                         } else {

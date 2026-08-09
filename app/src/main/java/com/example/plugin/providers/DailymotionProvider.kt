@@ -18,7 +18,7 @@ class DailymotionProvider(
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val url = "https://api.dailymotion.com/videos?fields=$fields&limit=20&page=$page"
+        val url = "https://api.dailymotion.com/videos?fields=$fields&limit=20&page=$page&localization=en&languages=en&flags=featured,exportable&sort=visited"
         val resp = http.get(url)
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 
@@ -28,7 +28,7 @@ class DailymotionProvider(
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val url = "https://api.dailymotion.com/videos?search=${java.net.URLEncoder.encode(query, "UTF-8")}&fields=$fields&limit=20&page=$page"
+        val url = "https://api.dailymotion.com/videos?search=${java.net.URLEncoder.encode(query, "UTF-8")}&fields=$fields&limit=20&page=$page&localization=en&languages=en"
         val resp = http.get(url)
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 

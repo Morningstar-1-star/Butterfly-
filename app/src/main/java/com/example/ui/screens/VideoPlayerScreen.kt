@@ -76,7 +76,19 @@ fun VideoPlayerScreen(
     var showCommentsSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
-    var selectedPlayerTab by remember { mutableStateOf(com.example.ui.components.PlayerTab.SEASONS_EPISODES) }
+    val isTvSeries = remember(currentStreamData) {
+        if (currentStreamData == null) false
+        else {
+            val title = currentStreamData.title.lowercase()
+            val provider = currentStreamData.providerId?.lowercase() ?: ""
+            val seriesRegex = Regex("(?i)\\b(s\\d+e\\d+|season\\s*\\d+|episode\\s*\\d+|e\\d+)\\b")
+            provider.contains("eztv") || provider.contains("tv") || seriesRegex.containsMatchIn(title)
+        }
+    }
+
+    var selectedPlayerTab by remember(isTvSeries) {
+        mutableStateOf(if (isTvSeries) com.example.ui.components.PlayerTab.SEASONS_EPISODES else com.example.ui.components.PlayerTab.RELATED)
+    }
 
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
@@ -301,6 +313,7 @@ fun VideoPlayerScreen(
                             com.example.ui.components.PlayerTabBar(
                                 selectedTab = selectedPlayerTab,
                                 onTabSelected = { selectedPlayerTab = it },
+                                showSeasonsTab = isTvSeries,
                                 commentsCount = playerComments.size
                             )
                             Spacer(modifier = Modifier.height(12.dp))

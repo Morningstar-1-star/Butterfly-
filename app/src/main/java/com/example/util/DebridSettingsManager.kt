@@ -11,6 +11,9 @@ object DebridSettingsManager {
     private const val KEY_COMET_ENDPOINT = "comet_endpoint"
     private const val KEY_MEDIAFUSION_ENDPOINT = "mediafusion_endpoint"
     private const val KEY_ZILEAN_ENDPOINT = "zilean_endpoint"
+    private const val KEY_JAVINFO_API_KEY = "javinfo_api_key"
+    private const val KEY_DOUBLE_TAP_SEEK_SECS = "double_tap_seek_secs"
+    private const val KEY_DAILYMOTION_LANG = "dailymotion_language"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -57,5 +60,29 @@ object DebridSettingsManager {
 
     fun setZileanEndpoint(context: Context, url: String) {
         getPrefs(context).edit().putString(KEY_ZILEAN_ENDPOINT, url.trim()).apply()
+    }
+
+    fun getJavInfoApiKey(context: Context): String {
+        return getPrefs(context).getString(KEY_JAVINFO_API_KEY, "")?.trim() ?: ""
+    }
+
+    fun setJavInfoApiKey(context: Context, key: String) {
+        getPrefs(context).edit().putString(KEY_JAVINFO_API_KEY, key.trim()).apply()
+    }
+
+    fun getDoubleTapSeekSecs(context: Context): Int {
+        return getPrefs(context).getInt(KEY_DOUBLE_TAP_SEEK_SECS, 10)
+    }
+
+    fun setDoubleTapSeekSecs(context: Context, secs: Int) {
+        getPrefs(context).edit().putInt(KEY_DOUBLE_TAP_SEEK_SECS, secs).apply()
+    }
+
+    fun getDailymotionLanguage(context: Context): String {
+        return getPrefs(context).getString(KEY_DAILYMOTION_LANG, "en")?.trim() ?: "en"
+    }
+
+    fun setDailymotionLanguage(context: Context, lang: String) {
+        getPrefs(context).edit().putString(KEY_DAILYMOTION_LANG, lang.trim()).apply()
     }
 }

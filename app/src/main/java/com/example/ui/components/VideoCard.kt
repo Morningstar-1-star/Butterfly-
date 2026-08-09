@@ -306,32 +306,6 @@ fun VideoCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-
-                    // Clean tags display (without '#')
-                    val tags = remember(video.id, video.title, video.uploaderName, video.tags) { video.cleanTags }
-                    if (tags.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(tags.take(4)) { tag ->
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.height(20.dp)
-                                ) {
-                                    Text(
-                                        text = tag,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
 
                 // THREE-DOTS CONTEXT MENU BUTTON

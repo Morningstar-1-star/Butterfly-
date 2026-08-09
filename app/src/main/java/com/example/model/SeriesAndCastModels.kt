@@ -32,3 +32,26 @@ data class VideoComment(
     val likeCount: Int = 0,
     val isLikedByMe: Boolean = false
 )
+
+data class VideoTrailerClip(
+    val title: String,
+    val youtubeKey: String? = null,
+    val embedUrl: String? = null,
+    val thumbnailUrl: String? = null,
+    val durationText: String = "02:15",
+    val clipType: String = "Trailer"
+)
+
+data class MediaDetailInfo(
+    val title: String,
+    val plotOverview: String,
+    val releaseDateFormatted: String,
+    val ratingText: String = "★ 8.8 / 10 TMDB",
+    val director: String = "Feature Film Director",
+    val writer: String = "Screenwriter",
+    val studioOrCollection: String = "Sunrise / Bandai Namco",
+    val genres: List<String> = listOf("Action", "Adventure", "Comedy", "Drama"),
+    val cast: List<CastMember> = emptyList(),
+    val screenshots: List<String> = emptyList(),
+    val clipsAndTrailers: List<VideoTrailerClip> = emptyList()
+)

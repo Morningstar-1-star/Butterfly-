@@ -45,6 +45,15 @@ fun SettingsScreen(
     var isShortsExpanded by remember { mutableStateOf(false) }
     var isAppearanceExpanded by remember { mutableStateOf(false) }
     var isSecurityExpanded by remember { mutableStateOf(false) }
+    var isCloudExpanded by remember { mutableStateOf(true) }
+
+    var showAddMegaDialog by remember { mutableStateOf(false) }
+    var showAddTelegramDialog by remember { mutableStateOf(false) }
+    var newFolderInput by remember { mutableStateOf("") }
+    val currentContext = androidx.compose.ui.platform.LocalContext.current
+
+    var megaFoldersList by remember { mutableStateOf(com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(currentContext)) }
+    var telegramChannelsList by remember { mutableStateOf(com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(currentContext)) }
 
     // State Toggles for Player, Gestures, Shorts, Appearance
     var autoPlayEnabled by remember { mutableStateOf(true) }
@@ -65,6 +74,76 @@ fun SettingsScreen(
         PoTokenDialog(
             onDismiss = { showPoTokenDialog = false },
             onApplyToken = {}
+        )
+    }
+
+    if (showAddMegaDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddMegaDialog = false },
+            title = { Text("Add Mega Cloud Folder URL") },
+            text = {
+                OutlinedTextField(
+                    value = newFolderInput,
+                    onValueChange = { newFolderInput = it },
+                    label = { Text("Mega Folder or File Link") },
+                    placeholder = { Text("https://mega.nz/folder/...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newFolderInput.isNotBlank()) {
+                            com.example.util.CloudFoldersSettingsManager.addMegaFolderUrl(currentContext, newFolderInput)
+                            megaFoldersList = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(currentContext)
+                        }
+                        showAddMegaDialog = false
+                    }
+                ) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddMegaDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showAddTelegramDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddTelegramDialog = false },
+            title = { Text("Add Telegram Channel or Stream") },
+            text = {
+                OutlinedTextField(
+                    value = newFolderInput,
+                    onValueChange = { newFolderInput = it },
+                    label = { Text("Channel URL or Username") },
+                    placeholder = { Text("https://t.me/s/channel_name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newFolderInput.isNotBlank()) {
+                            com.example.util.CloudFoldersSettingsManager.addTelegramChannelUrl(currentContext, newFolderInput)
+                            telegramChannelsList = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(currentContext)
+                        }
+                        showAddTelegramDialog = false
+                    }
+                ) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddTelegramDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -206,6 +285,9 @@ fun SettingsScreen(
                     val torBoxKey by viewModel.torBoxApiKey.collectAsState()
                     var keyInput by remember(torBoxKey) { mutableStateOf(torBoxKey) }
 
+                    val javInfoKey by viewModel.javInfoApiKey.collectAsState()
+                    var javInfoInput by remember(javInfoKey) { mutableStateOf(javInfoKey) }
+
                     val orionKey by viewModel.orionApiKey.collectAsState()
                     var orionInput by remember(orionKey) { mutableStateOf(orionKey) }
 
@@ -238,6 +320,31 @@ fun SettingsScreen(
                                     viewModel.updateTorBoxApiKey(it)
                                 },
                                 placeholder = { Text("Enter TorBox API Key...") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "JavInfo API Key",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Required for JavInfo API lookups & magnet link extraction (x-javinfo-key)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = javInfoInput,
+                                onValueChange = {
+                                    javInfoInput = it
+                                    viewModel.updateJavInfoApiKey(it)
+                                },
+                                placeholder = { Text("Enter JavInfo API Key...") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 shape = RoundedCornerShape(10.dp)
@@ -450,15 +557,20 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        var currentSeekSecs by remember { mutableStateOf(com.example.util.DebridSettingsManager.getDoubleTapSeekSecs(context)) }
+                        val seekLabel = "${currentSeekSecs} Seconds"
                         AssistChip(
                             onClick = {
-                                seekDuration = when (seekDuration) {
-                                    "10 Seconds" -> "15 Seconds"
-                                    "15 Seconds" -> "5 Seconds"
-                                    else -> "10 Seconds"
+                                val next = when (currentSeekSecs) {
+                                    10 -> 15
+                                    15 -> 5
+                                    else -> 10
                                 }
+                                currentSeekSecs = next
+                                com.example.util.DebridSettingsManager.setDoubleTapSeekSecs(context, next)
                             },
-                            label = { Text(seekDuration, fontWeight = FontWeight.Bold) }
+                            label = { Text(seekLabel, fontWeight = FontWeight.Bold) }
                         )
                     }
                 }
@@ -634,6 +746,141 @@ fun SettingsScreen(
                             )
                         }
                         Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null)
+                    }
+                }
+            }
+
+            // 7. CLOUD & SOCIAL SOURCES (MEGA & TELEGRAM)
+            item {
+                ExpandableSettingsCard(
+                    title = "Cloud & Social Folders (Mega & Telegram)",
+                    icon = Icons.Outlined.CloudQueue,
+                    isExpanded = isCloudExpanded,
+                    onToggleExpand = { isCloudExpanded = !isCloudExpanded },
+                    badgeText = "${megaFoldersList.size} Mega Folders, ${telegramChannelsList.size} TG Channels"
+                ) {
+                    // Mega Folders Section
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Mega Cloud Folders",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        IconButton(onClick = { 
+                            newFolderInput = ""
+                            showAddMegaDialog = true 
+                        }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Mega Folder")
+                        }
+                    }
+
+                    if (megaFoldersList.isEmpty()) {
+                        Text(
+                            text = "No Mega folder links added yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        megaFoldersList.forEach { url ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = url,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        com.example.util.CloudFoldersSettingsManager.removeMegaFolderUrl(currentContext, url)
+                                        megaFoldersList = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(currentContext)
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    // Telegram Channels Section
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Telegram Channels & Public Streams",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        IconButton(onClick = { 
+                            newFolderInput = ""
+                            showAddTelegramDialog = true 
+                        }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Telegram Channel")
+                        }
+                    }
+
+                    if (telegramChannelsList.isEmpty()) {
+                        Text(
+                            text = "No Telegram channel links added yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        telegramChannelsList.forEach { url ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = url,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        com.example.util.CloudFoldersSettingsManager.removeTelegramChannelUrl(currentContext, url)
+                                        telegramChannelsList = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(currentContext)
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

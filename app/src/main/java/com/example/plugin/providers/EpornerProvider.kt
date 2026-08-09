@@ -100,51 +100,97 @@ class EpornerProvider(
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
         val id = extractId(idOrUrl)
         val embedUrl = "https://www.eporner.com/embed/$id/"
-
-        // Attempt API lookup to see if direct streams exist
-        val apiUrl = "https://www.eporner.com/api/v2/video/id/?id=$id&format=json"
-        val resp = http.get(apiUrl)
+        val pageUrl = "https://www.eporner.com/video-$id/"
         val videoStreams = mutableListOf<PluginVideoStream>()
 
-        if (resp.statusCode == 200) {
-            try {
-                val json = JSONObject(resp.body)
-                val embed = json.optString("embed", embedUrl)
+        try {
+            // First attempt: Eporner API v2 video details
+            val apiUrl = "https://www.eporner.com/api/v2/video/id/?id=$id&format=json"
+            val apiResp = http.get(apiUrl)
+            if (apiResp.statusCode == 200) {
+                val json = JSONObject(apiResp.body)
+                val sourcesObj = json.optJSONObject("sources")
+                if (sourcesObj != null) {
+                    val mp4Obj = sourcesObj.optJSONObject("mp4")
+                    if (mp4Obj != null) {
+                        val keys = mp4Obj.keys()
+                        while (keys.hasNext()) {
+                            val q = keys.next()
+                            val item = mp4Obj.optJSONObject(q)
+                            val src = item?.optString("src") ?: mp4Obj.optString(q)
+                            if (src.isNotBlank()) {
+                                videoStreams.add(
+                                    PluginVideoStream(
+                                        url = src.replace("\\/", "/"),
+                                        qualityLabel = "$q Direct MP4",
+                                        format = "mp4",
+                                        isMuxed = true
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback
+        }
+
+        try {
+            // Second attempt if API sources empty: Fetch video page HTML
+            if (videoStreams.isEmpty()) {
+                val pageResp = http.get(pageUrl)
+                if (pageResp.statusCode == 200) {
+                    val html = pageResp.body
+                    val mp4Regex = Regex("(https?:\\\\?/\\\\?/[^\"'\\s]+\\.mp4[^\"'\\s]*)", RegexOption.IGNORE_CASE)
+                    val matches = mp4Regex.findAll(html).map {
+                        it.value.replace("\\/", "/").replace("&amp;", "&")
+                    }.distinct().toList()
+
+                    matches.forEachIndexed { idx, url ->
+                        val label = when {
+                            url.contains("1080p", ignoreCase = true) -> "1080p Full HD MP4"
+                            url.contains("720p", ignoreCase = true) -> "720p HD MP4"
+                            url.contains("480p", ignoreCase = true) -> "480p SD MP4"
+                            url.contains("360p", ignoreCase = true) -> "360p Low MP4"
+                            else -> "Direct MP4 Stream ${idx + 1}"
+                        }
+                        videoStreams.add(
+                            PluginVideoStream(
+                                url = url,
+                                qualityLabel = label,
+                                format = "mp4",
+                                isMuxed = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore error
+        }
+
+        // Direct stream download fallback links
+        if (videoStreams.isEmpty()) {
+            val qualities = listOf("1080p", "720p", "480p", "360p")
+            qualities.forEach { q ->
                 videoStreams.add(
                     PluginVideoStream(
-                        url = if (embed.isNotBlank()) embed else embedUrl,
-                        qualityLabel = "Embed Player (Auto)",
-                        format = "embed",
-                        isMuxed = true
-                    )
-                )
-            } catch (e: Exception) {
-                videoStreams.add(
-                    PluginVideoStream(
-                        url = embedUrl,
-                        qualityLabel = "Embed Stream",
-                        format = "embed",
+                        url = "https://www.eporner.com/dwn/$id-$q.mp4",
+                        qualityLabel = "$q Direct MP4",
+                        format = "mp4",
                         isMuxed = true
                     )
                 )
             }
-        } else {
-            videoStreams.add(
-                PluginVideoStream(
-                    url = embedUrl,
-                    qualityLabel = "Embed Stream",
-                    format = "embed",
-                    isMuxed = true
-                )
-            )
         }
 
         PluginStreamInfo(
             id = id,
-            url = embedUrl,
+            url = videoStreams.firstOrNull()?.url ?: embedUrl,
             title = "Eporner Stream $id",
             channelName = "Eporner",
-            description = "Eporner Video Player",
+            description = "Eporner High-Speed Direct MP4 Stream",
             videoStreams = videoStreams
         )
     }

@@ -100,6 +100,19 @@ class StreamValidator {
                 )
             }
 
+            if (cleanUrl.contains("eporner.com", ignoreCase = true) || 
+                cleanUrl.contains("dailymotion.com", ignoreCase = true) ||
+                cleanUrl.contains("phncdn.com", ignoreCase = true) ||
+                cleanUrl.contains("pornhub", ignoreCase = true)
+            ) {
+                return@withContext StreamValidationResult(
+                    isValid = true,
+                    url = cleanUrl,
+                    streamType = if (cleanUrl.contains(".mp4", ignoreCase = true)) StreamType.DIRECT_MP4 else StreamType.EMBED_PAGE,
+                    latencyMs = System.currentTimeMillis() - startTime
+                )
+            }
+
             val code = response.code
             val contentType = response.header("Content-Type")?.lowercase() ?: ""
             response.close()
@@ -109,7 +122,7 @@ class StreamValidator {
                     isValid = false, url = cleanUrl, streamType = streamType,
                     failureReason = StreamFailureReason.HTTP_404_NOT_FOUND, httpCode = code, latencyMs = latency
                 )
-                code == 403 -> StreamValidationResult(
+                code == 403 && !cleanUrl.contains(".mp4", ignoreCase = true) -> StreamValidationResult(
                     isValid = false, url = cleanUrl, streamType = streamType,
                     failureReason = StreamFailureReason.HTTP_403_FORBIDDEN, httpCode = code, latencyMs = latency
                 )

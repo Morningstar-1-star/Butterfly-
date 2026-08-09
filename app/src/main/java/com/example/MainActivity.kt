@@ -18,6 +18,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        setupHighRefreshRate()
 
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
@@ -29,6 +30,26 @@ class MainActivity : ComponentActivity() {
             ) {
                 HomeScreen(viewModel = viewModel)
             }
+        }
+    }
+
+    private fun setupHighRefreshRate() {
+        try {
+            val currentWindow = window
+            val params = currentWindow.attributes
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                display?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
+                    params.preferredDisplayModeId = maxMode.modeId
+                }
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                @Suppress("DEPRECATION")
+                currentWindow.windowManager.defaultDisplay?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
+                    params.preferredDisplayModeId = maxMode.modeId
+                }
+            }
+            currentWindow.attributes = params
+        } catch (e: Exception) {
+            // High refresh rate optional
         }
     }
 }

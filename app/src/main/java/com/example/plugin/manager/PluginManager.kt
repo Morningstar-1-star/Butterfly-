@@ -65,6 +65,7 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(ApiJavHentaiProvider())
         registerNativeProvider(ApiJavPornProvider())
         registerNativeProvider(ApiJavProMaxProvider())
+        registerNativeProvider(JavInfoProvider(context))
         registerNativeProvider(JavInfoMissAvProvider())
         registerNativeProvider(JavInfoFanzaProvider())
         registerNativeProvider(JavInfoJavDbProvider())
@@ -74,6 +75,8 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(DirectHlsProvider())
         registerNativeProvider(RssVideoProvider())
         registerNativeProvider(JsonProvider())
+        registerNativeProvider(MegaProvider(context))
+        registerNativeProvider(TelegramProvider(context))
     }
 
     fun getAllAvailableProviders(): List<ContentProviderApi> {
