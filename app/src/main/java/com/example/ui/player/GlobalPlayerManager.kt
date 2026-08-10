@@ -74,6 +74,57 @@ object GlobalPlayerManager {
         playbackFailedListener = listener
     }
 
+    private var playerViewInstance: androidx.media3.ui.PlayerView? = null
+    private var webViewInstance: android.webkit.WebView? = null
+
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    fun getOrCreateWebView(context: Context): android.webkit.WebView {
+        val existing = webViewInstance
+        return if (existing != null) {
+            existing
+        } else {
+            val wv = android.webkit.WebView(context.applicationContext).apply {
+                layoutParams = android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.databaseEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.allowFileAccess = true
+                settings.allowContentAccess = true
+                settings.useWideViewPort = true
+                settings.loadWithOverviewMode = true
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+            }
+            webViewInstance = wv
+            wv
+        }
+    }
+
+    fun getOrCreatePlayerView(context: Context): androidx.media3.ui.PlayerView {
+        val existing = playerViewInstance
+        return if (existing != null) {
+            existing
+        } else {
+            val player = getExoPlayer(context)
+            val pv = androidx.media3.ui.PlayerView(context.applicationContext).apply {
+                this.player = player
+                useController = true
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS)
+                layoutParams = android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+            playerViewInstance = pv
+            pv
+        }
+    }
+
     fun getExoPlayer(context: Context): ExoPlayer {
         val existing = exoPlayerInstance
         return if (existing == null) {
@@ -145,7 +196,9 @@ object GlobalPlayerManager {
         initialPos: Long = 0L
     ) {
         val player = getExoPlayer(context)
-        _activeStreamData.value = streamData
+        if (streamData != null) {
+            _activeStreamData.value = streamData
+        }
         _playerError.value = null
 
         val rawUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl ?: embedUrl
@@ -156,11 +209,54 @@ object GlobalPlayerManager {
 
         val sourceType = com.example.model.PlaybackDecisionResolver.determineSourceType(rawUrl, streamOption?.format)
         val isEmbed = sourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
+        val isMagnet = sourceType == com.example.model.PlaybackSourceType.MAGNET
+
+        if (isMagnet) {
+            _isEmbedOrWebPage.value = false
+            _playerError.value = "Resolving torrent stream via Debrid engine..."
+            scope.launch(Dispatchers.IO) {
+                val resolver = com.example.plugin.manager.TorrentResolver(context)
+                val title = streamData?.title ?: streamOption?.qualityLabel ?: "Stream"
+                val resolved = resolver.resolveTorrent(rawUrl, title)
+                if (resolved != null && resolved.playableUrl.isNotBlank()) {
+                    scope.launch(Dispatchers.Main) {
+                        _playerError.value = null
+                        val resolvedOption = streamOption?.copy(
+                            videoUrl = resolved.playableUrl,
+                            format = if (resolved.isHls) "hls" else "mp4"
+                        ) ?: PlayableStreamOption(
+                            qualityLabel = title,
+                            format = if (resolved.isHls) "hls" else "mp4",
+                            isMuxed = true,
+                            videoUrl = resolved.playableUrl,
+                            audioUrl = null
+                        )
+                        prepareAndPlay(
+                            context = context,
+                            streamData = streamData ?: _activeStreamData.value,
+                            streamOption = resolvedOption,
+                            hlsUrl = resolved.playableUrl,
+                            captionOption = captionOption,
+                            embedUrl = null,
+                            initialPos = initialPos
+                        )
+                    }
+                } else {
+                    scope.launch(Dispatchers.Main) {
+                        _playerError.value = "Torrent magnet requires a Debrid service. Please configure TorBox API Key in Settings."
+                        if (!embedUrl.isNullOrEmpty()) {
+                            _isEmbedOrWebPage.value = true
+                        }
+                    }
+                }
+            }
+            return
+        }
 
         _isEmbedOrWebPage.value = isEmbed
 
-        val mediaKey = "${streamData?.videoId}_${rawUrl}_${captionOption?.languageCode}"
-        if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_ENDED) {
+        val mediaKey = "${rawUrl}_${captionOption?.languageCode}"
+        if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
             // Already loaded and playing this media, ensure playing
             player.playWhenReady = true
             _isPlaying.value = true
@@ -265,6 +361,9 @@ object GlobalPlayerManager {
         exoPlayerInstance?.let { player ->
             player.stop()
             player.clearMediaItems()
+        }
+        webViewInstance?.let { wv ->
+            wv.loadUrl("about:blank")
         }
     }
 }

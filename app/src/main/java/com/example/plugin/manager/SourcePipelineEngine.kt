@@ -71,16 +71,21 @@ class SourcePipelineEngine(
             providers
         }
 
+        val mediaTypeStr = identity.mediaType.name.lowercase()
+
         val activeProviders = candidateProviders.filter { provider ->
             healthMonitor.isProviderHealthy(provider.providerId)
         }.ifEmpty { candidateProviders }
+        .sortedByDescending { provider ->
+            intelligenceEngine?.getIntelligenceScore(provider.providerId, mediaTypeStr) ?: 75.0
+        }
 
         Log.d("SourcePipelineEngine", "Querying ${activeProviders.size} providers concurrently...")
 
         // 2. CONCURRENT DISCOVERY ACROSS ALL ENABLED PROVIDERS
         val deferredResults = activeProviders.map { provider ->
             async(Dispatchers.IO) {
-                fetchFromProviderWithTimeout(provider, idOrUrl)
+                fetchFromProviderWithTimeout(provider, idOrUrl, mediaTypeStr)
             }
         }
 
@@ -235,10 +240,11 @@ class SourcePipelineEngine(
 
     private suspend fun fetchFromProviderWithTimeout(
         provider: ContentProviderApi,
-        idOrUrl: String
+        idOrUrl: String,
+        mediaType: String = "unknown"
     ): Pair<ContentProviderApi, PluginStreamInfo>? {
         val startTime = System.currentTimeMillis()
-        intelligenceEngine?.recordRequestStart(provider.providerId)
+        intelligenceEngine?.recordRequestStart(provider.providerId, mediaType = mediaType)
 
         return try {
             val result = withTimeoutOrNull(6000L) {
@@ -248,16 +254,36 @@ class SourcePipelineEngine(
 
             if (result != null) {
                 healthMonitor.recordSuccess(provider.providerId, latency)
-                intelligenceEngine?.recordRequestSuccess(provider.providerId, latency)
+                intelligenceEngine?.recordRequestSuccess(
+                    providerId = provider.providerId,
+                    startupTimeMs = latency,
+                    mediaType = mediaType,
+                    quality = "auto",
+                    networkResult = "SUCCESS"
+                )
                 Pair(provider, result)
             } else {
                 Log.w("SourcePipelineEngine", "Provider '${provider.providerId}' timed out (>6s)")
                 healthMonitor.recordFailure(provider.providerId, StreamFailureReason.TIMEOUT)
+                intelligenceEngine?.recordRequestFailure(
+                    providerId = provider.providerId,
+                    failureReason = "Timeout (>6s)",
+                    mediaType = mediaType,
+                    quality = "auto",
+                    networkResult = "TIMEOUT"
+                )
                 null
             }
         } catch (e: Exception) {
             Log.e("SourcePipelineEngine", "Provider '${provider.providerId}' threw exception: ${e.message}")
             healthMonitor.recordFailure(provider.providerId, StreamFailureReason.PARSING_FAILED)
+            intelligenceEngine?.recordRequestFailure(
+                providerId = provider.providerId,
+                failureReason = e.message ?: "Exception",
+                mediaType = mediaType,
+                quality = "auto",
+                networkResult = "PARSING_FAILED"
+            )
             null
         }
     }

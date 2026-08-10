@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
 import com.example.model.CastMember
 import com.example.model.EpisodeItem
 import com.example.model.SeriesSeason
@@ -401,242 +405,78 @@ fun SeasonsAndEpisodesView(
 @Composable
 fun CommentsSectionView(
     comments: List<VideoComment>,
-    onAddComment: (String) -> Unit,
+    onAddComment: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     isTorrent: Boolean = false,
     isLoading: Boolean = false,
     totalReviewsCountText: String? = null
 ) {
-    var newCommentText by remember { mutableStateOf("") }
     var commentList by remember(comments) { mutableStateOf(comments) }
 
-    // Filter & Sort state matching concept art
-    var activeSort by remember { mutableStateOf("TOP") } // TOP, NEWEST
-    var starRatingFilter by remember { mutableStateOf("ALL") } // ALL, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 8_10, 6_7, 1_5
-    var spoilerFilter by remember { mutableStateOf("ALL") } // ALL, HIDE_SPOILERS, SPOILERS_ONLY
+    // Sort state: TOP or NEWEST
+    var activeSort by remember { mutableStateOf("TOP") }
 
-    var starMenuExpanded by remember { mutableStateOf(false) }
-
-    // State for revealed spoilers map (commentId -> Boolean)
-    val revealedSpoilers = remember { mutableStateMapOf<String, Boolean>() }
     // State for liked/disliked comments
     val userLikes = remember { mutableStateMapOf<String, Int>() }
     val userDislikes = remember { mutableStateMapOf<String, Int>() }
 
-    // Filter and sort comments list
-    val filteredComments = remember(commentList, activeSort, starRatingFilter, spoilerFilter) {
-        var list = commentList
-
-        // Rating Filter
-        when (starRatingFilter) {
-            "10" -> list = list.filter { (it.rating ?: 7f) >= 9.5f }
-            "9" -> list = list.filter { val r = it.rating ?: 7f; r >= 8.5f && r < 9.5f }
-            "8" -> list = list.filter { val r = it.rating ?: 7f; r >= 7.5f && r < 8.5f }
-            "7" -> list = list.filter { val r = it.rating ?: 7f; r >= 6.5f && r < 7.5f }
-            "6" -> list = list.filter { val r = it.rating ?: 7f; r >= 5.5f && r < 6.5f }
-            "5" -> list = list.filter { val r = it.rating ?: 7f; r >= 4.5f && r < 5.5f }
-            "4" -> list = list.filter { val r = it.rating ?: 7f; r >= 3.5f && r < 4.5f }
-            "3" -> list = list.filter { val r = it.rating ?: 7f; r >= 2.5f && r < 3.5f }
-            "2" -> list = list.filter { val r = it.rating ?: 7f; r >= 1.5f && r < 2.5f }
-            "1" -> list = list.filter { (it.rating ?: 7f) < 1.5f }
-            "8_10" -> list = list.filter { (it.rating ?: 7f) >= 8f }
-            "6_7" -> list = list.filter { val r = it.rating ?: 7f; r >= 6f && r < 8f }
-            "1_5" -> list = list.filter { (it.rating ?: 7f) < 6f }
-        }
-
-        // Spoiler Filter
-        when (spoilerFilter) {
-            "HIDE_SPOILERS" -> list = list.filter { !it.isSpoiler }
-            "SPOILERS_ONLY" -> list = list.filter { it.isSpoiler }
-        }
-
-        // Sort Order
+    // Sort comments list
+    val filteredComments = remember(commentList, activeSort) {
         when (activeSort) {
-            "NEWEST" -> list.reversed()
-            else -> list.sortedByDescending { it.likeCount } // TOP
+            "NEWEST" -> commentList.reversed()
+            else -> commentList.sortedByDescending { it.likeCount } // TOP
         }
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
 
-        // Header Filter Tag Bar (Concept Art style: Top, Newest, Star Dropdown, Spoiler)
+        // Modern AMOLED Tab Selector Header (Only Top & Newest)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp)
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // "Top" Tag
             Surface(
-                selected = activeSort == "TOP",
-                onClick = { activeSort = "TOP" },
-                shape = RoundedCornerShape(8.dp),
-                color = if (activeSort == "TOP") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFF0A0C10),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
             ) {
-                Text(
-                    text = "Top",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (activeSort == "TOP") MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
-
-            // "Newest" Tag
-            Surface(
-                selected = activeSort == "NEWEST",
-                onClick = { activeSort = "NEWEST" },
-                shape = RoundedCornerShape(8.dp),
-                color = if (activeSort == "NEWEST") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                Text(
-                    text = "Newest",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (activeSort == "NEWEST") MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
-
-            // "Star ⭐️" Tag Dropdown Menu
-            Box {
-                val starLabel = when (starRatingFilter) {
-                    "ALL" -> "Star ⭐️"
-                    "8_10" -> "Star ⭐️ (8-10)"
-                    "6_7" -> "Star ⭐️ (6-7)"
-                    "1_5" -> "Star ⭐️ (1-5)"
-                    else -> "Star ⭐️ ($starRatingFilter ★)"
-                }
-                Surface(
-                    onClick = { starMenuExpanded = true },
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (starRatingFilter != "ALL") Color(0xFFF5C518) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                Row(
+                    modifier = Modifier.padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    // "Top" Tab
+                    Surface(
+                        onClick = { activeSort = "TOP" },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (activeSort == "TOP") Color(0xFFF5C518) else Color.Transparent
                     ) {
                         Text(
-                            text = starLabel,
+                            text = "Top Reviews",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (starRatingFilter != "ALL") Color.Black else MaterialTheme.colorScheme.onSurface
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select Star Rating",
-                            tint = if (starRatingFilter != "ALL") Color.Black else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(16.dp)
+                            fontWeight = FontWeight.Medium,
+                            color = if (activeSort == "TOP") Color.Black else Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                         )
                     }
-                }
 
-                DropdownMenu(
-                    expanded = starMenuExpanded,
-                    onDismissRequest = { starMenuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("All Ratings", fontSize = 13.sp) },
-                        onClick = { starRatingFilter = "ALL"; starMenuExpanded = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("★ 8-10 Stars (High)", fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                        onClick = { starRatingFilter = "8_10"; starMenuExpanded = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("★ 6-7 Stars (Mixed)", fontSize = 13.sp) },
-                        onClick = { starRatingFilter = "6_7"; starMenuExpanded = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("★ 1-5 Stars (Low)", fontSize = 13.sp) },
-                        onClick = { starRatingFilter = "1_5"; starMenuExpanded = false }
-                    )
-                    HorizontalDivider()
-                    for (stars in 10 downTo 1) {
-                        DropdownMenuItem(
-                            text = { Text("★ $stars Star${if (stars > 1) "s" else ""}", fontSize = 13.sp) },
-                            onClick = { starRatingFilter = stars.toString(); starMenuExpanded = false }
+                    // "Newest" Tab
+                    Surface(
+                        onClick = { activeSort = "NEWEST" },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (activeSort == "NEWEST") Color(0xFFF5C518) else Color.Transparent
+                    ) {
+                        Text(
+                            text = "Newest",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (activeSort == "NEWEST") Color.Black else Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                         )
                     }
                 }
-            }
-
-            // "Spoiler" Tag
-            Surface(
-                selected = spoilerFilter != "ALL",
-                onClick = {
-                    spoilerFilter = when (spoilerFilter) {
-                        "ALL" -> "SPOILERS_ONLY"
-                        "SPOILERS_ONLY" -> "HIDE_SPOILERS"
-                        else -> "ALL"
-                    }
-                },
-                shape = RoundedCornerShape(8.dp),
-                color = if (spoilerFilter != "ALL") Color(0xFFFF7043) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                val spoilerText = when (spoilerFilter) {
-                    "SPOILERS_ONLY" -> "⚠️ Spoilers Only"
-                    "HIDE_SPOILERS" -> "🙈 Hide Spoilers"
-                    else -> "Spoiler ⚠️"
-                }
-                Text(
-                    text = spoilerText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (spoilerFilter != "ALL") Color.White else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
-        }
-
-        // Add Comment Input Box
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = newCommentText,
-                onValueChange = { newCommentText = it },
-                placeholder = { Text("Add a comment...", fontSize = 13.sp) },
-                singleLine = true,
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1f),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    focusedContainerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            IconButton(
-                onClick = {
-                    if (newCommentText.isNotBlank()) {
-                        val created = VideoComment(
-                            id = "c_${System.currentTimeMillis()}",
-                            authorName = "You",
-                            commentText = newCommentText,
-                            timeAgo = "Just now",
-                            likeCount = 1,
-                            rating = 9.0f,
-                            reviewTitle = newCommentText.take(40)
-                        )
-                        commentList = listOf(created) + commentList
-                        onAddComment(newCommentText)
-                        newCommentText = ""
-                    }
-                },
-                enabled = newCommentText.isNotBlank()
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Post Comment",
-                    tint = if (newCommentText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                )
             }
         }
 
@@ -651,7 +491,7 @@ fun CommentsSectionView(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp), color = Color(0xFFF5C518))
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Loading real IMDb user reviews...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Loading reviews...", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.6f))
                 }
             }
         } else if (filteredComments.isEmpty()) {
@@ -662,23 +502,23 @@ fun CommentsSectionView(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (isTorrent) "No IMDb reviews match the selected filter." else "No comments yet. Be the first to comment!",
+                    text = "No user reviews available.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White.copy(alpha = 0.6f)
                 )
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                filteredComments.forEachIndexed { index, comment ->
-                    val isRevealed = revealedSpoilers[comment.id] == true
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                filteredComments.forEach { comment ->
                     val extraLikes = userLikes[comment.id] ?: 0
                     val extraDislikes = userDislikes[comment.id] ?: 0
 
                     YouTubeStyleCommentItem(
                         comment = comment,
                         isTorrent = isTorrent,
-                        isRevealed = isRevealed,
-                        onToggleSpoiler = { revealedSpoilers[comment.id] = !isRevealed },
+                        isRevealed = true,
+                        onToggleSpoiler = {},
                         extraLikes = extraLikes,
                         extraDislikes = extraDislikes,
                         onLikeClick = {
@@ -688,14 +528,6 @@ fun CommentsSectionView(
                             userDislikes[comment.id] = if (extraDislikes > 0) 0 else 1
                         }
                     )
-
-                    if (index < filteredComments.size - 1) {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
                 }
             }
         }
@@ -705,253 +537,266 @@ fun CommentsSectionView(
 @Composable
 fun YouTubeStyleCommentItem(
     comment: VideoComment,
-    isTorrent: Boolean,
-    isRevealed: Boolean,
-    onToggleSpoiler: () -> Unit,
-    extraLikes: Int,
-    extraDislikes: Int,
-    onLikeClick: () -> Unit,
-    onDislikeClick: () -> Unit,
+    isTorrent: Boolean = false,
+    isRevealed: Boolean = true,
+    onToggleSpoiler: () -> Unit = {},
+    extraLikes: Int = 0,
+    extraDislikes: Int = 0,
+    onLikeClick: () -> Unit = {},
+    onDislikeClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.Top
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF090A0E) // Pure deep AMOLED black card container
+        ),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        modifier = modifier.fillMaxWidth()
     ) {
-        // User Avatar
-        if (!comment.authorAvatarUrl.isNullOrEmpty()) {
-            AsyncImage(
-                model = comment.authorAvatarUrl,
-                contentDescription = comment.authorName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-            )
-        } else {
-            val initialName = comment.authorName.removePrefix("@").trim()
-            val initial = if (initialName.isNotEmpty()) initialName.take(1).uppercase() else "U"
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isTorrent) Color(0xFF1E88E5) else MaterialTheme.colorScheme.primary
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = initial,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(10.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            // Top Line: @Username • Time Ago • Rating Badge
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Header: Avatar + Username + Time + Rating Pill
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                val displayName = if (comment.authorName.startsWith("@")) comment.authorName else "@${comment.authorName}"
-                Text(
-                    text = displayName,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
+                // Avatar Picture or Initials
+                if (!comment.authorAvatarUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = comment.authorAvatarUrl,
+                        contentDescription = comment.authorName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                    )
+                } else {
+                    val initialName = comment.authorName.removePrefix("@").trim()
+                    val initial = if (initialName.isNotEmpty()) initialName.take(1).uppercase() else "U"
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFFE50914), Color(0xFFB20710))
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = initial,
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-                Text(
-                    text = "• ${comment.timeAgo}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    val displayName = if (comment.authorName.startsWith("@")) comment.authorName else "@${comment.authorName}"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = displayName,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
 
-                if (comment.rating != null && comment.rating > 0) {
+                        // Source Badge Pill (AniList / MyAnimeList / TMDB)
+                        if (!comment.sourceBadge.isNullOrBlank()) {
+                            val badgeBg = when (comment.sourceBadge) {
+                                "AniList" -> Color(0xFF02A9FF)
+                                "MyAnimeList", "MAL" -> Color(0xFF2E51A2)
+                                else -> Color(0xFF01B4E4)
+                            }
+                            Surface(
+                                color = badgeBg,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = comment.sourceBadge,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = comment.timeAgo,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.45f)
+                    )
+                }
+
+                // Rating Pill on top right
+                if ((comment.rating != null && comment.rating > 0) || !comment.ratingText.isNullOrBlank()) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Surface(
-                        color = Color(0xFFF5C518).copy(alpha = 0.18f),
-                        shape = RoundedCornerShape(4.dp)
+                        color = Color(0xFFF5C518),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Star,
                                 contentDescription = null,
-                                tint = Color(0xFFF5C518),
-                                modifier = Modifier.size(10.dp)
+                                tint = Color.Black,
+                                modifier = Modifier.size(11.dp)
                             )
-                            Spacer(modifier = Modifier.width(2.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            val displayRatingStr = comment.ratingText
+                                ?: "${comment.rating?.toInt() ?: 8}/10"
                             Text(
-                                text = "${comment.rating.toInt()}/10",
-                                fontSize = 10.sp,
+                                text = displayRatingStr,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFF5C518)
+                                color = Color.Black
                             )
                         }
                     }
                 }
             }
 
-            // Review Title Headline (if present)
-            if (!comment.reviewTitle.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = comment.reviewTitle,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            // Title headline
+            val titleText = if (!comment.reviewTitle.isNullOrBlank()) {
+                comment.reviewTitle
+            } else {
+                comment.commentText.take(70)
             }
 
-            // Spoiler Tag Alert
-            if (comment.isSpoiler) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(
-                    modifier = Modifier.clickable { onToggleSpoiler() },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isRevealed) "⚠️ Spoiler (Tap to hide)" else "⚠️ Spoiler Alert (Tap to reveal)",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFF7043)
-                    )
-                }
-            }
+            val hasBodyText = !comment.commentText.isNullOrBlank() &&
+                (comment.reviewTitle.isNullOrBlank() || comment.commentText.trim() != comment.reviewTitle.trim())
 
-            // Main Comment Text (Truncated to max 3 lines)
-            if (!comment.isSpoiler || isRevealed) {
-                Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = titleText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                lineHeight = 18.sp,
+                maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            // Explained body text shown ONLY when expanded
+            if (isExpanded && hasBodyText) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = comment.commentText,
                     fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f),
-                    maxLines = if (isExpanded) Int.MAX_VALUE else 3,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 19.sp,
+                    color = Color.White.copy(alpha = 0.82f)
                 )
-
-                // Read More / Show Less Toggle
-                val isLongText = comment.commentText.length > 100 || comment.commentText.contains("\n")
-                if (isLongText) {
-                    Text(
-                        text = if (isExpanded) "Show less" else "... Read more",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .clickable { isExpanded = !isExpanded }
-                            .padding(top = 2.dp, bottom = 2.dp)
-                    )
-                }
-            } else {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onToggleSpoiler() }
-                        .padding(vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "This review contains spoilers. Tap to show content.",
-                        fontSize = 12.sp,
-                        color = Color(0xFFFFAB91),
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            // Toggle expand button
+            if (hasBodyText) {
+                Text(
+                    text = if (isExpanded) "Show less" else "Read full review",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFFF5C518),
+                    modifier = Modifier
+                        .clickable { isExpanded = !isExpanded }
+                        .padding(top = 6.dp, bottom = 2.dp)
+                )
+            }
 
-            // Reaction Bar: Like button, Dislike button, Reply icon, Reply count pill
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Footer Action Bar: Helpful / Unhelpful buttons + Open Review URL link
+            val context = LocalContext.current
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Like Button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onLikeClick() }
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    Icon(
-                        imageVector = if (extraLikes > 0) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                        contentDescription = "Like",
-                        modifier = Modifier.size(15.dp),
-                        tint = if (extraLikes > 0) Color(0xFFF5C518) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    val totalLikes = comment.likeCount + extraLikes
-                    if (totalLikes > 0) {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = formatLikeCount(totalLikes),
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    // Helpful / Like Button
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onLikeClick() }
+                    ) {
+                        Icon(
+                            imageVector = if (extraLikes > 0) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                            contentDescription = "Helpful",
+                            modifier = Modifier.size(15.dp),
+                            tint = if (extraLikes > 0) Color(0xFFF5C518) else Color.White.copy(alpha = 0.5f)
+                        )
+                        val totalLikes = comment.likeCount + extraLikes
+                        if (totalLikes > 0) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${formatLikeCount(totalLikes)} helpful",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (extraLikes > 0) Color(0xFFF5C518) else Color.White.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+
+                    // Unhelpful / Dislike Button
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onDislikeClick() }
+                    ) {
+                        Icon(
+                            imageVector = if (extraDislikes > 0) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                            contentDescription = "Unhelpful",
+                            modifier = Modifier.size(15.dp),
+                            tint = if (extraDislikes > 0) Color(0xFFFF5252) else Color.White.copy(alpha = 0.5f)
                         )
                     }
                 }
 
-                // Dislike Button
-                Icon(
-                    imageVector = if (extraDislikes > 0) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                    contentDescription = "Dislike",
-                    modifier = Modifier
-                        .size(15.dp)
-                        .clickable { onDislikeClick() },
-                    tint = if (extraDislikes > 0) Color(0xFFFF5252) else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // Reply Icon
-                Icon(
-                    imageVector = Icons.Outlined.ChatBubbleOutline,
-                    contentDescription = "Reply",
-                    modifier = Modifier
-                        .size(15.dp)
-                        .clickable { },
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // Reply Count Pill (e.g. "55 replies >")
-                val replyCount = Math.abs(comment.id.hashCode() % 45) + 1
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.clickable { }
-                ) {
+                // Open Original Review Link Button
+                if (!comment.reviewUrl.isNullOrBlank()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        modifier = Modifier.clickable {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(comment.reviewUrl))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
                     ) {
                         Text(
-                            text = "$replyCount ${if (replyCount == 1) "reply" else "replies"}",
+                            text = "View on ${comment.sourceBadge ?: "Web"}",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFF5C518)
                         )
+                        Spacer(modifier = Modifier.width(3.dp))
                         Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = "Open review URL",
+                            modifier = Modifier.size(12.dp),
+                            tint = Color(0xFFF5C518)
                         )
                     }
                 }

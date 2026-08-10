@@ -101,6 +101,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pluginManager = PluginManager(application)
     val repositoryManager = RepositoryManager(application, pluginManager)
     val extensionManager = ExtensionManager(application, pluginManager, repositoryManager)
+    
+    val libraryRepository = com.example.repository.LibraryRepository(application)
+    val searchEngine = com.example.engine.SearchEngine(application)
+    val providerEngine = com.example.engine.ProviderEngine(application, pluginManager, repositoryManager, extensionManager)
+    val playbackEngine = com.example.engine.PlaybackEngine(application)
+
     private val sourcePipelineEngine = com.example.plugin.manager.SourcePipelineEngine(context = application)
 
     private val _torBoxApiKey = MutableStateFlow(
@@ -197,6 +203,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
+
+    private val _isPipMode = MutableStateFlow(false)
+    val isPipMode: StateFlow<Boolean> = _isPipMode.asStateFlow()
+
+    fun setPipMode(enabled: Boolean) {
+        _isPipMode.value = enabled
+    }
 
     private val _activeProviderId = MutableStateFlow("all")
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
@@ -765,8 +778,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiList.add(
             ProviderUiItem(
                 id = "all",
-                name = "All Sources (Mixed)",
-                description = "Aggregated feed from YouTube, Dailymotion, APIJAV & more",
+                name = "All Sources",
+                description = "Aggregated feed from all providers",
                 isEnabled = enabledSet.contains("all"),
                 isDefault = (activeId == "all")
             )
@@ -802,7 +815,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun getReadableProviderName(id: String): String {
         return when (id) {
-            "all" -> "All Sources (Mixed)"
+            "all" -> "All Sources"
             "unified_torrents" -> "Torrents (All Indexers)"
             "youtube" -> "YouTube"
             "jikan_anime" -> "Anime (Jikan)"
@@ -1049,6 +1062,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playVideo(videoIdOrUrl: String, providerIdHint: String? = null) {
         val cleanIdOrUrl = videoIdOrUrl.trim()
         if (cleanIdOrUrl.isEmpty()) return
+
+        if (cleanIdOrUrl == _activeVideoId.value && _extractionResult.value is YouTubeExtractorHelper.ExtractionResult.Success) {
+            _currentScreen.value = AppScreen.PLAYER
+            _isPlaying.value = true
+            com.example.ui.player.GlobalPlayerManager.play()
+            return
+        }
 
         // Resolve target provider
         var targetProviderId = providerIdHint

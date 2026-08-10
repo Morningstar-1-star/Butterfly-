@@ -56,7 +56,7 @@ class JavInfoMissAvProvider(
                         uploadDate = "★ 9.4 • 2026",
                         viewCount = 0L,
                         durationSeconds = 7200L,
-                        thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                        thumbnailUrl = null,
                         providerId = providerId
                     )
                 )
@@ -84,7 +84,7 @@ class JavInfoMissAvProvider(
                     uploadDate = "★ 9.2 • 2026",
                     viewCount = 0L,
                     durationSeconds = 6000L,
-                    thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                    thumbnailUrl = null,
                     providerId = providerId
                 )
             )
@@ -239,7 +239,7 @@ class JavInfoMissAvProvider(
                 uploadDate = "★ 9.5 • HLS Stream",
                 viewCount = 0L,
                 durationSeconds = runtimeMins * 60L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                thumbnailUrl = null,
                 providerId = providerId
             )
         } catch (e: Exception) {

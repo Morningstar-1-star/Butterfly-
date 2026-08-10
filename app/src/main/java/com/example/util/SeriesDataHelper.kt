@@ -13,17 +13,17 @@ object SeriesDataHelper {
         val cleanTitle = TMDBHelper.cleanTitleForSearch(streamData.title).lowercase()
         return when {
             cleanTitle.contains("flex x cop") || cleanTitle.contains("flex") -> listOf(
-                CastMember("Ahn Bo-hyun", "Jin I-soo", "https://image.tmdb.org/t/p/w185/8dK1kYvO3X4X0g6oZfJ8u5k3Q.jpg"),
-                CastMember("Park Ji-hyun", "Lee Kang-hyun", "https://image.tmdb.org/t/p/w185/3C1gS2K5Z9d8X9fJ7k0L3m1N2.jpg"),
+                CastMember("Ahn Bo-hyun", "Jin I-soo", null),
+                CastMember("Park Ji-hyun", "Lee Kang-hyun", null),
                 CastMember("Kang Sang-jun", "Yoo Jun-young", null),
                 CastMember("Kwak Si-yang", "Jin Seung-ju", null),
                 CastMember("Kim Shin-bi", "Choi Kyeong-jin", null),
                 CastMember("Jang Hyun-sung", "Jin Myeong-chul", null)
             )
             cleanTitle.contains("futurama") -> listOf(
-                CastMember("Billy West", "Philip J. Fry / Farnsworth / Zoidberg", "https://image.tmdb.org/t/p/w185/i3P9y43209842.jpg"),
-                CastMember("Katey Sagal", "Turanga Leela", "https://image.tmdb.org/t/p/w185/7448373.jpg"),
-                CastMember("John DiMaggio", "Bender Bending Rodríguez", "https://image.tmdb.org/t/p/w185/3847293.jpg"),
+                CastMember("Billy West", "Philip J. Fry / Farnsworth / Zoidberg", null),
+                CastMember("Katey Sagal", "Turanga Leela", null),
+                CastMember("John DiMaggio", "Bender Bending Rodríguez", null),
                 CastMember("Tress MacNeille", "Mom / Ndnd", null),
                 CastMember("Phil LaMarr", "Hermes Conrad", null),
                 CastMember("Lauren Tom", "Amy Wong", null)

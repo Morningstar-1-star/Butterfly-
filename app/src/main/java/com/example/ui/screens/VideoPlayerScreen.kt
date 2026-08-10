@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
@@ -254,7 +256,15 @@ fun VideoPlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.Black),
+                    .background(Color.Black)
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            if (dragAmount > 25f) {
+                                change.consume()
+                                onBackClick()
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (extractionResult is YouTubeExtractorHelper.ExtractionResult.Success) {

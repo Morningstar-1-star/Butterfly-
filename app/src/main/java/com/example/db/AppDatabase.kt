@@ -29,8 +29,14 @@ interface SourceMetricsDao {
     @Query("SELECT * FROM source_metrics")
     suspend fun getAllMetricsList(): List<SourceMetricsEntity>
 
+    @Query("SELECT * FROM source_metrics WHERE metricKey = :key LIMIT 1")
+    suspend fun getMetricsByKey(key: String): SourceMetricsEntity?
+
+    @Query("SELECT * FROM source_metrics WHERE providerId = :providerId")
+    suspend fun getMetricsForProvider(providerId: String): List<SourceMetricsEntity>
+
     @Query("SELECT * FROM source_metrics WHERE providerId = :providerId LIMIT 1")
-    suspend fun getMetricsForProvider(providerId: String): SourceMetricsEntity?
+    suspend fun getFirstMetricForProvider(providerId: String): SourceMetricsEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateMetrics(metrics: SourceMetricsEntity)
@@ -48,7 +54,7 @@ interface SourceMetricsDao {
         LikedVideoEntity::class,
         UserPlaylistEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -111,6 +117,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `source_metrics` ")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `source_metrics` (
+                        `metricKey` TEXT NOT NULL,
+                        `providerId` TEXT NOT NULL,
+                        `mediaType` TEXT NOT NULL,
+                        `quality` TEXT NOT NULL,
+                        `networkResult` TEXT NOT NULL,
+                        `startupLatencyMs` INTEGER NOT NULL,
+                        `failureReason` TEXT NOT NULL,
+                        `totalRequests` INTEGER NOT NULL,
+                        `successfulRequests` INTEGER NOT NULL,
+                        `totalStartupTimeMs` INTEGER NOT NULL,
+                        `bufferingEventsCount` INTEGER NOT NULL,
+                        `crashCount` INTEGER NOT NULL,
+                        `lastUpdated` INTEGER NOT NULL,
+                        PRIMARY KEY(`metricKey`)
+                    )
+                """.trimIndent())
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -118,8 +148,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
                 )
-                .addMigrations(MIGRATION_1_2)
-                .fallbackToDestructiveMigrationOnDowngrade()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

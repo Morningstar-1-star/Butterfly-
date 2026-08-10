@@ -46,9 +46,13 @@ data class VideoComment(
     val isLikedByMe: Boolean = false,
     val isDislikedByMe: Boolean = false,
     val rating: Float? = null,
+    val ratingText: String? = null,
     val reviewTitle: String? = null,
+    val summary: String? = null,
     val isSpoiler: Boolean = false,
-    val totalReviewsCountText: String? = null
+    val totalReviewsCountText: String? = null,
+    val sourceBadge: String? = null,
+    val reviewUrl: String? = null
 )
 
 data class VideoTrailerClip(

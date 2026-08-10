@@ -71,7 +71,7 @@ class JavInfoFanzaProvider(
                 uploadDate = "★ 9.6 • 2026",
                 viewCount = 0L,
                 durationSeconds = 7200L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                thumbnailUrl = null,
                 providerId = providerId
             )
         )
@@ -204,7 +204,7 @@ class JavInfoJavDbProvider(
                     uploadDate = "★ 9.6 • 2026",
                     viewCount = 0L,
                     durationSeconds = 7200L,
-                    thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                    thumbnailUrl = null,
                     providerId = providerId
                 )
             )
@@ -226,7 +226,7 @@ class JavInfoJavDbProvider(
                 uploadDate = "★ 9.5 • 2026",
                 viewCount = 0L,
                 durationSeconds = 7200L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                thumbnailUrl = null,
                 providerId = providerId
             )
         )
@@ -342,7 +342,7 @@ class JavInfoJavDbProvider(
                 uploadDate = "★ $score ($voteCount votes)",
                 viewCount = 0L,
                 durationSeconds = runtime * 60L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                thumbnailUrl = null,
                 providerId = providerId
             )
         } catch (e: Exception) {

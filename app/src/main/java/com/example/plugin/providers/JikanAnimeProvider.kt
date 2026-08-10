@@ -200,7 +200,26 @@ class JikanAnimeProvider(
     }
 
     override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> = withContext(Dispatchers.IO) {
-        PagedResult(emptyList())
+        val malId = extractId(idOrUrl)
+        val res = com.example.util.AnimeReviewFetcher.fetchUnifiedAnimeReviews(
+            title = "Anime $malId",
+            videoId = malId,
+            providerId = providerId
+        )
+        val pluginComments = res.reviews.map { vc ->
+            PluginComment(
+                id = vc.id,
+                authorName = vc.authorName,
+                authorAvatarUrl = vc.authorAvatarUrl,
+                content = vc.commentText,
+                publishedTime = vc.timeAgo,
+                likeCount = vc.likeCount.toLong(),
+                rating = vc.rating,
+                reviewTitle = vc.reviewTitle,
+                isSpoiler = vc.isSpoiler
+            )
+        }
+        PagedResult(pluginComments)
     }
 
     override suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> = withContext(Dispatchers.IO) {

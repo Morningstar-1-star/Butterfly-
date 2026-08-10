@@ -42,6 +42,8 @@ class PluginManager(private val context: Context) {
     init {
         registerNativeProvider(UnifiedTorrentProvider())
         registerNativeProvider(TorrentioAggregatorProvider())
+        registerNativeProvider(AutoEmbedProvider())
+        registerNativeProvider(VegaMultiProvider())
         registerNativeProvider(MediaFusionProvider())
         registerNativeProvider(CometProvider())
         registerNativeProvider(ZileanProvider())

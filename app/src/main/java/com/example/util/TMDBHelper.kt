@@ -533,26 +533,22 @@ object TMDBHelper {
     private fun getLocalCastForTitle(lowerTitle: String): List<CastMember> {
         return when {
             lowerTitle.contains("flex x cop") || lowerTitle.contains("flex") -> listOf(
-                CastMember("Ahn Bo-hyun", "Jin I-soo", "https://image.tmdb.org/t/p/w185/8dK1kYvO3X4X0g6oZfJ8u5k3Q.jpg"),
-                CastMember("Park Ji-hyun", "Lee Kang-hyun", "https://image.tmdb.org/t/p/w185/3C1gS2K5Z9d8X9fJ7k0L3m1N2.jpg"),
+                CastMember("Ahn Bo-hyun", "Jin I-soo", null),
+                CastMember("Park Ji-hyun", "Lee Kang-hyun", null),
                 CastMember("Kang Sang-jun", "Yoo Jun-young", null),
                 CastMember("Kwak Si-yang", "Jin Seung-ju", null)
             )
             lowerTitle.contains("futurama") -> listOf(
-                CastMember("Billy West", "Philip J. Fry / Farnsworth", "https://image.tmdb.org/t/p/w185/i3P9y43209842.jpg"),
-                CastMember("Katey Sagal", "Turanga Leela", "https://image.tmdb.org/t/p/w185/7448373.jpg"),
-                CastMember("John DiMaggio", "Bender Bending Rodríguez", "https://image.tmdb.org/t/p/w185/3847293.jpg")
+                CastMember("Billy West", "Philip J. Fry / Farnsworth", null),
+                CastMember("Katey Sagal", "Turanga Leela", null),
+                CastMember("John DiMaggio", "Bender Bending Rodríguez", null)
             )
             lowerTitle.contains("spider-man") || lowerTitle.contains("spiderman") -> listOf(
-                CastMember("Tom Holland", "Peter Parker / Spider-Man", "https://image.tmdb.org/t/p/w185/aA123.jpg"),
-                CastMember("Zendaya", "MJ", "https://image.tmdb.org/t/p/w185/bB456.jpg"),
+                CastMember("Tom Holland", "Peter Parker / Spider-Man", null),
+                CastMember("Zendaya", "MJ", null),
                 CastMember("Jacob Batalon", "Ned Leeds", null)
             )
-            else -> listOf(
-                CastMember("Lead Actor", "Main Character", null),
-                CastMember("Co-Star", "Supporting Role", null),
-                CastMember("Featured Talent", "Key Role", null)
-            )
+            else -> emptyList()
         }
     }
 

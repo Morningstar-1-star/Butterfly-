@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -70,6 +71,7 @@ fun HomeScreen(
     val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
 
     val userProfile by viewModel.userProfile.collectAsState()
+    val globalActiveStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
     val hasShownGreeting by viewModel.hasShownGreeting.collectAsState()
     var showGreetingText by remember { mutableStateOf(!hasShownGreeting) }
 
@@ -136,7 +138,23 @@ fun HomeScreen(
     }
     val globalProgress by com.example.ui.player.GlobalPlayerManager.progressFraction.collectAsState()
     val globalIsPlaying by com.example.ui.player.GlobalPlayerManager.isPlaying.collectAsState()
+    val isPipMode by viewModel.isPipMode.collectAsState()
     val activeVideoProgress = if (globalProgress > 0f) globalProgress else (activeVideoId?.let { watchProgressMap[it] } ?: 0f)
+
+    if (isPipMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            com.example.ui.player.PersistentPlayerHost(
+                useController = false,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
 
     if (showPoTokenDialog) {
         PoTokenDialog(
@@ -165,40 +183,18 @@ fun HomeScreen(
         return
     }
 
-    Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            AnimatedVisibility(
-                visible = isBarsVisible || isSearchExpanded,
-                enter = slideInVertically(initialOffsetY = { it }) + expandVertically(expandFrom = Alignment.Bottom),
-                exit = slideOutVertically(targetOffsetY = { it }) + shrinkVertically(shrinkTowards = Alignment.Bottom)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = modifier
+                .fillMaxSize()
+                .nestedScroll(nestedScrollConnection),
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                AnimatedVisibility(
+                    visible = isBarsVisible || isSearchExpanded,
+                    enter = slideInVertically(initialOffsetY = { it }) + expandVertically(expandFrom = Alignment.Bottom),
+                    exit = slideOutVertically(targetOffsetY = { it }) + shrinkVertically(shrinkTowards = Alignment.Bottom)
                 ) {
-                    if (currentStreamData != null && currentScreen != AppScreen.PLAYER) {
-                        LiquidGlassMiniPlayer(
-                            streamData = currentStreamData,
-                            progressFraction = activeVideoProgress,
-                            isPlaying = globalIsPlaying,
-                            onTogglePlay = {
-                                com.example.ui.player.GlobalPlayerManager.togglePlayPause()
-                                viewModel.togglePlayback()
-                            },
-                            onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
-                            onClose = {
-                                com.example.ui.player.GlobalPlayerManager.stopAndClear()
-                                viewModel.closeVideo()
-                            },
-                            onNext = { viewModel.playNextInQueue() },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
                     LiquidGlassNavBar(
                         currentScreen = currentScreen,
                         onSelectScreen = { screen ->
@@ -207,8 +203,7 @@ fun HomeScreen(
                         }
                     )
                 }
-            }
-        },
+            },
         topBar = {
             AnimatedVisibility(
                 visible = isBarsVisible || isSearchExpanded,
@@ -358,37 +353,38 @@ fun HomeScreen(
                             )
                         )
 
-                        // Source Provider Filter Chips
-                        val availableProviders by viewModel.availableProviders.collectAsState()
+                        // Smart Contextual Tags & Category Filter Chips
+                        val activeContextTitle = globalActiveStreamData?.title 
+                            ?: currentStreamData?.title 
+                            ?: trendingVideos.firstOrNull()?.title 
+                            ?: searchQuery
+
+                        val smartTagsList = remember(activeContextTitle, searchQuery) {
+                            buildSmartTags(activeContextTitle, searchQuery)
+                        }
+
                         LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            item {
-                                val isSelected = (activeProviderId == "all")
+                            items(smartTagsList) { tag ->
+                                val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
                                 Surface(
-                                    onClick = { viewModel.setActiveProvider("all") },
+                                    onClick = {
+                                        if (tag == "All") {
+                                            viewModel.clearSearch()
+                                        } else {
+                                            viewModel.updateSearchQuery(tag)
+                                            viewModel.performSearch(tag)
+                                        }
+                                    },
                                     shape = RoundedCornerShape(20.dp),
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                                     contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.height(32.dp)
                                 ) {
                                     Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                                        Text("All Sources", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                            items(availableProviders.filter { it.id != "all" }) { provider ->
-                                val isSelected = (activeProviderId == provider.id)
-                                Surface(
-                                    onClick = { viewModel.setActiveProvider(provider.id) },
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                                        Text(provider.name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text(tag, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -532,25 +528,27 @@ fun HomeScreen(
                                     }
                                 }
 
-                                // MAIN FEED HEADER
-                                item {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = if (searchResults.isNotEmpty()) "Search Results ($activeProviderName)" else "$activeProviderName Content",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onBackground
-                                        )
+                                // MAIN FEED HEADER (ONLY WHEN SEARCH RESULTS EXIST)
+                                if (searchResults.isNotEmpty()) {
+                                    item {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Search Results",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onBackground
+                                            )
+                                        }
                                     }
                                 }
 
-                                // FEED ERROR / LOADING / CARDS
+                                // FEED ERROR / CARDS
                                 if (feedError != null) {
                                     item {
                                         FeedErrorDiagnosticCard(
@@ -564,25 +562,6 @@ fun HomeScreen(
                                             }
                                         )
                                     }
-                                } else if (isSearching || isLoadingTrending) {
-                                    item {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(32.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                                Spacer(modifier = Modifier.height(12.dp))
-                                                Text(
-                                                    text = "Aggregating videos from $activeProviderName...",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    }
                                 } else {
                                     val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
                                     val feedList = rawFeed.filterNot { hiddenVideoIds.contains(it.id) }
@@ -595,7 +574,7 @@ fun HomeScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = "No videos found for $activeProviderName. Try selecting another category or provider.",
+                                                    text = "No videos found. Try selecting another category or tag.",
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -626,7 +605,7 @@ fun HomeScreen(
                                                 onNotInterested = { v ->
                                                     viewModel.markNotInterested(v)
                                                 },
-                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                                             )
                                         }
                                     }
@@ -640,6 +619,42 @@ fun HomeScreen(
             }
         }
     }
+
+    // PERSISTENT FLOATING MINI PLAYER OVERLAY (Fixed on screen, NEVER disappears when scrolling top/bottom)
+    val activeStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
+    val playingStreamData = activeStreamData ?: currentStreamData
+
+    if (playingStreamData != null && currentScreen != AppScreen.PLAYER) {
+        val navBarHeightDp = if (isBarsVisible || isSearchExpanded) 80.dp else 0.dp
+        val animatedBottomPadding by animateDpAsState(
+            targetValue = navBarHeightDp + 12.dp,
+            animationSpec = spring(stiffness = Spring.StiffnessMedium)
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = animatedBottomPadding, end = 8.dp, start = 8.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            LiquidGlassMiniPlayer(
+                streamData = playingStreamData,
+                progressFraction = activeVideoProgress,
+                isPlaying = globalIsPlaying,
+                onTogglePlay = {
+                    com.example.ui.player.GlobalPlayerManager.togglePlayPause()
+                    viewModel.togglePlayback()
+                },
+                onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
+                onClose = {
+                    com.example.ui.player.GlobalPlayerManager.stopAndClear()
+                    viewModel.closeVideo()
+                },
+                onNext = { viewModel.playNextInQueue() }
+            )
+        }
+    }
+}
 }
 }
 
@@ -764,8 +779,69 @@ fun SubscriptionsContent(
                 video = video,
                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                 onClick = { onSelectVideo(video) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
             )
         }
     }
+}
+
+private fun buildSmartTags(activeTitle: String?, currentQuery: String?): List<String> {
+    val tags = mutableListOf<String>()
+    tags.add("All")
+
+    val combined = "${activeTitle ?: ""} ${currentQuery ?: ""}".lowercase()
+
+    // Smart contextual rules based on active video / movie / show / query
+    if (combined.contains("spider") || combined.contains("venom")) {
+        tags.addAll(listOf("Spider-Man", "Marvel", "Sony", "Tom Holland", "Venom", "Peter Parker", "Superhero"))
+    }
+    if (combined.contains("inception") || combined.contains("nolan") || combined.contains("oppenheimer") || combined.contains("interstellar")) {
+        tags.addAll(listOf("Inception", "Christopher Nolan", "Leonardo DiCaprio", "Cillian Murphy", "Sci-Fi", "Mind-Bending"))
+    }
+    if (combined.contains("frieren") || combined.contains("sousou")) {
+        tags.addAll(listOf("Sousou no Frieren", "Madhouse", "Fantasy", "Magic", "Elf", "Anime"))
+    }
+    if (combined.contains("lioness") || combined.contains("special ops")) {
+        tags.addAll(listOf("Special Ops: Lioness", "Zoe Saldana", "Action", "Thriller", "Military", "Series"))
+    }
+    if (combined.contains("batman") || combined.contains("dark knight") || combined.contains("joker")) {
+        tags.addAll(listOf("Batman", "DC", "Christopher Nolan", "Christian Bale", "Joker", "Action"))
+    }
+    if (combined.contains("avengers") || combined.contains("iron man") || combined.contains("mcu")) {
+        tags.addAll(listOf("Avengers", "Marvel", "MCU", "Robert Downey Jr", "Superhero"))
+    }
+    if (combined.contains("naruto") || combined.contains("one piece") || combined.contains("bleach") || combined.contains("demon slayer") || combined.contains("jujutsu")) {
+        tags.addAll(listOf("Jujutsu Kaisen", "Demon Slayer", "One Piece", "MAPPA", "ufotable", "Anime"))
+    }
+    if (combined.contains("star wars") || combined.contains("mandalorian") || combined.contains("jedi")) {
+        tags.addAll(listOf("Star Wars", "Lucasfilm", "Sci-Fi", "Jedi"))
+    }
+
+    // Dynamic extraction of proper noun terms from active video title
+    if (!activeTitle.isNullOrEmpty()) {
+        val words = activeTitle.replace(Regex("[^a-zA-Z0-9\\s]"), " ")
+            .split("\\s+".toRegex())
+            .filter { word ->
+                word.length > 3 && !setOf(
+                    "the", "and", "with", "from", "for", "full", "movie", "hd", "1080p", 
+                    "720p", "4k", "official", "trailer", "video", "episode", "season", 
+                    "sub", "dub", "watch", "online", "free", "part"
+                ).contains(word.lowercase())
+            }
+        words.take(3).forEach { w ->
+            val cap = w.replaceFirstChar { it.uppercase() }
+            if (!tags.contains(cap)) tags.add(cap)
+        }
+    }
+
+    // Core categories & popular genres requested
+    val coreCategories = listOf(
+        "Movies", "Series", "Funny", "Action", "Fantasy", "Horror", 
+        "Crime", "Sci-Fi", "Drama", "Anime", "Romance", "Thriller"
+    )
+    coreCategories.forEach { cat ->
+        if (!tags.contains(cat)) tags.add(cat)
+    }
+
+    return tags.distinct()
 }

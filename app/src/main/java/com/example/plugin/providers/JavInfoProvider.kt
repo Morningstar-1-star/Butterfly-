@@ -166,7 +166,7 @@ class JavInfoProvider(
                     uploadDate = "★ 9.5 • 2026",
                     viewCount = 0L,
                     durationSeconds = 7200L,
-                    thumbnailUrl = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800",
+                    thumbnailUrl = null,
                     providerId = providerId
                 )
             )
