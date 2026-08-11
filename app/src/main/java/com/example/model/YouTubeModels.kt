@@ -102,7 +102,8 @@ data class PlayableStreamOption(
     val audioStream: AudioStream? = null,
     val videoUrl: String? = null,
     val audioUrl: String? = null,
-    val providerType: ProviderType = ProviderType.OTHER
+    val providerType: ProviderType = ProviderType.OTHER,
+    val headers: Map<String, String> = emptyMap()
 ) {
     val isTorrent: Boolean
         get() = providerType == ProviderType.TORRENT ||
@@ -140,7 +141,8 @@ data class StreamData(
     val embedUrl: String? = null,
     val providerId: String? = null,
     val thumbnailUrl: String? = null,
-    val providerType: ProviderType = ProviderType.OTHER
+    val providerType: ProviderType = ProviderType.OTHER,
+    val headers: Map<String, String> = emptyMap()
 ) {
     val isTorrent: Boolean
         get() = providerType == ProviderType.TORRENT || selectedStreamOption?.isTorrent == true || availableStreamOptions.any { it.isTorrent }

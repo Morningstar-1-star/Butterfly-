@@ -1,5 +1,6 @@
 package com.example.extractor
 
+import android.content.Context
 import android.util.Log
 import com.example.model.CaptionOption
 import com.example.model.ExtractorErrorDetails
@@ -169,7 +170,21 @@ object YouTubeExtractorHelper {
         data class Error(val errorDetails: ExtractorErrorDetails) : ExtractionResult()
     }
 
-    fun fetchStreamData(urlOrId: String): ExtractionResult {
+    fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult {
+        val targetCtx = context ?: com.example.plugin.providers.ArchiveOrgProvider.contextRef
+        if (targetCtx != null && YtDlpResolver.isYtDlpSupportedUrl(urlOrId)) {
+            try {
+                val ytDlpRes = kotlinx.coroutines.runBlocking {
+                    YtDlpResolver.extractStreamInfo(targetCtx, urlOrId)
+                }
+                if (ytDlpRes is YtDlpResolver.ExtractionResult.Success) {
+                    return ExtractionResult.Success(ytDlpRes.streamData)
+                }
+            } catch (e: Exception) {
+                logWarn("YouTubeExtractor", "YtDlpResolver attempt failed: ${e.message}")
+            }
+        }
+
         ensureInitialized()
         val service = getYouTubeService()
 

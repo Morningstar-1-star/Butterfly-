@@ -12,11 +12,7 @@ object VideoActionHelper {
 
     fun shareVideo(context: Context, video: VideoItem) {
         try {
-            val shareUrl = if (video.videoUrl.isNotBlank()) {
-                video.videoUrl
-            } else {
-                "https://www.youtube.com/watch?v=${video.id}"
-            }
+            val shareUrl = video.embedUrl ?: if (video.id.startsWith("http")) video.id else "https://www.youtube.com/watch?v=${video.id}"
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, video.title)
@@ -32,7 +28,7 @@ object VideoActionHelper {
 
     fun downloadVideo(context: Context, video: VideoItem) {
         try {
-            val downloadUrl = video.videoUrl.ifBlank { video.thumbnailUrl }
+            val downloadUrl = (video.embedUrl ?: if (video.id.startsWith("http")) video.id else "").ifBlank { video.thumbnailUrl ?: "" }
             if (downloadUrl.isBlank()) {
                 Toast.makeText(context, "No download link available for this video", Toast.LENGTH_SHORT).show()
                 return

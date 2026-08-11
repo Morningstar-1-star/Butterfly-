@@ -226,6 +226,25 @@ class SourcePipelineEngine(
             playable.add(Pair(option, score))
         }
 
+        // If input is a YouTube/Bilibili or supported URL, directly query YtDlpResolver
+        val ctx = context ?: com.example.plugin.providers.ArchiveOrgProvider.contextRef
+        if (ctx != null && com.example.extractor.YtDlpResolver.isYtDlpSupportedUrl(idOrUrl)) {
+            try {
+                when (val ytRes = com.example.extractor.YtDlpResolver.extractStreamInfo(ctx, idOrUrl)) {
+                    is com.example.extractor.YtDlpResolver.ExtractionResult.Success -> {
+                        for (opt in ytRes.playableOptions) {
+                            playable.add(Pair(opt, 300)) // Top priority score for direct yt-dlp extracted streams
+                        }
+                    }
+                    is com.example.extractor.YtDlpResolver.ExtractionResult.Error -> {
+                        Log.w("SourcePipelineEngine", "Direct YtDlpResolver extraction failed: ${ytRes.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("SourcePipelineEngine", "YtDlpResolver execution exception: ${e.message}")
+            }
+        }
+
         // Sort descending by score
         val sortedPlayable = playable.sortedByDescending { it.second }.map { it.first }
 

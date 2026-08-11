@@ -54,6 +54,7 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(JackettProwlarrProvider())
         registerNativeProvider(SubtitleProvider())
         registerNativeProvider(YouTubeProvider())
+        registerNativeProvider(BilibiliProvider(context))
         registerNativeProvider(TmdbTorrentProvider())
         registerNativeProvider(WatchModeProvider())
         registerNativeProvider(ArchiveOrgProvider())
