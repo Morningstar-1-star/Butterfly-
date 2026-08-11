@@ -102,6 +102,36 @@ fun ExploreScreen(
             val aniListDeferred = async { TMDBHelper.fetchAniListTrendingAnime() }
             val jikanDeferred = async { TMDBHelper.fetchJikanTopAnime() }
             val javInfoDeferred = async { TMDBHelper.fetchJavInfoAdultVideos() }
+            val ytDeferred = async {
+                try {
+                    com.example.plugin.providers.YouTubeProvider().home().items.map { item ->
+                        VideoItem(
+                            id = item.id,
+                            title = item.title,
+                            uploaderName = item.uploaderName,
+                            thumbnailUrl = item.thumbnailUrl,
+                            durationSeconds = item.durationSeconds,
+                            viewCount = item.viewCount,
+                            providerId = "youtube"
+                        )
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
+            val bilibiliDeferred = async {
+                try {
+                    com.example.plugin.providers.BilibiliProvider().home().items.map { item ->
+                        VideoItem(
+                            id = item.id,
+                            title = item.title,
+                            uploaderName = item.uploaderName,
+                            thumbnailUrl = item.thumbnailUrl,
+                            durationSeconds = item.durationSeconds,
+                            viewCount = item.viewCount,
+                            providerId = "bilibili"
+                        )
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
 
             val liveHeroes = heroesDeferred.await()
             if (liveHeroes.isNotEmpty()) {
@@ -120,8 +150,12 @@ fun ExploreScreen(
             val anime = (aniListItems + jikanItems).distinctBy { it.id }
 
             val javInfoItems = javInfoDeferred.await()
+            val ytItems = ytDeferred.await()
+            val bilibiliItems = bilibiliDeferred.await()
 
             rawCategories = listOf(
+                CuratedCategory("youtube", "YouTube Trending", "🔴", ytItems),
+                CuratedCategory("bilibili", "Bilibili Popular", "⚡", bilibiliItems),
                 CuratedCategory("mystery", "Mystery Mindbenders", "🔍", mystery),
                 CuratedCategory("horror", "Horror Nights", "🍿", horror),
                 CuratedCategory("scifi", "Sci-Fi Dimensions", "✨", scifi),

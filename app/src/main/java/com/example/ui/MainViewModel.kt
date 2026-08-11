@@ -261,7 +261,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>(
         setOf(
-            "all", "unified_torrents", "youtube", "jikan_anime",
+            "all", "unified_torrents", "youtube", "bilibili", "jikan_anime",
             "dailymotion", "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
             "peertube", "vimeo", "archive_org", "ted", "nasa", "direct_mp4", "direct_hls", "rss_video", "json"
         )
@@ -865,6 +865,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "all" -> "All Sources"
             "unified_torrents" -> "Torrents (All Indexers)"
             "youtube" -> "YouTube"
+            "bilibili" -> "Bilibili"
             "jikan_anime" -> "Anime (Jikan)"
             "dailymotion" -> "Dailymotion"
             "javinfo" -> "JavInfo API"
