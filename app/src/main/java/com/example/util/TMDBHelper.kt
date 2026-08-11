@@ -9,8 +9,10 @@ import com.example.model.StreamData
 import com.example.model.VideoTrailerClip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
@@ -841,10 +843,8 @@ object TMDBHelper {
                 put("query", query)
             }
 
-            @Suppress("DEPRECATION")
-            val mediaType = okhttp3.MediaType.parse("application/json")
-            @Suppress("DEPRECATION")
-            val requestBody = okhttp3.RequestBody.create(mediaType, jsonObj.toString())
+            val mediaType = "application/json".toMediaTypeOrNull()
+            val requestBody = jsonObj.toString().toRequestBody(mediaType)
 
             val req = Request.Builder()
                 .url("https://graphql.anilist.co")
