@@ -145,13 +145,24 @@ fun UniversalVideoPlayer(
         )
     }
 
-    Box(
-        modifier = modifier
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    val playerContainerModifier = if (isLandscape) {
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    } else {
+        modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp, horizontal = 4.dp)
             .clip(RoundedCornerShape(16.dp))
             .aspectRatio(16f / 9f)
             .background(Color.Black)
+    }
+
+    Box(
+        modifier = playerContainerModifier
             .pointerInput(seekSecs) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
@@ -466,21 +477,76 @@ fun UniversalVideoPlayer(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // YouTube Style Settings Gear Icon Button (Top Right)
-                IconButton(
-                    onClick = { showSettingsSheet = true },
+                // YouTube Style Top Right Control Toolbar
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(36.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Player Settings",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    // Quick Playback Speed Button / Badge
+                    Surface(
+                        onClick = {
+                            showSpeedSubMenu = true
+                            showSettingsSheet = true
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black.copy(alpha = 0.65f),
+                        contentColor = Color.White
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = "Playback Speed",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    // Settings Gear Icon
+                    IconButton(
+                        onClick = {
+                            showSpeedSubMenu = false
+                            showSettingsSheet = true
+                        },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Player Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Fullscreen Toggle Icon
+                    IconButton(
+                        onClick = { toggleFullscreen(currentPlayerContext) },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = "Toggle Fullscreen",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -758,16 +824,19 @@ private fun Context.findActivity(): Activity? {
 private fun toggleFullscreen(context: Context) {
     val activity = context.findActivity() ?: return
     val currentOrientation = activity.requestedOrientation
-    val isLandscape = currentOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
-            currentOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    val configOrientation = activity.resources.configuration.orientation
+    val isLandscape = configOrientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
+            currentOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
+            currentOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE ||
+            currentOrientation == ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+
+    val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
 
     if (isLandscape) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         controller.show(WindowInsetsCompat.Type.systemBars())
     } else {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }

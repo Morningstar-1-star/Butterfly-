@@ -103,18 +103,17 @@ object MediaIdResolver {
             }
         }
 
-        // 4. Pure numeric TMDB ID: e.g. "550"
+        // 4. Pure numeric TMDB ID: e.g. "969681" or "550"
         if (clean.all { it.isDigit() }) {
             val tmdbId = clean
-            val imdbId = resolveImdbFromTmdb(tmdbId, MediaType.MOVIE) ?: resolveImdbFromTmdb(tmdbId, MediaType.TV)
-            val type = if (imdbId != null) MediaType.MOVIE else MediaType.UNKNOWN
+            val (imdbId, type) = resolveTmdbDetails(tmdbId)
             val identity = MediaIdentity(
                 tmdbId = tmdbId,
                 imdbId = imdbId,
                 mediaType = type,
                 rawQueryOrUrl = clean
             )
-            Log.d(TAG, "[Numeric TMDB Match] Resolved '$clean' -> imdbId=${identity.imdbId}, tmdbId=${identity.tmdbId}")
+            Log.d(TAG, "[Numeric TMDB Match] Resolved '$clean' -> imdbId=${identity.imdbId}, tmdbId=${identity.tmdbId}, type=${identity.mediaType}")
             identityCache[clean] = identity
             return@withContext identity
         }
@@ -160,6 +159,37 @@ object MediaIdResolver {
             Log.e(TAG, "Error resolving TMDB from IMDb $imdbId: ${e.message}")
             null
         }
+    }
+
+    private fun resolveTmdbDetails(tmdbId: String): Pair<String?, MediaType> {
+        try {
+            // Try Movie endpoint first with append_to_response
+            val movieUrl = "https://api.themoviedb.org/3/movie/$tmdbId?api_key=$TMDB_API_KEY&append_to_response=external_ids"
+            val req1 = Request.Builder().url(movieUrl).header("User-Agent", "Mozilla/5.0").build()
+            val resp1 = httpClient.newCall(req1).execute()
+            if (resp1.isSuccessful) {
+                val body = resp1.body?.string() ?: ""
+                val json = JSONObject(body)
+                val extIds = json.optJSONObject("external_ids")
+                val imdbId = extIds?.optString("imdb_id", null)?.takeIf { it.startsWith("tt") }
+                return Pair(imdbId, MediaType.MOVIE)
+            }
+
+            // Fallback to TV endpoint
+            val tvUrl = "https://api.themoviedb.org/3/tv/$tmdbId?api_key=$TMDB_API_KEY&append_to_response=external_ids"
+            val req2 = Request.Builder().url(tvUrl).header("User-Agent", "Mozilla/5.0").build()
+            val resp2 = httpClient.newCall(req2).execute()
+            if (resp2.isSuccessful) {
+                val body = resp2.body?.string() ?: ""
+                val json = JSONObject(body)
+                val extIds = json.optJSONObject("external_ids")
+                val imdbId = extIds?.optString("imdb_id", null)?.takeIf { it.startsWith("tt") }
+                return Pair(imdbId, MediaType.TV)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving TMDB details for $tmdbId: ${e.message}")
+        }
+        return Pair(null, MediaType.MOVIE)
     }
 
     private fun resolveImdbFromTmdb(tmdbId: String, type: MediaType): String? {

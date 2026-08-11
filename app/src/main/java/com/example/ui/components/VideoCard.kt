@@ -57,6 +57,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyRow
@@ -177,18 +180,31 @@ fun VideoCard(
 
                 if (!video.providerId.isNullOrEmpty()) {
                     val pid = video.providerId.lowercase()
+                    val titleLower = video.title.lowercase()
+                    val uploaderLower = video.uploaderName.lowercase()
+                    val uploadDateLower = (video.uploadDate ?: "").lowercase()
+
                     val providerBadgeName = when {
+                        pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
+                        pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
+                        video.id.startsWith("tv_") || uploadDateLower.contains("tv series") || uploadDateLower.contains("s1:") || uploadDateLower.contains("season") || uploadDateLower.contains("ep ") || uploadDateLower.contains("episodes") || titleLower.contains("s0") || titleLower.contains("s1") || titleLower.contains("season") || pid == "eztv" || uploaderLower.contains("tv network") -> "Series"
+                        video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet", "watchmode") || uploaderLower.contains("marvel") || uploaderLower.contains("dc") || uploaderLower.contains("disney") || uploaderLower.contains("warner") || uploaderLower.contains("universal") || uploaderLower.contains("sony") || uploaderLower.contains("paramount") || uploaderLower.contains("studio") || uploaderLower.contains("pictures") || uploaderLower.contains("cinema") -> "Movies"
+                        pid == "archive_org" -> "Archive"
                         pid == "youtube" -> "YouTube"
                         pid == "dailymotion" -> "Dailymotion"
-                        pid == "apijav_server" -> "APIJAV Server"
-                        pid == "apijav_hentai" -> "APIJAV Hentai"
-                        pid == "apijav_porn" -> "APIJAV Porn"
-                        pid == "eporner" -> "Eporner"
-                        pid == "peertube" -> "PeerTube"
                         pid == "vimeo" -> "Vimeo"
-                        pid == "unified_torrents" || pid.contains("torrent") || pid.contains("yts") || pid.contains("eztv") || pid.contains("nyaa") || pid.contains("tmdb") -> "Torrents"
-                        else -> video.providerId.replaceFirstChar { it.uppercase() }
+                        else -> "Movies"
                     }
+
+                    val badgeBgColor = when (providerBadgeName) {
+                        "Movies" -> Color(0xFFE5A00D)
+                        "Series" -> Color(0xFF0288D1)
+                        "Anime" -> Color(0xFF9C27B0)
+                        "18+" -> Color(0xFFC2185B)
+                        "YouTube" -> Color(0xFFFF0000)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+
                     Text(
                         text = providerBadgeName,
                         color = Color.White,
@@ -198,7 +214,7 @@ fun VideoCard(
                             .align(Alignment.TopStart)
                             .padding(8.dp)
                             .background(
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                                color = badgeBgColor.copy(alpha = 0.95f),
                                 shape = RoundedCornerShape(6.dp)
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -231,29 +247,76 @@ fun VideoCard(
                     .padding(12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                // Channel Avatar or Placeholder
-                if (!video.uploaderAvatarUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = video.uploaderAvatarUrl,
-                        contentDescription = video.uploaderName,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
+                // Channel Logo or Avatar or Fallback
+                val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl) {
+                    com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl)
+                }
+                val context = LocalContext.current
+
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(brandInfo.backgroundColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (brandInfo.logoUrls.isNotEmpty()) {
+                        val primaryUrl = brandInfo.logoUrls.first()
+                        val logoImageRequest = remember(primaryUrl) {
+                            ImageRequest.Builder(context)
+                                .data(primaryUrl)
+                                .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                                .crossfade(true)
+                                .build()
+                        }
+
+                        SubcomposeAsyncImage(
+                            model = logoImageRequest,
+                            contentDescription = video.uploaderName,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(4.dp),
+                            loading = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(brandInfo.backgroundColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = brandInfo.brandShortText,
+                                        color = brandInfo.textColor,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            },
+                            error = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(brandInfo.backgroundColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = brandInfo.brandShortText,
+                                        color = brandInfo.textColor,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        )
+                    } else {
                         Text(
-                            text = video.uploaderName.take(1).uppercase(),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            text = brandInfo.brandShortText,
+                            color = brandInfo.textColor,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
+                            maxLines = 1
                         )
                     }
                 }

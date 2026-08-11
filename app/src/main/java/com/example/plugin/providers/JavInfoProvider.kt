@@ -38,10 +38,13 @@ class JavInfoProvider(
             providerType = ProviderType.OTHER
         )
 
+    private val defaultApiKey = "jvi_guxSYVMOELEfBGEDFlLPZeizhBbupsUsgggTgosYErOuEnLSXyVTWrUJwDFVmTaV"
+
     private fun getApiKey(): String {
         if (!customApiKey.isNullOrBlank()) return customApiKey.trim()
         val keyFromSettings = context?.let { DebridSettingsManager.getJavInfoApiKey(it) }
-        return keyFromSettings?.trim() ?: ""
+        val key = keyFromSettings?.trim() ?: ""
+        return key.ifBlank { defaultApiKey }
     }
 
     override fun getProviderConfig(context: Context?): ProviderConfig {
@@ -294,7 +297,19 @@ class JavInfoProvider(
         return withTimeoutOrNull(8000L) {
             try {
                 val apiKey = getApiKey()
-                val body = JSONObject().apply { put("q", cleanCode) }
+                val providersArr = JSONArray().apply {
+                    put("fanza")
+                    put("dmm")
+                    put("javdb")
+                    put("missav")
+                    put("javdatabase")
+                    put("magneto")
+                    put("javlibrary")
+                }
+                val body = JSONObject().apply {
+                    put("q", cleanCode)
+                    put("providers", providersArr)
+                }
                 val headers = mutableMapOf("Content-Type" to "application/json")
                 if (apiKey.isNotBlank()) {
                     headers["x-javinfo-key"] = apiKey
@@ -303,13 +318,22 @@ class JavInfoProvider(
                 val url = "$apiBase/movie"
                 Log.d("JavInfoProvider", "POST $url with q=$cleanCode")
 
+                var responseBody: String? = null
                 val resp = http.post(url, body.toString(), headers = headers)
-                if (resp.statusCode != 200 || resp.body.isBlank()) {
-                    Log.w("JavInfoProvider", "POST /movie returned HTTP ${resp.statusCode}: ${resp.body.take(200)}")
-                    return@withTimeoutOrNull null
+                if (resp.statusCode == 200 && resp.body.isNotBlank()) {
+                    responseBody = resp.body
+                } else {
+                    Log.w("JavInfoProvider", "POST /movie returned HTTP ${resp.statusCode}, trying GET fallback...")
+                    val getUrl = "$apiBase/movie?q=$cleanCode&providers=fanza,dmm,javdb,missav,javdatabase,magneto,javlibrary&key=$apiKey"
+                    val getResp = http.get(getUrl)
+                    if (getResp.statusCode == 200 && getResp.body.isNotBlank()) {
+                        responseBody = getResp.body
+                    }
                 }
 
-                val json = JSONObject(resp.body)
+                if (responseBody.isNullOrBlank()) return@withTimeoutOrNull null
+
+                val json = JSONObject(responseBody)
                 val resultObj = json.optJSONObject("result")
                     ?: json.optJSONObject("data")
                     ?: if (json.optBoolean("success")) json else null
@@ -336,7 +360,19 @@ class JavInfoProvider(
         return withTimeoutOrNull(8000L) {
             try {
                 val apiKey = getApiKey()
-                val body = JSONObject().apply { put("q", cleanQuery) }
+                val providersArr = JSONArray().apply {
+                    put("fanza")
+                    put("dmm")
+                    put("javdb")
+                    put("missav")
+                    put("javdatabase")
+                    put("magneto")
+                    put("javlibrary")
+                }
+                val body = JSONObject().apply {
+                    put("q", cleanQuery)
+                    put("providers", providersArr)
+                }
                 val headers = mutableMapOf("Content-Type" to "application/json")
                 if (apiKey.isNotBlank()) {
                     headers["x-javinfo-key"] = apiKey
@@ -345,13 +381,21 @@ class JavInfoProvider(
                 val url = "$apiBase/query"
                 Log.d("JavInfoProvider", "POST $url with q=$cleanQuery")
 
+                var responseBody: String? = null
                 val resp = http.post(url, body.toString(), headers = headers)
-                if (resp.statusCode != 200 || resp.body.isBlank()) {
-                    Log.w("JavInfoProvider", "POST /query returned HTTP ${resp.statusCode}: ${resp.body.take(200)}")
-                    return@withTimeoutOrNull emptyList<JavInfoMovieData>()
+                if (resp.statusCode == 200 && resp.body.isNotBlank()) {
+                    responseBody = resp.body
+                } else {
+                    val getUrl = "$apiBase/movie?q=$cleanQuery&providers=fanza,dmm,javdb,missav,javdatabase,magneto,javlibrary&key=$apiKey"
+                    val getResp = http.get(getUrl)
+                    if (getResp.statusCode == 200 && getResp.body.isNotBlank()) {
+                        responseBody = getResp.body
+                    }
                 }
 
-                val json = JSONObject(resp.body)
+                if (responseBody.isNullOrBlank()) return@withTimeoutOrNull emptyList<JavInfoMovieData>()
+
+                val json = JSONObject(responseBody)
                 val itemsArray = json.optJSONArray("results")
                     ?: json.optJSONArray("data")
                     ?: json.optJSONArray("matches")

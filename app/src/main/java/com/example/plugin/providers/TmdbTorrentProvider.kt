@@ -134,52 +134,51 @@ class TmdbTorrentProvider(
             )
         )
 
-        // 5. Torrentio Stremio Torrent Stream (If IMDB ID is present)
-        if (imdbId.isNotEmpty() && imdbId.startsWith("tt")) {
-            val torrentioUrl = if (isTv) {
-                "https://torrentio.strem.fun/stream/series/$imdbId:1:1.json"
-            } else {
-                "https://torrentio.strem.fun/stream/movie/$imdbId.json"
-            }
-            try {
-                val tResp = http.get(torrentioUrl)
-                if (tResp.statusCode == 200) {
-                    val tJson = JSONObject(tResp.body)
-                    val streamArr = tJson.optJSONArray("streams") ?: JSONArray()
-                    for (i in 0 until minOf(streamArr.length(), 6)) {
-                        val st = streamArr.getJSONObject(i)
-                        val streamTitle = st.optString("title", "Torrent Stream ${i + 1}")
-                        val name = st.optString("name", "Torrentio")
-                        val url = st.optString("url")
-                        val magnet = st.optString("infoHash")
+        // 5. Torrentio Stremio Torrent Stream
+        val queryId = if (imdbId.isNotEmpty() && imdbId.startsWith("tt")) imdbId else "tmdb:$cleanId"
+        val torrentioUrl = if (isTv) {
+            "https://torrentio.strem.fun/stream/series/$queryId:1:1.json"
+        } else {
+            "https://torrentio.strem.fun/stream/movie/$queryId.json"
+        }
+        try {
+            val tResp = http.get(torrentioUrl)
+            if (tResp.statusCode == 200) {
+                val tJson = JSONObject(tResp.body)
+                val streamArr = tJson.optJSONArray("streams") ?: JSONArray()
+                for (i in 0 until minOf(streamArr.length(), 6)) {
+                    val st = streamArr.getJSONObject(i)
+                    val streamTitle = st.optString("title", "Torrent Stream ${i + 1}")
+                    val name = st.optString("name", "Torrentio")
+                    val url = st.optString("url")
+                    val magnet = st.optString("infoHash")
 
-                        if (url.isNotEmpty()) {
-                            val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $streamTitle", "TMDB")
-                            streams.add(
-                                PluginVideoStream(
-                                    url = url,
-                                    qualityLabel = cleanLabel,
-                                    format = if (url.contains(".m3u8")) "hls" else "mp4",
-                                    isMuxed = true
-                                )
+                    if (url.isNotEmpty()) {
+                        val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $streamTitle", "TMDB")
+                        streams.add(
+                            PluginVideoStream(
+                                url = url,
+                                qualityLabel = cleanLabel,
+                                format = if (url.contains(".m3u8")) "hls" else "mp4",
+                                isMuxed = true
                             )
-                        } else if (magnet.isNotEmpty()) {
-                            val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl(magnet, title)
-                            val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $streamTitle", "TMDB")
-                            streams.add(
-                                PluginVideoStream(
-                                    url = magnetUrl,
-                                    qualityLabel = cleanLabel,
-                                    format = "embed",
-                                    isMuxed = true
-                                )
+                        )
+                    } else if (magnet.isNotEmpty()) {
+                        val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl(magnet, title)
+                        val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$name $streamTitle", "TMDB")
+                        streams.add(
+                            PluginVideoStream(
+                                url = magnetUrl,
+                                qualityLabel = cleanLabel,
+                                format = "torrent",
+                                isMuxed = true
                             )
-                        }
+                        )
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         PluginStreamInfo(
@@ -281,15 +280,7 @@ class TmdbTorrentProvider(
     }
 
     private fun getStudioName(title: String, isTv: Boolean): String {
-        val lower = title.lowercase()
-        return when {
-            lower.contains("spider") || lower.contains("avengers") || lower.contains("marvel") || lower.contains("iron man") || lower.contains("thor") -> "Marvel Studios"
-            lower.contains("batman") || lower.contains("superman") || lower.contains("joker") || lower.contains("dc") -> "DC Studios"
-            lower.contains("star wars") || lower.contains("avatar") -> "20th Century Studios"
-            lower.contains("paramount") || lower.contains("sonic") || lower.contains("top gun") -> "Paramount Pictures"
-            isTv -> "TV Network"
-            else -> "Film Studio"
-        }
+        return com.example.util.StudioDetector.detectStudio(title, isTv)
     }
 
     private fun extractId(input: String): String {

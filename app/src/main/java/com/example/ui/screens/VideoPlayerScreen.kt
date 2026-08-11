@@ -191,11 +191,51 @@ fun VideoPlayerScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    if (isLandscape) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            YouTubePlayerView(
+                streamOption = selectedOption,
+                hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
+                captionOption = selectedCaption,
+                embedUrl = currentStreamData?.embedUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.embedUrl,
+                providerId = providerId,
+                isPlaying = isPlaying,
+                videoId = activeVideoId,
+                initialPositionMs = initialPositionMs,
+                failedSourceLogs = failedSourceLogs,
+                onProgressUpdate = { pos, dur ->
+                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            TorrentArtworkOverlay(
+                isTorrent = isTorrentStream,
+                title = displayTitle,
+                posterUrl = displayPosterUrl,
+                isExtracting = isExtracting,
+                statusMessage = "Loading video stream from $providerName...",
+                firstFrameRendered = firstFrameRendered,
+                extractionError = extractionError,
+                onRetry = {
+                    activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
+                }
+            )
+        }
+    } else {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            modifier = modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
             TopAppBar(
                 title = {
                     Column {
@@ -267,23 +307,20 @@ fun VideoPlayerScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (extractionResult is YouTubeExtractorHelper.ExtractionResult.Success) {
-                    val res = extractionResult as YouTubeExtractorHelper.ExtractionResult.Success
-                    YouTubePlayerView(
-                        streamOption = selectedOption,
-                        hlsUrl = res.streamData.hlsUrl,
-                        captionOption = selectedCaption,
-                        embedUrl = res.streamData.embedUrl,
-                        providerId = providerId,
-                        isPlaying = isPlaying,
-                        videoId = activeVideoId,
-                        initialPositionMs = initialPositionMs,
-                        failedSourceLogs = failedSourceLogs,
-                        onProgressUpdate = { pos, dur ->
-                            activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                        }
-                    )
-                }
+                YouTubePlayerView(
+                    streamOption = selectedOption,
+                    hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
+                    captionOption = selectedCaption,
+                    embedUrl = currentStreamData?.embedUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.embedUrl,
+                    providerId = providerId,
+                    isPlaying = isPlaying,
+                    videoId = activeVideoId,
+                    initialPositionMs = initialPositionMs,
+                    failedSourceLogs = failedSourceLogs,
+                    onProgressUpdate = { pos, dur ->
+                        activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
+                    }
+                )
 
                 TorrentArtworkOverlay(
                     isTorrent = isTorrentStream,
@@ -810,4 +847,5 @@ fun VideoPlayerScreen(
             }
         }
     }
+}
 }

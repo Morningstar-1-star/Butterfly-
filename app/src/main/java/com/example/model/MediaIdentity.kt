@@ -23,19 +23,31 @@ data class MediaIdentity(
         get() = !imdbId.isNullOrBlank() && imdbId.startsWith("tt") && imdbId.length >= 7 && !imdbId.contains("0000000")
 
     /**
-     * Formats IMDb ID for Stremio/Torrentio/Comet/MediaFusion requests:
-     * - Movies: "tt1234567"
-     * - TV: "tt1234567:1:1"
-     * Returns null if no valid IMDb ID exists (never invents or fabricates fake IDs).
+     * Formats ID for Stremio/Torrentio/Comet/MediaFusion requests:
+     * - Movies: "tt1234567" or "tmdb:969681"
+     * - TV: "tt1234567:1:1" or "tmdb:969681:1:1"
      */
     fun toStremioImdbId(): String? {
-        if (!hasValidImdbId) return null
-        val baseImdb = imdbId!!
-        return if (mediaType == MediaType.TV && season != null && episode != null) {
-            "$baseImdb:$season:$episode"
-        } else {
-            baseImdb
+        if (hasValidImdbId) {
+            val baseImdb = imdbId!!
+            return if (mediaType == MediaType.TV && season != null && episode != null) {
+                "$baseImdb:$season:$episode"
+            } else if (mediaType == MediaType.TV) {
+                "$baseImdb:1:1"
+            } else {
+                baseImdb
+            }
         }
+        if (!tmdbId.isNullOrBlank()) {
+            val s = season ?: 1
+            val e = episode ?: 1
+            return if (mediaType == MediaType.TV) {
+                "tmdb:$tmdbId:$s:$e"
+            } else {
+                "tmdb:$tmdbId"
+            }
+        }
+        return null
     }
 
     /**

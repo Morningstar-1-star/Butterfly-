@@ -365,8 +365,27 @@ fun HomeScreen(
 
                         LazyRow(
                             contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            item {
+                                Surface(
+                                    onClick = { viewModel.navigateToScreen(AppScreen.EXPLORE) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (currentScreen == AppScreen.EXPLORE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                                    contentColor = if (currentScreen == AppScreen.EXPLORE) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(width = 40.dp, height = 32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Explore,
+                                            contentDescription = "Explore",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             items(smartTagsList) { tag ->
                                 val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
                                 Surface(
@@ -466,9 +485,8 @@ fun HomeScreen(
                     }
 
                     AppScreen.SUBSCRIPTIONS -> {
-                        SubscriptionsContent(
-                            videos = trendingVideos,
-                            watchProgressMap = watchProgressMap,
+                        LibraryScreen(
+                            viewModel = viewModel,
                             onSelectVideo = { video ->
                                 viewModel.playVideo(video.id, video.providerId)
                             }

@@ -197,15 +197,7 @@ class TorrentioAggregatorProvider(
     }
 
     private fun getStudioName(title: String, isTv: Boolean): String {
-        val lower = title.lowercase()
-        return when {
-            lower.contains("spider") || lower.contains("avengers") || lower.contains("marvel") || lower.contains("iron man") || lower.contains("thor") -> "Marvel Studios"
-            lower.contains("batman") || lower.contains("superman") || lower.contains("joker") || lower.contains("dc") -> "DC Studios"
-            lower.contains("star wars") || lower.contains("avatar") -> "20th Century Studios"
-            lower.contains("paramount") || lower.contains("sonic") || lower.contains("top gun") -> "Paramount Pictures"
-            isTv -> "TV Production"
-            else -> "Feature Studio"
-        }
+        return com.example.util.StudioDetector.detectStudio(title, isTv)
     }
 
     private fun extractId(input: String): String {

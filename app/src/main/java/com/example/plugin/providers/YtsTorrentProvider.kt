@@ -98,12 +98,13 @@ class YtsTorrentProvider(
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
-        val movieId = extractId(idOrUrl)
-        val url = "$BASE_URL/movie_details.json?movie_id=$movieId"
+        val identity = com.example.util.MediaIdResolver.resolve(idOrUrl)
+        val queryTerm = identity.imdbId ?: identity.tmdbId ?: extractId(idOrUrl)
+        val url = "$BASE_URL/list_movies.json?query_term=$queryTerm"
 
         var title = "YTS Movie"
         var overview = ""
-        var imdbCode = ""
+        var imdbCode = identity.imdbId ?: ""
         var trailerCode = ""
         val videoStreams = mutableListOf<PluginVideoStream>()
 
@@ -112,11 +113,12 @@ class YtsTorrentProvider(
             if (resp.statusCode == 200) {
                 val json = JSONObject(resp.body)
                 val data = json.optJSONObject("data")
-                val movie = data?.optJSONObject("movie")
-                if (movie != null) {
+                val movies = data?.optJSONArray("movies")
+                if (movies != null && movies.length() > 0) {
+                    val movie = movies.getJSONObject(0)
                     title = movie.optString("title", title)
-                    overview = movie.optString("description_full", "")
-                    imdbCode = movie.optString("imdb_code", "")
+                    overview = movie.optString("summary", "")
+                    if (imdbCode.isEmpty()) imdbCode = movie.optString("imdb_code", "")
                     trailerCode = movie.optString("yt_trailer_code", "")
 
                     val torrents = movie.optJSONArray("torrents") ?: JSONArray()
@@ -126,10 +128,8 @@ class YtsTorrentProvider(
                         val type = tor.optString("type", "bluray")
                         val size = tor.optString("size", "")
                         val hash = tor.optString("hash", "")
-                        val torrentUrl = tor.optString("url", "")
 
                         val magnetUrl = com.example.utils.TorrentUtils.formatMagnetUrl("magnet:?xt=urn:btih:$hash", title)
-
                         val cleanLabel = com.example.utils.TorrentUtils.formatCleanQualityLabel("$quality $type YTS", "YTS")
                         val finalLabel = if (size.isNotEmpty()) "$cleanLabel ($size)" else cleanLabel
 
@@ -137,7 +137,7 @@ class YtsTorrentProvider(
                             PluginVideoStream(
                                 url = magnetUrl,
                                 qualityLabel = finalLabel,
-                                format = "embed",
+                                format = "torrent",
                                 isMuxed = true
                             )
                         )
@@ -190,8 +190,8 @@ class YtsTorrentProvider(
         }
 
         PluginStreamInfo(
-            id = movieId,
-            url = videoStreams.firstOrNull()?.url ?: "https://yts.mx/movies/$movieId",
+            id = idOrUrl,
+            url = videoStreams.firstOrNull()?.url ?: "https://yts.mx",
             title = title,
             channelName = "YTS YIFY Torrents",
             description = overview,

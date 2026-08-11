@@ -63,7 +63,8 @@ object DebridSettingsManager {
     }
 
     fun getJavInfoApiKey(context: Context): String {
-        return getPrefs(context).getString(KEY_JAVINFO_API_KEY, "")?.trim() ?: ""
+        val stored = getPrefs(context).getString(KEY_JAVINFO_API_KEY, "")?.trim() ?: ""
+        return stored.ifBlank { "jvi_guxSYVMOELEfBGEDFlLPZeizhBbupsUsgggTgosYErOuEnLSXyVTWrUJwDFVmTaV" }
     }
 
     fun setJavInfoApiKey(context: Context, key: String) {

@@ -683,4 +683,310 @@ object TMDBHelper {
         tvSeasonsCache[cacheKey] = fallback
         return@withContext fallback
     }
+
+    suspend fun fetchExploreHeroItems(): List<com.example.ui.screens.FeaturedMedia> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<com.example.ui.screens.FeaturedMedia>()
+        try {
+            val url = "https://api.themoviedb.org/3/trending/all/day?api_key=$TMDB_API_KEY"
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val results = json.optJSONArray("results")
+                if (results != null) {
+                    for (i in 0 until minOf(results.length(), 6)) {
+                        val obj = results.getJSONObject(i)
+                        val mType = obj.optString("media_type", "movie")
+                        val tmdbId = obj.optInt("id")
+                        val id = if (mType == "tv") "tv_$tmdbId" else "movie_$tmdbId"
+                        val title = obj.optString("title", obj.optString("name", "Untitled"))
+                        val overview = obj.optString("overview", "")
+                        val backdropPath = obj.optString("backdrop_path")
+                        val posterPath = obj.optString("poster_path")
+                        val releaseDate = obj.optString("release_date", obj.optString("first_air_date", "2025"))
+                        val year = if (releaseDate.length >= 4) releaseDate.take(4) else "2025"
+
+                        if (backdropPath.isNotBlank() && backdropPath != "null") {
+                            list.add(
+                                com.example.ui.screens.FeaturedMedia(
+                                    id = id,
+                                    title = title,
+                                    genres = "Trending • ${if (mType == "tv") "TV Series" else "Movie"} • $year",
+                                    synopsis = overview.ifBlank { "Stream in ultra full HD resolution on Butterfly player." },
+                                    backdropUrl = "https://image.tmdb.org/t/p/w1280$backdropPath",
+                                    posterUrl = if (posterPath.isNotBlank() && posterPath != "null") "https://image.tmdb.org/t/p/w500$posterPath" else "https://image.tmdb.org/t/p/w1280$backdropPath",
+                                    providerId = "tmdb"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching explore hero items", e)
+        }
+        return@withContext list
+    }
+
+    suspend fun fetchExploreCategoryMovies(genreId: Int, categoryLabel: String): List<com.example.model.VideoItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<com.example.model.VideoItem>()
+        try {
+            val url = "https://api.themoviedb.org/3/discover/movie?api_key=$TMDB_API_KEY&with_genres=$genreId&sort_by=popularity.desc&page=1"
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val results = json.optJSONArray("results")
+                if (results != null) {
+                    for (i in 0 until minOf(results.length(), 10)) {
+                        val obj = results.getJSONObject(i)
+                        val tmdbId = obj.optInt("id")
+                        val title = obj.optString("title", "Untitled")
+                        val posterPath = obj.optString("poster_path")
+                        val releaseDate = obj.optString("release_date", "2025")
+                        val year = if (releaseDate.length >= 4) releaseDate.take(4) else "2025"
+                        val voteAvg = obj.optDouble("vote_average", 7.5)
+
+                        val posterUrl = if (posterPath.isNotBlank() && posterPath != "null") {
+                            "https://image.tmdb.org/t/p/w500$posterPath"
+                        } else null
+
+                        if (posterUrl != null) {
+                            list.add(
+                                com.example.model.VideoItem(
+                                    id = "movie_$tmdbId",
+                                    title = title,
+                                    uploaderName = "$year • $categoryLabel • ★${String.format("%.1f", voteAvg)}",
+                                    thumbnailUrl = posterUrl,
+                                    providerId = "tmdb"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching explore category $genreId", e)
+        }
+        return@withContext list
+    }
+
+    suspend fun fetchJikanTopAnime(): List<com.example.model.VideoItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<com.example.model.VideoItem>()
+        try {
+            val url = "https://api.jikan.moe/v4/top/anime?limit=10"
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val data = json.optJSONArray("data")
+                if (data != null) {
+                    for (i in 0 until data.length()) {
+                        val obj = data.getJSONObject(i)
+                        val malId = obj.optInt("mal_id")
+                        val title = obj.optString("title", "Anime")
+                        val year = obj.optInt("year", 2024)
+                        val score = obj.optDouble("score", 8.5)
+                        val imagesObj = obj.optJSONObject("images")
+                        val jpgObj = imagesObj?.optJSONObject("jpg")
+                        val imageUrl = jpgObj?.optString("large_image_url", jpgObj.optString("image_url", ""))
+
+                        if (!imageUrl.isNullOrBlank()) {
+                            list.add(
+                                com.example.model.VideoItem(
+                                    id = "mal_$malId",
+                                    title = title,
+                                    uploaderName = "$year • Anime • ★${String.format("%.1f", score)}",
+                                    thumbnailUrl = imageUrl,
+                                    providerId = "jikan"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching Jikan top anime", e)
+        }
+        return@withContext list
+    }
+
+    suspend fun fetchAniListTrendingAnime(): List<com.example.model.VideoItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<com.example.model.VideoItem>()
+        try {
+            val query = """
+                query {
+                  Page(page: 1, perPage: 10) {
+                    media(type: ANIME, sort: POPULARITY_DESC) {
+                      id
+                      title {
+                        english
+                        romaji
+                      }
+                      coverImage {
+                        extraLarge
+                        large
+                      }
+                      seasonYear
+                      averageScore
+                    }
+                  }
+                }
+            """.trimIndent()
+
+            val jsonObj = JSONObject().apply {
+                put("query", query)
+            }
+
+            @Suppress("DEPRECATION")
+            val mediaType = okhttp3.MediaType.parse("application/json")
+            @Suppress("DEPRECATION")
+            val requestBody = okhttp3.RequestBody.create(mediaType, jsonObj.toString())
+
+            val req = Request.Builder()
+                .url("https://graphql.anilist.co")
+                .post(requestBody)
+                .header("User-Agent", "Butterfly/1.0")
+                .build()
+
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val mediaArray = json.optJSONObject("data")?.optJSONObject("Page")?.optJSONArray("media")
+                if (mediaArray != null) {
+                    for (i in 0 until mediaArray.length()) {
+                        val media = mediaArray.getJSONObject(i)
+                        val aniId = media.optInt("id")
+                        val titleObj = media.optJSONObject("title")
+                        val title = titleObj?.optString("english")?.takeIf { it.isNotBlank() }
+                            ?: titleObj?.optString("romaji")
+                            ?: "Anime"
+                        val coverObj = media.optJSONObject("coverImage")
+                        val coverImage = coverObj?.optString("extraLarge")?.takeIf { it.isNotBlank() }
+                            ?: coverObj?.optString("large")
+                            ?: ""
+                        val year = media.optInt("seasonYear", 2024)
+                        val scoreRaw = media.optDouble("averageScore", 80.0)
+                        val score = scoreRaw / 10.0
+
+                        if (coverImage.isNotBlank()) {
+                            list.add(
+                                com.example.model.VideoItem(
+                                    id = "anilist_$aniId",
+                                    title = title,
+                                    uploaderName = "$year • AniList • ★${String.format("%.1f", score)}",
+                                    thumbnailUrl = coverImage,
+                                    providerId = "anilist"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching AniList anime", e)
+        }
+        return@withContext list
+    }
+
+    suspend fun fetchJavInfoAdultVideos(): List<com.example.model.VideoItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<com.example.model.VideoItem>()
+        val apiKey = "jvi_guxSYVMOELEfBGEDFlLPZeizhBbupsUsgggTgosYErOuEnLSXyVTWrUJwDFVmTaV"
+        val sampleCodes = listOf("EBOD-391", "SSIS-800", "IPX-900", "MIDE-888", "SDDE-650", "JUL-350", "STARS-700", "MIAD-950")
+
+        for (code in sampleCodes) {
+            try {
+                val url = "https://api.javinfo.dev/movie?q=$code&providers=fanza,dmm,javdb,missav,javdatabase,magneto,javlibrary&key=$apiKey"
+                val req = Request.Builder().url(url).header("User-Agent", "Butterfly/1.0").build()
+                val resp = client.newCall(req).execute()
+                val body = resp.body?.string()
+                if (body != null && resp.isSuccessful) {
+                    val json = JSONObject(body)
+                    val resultObj = json.optJSONObject("result")
+                        ?: json.optJSONObject("data")
+                        ?: if (json.optBoolean("success")) json else null
+
+                    if (resultObj != null) {
+                        val dvdId = resultObj.optString("id", code).uppercase()
+                        val title = resultObj.optString("title", "[$dvdId] Adult Release")
+                        val poster = resultObj.optString("poster", "")
+                            .ifBlank { resultObj.optString("cover", "") }
+                            .ifBlank { resultObj.optString("image", "") }
+                        val maker = resultObj.optString("maker", "JAV")
+
+                        if (poster.isNotBlank()) {
+                            list.add(
+                                com.example.model.VideoItem(
+                                    id = "javinfo_${dvdId.lowercase()}",
+                                    title = title,
+                                    uploaderName = "18+ • $maker • JAV",
+                                    thumbnailUrl = poster,
+                                    providerId = "javinfo"
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching JavInfo code $code", e)
+            }
+        }
+
+        // Return live items or fallback to adult catalog
+        if (list.isNotEmpty()) {
+            return@withContext list
+        }
+
+        return@withContext listOf(
+            com.example.model.VideoItem(
+                id = "adult_01",
+                title = "Lust, Caution",
+                uploaderName = "2007 • Drama • 18+",
+                thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "adult_02",
+                title = "The Dreamers",
+                uploaderName = "2003 • Romance • 18+",
+                thumbnailUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "adult_03",
+                title = "In the Realm of the Senses",
+                uploaderName = "1976 • Classic • 18+",
+                thumbnailUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
+                providerId = "tmdb"
+            )
+        )
+    }
+
+    suspend fun resolveRealPoster(query: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val url = "https://api.themoviedb.org/3/search/multi?api_key=$TMDB_API_KEY&query=$encoded&page=1"
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val results = json.optJSONArray("results")
+                if (results != null && results.length() > 0) {
+                    val first = results.getJSONObject(0)
+                    val posterPath = first.optString("poster_path")
+                    if (posterPath.isNotBlank() && posterPath != "null") {
+                        return@withContext "https://image.tmdb.org/t/p/w500$posterPath"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving poster for query: $query", e)
+        }
+        return@withContext null
+    }
 }

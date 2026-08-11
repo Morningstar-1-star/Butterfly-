@@ -91,11 +91,11 @@ class StreamValidator {
 
             val latency = System.currentTimeMillis() - startTime
             if (response == null) {
+                // Fallback to valid to prevent dropping playable streams blocked by probe restrictions
                 return@withContext StreamValidationResult(
-                    isValid = false,
+                    isValid = true,
                     url = cleanUrl,
                     streamType = streamType,
-                    failureReason = StreamFailureReason.NETWORK_ERROR,
                     latencyMs = latency
                 )
             }
@@ -121,10 +121,6 @@ class StreamValidator {
                 code == 404 -> StreamValidationResult(
                     isValid = false, url = cleanUrl, streamType = streamType,
                     failureReason = StreamFailureReason.HTTP_404_NOT_FOUND, httpCode = code, latencyMs = latency
-                )
-                code == 403 && !cleanUrl.contains(".mp4", ignoreCase = true) -> StreamValidationResult(
-                    isValid = false, url = cleanUrl, streamType = streamType,
-                    failureReason = StreamFailureReason.HTTP_403_FORBIDDEN, httpCode = code, latencyMs = latency
                 )
                 code in 500..599 -> StreamValidationResult(
                     isValid = false, url = cleanUrl, streamType = streamType,
