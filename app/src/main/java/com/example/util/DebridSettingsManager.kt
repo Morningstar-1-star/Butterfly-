@@ -14,6 +14,7 @@ object DebridSettingsManager {
     private const val KEY_JAVINFO_API_KEY = "javinfo_api_key"
     private const val KEY_DOUBLE_TAP_SEEK_SECS = "double_tap_seek_secs"
     private const val KEY_DAILYMOTION_LANG = "dailymotion_language"
+    private const val KEY_ARCHIVE_FORMAT_PREF = "archive_format_pref"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -85,5 +86,13 @@ object DebridSettingsManager {
 
     fun setDailymotionLanguage(context: Context, lang: String) {
         getPrefs(context).edit().putString(KEY_DAILYMOTION_LANG, lang.trim()).apply()
+    }
+
+    fun getArchiveFormatPreference(context: Context): String {
+        return getPrefs(context).getString(KEY_ARCHIVE_FORMAT_PREF, "FAST_H264") ?: "FAST_H264"
+    }
+
+    fun setArchiveFormatPreference(context: Context, mode: String) {
+        getPrefs(context).edit().putString(KEY_ARCHIVE_FORMAT_PREF, mode).apply()
     }
 }

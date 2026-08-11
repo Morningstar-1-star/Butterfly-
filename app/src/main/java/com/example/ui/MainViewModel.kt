@@ -343,13 +343,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _dislikedVideoIds = MutableStateFlow<Set<String>>(emptySet())
     val dislikedVideoIds: StateFlow<Set<String>> = _dislikedVideoIds.asStateFlow()
 
-    private val _hiddenVideoIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
+        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
+    )
     val hiddenVideoIds: StateFlow<Set<String>> = _hiddenVideoIds.asStateFlow()
 
     fun markNotInterested(video: VideoItem) {
-        _hiddenVideoIds.value = _hiddenVideoIds.value + video.id
+        com.example.util.NotInterestedManager.markNotInterested(getApplication(), video.id)
+        val updated = _hiddenVideoIds.value + video.id
+        _hiddenVideoIds.value = updated
         _trendingVideos.value = _trendingVideos.value.filterNot { it.id == video.id }
         _searchResults.value = _searchResults.value.filterNot { it.id == video.id }
+        _recommendedVideos.value = _recommendedVideos.value.filterNot { it.id == video.id }
     }
 
     fun clearSearch() {
@@ -1170,14 +1175,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (pipelineResult.playableStreams.isNotEmpty()) {
+                    val activeProvider = pluginManager.getProvider(targetProviderId ?: "")
+                    val providerInfo = try { activeProvider?.getStreams(cleanIdOrUrl) } catch (e: Exception) { null }
+                    val providerRecs = (try { activeProvider?.getRecommendations(cleanIdOrUrl) } catch (e: Exception) { null }) ?: emptyList()
+
+                    val resolvedTitle = providerInfo?.title?.takeIf { it.isNotBlank() } ?: currentMatch?.title ?: cleanIdOrUrl
+                    val resolvedChannelName = providerInfo?.channelName?.takeIf { it.isNotBlank() && it != "Butterfly Stream" } ?: currentMatch?.uploaderName ?: targetProviderId ?: "Butterfly Stream"
+                    val resolvedAvatarUrl = providerInfo?.channelAvatarUrl
+                    val resolvedDesc = providerInfo?.description
+                    val resolvedThumb = providerInfo?.thumbnailUrl ?: currentMatch?.thumbnailUrl
+
+                    val mappedRelated = if (providerRecs.isNotEmpty()) {
+                        providerRecs.map { r ->
+                            VideoItem(
+                                id = r.id,
+                                title = r.title,
+                                uploaderName = r.uploaderName,
+                                thumbnailUrl = r.thumbnailUrl,
+                                durationSeconds = r.durationSeconds,
+                                viewCount = r.viewCount,
+                                providerId = targetProviderId
+                            )
+                        }
+                    } else {
+                        _trendingVideos.value.filter { it.id != cleanIdOrUrl }.take(15)
+                    }
+
                     val streamData = StreamData(
                         videoId = cleanIdOrUrl,
-                        title = currentMatch?.title ?: cleanIdOrUrl,
-                        channelName = currentMatch?.uploaderName ?: targetProviderId ?: "Butterfly Stream",
+                        title = resolvedTitle,
+                        channelName = resolvedChannelName,
+                        channelAvatarUrl = resolvedAvatarUrl,
+                        description = resolvedDesc,
+                        thumbnailUrl = resolvedThumb,
                         availableStreamOptions = pipelineResult.playableStreams,
                         selectedStreamOption = pipelineResult.playableStreams.first(),
                         captionOptions = emptyList(),
-                        relatedVideos = _trendingVideos.value.filter { it.id != cleanIdOrUrl }.take(15)
+                        relatedVideos = mappedRelated,
+                        providerId = targetProviderId
                     )
                     _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                     _selectedStreamOption.value = streamData.selectedStreamOption

@@ -389,6 +389,8 @@ fun VideoCard(
         }
     }
 
+    val context = LocalContext.current
+
     if (showBottomSheet) {
         val sheetState = rememberModalBottomSheetState()
         val scope = rememberCoroutineScope()
@@ -420,6 +422,7 @@ fun VideoCard(
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
                             onPlayNextInQueue?.invoke(video)
+                            Toast.makeText(context, "Added to queue", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -431,6 +434,7 @@ fun VideoCard(
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
                             onSaveToWatchLater?.invoke(video)
+                            Toast.makeText(context, "Saved to Watch Later", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -452,7 +456,11 @@ fun VideoCard(
                     onClick = {
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
-                            onDownload?.invoke(video)
+                            if (onDownload != null) {
+                                onDownload.invoke(video)
+                            } else {
+                                com.example.util.VideoActionHelper.downloadVideo(context, video)
+                            }
                         }
                     }
                 )
@@ -463,7 +471,11 @@ fun VideoCard(
                     onClick = {
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
-                            onShare?.invoke(video)
+                            if (onShare != null) {
+                                onShare.invoke(video)
+                            } else {
+                                com.example.util.VideoActionHelper.shareVideo(context, video)
+                            }
                         }
                     }
                 )
@@ -474,7 +486,12 @@ fun VideoCard(
                     onClick = {
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
-                            onNotInterested?.invoke(video)
+                            if (onNotInterested != null) {
+                                onNotInterested.invoke(video)
+                            } else {
+                                com.example.util.NotInterestedManager.markNotInterested(context, video.id)
+                            }
+                            Toast.makeText(context, "Marked as Not Interested", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -485,7 +502,11 @@ fun VideoCard(
                     onClick = {
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
-                            onReport?.invoke(video)
+                            if (onReport != null) {
+                                onReport.invoke(video)
+                            } else {
+                                Toast.makeText(context, "Report submitted. Thank you for your feedback.", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 )

@@ -30,7 +30,39 @@ object TorrentReviewFetcher {
         videoId: String? = null,
         providerId: String? = null
     ): TorrentReviewsResult = withContext(Dispatchers.IO) {
-        // 0. Check if this is an explicit anime provider or matches anime
+        // 0. Check if this is Eporner provider
+        if (providerId == "eporner" || videoId?.contains("eporner") == true) {
+            try {
+                val epornerProvider = com.example.plugin.providers.EpornerProvider()
+                val paged = epornerProvider.getComments(videoId ?: title)
+                if (paged.items.isNotEmpty()) {
+                    val comments = paged.items.map { pc ->
+                        VideoComment(
+                            id = pc.id,
+                            authorName = pc.authorName,
+                            authorAvatarUrl = pc.authorAvatarUrl,
+                            commentText = pc.content,
+                            timeAgo = pc.publishedTime ?: "Recently",
+                            likeCount = pc.likeCount.toInt(),
+                            dislikeCount = pc.dislikeCount.toInt(),
+                            isLikedByMe = false,
+                            isDislikedByMe = false,
+                            totalReviewsCountText = "${paged.items.size}"
+                        )
+                    }
+                    return@withContext TorrentReviewsResult(
+                        reviews = comments,
+                        totalCount = comments.size,
+                        averageRating = 9.0f,
+                        mediaTitle = title
+                    )
+                }
+            } catch (e: Exception) {
+                // Fall back
+            }
+        }
+
+        // Check if this is an explicit anime provider or matches anime
         val isExplicitAnimeProvider = providerId == "jikan_anime" || providerId == "nyaa" || providerId == "anime" ||
                 videoId?.startsWith("jikan_") == true || videoId?.startsWith("mal_") == true
 

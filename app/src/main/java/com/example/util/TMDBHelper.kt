@@ -671,8 +671,9 @@ object TMDBHelper {
                     }
 
                     if (resultSeasons.isNotEmpty()) {
-                        tvSeasonsCache[cacheKey] = resultSeasons
-                        return@withContext resultSeasons
+                        val boundSeasons = bindAvailableStreamOptionsToSeasons(resultSeasons, streamData)
+                        tvSeasonsCache[cacheKey] = boundSeasons
+                        return@withContext boundSeasons
                     }
                 }
             }
@@ -722,8 +723,9 @@ object TMDBHelper {
                         }.sortedBy { it.seasonNumber }
 
                         if (mazeSeasons.isNotEmpty()) {
-                            tvSeasonsCache[cacheKey] = mazeSeasons
-                            return@withContext mazeSeasons
+                            val boundSeasons = bindAvailableStreamOptionsToSeasons(mazeSeasons, streamData)
+                            tvSeasonsCache[cacheKey] = boundSeasons
+                            return@withContext boundSeasons
                         }
                     }
                 }
@@ -734,8 +736,34 @@ object TMDBHelper {
 
         // Fallback to SeriesDataHelper if offline or TMDB lookup fails
         val fallback = SeriesDataHelper.generateSeasonsAndEpisodes(streamData)
-        tvSeasonsCache[cacheKey] = fallback
-        return@withContext fallback
+        val boundFallback = bindAvailableStreamOptionsToSeasons(fallback, streamData)
+        tvSeasonsCache[cacheKey] = boundFallback
+        return@withContext boundFallback
+    }
+
+    private fun bindAvailableStreamOptionsToSeasons(
+        seasons: List<SeriesSeason>,
+        streamData: StreamData
+    ): List<SeriesSeason> {
+        val options = streamData.availableStreamOptions
+        val provider = streamData.providerId ?: ""
+        if (options.isEmpty() && provider != "archive_org") return seasons
+
+        var globalIndex = 0
+        return seasons.map { season ->
+            val updatedEps = season.episodes.map { ep ->
+                val targetUrl = if (globalIndex < options.size && !options[globalIndex].videoUrl.isNullOrBlank()) {
+                    options[globalIndex].videoUrl!!
+                } else if (provider == "archive_org" && streamData.videoId.isNotBlank()) {
+                    "https://archive.org/download/${streamData.videoId}::${globalIndex + 1}"
+                } else {
+                    ep.id
+                }
+                globalIndex++
+                ep.copy(id = targetUrl)
+            }
+            season.copy(episodes = updatedEps)
+        }
     }
 
     suspend fun fetchExploreHeroItems(): List<com.example.ui.screens.FeaturedMedia> = withContext(Dispatchers.IO) {

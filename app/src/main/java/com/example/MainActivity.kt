@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.plugin.providers.ArchiveOrgProvider.contextRef = applicationContext
         enableEdgeToEdge()
         setupHighRefreshRate()
         setupCoilCache()

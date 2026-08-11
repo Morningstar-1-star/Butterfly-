@@ -148,6 +148,8 @@ fun UniversalVideoPlayer(
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
+    val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
+
     val playerContainerModifier = if (isLandscape) {
         Modifier
             .fillMaxSize()
@@ -163,8 +165,13 @@ fun UniversalVideoPlayer(
 
     Box(
         modifier = playerContainerModifier
-            .pointerInput(seekSecs) {
+            .pointerInput(seekSecs, isEmbedOrWebPage) {
                 detectTapGestures(
+                    onTap = {
+                        if (!isEmbedOrWebPage) {
+                            GlobalPlayerManager.toggleControlsVisibility()
+                        }
+                    },
                     onDoubleTap = { offset ->
                         val halfWidth = size.width / 2
                         val seekMs = seekSecs * 1000L
@@ -172,11 +179,13 @@ fun UniversalVideoPlayer(
                             seekNoticeText = "◄◄ ${seekSecs}s Rewind"
                             if (!isEmbedOrWebPage) {
                                 GlobalPlayerManager.seekTo(exoPlayer.currentPosition - seekMs)
+                                GlobalPlayerManager.showControls()
                             }
                         } else {
                             seekNoticeText = "${seekSecs}s Forward ►►"
                             if (!isEmbedOrWebPage) {
                                 GlobalPlayerManager.seekTo(exoPlayer.currentPosition + seekMs)
+                                GlobalPlayerManager.showControls()
                             }
                         }
                     }
@@ -478,74 +487,85 @@ fun UniversalVideoPlayer(
                 )
 
                 // YouTube Style Top Right Control Toolbar
-                Row(
+                AnimatedVisibility(
+                    visible = areControlsVisible,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(8.dp)
                 ) {
-                    // Quick Playback Speed Button / Badge
-                    Surface(
-                        onClick = {
-                            showSpeedSubMenu = true
-                            showSettingsSheet = true
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.Black.copy(alpha = 0.65f),
-                        contentColor = Color.White
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        // Quick Playback Speed Button / Badge
+                        Surface(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                showSpeedSubMenu = true
+                                showSettingsSheet = true
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.Black.copy(alpha = 0.65f),
+                            contentColor = Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Speed,
+                                    contentDescription = "Playback Speed",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+
+                        // Settings Gear Icon
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                showSpeedSubMenu = false
+                                showSettingsSheet = true
+                            },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = "Playback Speed",
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Player Settings",
                                 tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
 
-                    // Settings Gear Icon
-                    IconButton(
-                        onClick = {
-                            showSpeedSubMenu = false
-                            showSettingsSheet = true
-                        },
-                        modifier = Modifier
-                            .size(34.dp)
-                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Player Settings",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Fullscreen Toggle Icon
-                    IconButton(
-                        onClick = { toggleFullscreen(currentPlayerContext) },
-                        modifier = Modifier
-                            .size(34.dp)
-                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = "Toggle Fullscreen",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        // Fullscreen Toggle Icon
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                toggleFullscreen(currentPlayerContext)
+                            },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = "Toggle Fullscreen",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -710,6 +730,49 @@ fun UniversalVideoPlayer(
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color.LightGray
+                            )
+                        }
+
+                        // 3. Format Preference (Fast H.264 vs. Original Quality)
+                        var currentFormatPref by remember {
+                            mutableStateOf(com.example.util.DebridSettingsManager.getArchiveFormatPreference(context))
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    val newPref = if (currentFormatPref == "FAST_H264") "ORIGINAL_QUALITY" else "FAST_H264"
+                                    currentFormatPref = newPref
+                                    com.example.util.DebridSettingsManager.setArchiveFormatPreference(context, newPref)
+                                    val toastMsg = if (newPref == "FAST_H264") "Fast H.264 Mode (Instant Playback)" else "Original Uncompressed Quality"
+                                    Toast.makeText(context, "Format: $toastMsg", Toast.LENGTH_SHORT).show()
+                                    showSettingsSheet = false
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.HighQuality,
+                                    contentDescription = "Format Preference",
+                                    tint = Color.White
+                                )
+                                Text(
+                                    text = "Format Preference",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = if (currentFormatPref == "FAST_H264") "Fast H.264" else "Original Quality",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

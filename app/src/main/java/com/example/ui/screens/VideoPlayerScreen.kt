@@ -44,7 +44,9 @@ import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoDetailsSection
 import com.example.ui.player.GlobalPlayerManager
 import com.example.ui.player.YouTubePlayerView
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.example.model.EpisodeItem
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -80,10 +82,82 @@ fun VideoPlayerScreen(
     var showCommentsSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
+
     var seasonsAndEpisodes by remember(currentStreamData?.videoId) {
         mutableStateOf<List<com.example.model.SeriesSeason>>(
             currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
         )
+    }
+
+    val playbackEnded by com.example.ui.player.GlobalPlayerManager.playbackEnded.collectAsState()
+
+    val allEpisodes = remember(seasonsAndEpisodes) {
+        seasonsAndEpisodes.flatMap { it.episodes }
+    }
+
+    val currentEpisodeIndex = remember(allEpisodes, activeVideoId, selectedOption) {
+        allEpisodes.indexOfFirst { ep ->
+            ep.id == activeVideoId ||
+            selectedOption?.videoUrl == ep.id ||
+            (selectedOption?.qualityLabel?.contains("s${ep.seasonNumber}e${ep.episodeNumber}", ignoreCase = true) == true)
+        }
+    }
+
+    val nextEpisode = remember(allEpisodes, currentEpisodeIndex) {
+        if (currentEpisodeIndex >= 0 && currentEpisodeIndex + 1 < allEpisodes.size) {
+            allEpisodes[currentEpisodeIndex + 1]
+        } else null
+    }
+
+    var autoPlayCountdown by remember { mutableIntStateOf(5) }
+    var isUpNextActive by remember { mutableStateOf(false) }
+
+    val playTargetEpisode: (EpisodeItem) -> Unit = { episode ->
+        val sNum = episode.seasonNumber
+        val eNum = episode.episodeNumber
+        val match = currentStreamData?.availableStreamOptions?.firstOrNull { opt ->
+            val qLabel = opt.qualityLabel.lowercase()
+            opt.videoUrl == episode.id ||
+            qLabel == episode.title.lowercase() ||
+            qLabel.contains("s${sNum}e${eNum}") ||
+            qLabel.contains("s0${sNum}e0${eNum}") ||
+            qLabel.contains("s${sNum} e${eNum}") ||
+            qLabel.contains("ep ${eNum}") ||
+            qLabel.contains("episode ${eNum}")
+        }
+        if (match != null) {
+            viewModel.selectStreamOption(match)
+        } else {
+            viewModel.playVideo(episode.id, episode.providerId)
+        }
+    }
+
+    LaunchedEffect(playbackEnded, nextEpisode) {
+        if (playbackEnded && nextEpisode != null) {
+            isUpNextActive = true
+            autoPlayCountdown = 5
+            while (autoPlayCountdown > 0 && isUpNextActive) {
+                delay(1000)
+                autoPlayCountdown--
+            }
+            if (isUpNextActive && autoPlayCountdown == 0) {
+                isUpNextActive = false
+                com.example.ui.player.GlobalPlayerManager.clearPlaybackEnded()
+                playTargetEpisode(nextEpisode)
+            }
+        } else {
+            isUpNextActive = false
+        }
+    }
+
+    LaunchedEffect(initialPositionMs, activeVideoId) {
+        if (initialPositionMs > 5000L) {
+            val totalSecs = initialPositionMs / 1000
+            val mins = totalSecs / 60
+            val secs = totalSecs % 60
+            val formatted = String.format("%02d:%02d", mins, secs)
+            snackbarHostState.showSnackbar("Resumed at $formatted")
+        }
     }
 
     val isTvSeries = remember(currentStreamData, seasonsAndEpisodes) {
@@ -227,6 +301,22 @@ fun VideoPlayerScreen(
                     activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
                 }
             )
+
+            if (isUpNextActive && nextEpisode != null) {
+                UpNextOverlay(
+                    nextEpisode = nextEpisode,
+                    countdownSecs = autoPlayCountdown,
+                    onPlayNow = {
+                        isUpNextActive = false
+                        com.example.ui.player.GlobalPlayerManager.clearPlaybackEnded()
+                        playTargetEpisode(nextEpisode)
+                    },
+                    onCancel = {
+                        isUpNextActive = false
+                        com.example.ui.player.GlobalPlayerManager.clearPlaybackEnded()
+                    }
+                )
+            }
         }
     } else {
         Scaffold(
@@ -332,6 +422,22 @@ fun VideoPlayerScreen(
                         activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
                     }
                 )
+
+                if (isUpNextActive && nextEpisode != null) {
+                    UpNextOverlay(
+                        nextEpisode = nextEpisode,
+                        countdownSecs = autoPlayCountdown,
+                        onPlayNow = {
+                            isUpNextActive = false
+                            com.example.ui.player.GlobalPlayerManager.clearPlaybackEnded()
+                            playTargetEpisode(nextEpisode)
+                        },
+                        onCancel = {
+                            isUpNextActive = false
+                            com.example.ui.player.GlobalPlayerManager.clearPlaybackEnded()
+                        }
+                    )
+                }
             }
 
             // CONTAINER FOR SCROLLABLE CONTENT & STICKY LIQUID GLASS FLOATING ACTION TOOLBAR
@@ -862,4 +968,85 @@ fun VideoPlayerScreen(
         }
     }
 }
+}
+
+@Composable
+fun UpNextOverlay(
+    nextEpisode: EpisodeItem,
+    countdownSecs: Int,
+    onPlayNow: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.85f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(0.85f)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "UP NEXT IN ${countdownSecs}S",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = nextEpisode.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                if (nextEpisode.durationText.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Season ${nextEpisode.seasonNumber} Episode ${nextEpisode.episodeNumber} • ${nextEpisode.durationText}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = onPlayNow,
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Play Now",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Play Now")
+                    }
+                }
+            }
+        }
+    }
 }

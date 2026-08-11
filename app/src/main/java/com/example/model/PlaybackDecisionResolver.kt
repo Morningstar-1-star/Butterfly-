@@ -23,7 +23,6 @@ object PlaybackDecisionResolver {
         if (fmtLower == "embed" ||
             urlLower.contains("/embed/") ||
             urlLower.contains("vidsrc") ||
-            urlLower.contains("eporner.com") ||
             urlLower.contains("apijav") ||
             urlLower.contains("dailymotion.com") ||
             urlLower.contains("vimeo.com") ||

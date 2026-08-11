@@ -58,6 +58,39 @@ object GlobalPlayerManager {
     private val _firstFrameRendered = MutableStateFlow(false)
     val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
+    private val _areControlsVisible = MutableStateFlow(true)
+    val areControlsVisible: StateFlow<Boolean> = _areControlsVisible.asStateFlow()
+
+    fun showControls() {
+        val pv = playerViewInstance ?: return
+        pv.showController()
+        _areControlsVisible.value = true
+    }
+
+    fun hideControls() {
+        val pv = playerViewInstance ?: return
+        pv.hideController()
+        _areControlsVisible.value = false
+    }
+
+    fun toggleControlsVisibility() {
+        val pv = playerViewInstance ?: return
+        if (pv.isControllerFullyVisible) {
+            pv.hideController()
+            _areControlsVisible.value = false
+        } else {
+            pv.showController()
+            _areControlsVisible.value = true
+        }
+    }
+
+    private val _playbackEnded = MutableStateFlow(false)
+    val playbackEnded: StateFlow<Boolean> = _playbackEnded.asStateFlow()
+
+    fun clearPlaybackEnded() {
+        _playbackEnded.value = false
+    }
+
     private var currentLoadedMediaKey: String? = null
 
     fun notifyFirstFrameRendered() {
@@ -113,8 +146,12 @@ object GlobalPlayerManager {
             val pv = androidx.media3.ui.PlayerView(context.applicationContext).apply {
                 this.player = player
                 useController = true
+                controllerShowTimeoutMs = 2800
                 setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                 setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS)
+                setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility ->
+                    _areControlsVisible.value = (visibility == android.view.View.VISIBLE)
+                })
                 layoutParams = android.widget.FrameLayout.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -147,6 +184,7 @@ object GlobalPlayerManager {
                     _isPlaying.value = player.isPlaying
                     if (state == Player.STATE_ENDED) {
                         _isPlaying.value = false
+                        _playbackEnded.value = true
                     }
                 }
 
@@ -196,6 +234,7 @@ object GlobalPlayerManager {
         initialPos: Long = 0L
     ) {
         val player = getExoPlayer(context)
+        _playbackEnded.value = false
         if (streamData != null) {
             _activeStreamData.value = streamData
         }
