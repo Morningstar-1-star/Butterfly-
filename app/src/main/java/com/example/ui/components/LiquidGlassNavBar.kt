@@ -111,13 +111,15 @@ private fun NavItem(
     val isPressed = interactionSource.collectIsPressedAsState().value
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else if (isSelected) 1.02f else 1.0f,
+        targetValue = if (isPressed) 0.90f else if (isSelected) 1.05f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
         ),
         label = "nav_scale"
     )
+
+    val yellowAccent = Color(0xFFFFD600)
 
     Box(
         modifier = modifier
@@ -135,24 +137,34 @@ private fun NavItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = if (isSelected) selectedIcon else unselectedIcon,
-                contentDescription = label,
-                tint = if (isSelected)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 26.dp)
+                        .background(yellowAccent, RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = selectedIcon,
+                        contentDescription = label,
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = unselectedIcon,
+                    contentDescription = label,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = label,
                 fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (isSelected) yellowAccent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         }
     }

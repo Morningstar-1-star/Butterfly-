@@ -44,6 +44,39 @@ object SeriesDataHelper {
         }
     }
 
+    fun getSeriesPillText(title: String?, uploadDate: String? = null): String? {
+        val clean = (title ?: "").lowercase()
+        val uploadClean = (uploadDate ?: "").lowercase()
+
+        if (uploadClean.contains("s") && uploadClean.contains("ep")) {
+            return uploadDate
+        }
+
+        return when {
+            clean.contains("house of the dragon") -> "S2 · 18 ep"
+            clean.contains("game of thrones") -> "S8 · 73 ep"
+            clean.contains("gintama") -> "S4 · 367 ep"
+            clean.contains("futurama") -> "S8 · 150 ep"
+            clean.contains("breaking bad") -> "S5 · 62 ep"
+            clean.contains("last of us") -> "S2 · 16 ep"
+            clean.contains("flex x cop") || clean.contains("flex") -> "S1 · 16 ep"
+            clean.contains("stranger things") -> "S4 · 34 ep"
+            clean.contains("mandalorian") -> "S3 · 24 ep"
+            clean.contains("loki") -> "S2 · 12 ep"
+            clean.contains("the boys") -> "S4 · 32 ep"
+            clean.contains("arcane") -> "S2 · 18 ep"
+            clean.contains("attack on titan") || clean.contains("shingeki") -> "S4 · 89 ep"
+            clean.contains("jujutsu") -> "S2 · 47 ep"
+            clean.contains("re:zero") || clean.contains("rezero") -> "S3 · 50 ep"
+            clean.contains("naruto") -> "S5 · 220 ep"
+            clean.contains("one piece") -> "S21 · 1100 ep"
+            clean.contains("s01") || clean.contains("season 1") || clean.contains("s1:") -> "S1 · 10 ep"
+            clean.contains("s02") || clean.contains("season 2") -> "S2 · 12 ep"
+            clean.contains("s03") || clean.contains("season 3") -> "S3 · 12 ep"
+            else -> "S1 · 10 ep"
+        }
+    }
+
     private fun extractBaseShowTitle(rawTitle: String): String {
         return rawTitle
             .replace(Regex("\\[.*?\\]"), "")
@@ -62,6 +95,49 @@ object SeriesDataHelper {
         val providerId = streamData.providerId ?: "youtube"
         val baseShowTitle = extractBaseShowTitle(streamData.title)
         val thumb = streamData.effectiveThumbnailUrl ?: "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg"
+
+        // Archive.org handling:
+        if (providerId == "archive_org" || streamData.availableStreamOptions.any { it.videoUrl?.contains("archive.org") == true }) {
+            if (streamData.availableStreamOptions.size > 1) {
+                val optionEpisodes = streamData.availableStreamOptions.mapIndexed { index, option ->
+                    val epNum = index + 1
+                    val cleanTitle = option.qualityLabel.ifBlank { "Episode $epNum" }
+                    EpisodeItem(
+                        id = option.videoUrl ?: "${streamData.videoId}_ep_$epNum",
+                        seasonNumber = 1,
+                        episodeNumber = epNum,
+                        title = cleanTitle,
+                        durationText = "24m",
+                        thumbnailUrl = thumb,
+                        providerId = providerId,
+                        viewsText = "Direct MP4"
+                    )
+                }
+                return listOf(SeriesSeason(1, "All Episodes (${optionEpisodes.size})", optionEpisodes))
+            } else {
+                // Standalone Archive video -> no episode list
+                return emptyList()
+            }
+        }
+
+        // If provider has multiple stream options for torrents/TV shows, map each stream option directly to an episode!
+        if (streamData.availableStreamOptions.size > 1 && (providerId.contains("eztv") || providerId.contains("torrent") || providerId.contains("tv"))) {
+            val optionEpisodes = streamData.availableStreamOptions.mapIndexed { index, option ->
+                val epNum = index + 1
+                val cleanTitle = option.qualityLabel.ifBlank { "Episode $epNum" }
+                EpisodeItem(
+                    id = option.videoUrl ?: "${streamData.videoId}_ep_$epNum",
+                    seasonNumber = 1,
+                    episodeNumber = epNum,
+                    title = cleanTitle,
+                    durationText = "24m",
+                    thumbnailUrl = thumb,
+                    providerId = providerId,
+                    viewsText = "Direct Stream"
+                )
+            }
+            return listOf(SeriesSeason(1, "All Episodes (${optionEpisodes.size})", optionEpisodes))
+        }
 
         // Filter related videos to ONLY include those matching this show title
         val matchingRelated = streamData.relatedVideos.filter { video ->

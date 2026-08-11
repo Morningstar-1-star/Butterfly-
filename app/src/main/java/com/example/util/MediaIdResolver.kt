@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 object MediaIdResolver {
 
     private const val TAG = "MediaIdResolver"
-    private const val TMDB_API_KEY = "15d2ea6d0dc1d476efb297b7cb373122"
+    private const val TMDB_API_KEY = "a07e22bc18f5cb106bfe4cc1f83ad8ed"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -75,7 +75,7 @@ object MediaIdResolver {
             }
         }
 
-        // 3. TMDB Prefix Format: movie_550, tv_1399_1_2, tmdb_1399
+        // 3. TMDB Prefix Format: movie_550, tv_1399_1_2, tv_1399_s1_e2, tmdb_1399
         if (clean.startsWith("movie_", ignoreCase = true) ||
             clean.startsWith("tv_", ignoreCase = true) ||
             clean.startsWith("tmdb_", ignoreCase = true)
@@ -84,8 +84,21 @@ object MediaIdResolver {
             val isTv = clean.startsWith("tv_", ignoreCase = true)
             val type = if (isTv) MediaType.TV else MediaType.MOVIE
             val tmdbId = parts.getOrNull(1)?.filter { it.isDigit() }
-            val season = parts.getOrNull(2)?.toIntOrNull()
-            val episode = parts.getOrNull(3)?.toIntOrNull()
+            
+            var season: Int? = null
+            var episode: Int? = null
+
+            for (p in parts.drop(2)) {
+                val lowerP = p.lowercase()
+                if (lowerP.startsWith("s") && lowerP.length > 1 && lowerP.drop(1).all { it.isDigit() }) {
+                    season = lowerP.drop(1).toIntOrNull()
+                } else if (lowerP.startsWith("e") && lowerP.length > 1 && lowerP.drop(1).all { it.isDigit() }) {
+                    episode = lowerP.drop(1).toIntOrNull()
+                } else if (p.all { it.isDigit() }) {
+                    if (season == null) season = p.toIntOrNull()
+                    else if (episode == null) episode = p.toIntOrNull()
+                }
+            }
 
             if (!tmdbId.isNullOrEmpty()) {
                 val imdbId = resolveImdbFromTmdb(tmdbId, type)
@@ -97,7 +110,7 @@ object MediaIdResolver {
                     episode = episode ?: if (isTv) 1 else null,
                     rawQueryOrUrl = clean
                 )
-                Log.d(TAG, "[TMDB Prefix Match] Resolved '$clean' -> imdbId=${identity.imdbId}, tmdbId=${identity.tmdbId}, type=${identity.mediaType}")
+                Log.d(TAG, "[TMDB Prefix Match] Resolved '$clean' -> imdbId=${identity.imdbId}, tmdbId=${identity.tmdbId}, type=${identity.mediaType}, S${identity.season}E${identity.episode}")
                 identityCache[clean] = identity
                 return@withContext identity
             }
@@ -210,7 +223,20 @@ object MediaIdResolver {
 
     private fun searchTmdbForTitle(title: String): MediaIdentity? {
         return try {
-            val cleanTitle = TMDBHelper.cleanTitleForSearch(title)
+            var parseSeason: Int? = null
+            var parseEpisode: Int? = null
+
+            val seRegex = Regex("(?i)[_\\s]s(\\d+)[_\\s]?e(\\d+)")
+            val match = seRegex.find(title)
+            val titleNoSe = if (match != null) {
+                parseSeason = match.groupValues[1].toIntOrNull()
+                parseEpisode = match.groupValues[2].toIntOrNull()
+                title.replace(seRegex, "")
+            } else {
+                title
+            }
+
+            val cleanTitle = TMDBHelper.cleanTitleForSearch(titleNoSe)
             val encoded = URLEncoder.encode(cleanTitle, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/multi?api_key=$TMDB_API_KEY&query=$encoded"
             val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
@@ -231,8 +257,8 @@ object MediaIdResolver {
                             tmdbId = tmdbId,
                             imdbId = imdbId,
                             mediaType = type,
-                            season = if (type == MediaType.TV) 1 else null,
-                            episode = if (type == MediaType.TV) 1 else null,
+                            season = parseSeason ?: if (type == MediaType.TV) 1 else null,
+                            episode = parseEpisode ?: if (type == MediaType.TV) 1 else null,
                             rawQueryOrUrl = title
                         )
                     }

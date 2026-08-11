@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppScreen
 import com.example.ui.MainViewModel
-import com.example.ui.components.PoTokenDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,115 +37,26 @@ fun SettingsScreen(
     val availableProviders by viewModel.availableProviders.collectAsState()
     val activeProviderId by viewModel.activeProviderId.collectAsState()
     val enabledProviders by viewModel.enabledProviderIds.collectAsState()
+    val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
 
-    // Expandable accordion section states
-    var isSourcesExpanded by remember { mutableStateOf(true) }
+    // Expandable accordion section states in exact requested order:
+    // 1. Appearance, 2. Player, 3. Gestures, 4. Shorts, 5. Sources
+    var isAppearanceExpanded by remember { mutableStateOf(true) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isGesturesExpanded by remember { mutableStateOf(false) }
     var isShortsExpanded by remember { mutableStateOf(false) }
-    var isAppearanceExpanded by remember { mutableStateOf(false) }
-    var isSecurityExpanded by remember { mutableStateOf(false) }
-    var isCloudExpanded by remember { mutableStateOf(true) }
+    var isSourcesExpanded by remember { mutableStateOf(false) }
 
-    var showAddMegaDialog by remember { mutableStateOf(false) }
-    var showAddTelegramDialog by remember { mutableStateOf(false) }
-    var newFolderInput by remember { mutableStateOf("") }
-    val currentContext = androidx.compose.ui.platform.LocalContext.current
-
-    var megaFoldersList by remember { mutableStateOf(com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(currentContext)) }
-    var telegramChannelsList by remember { mutableStateOf(com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(currentContext)) }
-
-    // State Toggles for Player, Gestures, Shorts, Appearance
+    // State Toggles for Player, Gestures, Shorts
     var autoPlayEnabled by remember { mutableStateOf(true) }
     var universalPlayerMode by remember { mutableStateOf(true) }
     var defaultQuality by remember { mutableStateOf("1080p") }
-    var seekDuration by remember { mutableStateOf("10 Seconds") }
     var gestureControlsEnabled by remember { mutableStateOf(true) }
     var showShortsSection by remember { mutableStateOf(true) }
     var autoPlayShorts by remember { mutableStateOf(true) }
-    var amoledBlack by remember { mutableStateOf(true) }
 
-    var showPoTokenDialog by remember { mutableStateOf(false) }
-
-    val allExpanded = isSourcesExpanded && isPlayerExpanded && isGesturesExpanded && 
-            isShortsExpanded && isAppearanceExpanded && isSecurityExpanded
-
-    if (showPoTokenDialog) {
-        PoTokenDialog(
-            onDismiss = { showPoTokenDialog = false },
-            onApplyToken = {}
-        )
-    }
-
-    if (showAddMegaDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddMegaDialog = false },
-            title = { Text("Add Mega Cloud Folder URL") },
-            text = {
-                OutlinedTextField(
-                    value = newFolderInput,
-                    onValueChange = { newFolderInput = it },
-                    label = { Text("Mega Folder or File Link") },
-                    placeholder = { Text("https://mega.nz/folder/...") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newFolderInput.isNotBlank()) {
-                            com.example.util.CloudFoldersSettingsManager.addMegaFolderUrl(currentContext, newFolderInput)
-                            megaFoldersList = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(currentContext)
-                        }
-                        showAddMegaDialog = false
-                    }
-                ) {
-                    Text("Add")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddMegaDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    if (showAddTelegramDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddTelegramDialog = false },
-            title = { Text("Add Telegram Channel or Stream") },
-            text = {
-                OutlinedTextField(
-                    value = newFolderInput,
-                    onValueChange = { newFolderInput = it },
-                    label = { Text("Channel URL or Username") },
-                    placeholder = { Text("https://t.me/s/channel_name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newFolderInput.isNotBlank()) {
-                            com.example.util.CloudFoldersSettingsManager.addTelegramChannelUrl(currentContext, newFolderInput)
-                            telegramChannelsList = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(currentContext)
-                        }
-                        showAddTelegramDialog = false
-                    }
-                ) {
-                    Text("Add")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddTelegramDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    val allExpanded = isAppearanceExpanded && isPlayerExpanded && isGesturesExpanded && 
+            isShortsExpanded && isSourcesExpanded
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -172,12 +83,11 @@ fun SettingsScreen(
                 actions = {
                     TextButton(onClick = {
                         val target = !allExpanded
-                        isSourcesExpanded = target
+                        isAppearanceExpanded = target
                         isPlayerExpanded = target
                         isGesturesExpanded = target
                         isShortsExpanded = target
-                        isAppearanceExpanded = target
-                        isSecurityExpanded = target
+                        isSourcesExpanded = target
                     }) {
                         Text(
                             text = if (allExpanded) "Collapse All" else "Expand All",
@@ -199,10 +109,266 @@ fun SettingsScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // 1. SOURCES & PROVIDERS SETTINGS
+            // 1. APPEARANCE & THEME (FIRST)
+            item {
+                val themeMode by viewModel.themeMode.collectAsState()
+                val accentColor by viewModel.accentColor.collectAsState()
+
+                ExpandableSettingsCard(
+                    title = "Appearance & Theme",
+                    icon = Icons.Outlined.Palette,
+                    isExpanded = isAppearanceExpanded,
+                    onToggleExpand = { isAppearanceExpanded = !isAppearanceExpanded },
+                    badgeText = if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Theme" else "AMOLED Dark"
+                ) {
+                    Text(
+                        text = "Theme Mode",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = (themeMode == com.example.ui.ThemeMode.AMOLED_DARK),
+                            onClick = { viewModel.setThemeMode(com.example.ui.ThemeMode.AMOLED_DARK) },
+                            label = { Text("AMOLED Dark") },
+                            leadingIcon = if (themeMode == com.example.ui.ThemeMode.AMOLED_DARK) {
+                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        FilterChip(
+                            selected = (themeMode == com.example.ui.ThemeMode.LIGHT),
+                            onClick = { viewModel.setThemeMode(com.example.ui.ThemeMode.LIGHT) },
+                            label = { Text("Light Mode") },
+                            leadingIcon = if (themeMode == com.example.ui.ThemeMode.LIGHT) {
+                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    Text(
+                        text = "Secondary Accent Color",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Choose a secondary accent color for controls, buttons, and highlights",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(com.example.ui.AppAccentColor.values()) { colorOpt ->
+                            val isSelected = (accentColor == colorOpt)
+                            Surface(
+                                onClick = { viewModel.setAccentColor(colorOpt) },
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, colorOpt.color) else null
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(colorOpt.color)
+                                            .border(1.dp, Color.Gray.copy(alpha = 0.5f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = if (colorOpt == com.example.ui.AppAccentColor.MONOCHROME) Color.Black else Color.Black,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = colorOpt.label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    SettingsSwitchRow(
+                        title = "18+ Adult Content",
+                        subtitle = "Enable adult catalog, steamy movies, and JAV releases",
+                        checked = adultContentEnabled,
+                        onCheckedChange = { viewModel.setAdultContentEnabled(it) }
+                    )
+                }
+            }
+
+            // 2. PLAYER & PLAYBACK SETTINGS
             item {
                 ExpandableSettingsCard(
-                    title = "Sources & Extensions",
+                    title = "Player Configuration",
+                    icon = Icons.Outlined.PlayCircle,
+                    isExpanded = isPlayerExpanded,
+                    onToggleExpand = { isPlayerExpanded = !isPlayerExpanded },
+                    badgeText = "Quality: $defaultQuality"
+                ) {
+                    SettingsSwitchRow(
+                        title = "Autoplay Videos Automatically",
+                        subtitle = "Start playing immediately upon selecting a video",
+                        checked = autoPlayEnabled,
+                        onCheckedChange = { autoPlayEnabled = it }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    SettingsSwitchRow(
+                        title = "Universal Player Mode",
+                        subtitle = "Use standardized controls across all video sources",
+                        checked = universalPlayerMode,
+                        onCheckedChange = { universalPlayerMode = it }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Default Resolution Quality",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Preferred video stream resolution",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        AssistChip(
+                            onClick = {
+                                defaultQuality = when (defaultQuality) {
+                                    "1080p" -> "720p"
+                                    "720p" -> "Auto"
+                                    else -> "1080p"
+                                }
+                            },
+                            label = { Text(defaultQuality, fontWeight = FontWeight.Bold) }
+                        )
+                    }
+                }
+            }
+
+            // 3. GESTURE CONTROLS
+            item {
+                ExpandableSettingsCard(
+                    title = "Gestures & Controls",
+                    icon = Icons.Outlined.TouchApp,
+                    isExpanded = isGesturesExpanded,
+                    onToggleExpand = { isGesturesExpanded = !isGesturesExpanded },
+                    badgeText = if (gestureControlsEnabled) "Enabled" else "Disabled"
+                ) {
+                    SettingsSwitchRow(
+                        title = "Enable Touch Gestures",
+                        subtitle = "Double tap to seek, swipe up/down for volume and brightness",
+                        checked = gestureControlsEnabled,
+                        onCheckedChange = { gestureControlsEnabled = it }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Double Tap Seek Duration",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Rewind / Fast forward interval",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        var currentSeekSecs by remember { mutableStateOf(com.example.util.DebridSettingsManager.getDoubleTapSeekSecs(context)) }
+                        val seekLabel = "${currentSeekSecs} Seconds"
+                        AssistChip(
+                            onClick = {
+                                val next = when (currentSeekSecs) {
+                                    10 -> 15
+                                    15 -> 5
+                                    else -> 10
+                                }
+                                currentSeekSecs = next
+                                com.example.util.DebridSettingsManager.setDoubleTapSeekSecs(context, next)
+                            },
+                            label = { Text(seekLabel, fontWeight = FontWeight.Bold) }
+                        )
+                    }
+                }
+            }
+
+            // 4. SHORTS SETTINGS
+            item {
+                ExpandableSettingsCard(
+                    title = "Shorts Configuration",
+                    icon = Icons.Outlined.AppShortcut,
+                    isExpanded = isShortsExpanded,
+                    onToggleExpand = { isShortsExpanded = !isShortsExpanded },
+                    badgeText = if (showShortsSection) "Active Feed" else "Hidden"
+                ) {
+                    SettingsSwitchRow(
+                        title = "Show Shorts Section on Home Feed",
+                        subtitle = "Display short-form video carousel on main feed",
+                        checked = showShortsSection,
+                        onCheckedChange = { showShortsSection = it }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    SettingsSwitchRow(
+                        title = "Autoplay Shorts in Feed",
+                        subtitle = "Automatically start playing shorts when scrolling",
+                        checked = autoPlayShorts,
+                        onCheckedChange = { autoPlayShorts = it }
+                    )
+                }
+            }
+
+            // 5. SOURCES & EXTENSIONS (IN THE END)
+            item {
+                ExpandableSettingsCard(
+                    title = "Sources & Plugins",
                     icon = Icons.Outlined.Extension,
                     isExpanded = isSourcesExpanded,
                     onToggleExpand = { isSourcesExpanded = !isSourcesExpanded },
@@ -308,7 +474,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Required to resolve and stream cached torrent magnets directly via Debrid",
+                                text = "Required to stream cached torrent magnets directly via Debrid",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -333,7 +499,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Required for JavInfo API lookups & magnet link extraction (x-javinfo-key)",
+                                text = "Required for JavInfo API lookups & magnet link extraction",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -358,7 +524,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Required for Orion indexer queries (returns CONFIGURATION_REQUIRED if empty)",
+                                text = "Required for Orion indexer queries",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -378,14 +544,9 @@ fun SettingsScreen(
 
                         Column {
                             Text(
-                                text = "Comet Stremio Add-on Endpoint",
+                                text = "Comet Stremio Endpoint",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Base URL for Comet Stremio streams (e.g. https://comet.elfhosted.com)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
@@ -403,14 +564,9 @@ fun SettingsScreen(
 
                         Column {
                             Text(
-                                text = "MediaFusion Stremio Add-on Endpoint",
+                                text = "MediaFusion Stremio Endpoint",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Base URL for MediaFusion streams (e.g. https://mediafusion.elfhosted.com)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
@@ -431,11 +587,6 @@ fun SettingsScreen(
                                 text = "Zilean DMM Indexer Endpoint",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Base URL for Zilean DMM metadata searches (e.g. https://zilean.elfhosted.com)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
@@ -460,427 +611,6 @@ fun SettingsScreen(
                         Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Manage Extensions & Repos")
-                    }
-                }
-            }
-
-            // 2. PLAYER & AUTOPLAY SETTINGS
-            item {
-                ExpandableSettingsCard(
-                    title = "Player & Playback",
-                    icon = Icons.Outlined.PlayCircle,
-                    isExpanded = isPlayerExpanded,
-                    onToggleExpand = { isPlayerExpanded = !isPlayerExpanded },
-                    badgeText = "Quality: $defaultQuality"
-                ) {
-                    SettingsSwitchRow(
-                        title = "Autoplay Videos Automatically",
-                        subtitle = "Start playing immediately upon selecting a video without manual play click",
-                        checked = autoPlayEnabled,
-                        onCheckedChange = { autoPlayEnabled = it }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-
-                    SettingsSwitchRow(
-                        title = "Universal Player Mode",
-                        subtitle = "Use standardized uniform controls and player skin across all sources",
-                        checked = universalPlayerMode,
-                        onCheckedChange = { universalPlayerMode = it }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Default Resolution Quality",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Preferred video stream resolution",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        AssistChip(
-                            onClick = {
-                                defaultQuality = when (defaultQuality) {
-                                    "1080p" -> "720p"
-                                    "720p" -> "Auto"
-                                    else -> "1080p"
-                                }
-                            },
-                            label = { Text(defaultQuality, fontWeight = FontWeight.Bold) }
-                        )
-                    }
-                }
-            }
-
-            // 3. GESTURE CONTROLS
-            item {
-                ExpandableSettingsCard(
-                    title = "Gesture Controls",
-                    icon = Icons.Outlined.TouchApp,
-                    isExpanded = isGesturesExpanded,
-                    onToggleExpand = { isGesturesExpanded = !isGesturesExpanded },
-                    badgeText = if (gestureControlsEnabled) "Enabled" else "Disabled"
-                ) {
-                    SettingsSwitchRow(
-                        title = "Enable Touch Gestures",
-                        subtitle = "Double tap to seek, swipe up/down for volume and brightness",
-                        checked = gestureControlsEnabled,
-                        onCheckedChange = { gestureControlsEnabled = it }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Double Tap Seek Duration",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Rewind / Fast forward interval",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        val context = androidx.compose.ui.platform.LocalContext.current
-                        var currentSeekSecs by remember { mutableStateOf(com.example.util.DebridSettingsManager.getDoubleTapSeekSecs(context)) }
-                        val seekLabel = "${currentSeekSecs} Seconds"
-                        AssistChip(
-                            onClick = {
-                                val next = when (currentSeekSecs) {
-                                    10 -> 15
-                                    15 -> 5
-                                    else -> 10
-                                }
-                                currentSeekSecs = next
-                                com.example.util.DebridSettingsManager.setDoubleTapSeekSecs(context, next)
-                            },
-                            label = { Text(seekLabel, fontWeight = FontWeight.Bold) }
-                        )
-                    }
-                }
-            }
-
-            // 4. SHORTS SETTINGS
-            item {
-                ExpandableSettingsCard(
-                    title = "Shorts Configuration",
-                    icon = Icons.Outlined.AppShortcut,
-                    isExpanded = isShortsExpanded,
-                    onToggleExpand = { isShortsExpanded = !isShortsExpanded },
-                    badgeText = if (showShortsSection) "Active Feed" else "Hidden"
-                ) {
-                    SettingsSwitchRow(
-                        title = "Show Shorts Section on Home Feed",
-                        subtitle = "Display short-form video carousel at the top of main feed",
-                        checked = showShortsSection,
-                        onCheckedChange = { showShortsSection = it }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-
-                    SettingsSwitchRow(
-                        title = "Autoplay Shorts in Feed",
-                        subtitle = "Automatically start playing shorts when scrolling through feed",
-                        checked = autoPlayShorts,
-                        onCheckedChange = { autoPlayShorts = it }
-                    )
-                }
-            }
-
-            // 5. APPEARANCE & THEME SETTINGS
-            item {
-                val themeMode by viewModel.themeMode.collectAsState()
-                val accentColor by viewModel.accentColor.collectAsState()
-
-                ExpandableSettingsCard(
-                    title = "Appearance & Theme",
-                    icon = Icons.Outlined.Palette,
-                    isExpanded = isAppearanceExpanded,
-                    onToggleExpand = { isAppearanceExpanded = !isAppearanceExpanded },
-                    badgeText = if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Theme" else "AMOLED Dark"
-                ) {
-                    Text(
-                        text = "Theme Mode",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = (themeMode == com.example.ui.ThemeMode.AMOLED_DARK),
-                            onClick = { viewModel.setThemeMode(com.example.ui.ThemeMode.AMOLED_DARK) },
-                            label = { Text("AMOLED Dark (Pitch Black)") },
-                            leadingIcon = if (themeMode == com.example.ui.ThemeMode.AMOLED_DARK) {
-                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        FilterChip(
-                            selected = (themeMode == com.example.ui.ThemeMode.LIGHT),
-                            onClick = { viewModel.setThemeMode(com.example.ui.ThemeMode.LIGHT) },
-                            label = { Text("Light Mode (White)") },
-                            leadingIcon = if (themeMode == com.example.ui.ThemeMode.LIGHT) {
-                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    Text(
-                        text = "Secondary Accent Color",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Choose a secondary accent color for controls, buttons, and highlights",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(com.example.ui.AppAccentColor.values()) { colorOpt ->
-                            val isSelected = (accentColor == colorOpt)
-                            Surface(
-                                onClick = { viewModel.setAccentColor(colorOpt) },
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, colorOpt.color) else null
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .clip(CircleShape)
-                                            .background(colorOpt.color),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isSelected) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = Color.Black,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = colorOpt.label,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 6. PO TOKEN & API KEYS
-            item {
-                ExpandableSettingsCard(
-                    title = "Security & API Tokens",
-                    icon = Icons.Outlined.VpnKey,
-                    isExpanded = isSecurityExpanded,
-                    onToggleExpand = { isSecurityExpanded = !isSecurityExpanded },
-                    badgeText = "PO Token Config"
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showPoTokenDialog = true }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VpnKey,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "YouTube PO Token & Visitor Data",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Configure PO Token and Visitor Data to bypass YouTube playback blocks",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null)
-                    }
-                }
-            }
-
-            // 7. CLOUD & SOCIAL SOURCES (MEGA & TELEGRAM)
-            item {
-                ExpandableSettingsCard(
-                    title = "Cloud & Social Folders (Mega & Telegram)",
-                    icon = Icons.Outlined.CloudQueue,
-                    isExpanded = isCloudExpanded,
-                    onToggleExpand = { isCloudExpanded = !isCloudExpanded },
-                    badgeText = "${megaFoldersList.size} Mega Folders, ${telegramChannelsList.size} TG Channels"
-                ) {
-                    // Mega Folders Section
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Mega Cloud Folders",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        IconButton(onClick = { 
-                            newFolderInput = ""
-                            showAddMegaDialog = true 
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Mega Folder")
-                        }
-                    }
-
-                    if (megaFoldersList.isEmpty()) {
-                        Text(
-                            text = "No Mega folder links added yet.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        megaFoldersList.forEach { url ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = url,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        com.example.util.CloudFoldersSettingsManager.removeMegaFolderUrl(currentContext, url)
-                                        megaFoldersList = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(currentContext)
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-
-                    // Telegram Channels Section
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Telegram Channels & Public Streams",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        IconButton(onClick = { 
-                            newFolderInput = ""
-                            showAddTelegramDialog = true 
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Telegram Channel")
-                        }
-                    }
-
-                    if (telegramChannelsList.isEmpty()) {
-                        Text(
-                            text = "No Telegram channel links added yet.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        telegramChannelsList.forEach { url ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = url,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        com.example.util.CloudFoldersSettingsManager.removeTelegramChannelUrl(currentContext, url)
-                                        telegramChannelsList = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(currentContext)
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }

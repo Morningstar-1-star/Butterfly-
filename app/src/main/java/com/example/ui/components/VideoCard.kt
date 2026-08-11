@@ -87,6 +87,10 @@ fun VideoCard(
     val isPressed = interactionSource.collectIsPressedAsState().value
     var showBottomSheet by remember { mutableStateOf(false) }
 
+    val seriesPillText = remember(video.title, video.uploadDate, video.id) {
+        com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate)
+    }
+
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(
@@ -159,22 +163,21 @@ fun VideoCard(
                     )
                 }
 
-                // Episode count badge on bottom-left of thumbnail
-                if (!video.uploadDate.isNullOrEmpty() && video.uploadDate.contains("ep")) {
-                    val epPart = video.uploadDate.substringAfter("•").trim()
+                // Series Season/Episode Pill badge on bottom-left of thumbnail
+                if (!seriesPillText.isNullOrEmpty() && (video.id.startsWith("tv_") || video.title.contains("s0", ignoreCase = true) || video.title.contains("season", ignoreCase = true) || (video.uploadDate ?: "").contains("tv", ignoreCase = true) || (video.uploadDate ?: "").contains("ep", ignoreCase = true) || (video.providerId ?: "").contains("eztv") || (video.providerId ?: "").contains("torrent"))) {
                     Text(
-                        text = epPart,
+                        text = seriesPillText,
                         color = Color.White,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(8.dp)
                             .background(
-                                color = Color.Black.copy(alpha = 0.85f),
-                                shape = RoundedCornerShape(4.dp)
+                                color = Color.Black.copy(alpha = 0.88f),
+                                shape = RoundedCornerShape(6.dp)
                             )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
 
@@ -188,16 +191,16 @@ fun VideoCard(
                         pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
                         pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
                         video.id.startsWith("tv_") || uploadDateLower.contains("tv series") || uploadDateLower.contains("s1:") || uploadDateLower.contains("season") || uploadDateLower.contains("ep ") || uploadDateLower.contains("episodes") || titleLower.contains("s0") || titleLower.contains("s1") || titleLower.contains("season") || pid == "eztv" || uploaderLower.contains("tv network") -> "Series"
-                        video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet", "watchmode") || uploaderLower.contains("marvel") || uploaderLower.contains("dc") || uploaderLower.contains("disney") || uploaderLower.contains("warner") || uploaderLower.contains("universal") || uploaderLower.contains("sony") || uploaderLower.contains("paramount") || uploaderLower.contains("studio") || uploaderLower.contains("pictures") || uploaderLower.contains("cinema") -> "Movies"
+                        video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet", "watchmode") || uploaderLower.contains("marvel") || uploaderLower.contains("dc") || uploaderLower.contains("disney") || uploaderLower.contains("warner") || uploaderLower.contains("universal") || uploaderLower.contains("sony") || uploaderLower.contains("paramount") || uploaderLower.contains("studio") || uploaderLower.contains("pictures") || uploaderLower.contains("cinema") -> "Movie"
                         pid == "archive_org" -> "Archive"
                         pid == "youtube" -> "YouTube"
                         pid == "dailymotion" -> "Dailymotion"
                         pid == "vimeo" -> "Vimeo"
-                        else -> "Movies"
+                        else -> "Movie"
                     }
 
                     val badgeBgColor = when (providerBadgeName) {
-                        "Movies" -> Color(0xFFE5A00D)
+                        "Movie", "Movies" -> Color(0xFFE5A00D)
                         "Series" -> Color(0xFF0288D1)
                         "Anime" -> Color(0xFF9C27B0)
                         "18+" -> Color(0xFFC2185B)
@@ -248,8 +251,8 @@ fun VideoCard(
                 verticalAlignment = Alignment.Top
             ) {
                 // Channel Logo or Avatar or Fallback
-                val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl) {
-                    com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl)
+                val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl, video.title) {
+                    com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl, video.title)
                 }
                 val context = LocalContext.current
 
@@ -340,7 +343,7 @@ fun VideoCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = video.uploaderName,
+                        text = if (video.uploaderName.isBlank() || video.uploaderName.lowercase().contains("tv network") || video.uploaderName == "T") brandInfo.brandName else video.uploaderName,
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontWeight = FontWeight.Medium
                         ),
@@ -359,6 +362,9 @@ fun VideoCard(
                             if (!video.uploadDate.isNullOrEmpty()) {
                                 if (isNotEmpty()) append(" • ")
                                 append(video.uploadDate)
+                            } else if (!seriesPillText.isNullOrEmpty()) {
+                                if (isNotEmpty()) append(" • ")
+                                append(seriesPillText)
                             }
                         },
                         style = MaterialTheme.typography.bodySmall,

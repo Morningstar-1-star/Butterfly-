@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 object TMDBHelper {
 
     private const val TAG = "TMDBHelper"
-    private const val TMDB_API_KEY = "15d2ea6d0dc1d476efb297b7cb373122" // TMDB Public API Key
+    private const val TMDB_API_KEY = "a07e22bc18f5cb106bfe4cc1f83ad8ed" // TMDB Public API Key
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -572,7 +572,7 @@ object TMDBHelper {
             // 1. Check videoId for explicit tv_ ID or IMDb tt ID
             if (videoId.isNotBlank()) {
                 if (videoId.startsWith("tv_")) {
-                    tvId = videoId.removePrefix("tv_").toIntOrNull()
+                    tvId = videoId.removePrefix("tv_").substringBefore("_").toIntOrNull()
                 } else if (videoId.startsWith("tt")) {
                     val findUrl = "https://api.themoviedb.org/3/find/$videoId?api_key=$TMDB_API_KEY&external_source=imdb_id"
                     val req = Request.Builder().url(findUrl).header("User-Agent", "Mozilla/5.0").build()
@@ -673,6 +673,58 @@ object TMDBHelper {
                     if (resultSeasons.isNotEmpty()) {
                         tvSeasonsCache[cacheKey] = resultSeasons
                         return@withContext resultSeasons
+                    }
+                }
+            }
+
+            // TVmaze API Fallback
+            if (cleanTitle.isNotBlank()) {
+                val encodedTitle = URLEncoder.encode(cleanTitle, "UTF-8")
+                val mazeUrl = "https://api.tvmaze.com/singlesearch/shows?q=$encodedTitle&embed=episodes"
+                val mReq = Request.Builder().url(mazeUrl).header("User-Agent", "Mozilla/5.0").build()
+                val mResp = client.newCall(mReq).execute()
+                val mBody = mResp.body?.string()
+                if (mBody != null) {
+                    val mJson = JSONObject(mBody)
+                    val showName = mJson.optString("name", cleanTitle)
+                    val embedded = mJson.optJSONObject("_embedded")
+                    val episodesArr = embedded?.optJSONArray("episodes")
+
+                    if (episodesArr != null && episodesArr.length() > 0) {
+                        val seasonMap = mutableMapOf<Int, MutableList<EpisodeItem>>()
+                        for (idx in 0 until episodesArr.length()) {
+                            val epObj = episodesArr.getJSONObject(idx)
+                            val sNum = epObj.optInt("season", 1)
+                            val eNum = epObj.optInt("number", idx + 1)
+                            val name = epObj.optString("name", "Episode $eNum")
+                            val runtime = epObj.optInt("runtime", 45)
+                            val imageObj = epObj.optJSONObject("image")
+                            val epThumb = imageObj?.optString("medium") ?: fallbackThumb
+                            val ratingObj = epObj.optJSONObject("rating")
+                            val ratingVal = ratingObj?.optDouble("average", 8.4) ?: 8.4
+
+                            val epItem = EpisodeItem(
+                                id = "${cleanTitle.lowercase().replace(" ", "_")}_s${sNum}_e${eNum}",
+                                seasonNumber = sNum,
+                                episodeNumber = eNum,
+                                title = name,
+                                durationText = "${if (runtime > 0) runtime else 45}m",
+                                thumbnailUrl = epThumb,
+                                providerId = providerId,
+                                viewsText = "★ ${String.format("%.1f", ratingVal)} IMDb"
+                            )
+
+                            seasonMap.getOrPut(sNum) { mutableListOf() }.add(epItem)
+                        }
+
+                        val mazeSeasons = seasonMap.map { (sNum, epList) ->
+                            SeriesSeason(sNum, "Season $sNum", epList)
+                        }.sortedBy { it.seasonNumber }
+
+                        if (mazeSeasons.isNotEmpty()) {
+                            tvSeasonsCache[cacheKey] = mazeSeasons
+                            return@withContext mazeSeasons
+                        }
                     }
                 }
             }
@@ -896,10 +948,14 @@ object TMDBHelper {
     suspend fun fetchJavInfoAdultVideos(): List<com.example.model.VideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<com.example.model.VideoItem>()
         val apiKey = "jvi_guxSYVMOELEfBGEDFlLPZeizhBbupsUsgggTgosYErOuEnLSXyVTWrUJwDFVmTaV"
-        val sampleCodes = listOf("EBOD-391", "SSIS-800", "IPX-900", "MIDE-888", "SDDE-650", "JUL-350", "STARS-700", "MIAD-950")
+        val sampleCodes = listOf("SSIS-001", "IPX-100", "SSIS-800", "MIDE-888", "JUL-350", "STARS-700", "MIAD-950")
 
         for (code in sampleCodes) {
             try {
+                val cleanCode = code.replace("-", "").lowercase()
+                val dmmPoster = "https://pics.dmm.co.jp/digital/video/$cleanCode/${cleanCode}pl.jpg"
+                
+                // Try JavInfo API first
                 val url = "https://api.javinfo.dev/movie?q=$code&providers=fanza,dmm,javdb,missav,javdatabase,magneto,javlibrary&key=$apiKey"
                 val req = Request.Builder().url(url).header("User-Agent", "Butterfly/1.0").build()
                 val resp = client.newCall(req).execute()
@@ -916,6 +972,7 @@ object TMDBHelper {
                         val poster = resultObj.optString("poster", "")
                             .ifBlank { resultObj.optString("cover", "") }
                             .ifBlank { resultObj.optString("image", "") }
+                            .ifBlank { dmmPoster }
                         val maker = resultObj.optString("maker", "JAV")
 
                         if (poster.isNotBlank()) {
@@ -930,40 +987,84 @@ object TMDBHelper {
                             )
                         }
                     }
+                } else {
+                    // Fallback to direct DMM release with real DMM poster
+                    list.add(
+                        com.example.model.VideoItem(
+                            id = "jav_$cleanCode",
+                            title = "[$code] JAV Special Release",
+                            uploaderName = "18+ • JAV Release",
+                            thumbnailUrl = dmmPoster,
+                            providerId = "javinfo"
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching JavInfo code $code", e)
             }
         }
 
-        // Return live items or fallback to adult catalog
-        if (list.isNotEmpty()) {
-            return@withContext list
-        }
-
-        return@withContext listOf(
+        // Combine JAV items with real TMDB 18+ / Erotic Cinema classics
+        val realAdultTmdbMovies = listOf(
             com.example.model.VideoItem(
-                id = "adult_01",
+                id = "movie_4588",
                 title = "Lust, Caution",
                 uploaderName = "2007 • Drama • 18+",
-                thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/6c1tqfJEBuIyhQC19SLlLQAUAvJ.jpg",
                 providerId = "tmdb"
             ),
             com.example.model.VideoItem(
-                id = "adult_02",
+                id = "movie_1278",
                 title = "The Dreamers",
                 uploaderName = "2003 • Romance • 18+",
-                thumbnailUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/gBb7GGaFYPu7nEUYvC8G4LaJJN1.jpg",
                 providerId = "tmdb"
             ),
             com.example.model.VideoItem(
-                id = "adult_03",
+                id = "movie_5879",
                 title = "In the Realm of the Senses",
                 uploaderName = "1976 • Classic • 18+",
-                thumbnailUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/AiFQbgjgSXWPfbi9iIYT39iXWMW.jpg",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "movie_290098",
+                title = "The Handmaiden",
+                uploaderName = "2016 • Thriller • 18+",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/dLlH4aNHdnmf62umnInL8xPlPzw.jpg",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "movie_216015",
+                title = "Fifty Shades of Grey",
+                uploaderName = "2015 • Romance • 18+",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/63kGofUkt1Mx0SIL4XI4Z5AoSgt.jpg",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "movie_664413",
+                title = "365 Days",
+                uploaderName = "2020 • Romance • 18+",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/6KwrHucIE3CvNT7kTm2MAlZ4fYF.jpg",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "movie_345",
+                title = "Eyes Wide Shut",
+                uploaderName = "1999 • Mystery • 18+",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/knEIz1eNGl5MQDbrEAVWA7iRqF9.jpg",
+                providerId = "tmdb"
+            ),
+            com.example.model.VideoItem(
+                id = "movie_402",
+                title = "Basic Instinct",
+                uploaderName = "1992 • Thriller • 18+",
+                thumbnailUrl = "https://image.tmdb.org/t/p/w500/76Ts0yoHk8kVQj9MMnoMixhRWoh.jpg",
                 providerId = "tmdb"
             )
         )
+
+        return@withContext (list + realAdultTmdbMovies).distinctBy { it.id }
     }
 
     suspend fun resolveRealPoster(query: String): String? = withContext(Dispatchers.IO) {

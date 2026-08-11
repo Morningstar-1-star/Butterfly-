@@ -80,13 +80,17 @@ fun VideoPlayerScreen(
     var showCommentsSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
-    val isTvSeries = remember(currentStreamData) {
+    var seasonsAndEpisodes by remember(currentStreamData?.videoId) {
+        mutableStateOf<List<com.example.model.SeriesSeason>>(
+            currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
+        )
+    }
+
+    val isTvSeries = remember(currentStreamData, seasonsAndEpisodes) {
         if (currentStreamData == null) false
         else {
-            val title = currentStreamData.title.lowercase()
-            val provider = currentStreamData.providerId?.lowercase() ?: ""
-            val seriesRegex = Regex("(?i)\\b(s\\d+e\\d+|season\\s*\\d+|episode\\s*\\d+|e\\d+)\\b")
-            provider.contains("eztv") || provider.contains("tv") || seriesRegex.containsMatchIn(title)
+            val totalEpisodes = seasonsAndEpisodes.sumOf { it.episodes.size }
+            totalEpisodes > 1
         }
     }
 
@@ -96,12 +100,6 @@ fun VideoPlayerScreen(
 
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
-
-    var seasonsAndEpisodes by remember(currentStreamData?.videoId) {
-        mutableStateOf<List<com.example.model.SeriesSeason>>(
-            currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
-        )
-    }
 
     LaunchedEffect(currentStreamData?.videoId) {
         if (currentStreamData != null) {
@@ -422,7 +420,23 @@ fun VideoPlayerScreen(
                                         seasons = seasonsAndEpisodes,
                                         activeVideoId = activeVideoId,
                                         onEpisodeClick = { episode ->
-                                            viewModel.playVideo(episode.id, episode.providerId)
+                                            val sNum = episode.seasonNumber
+                                            val eNum = episode.episodeNumber
+                                            val match = currentStreamData?.availableStreamOptions?.firstOrNull { opt ->
+                                                val qLabel = opt.qualityLabel.lowercase()
+                                                opt.videoUrl == episode.id ||
+                                                qLabel == episode.title.lowercase() ||
+                                                qLabel.contains("s${sNum}e${eNum}") ||
+                                                qLabel.contains("s0${sNum}e0${eNum}") ||
+                                                qLabel.contains("s${sNum} e${eNum}") ||
+                                                qLabel.contains("ep ${eNum}") ||
+                                                qLabel.contains("episode ${eNum}")
+                                            }
+                                            if (match != null) {
+                                                viewModel.selectStreamOption(match)
+                                            } else {
+                                                viewModel.playVideo(episode.id, episode.providerId)
+                                            }
                                         }
                                     )
                                 }

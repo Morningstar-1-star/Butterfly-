@@ -32,79 +32,6 @@ import com.example.model.VideoItem
 import com.example.ui.MainViewModel
 
 // Pre-populated default vault items matching user's Library screenshot
-val DEFAULT_LIBRARY_ITEMS = listOf(
-    VideoItem(
-        id = "lib_01",
-        title = "Island Python",
-        uploaderName = "Movie • 2025",
-        thumbnailUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_02",
-        title = "Ricky Gervais Alley Cats",
-        uploaderName = "Special • 2026",
-        thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_03",
-        title = "Rabid",
-        uploaderName = "Horror • 1977",
-        thumbnailUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_04",
-        title = "Planetquake",
-        uploaderName = "Sci-Fi • 2024",
-        thumbnailUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_05",
-        title = "Absolon",
-        uploaderName = "Thriller • 2003",
-        thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_06",
-        title = "KAMUI: He's Behind You",
-        uploaderName = "Anime • 2024",
-        thumbnailUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80",
-        providerId = "jikan"
-    ),
-    VideoItem(
-        id = "lib_07",
-        title = "The Haunting of Morella",
-        uploaderName = "Horror • 1990",
-        thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_08",
-        title = "Femmes Fatales",
-        uploaderName = "Series • 2011",
-        thumbnailUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_09",
-        title = "Immaculate",
-        uploaderName = "Horror • 2024",
-        thumbnailUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    ),
-    VideoItem(
-        id = "lib_10",
-        title = "Dollhouse",
-        uploaderName = "Series • 2009",
-        thumbnailUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80",
-        providerId = "tmdb"
-    )
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -114,15 +41,8 @@ fun LibraryScreen(
 ) {
     val savedList by viewModel.watchLaterList.collectAsState()
     
-    // Ensure default items exist if savedList is empty, and resolve real poster URLs via TMDB API
-    LaunchedEffect(Unit) {
-        if (savedList.isEmpty()) {
-            DEFAULT_LIBRARY_ITEMS.forEach { item ->
-                viewModel.addToWatchLater(item)
-            }
-        }
-        
-        // Resolve real TMDB posters for items that have fallback images
+    // Resolve real TMDB posters for saved items that have fallback images
+    LaunchedEffect(savedList) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             savedList.forEach { item ->
                 if (item.thumbnailUrl.isNullOrBlank() || item.thumbnailUrl?.contains("unsplash.com") == true) {
@@ -152,38 +72,6 @@ fun LibraryScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Library",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                },
-                actions = {
-                    IconButton(onClick = { isGridView = !isGridView }) {
-                        Icon(
-                            imageVector = if (isGridView) Icons.Default.FormatListBulleted else Icons.Default.GridView,
-                            contentDescription = "Toggle View",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(onClick = { showAddDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add Content",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
@@ -257,7 +145,7 @@ fun LibraryScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tap '+' above or '+' on Explore cards to add movies, TV series, anime or JAV.",
+                            text = "Tap '+' on Explore cards or the button below to add movies, TV series, or anime.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp)

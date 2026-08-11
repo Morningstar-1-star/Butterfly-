@@ -46,6 +46,7 @@ fun SearchScreen(
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     val trendingVideos by viewModel.trendingVideos.collectAsState()
@@ -180,7 +181,8 @@ fun SearchScreen(
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
-                items(searchResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
+                val filteredResults = searchResults.filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                items(filteredResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
                     VideoCard(
                         video = video,
                         onClick = { onSelectVideo(video) }

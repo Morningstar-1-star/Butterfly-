@@ -136,31 +136,52 @@ fun VideoDetailsSection(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Channel Info Row
+        // Channel Info Row with Brand/Studio Logo support
+        val brandInfo = remember(streamData.channelName, streamData.channelAvatarUrl, streamData.title) {
+            com.example.util.ChannelLogoHelper.getBrandInfo(streamData.channelName, streamData.channelAvatarUrl, streamData.title)
+        }
+        val displayChannelName = remember(streamData.channelName, brandInfo.brandName) {
+            if (streamData.channelName.isBlank() || streamData.channelName.lowercase().contains("tv network") || streamData.channelName == "T") {
+                brandInfo.brandName
+            } else {
+                streamData.channelName
+            }
+        }
+        val displaySubCount = remember(streamData.subscriberCountText, brandInfo.subscriberCountText) {
+            if (!streamData.subscriberCountText.isNullOrEmpty() && streamData.subscriberCountText != "Subscribers") {
+                streamData.subscriberCountText
+            } else {
+                brandInfo.subscriberCountText
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (!streamData.channelAvatarUrl.isNullOrEmpty()) {
-                AsyncImage(
-                    model = streamData.channelAvatarUrl,
-                    contentDescription = streamData.channelName,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
+            val logoUrl = brandInfo.logoUrls.firstOrNull() ?: streamData.channelAvatarUrl
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(brandInfo.backgroundColor),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!logoUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = logoUrl,
+                        contentDescription = displayChannelName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
+                    )
+                } else {
                     Text(
-                        text = streamData.channelName.take(1).uppercase(),
+                        text = brandInfo.brandShortText,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        fontSize = 12.sp,
+                        color = brandInfo.textColor
                     )
                 }
             }
@@ -170,7 +191,7 @@ fun VideoDetailsSection(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = streamData.channelName,
+                        text = displayChannelName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
@@ -183,13 +204,11 @@ fun VideoDetailsSection(
                         modifier = Modifier.size(14.dp)
                     )
                 }
-                if (!streamData.subscriberCountText.isNullOrEmpty()) {
-                    Text(
-                        text = streamData.subscriberCountText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = displaySubCount,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             // Subscribe Button

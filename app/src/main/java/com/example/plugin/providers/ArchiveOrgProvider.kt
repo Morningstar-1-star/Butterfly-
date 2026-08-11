@@ -26,12 +26,15 @@ class ArchiveOrgProvider(
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val url = "https://archive.org/advancedsearch.php?q=mediatype%3Amovies+AND+($query)&fl%5B%5D=identifier%2Ctitle%2Ccreator%2Cpublicdate%2Cdescription&sort%5B%5D=publicdate+desc&rows=20&page=$page&output=json"
+        val clean = query.replace("[^a-zA-Z0-9 ]".toRegex(), " ").trim()
+        val searchQuery = if (clean.isNotBlank()) clean else "classic"
+        val encodedQuery = java.net.URLEncoder.encode(searchQuery, "UTF-8")
+        val url = "https://archive.org/advancedsearch.php?q=mediatype%3Amovies+AND+($encodedQuery)&fl%5B%5D=identifier%2Ctitle%2Ccreator%2Cpublicdate%2Cdescription&sort%5B%5D=downloads+desc&rows=25&page=$page&output=json"
         val resp = http.get(url)
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 
         val (items, numFound) = parseArchiveList(resp.body)
-        PagedResult(items = items, nextPageToken = (page + 1).toString(), hasMore = page * 20 < numFound)
+        PagedResult(items = items, nextPageToken = (page + 1).toString(), hasMore = page * 25 < numFound)
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -61,23 +64,21 @@ class ArchiveOrgProvider(
         val videoStreams = mutableListOf<PluginVideoStream>()
         val subtitles = mutableListOf<PluginSubtitle>()
 
+        val validVideoEntries = mutableListOf<JSONObject>()
         for (i in 0 until filesArr.length()) {
             val f = filesArr.getJSONObject(i)
             val name = f.optString("name")
             val format = f.optString("format", "").lowercase()
-            val fileUrl = "https://archive.org/download/$identifier/$name"
+            val isPreviewOrThumb = name.endsWith("_thumb.mp4") ||
+                    name.endsWith(".ia.mp4") ||
+                    name.startsWith("ia_") ||
+                    format.contains("thumbnail")
 
-            if (format.contains("mp4") || format.contains("h.264") || name.endsWith(".mp4")) {
-                videoStreams.add(
-                    PluginVideoStream(
-                        url = fileUrl,
-                        qualityLabel = f.optString("height", "720") + "p",
-                        format = "mp4",
-                        height = f.optInt("height", 0),
-                        isMuxed = true
-                    )
-                )
+            if (!isPreviewOrThumb && (format.contains("mp4") || format.contains("h.264") || format.contains("mpeg4") || format.contains("50gb video") || format.contains("matroska") || name.endsWith(".mp4") || name.endsWith(".mkv"))) {
+                validVideoEntries.add(f)
             } else if (format.contains("vtt") || name.endsWith(".vtt") || name.endsWith(".srt")) {
+                val encodedName = java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20")
+                val fileUrl = "https://archive.org/download/$identifier/$encodedName"
                 subtitles.add(
                     PluginSubtitle(
                         url = fileUrl,
@@ -87,6 +88,52 @@ class ArchiveOrgProvider(
                     )
                 )
             }
+        }
+
+        val isMultiFile = validVideoEntries.size > 1
+
+        for (f in validVideoEntries) {
+            val name = f.optString("name")
+            val title = f.optString("title", "").ifBlank {
+                name.removeSuffix(".mp4")
+                    .removeSuffix(".mkv")
+                    .removeSuffix(".avi")
+                    .replace("_", " ")
+                    .replace("%20", " ")
+            }
+            val encodedName = java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20")
+            val fileUrl = "https://archive.org/download/$identifier/$encodedName"
+            val height = f.optInt("height", 0)
+            val heightLabel = if (height > 0) "${height}p" else "1080p"
+
+            val label = if (isMultiFile) {
+                title
+            } else {
+                "$heightLabel Direct MP4"
+            }
+
+            videoStreams.add(
+                PluginVideoStream(
+                    url = fileUrl,
+                    qualityLabel = label,
+                    format = "mp4",
+                    height = if (height > 0) height else 1080,
+                    isMuxed = true
+                )
+            )
+        }
+
+        if (videoStreams.isEmpty()) {
+            val fallbackUrl = "https://archive.org/download/$identifier/$identifier.mp4"
+            videoStreams.add(
+                PluginVideoStream(
+                    url = fallbackUrl,
+                    qualityLabel = "Internet Archive Direct Stream",
+                    format = "mp4",
+                    height = 720,
+                    isMuxed = true
+                )
+            )
         }
 
         PluginStreamInfo(

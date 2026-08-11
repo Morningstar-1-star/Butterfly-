@@ -14,8 +14,8 @@ fun MyApplicationTheme(
     accentColor: AppAccentColor = AppAccentColor.YELLOW,
     content: @Composable () -> Unit
 ) {
-    val primaryColor = accentColor.color
-    val onPrimaryColor = if (accentColor == AppAccentColor.YELLOW || accentColor == AppAccentColor.CYAN || accentColor == AppAccentColor.GREEN) Color.Black else Color.White
+    val primaryColor = if (themeMode == ThemeMode.LIGHT && accentColor == AppAccentColor.MONOCHROME) Color.Black else accentColor.color
+    val onPrimaryColor = if (accentColor == AppAccentColor.YELLOW || accentColor == AppAccentColor.CYAN || accentColor == AppAccentColor.GREEN || (accentColor == AppAccentColor.MONOCHROME && themeMode == ThemeMode.AMOLED_DARK)) Color.Black else Color.White
 
     val colorScheme = if (themeMode == ThemeMode.LIGHT) {
         lightColorScheme(

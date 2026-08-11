@@ -69,6 +69,7 @@ fun HomeScreen(
     val watchHistory by viewModel.watchHistory.collectAsState()
     val recommendedVideos by viewModel.recommendedVideos.collectAsState()
     val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
+    val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
 
     val userProfile by viewModel.userProfile.collectAsState()
     val globalActiveStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
@@ -363,6 +364,7 @@ fun HomeScreen(
                             buildSmartTags(activeContextTitle, searchQuery)
                         }
 
+                        val yellowAccent = Color(0xFFFFD600)
                         LazyRow(
                             contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -372,8 +374,8 @@ fun HomeScreen(
                                 Surface(
                                     onClick = { viewModel.navigateToScreen(AppScreen.EXPLORE) },
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (currentScreen == AppScreen.EXPLORE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-                                    contentColor = if (currentScreen == AppScreen.EXPLORE) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    color = if (currentScreen == AppScreen.EXPLORE) yellowAccent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                                    contentColor = if (currentScreen == AppScreen.EXPLORE) Color.Black else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(width = 40.dp, height = 32.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -398,11 +400,11 @@ fun HomeScreen(
                                         }
                                     },
                                     shape = RoundedCornerShape(20.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    color = if (isSelected) yellowAccent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
                                         Text(tag, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -474,7 +476,8 @@ fun HomeScreen(
                     }
 
                     AppScreen.SHORTS -> {
-                        val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                        val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                        val feedList = rawFeed.filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                         ShortsSection(
                             shorts = feedList,
                             onSelectShort = { video ->
@@ -513,7 +516,8 @@ fun HomeScreen(
                                 // SHORTS CAROUSEL SECTION (ONLY IF ENABLED)
                                 if (showShortsFeed) {
                                     item {
-                                        val feedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                                        val rawShorts = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                                        val feedList = rawShorts.filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                         if (feedList.isNotEmpty()) {
                                             Column(modifier = Modifier.padding(vertical = 12.dp)) {
                                                 Row(
@@ -582,7 +586,9 @@ fun HomeScreen(
                                     }
                                 } else {
                                     val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                                    val feedList = rawFeed.filterNot { hiddenVideoIds.contains(it.id) }
+                                    val feedList = rawFeed
+                                        .filterNot { hiddenVideoIds.contains(it.id) }
+                                        .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     if (feedList.isEmpty()) {
                                         item {
                                             Box(

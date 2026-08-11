@@ -51,6 +51,7 @@ enum class ThemeMode {
 
 enum class AppAccentColor(val label: String, val color: Color) {
     YELLOW("Electric Yellow", Color(0xFFFFD600)),
+    MONOCHROME("Black & White", Color(0xFFFFFFFF)),
     CYAN("Cyan Blue", Color(0xFF00E5FF)),
     PINK("Neon Pink", Color(0xFFFF4081)),
     PURPLE("Royal Purple", Color(0xFFAB47BC)),
@@ -183,7 +184,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _failedSourceLogs.value = (_failedSourceLogs.value + log).takeLast(100)
     }
 
+    fun isAdultProviderId(providerId: String?): Boolean {
+        val pid = providerId?.lowercase() ?: return false
+        return pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") ||
+               pid.contains("hentai") || pid.contains("javinfo") || pid == "adult" || pid.contains("jav")
+    }
+
+    fun isAdultVideoItem(item: VideoItem): Boolean {
+        if (isAdultProviderId(item.providerId)) return true
+        val uploader = item.uploaderName?.lowercase() ?: ""
+        val title = item.title.lowercase()
+        val id = item.id.lowercase()
+        return uploader.contains("18+") || uploader.contains("jav") || uploader.contains("porn") || uploader.contains("hentai") ||
+               title.contains("18+") || title.contains("jav") || title.contains("porn") || title.contains("hentai") ||
+               id.startsWith("jav_") || id.startsWith("adult_") || id.contains("apijav") || id.contains("eporner")
+    }
+
     // Theme & Appearance Settings
+    private val prefs = application.getSharedPreferences("app_settings_prefs", android.content.Context.MODE_PRIVATE)
+
+    private val _adultContentEnabled = MutableStateFlow(
+        prefs.getBoolean("adult_content_enabled", false)
+    )
+    val adultContentEnabled: StateFlow<Boolean> = _adultContentEnabled.asStateFlow()
+
+    fun setAdultContentEnabled(enabled: Boolean) {
+        _adultContentEnabled.value = enabled
+        prefs.edit().putBoolean("adult_content_enabled", enabled).apply()
+
+        if (!enabled) {
+            _trendingVideos.value = _trendingVideos.value.filterNot { isAdultVideoItem(it) }
+            _searchResults.value = _searchResults.value.filterNot { isAdultVideoItem(it) }
+            _recommendedVideos.value = _recommendedVideos.value.filterNot { isAdultVideoItem(it) }
+            if (isAdultProviderId(_activeProviderId.value)) {
+                _activeProviderId.value = "all"
+            }
+        }
+
+        refreshProvidersList()
+        loadTrending(forceRefresh = true)
+    }
+
     private val _themeMode = MutableStateFlow(ThemeMode.AMOLED_DARK)
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
@@ -788,6 +829,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         allNative.forEach { provider ->
             val id = provider.providerId
             if (id in subTorrentProviderIds) return@forEach
+            if (!_adultContentEnabled.value && isAdultProviderId(id)) return@forEach
 
             val name = getReadableProviderName(id)
             val desc = if (id == "unified_torrents") {
@@ -897,7 +939,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (activeId == "all") {
                     val activeProviders = pluginManager.getAllAvailableProviders().filter {
-                        _enabledProviderIds.value.contains(it.providerId)
+                        _enabledProviderIds.value.contains(it.providerId) &&
+                        (_adultContentEnabled.value || !isAdultProviderId(it.providerId))
                     }
 
                     val deferreds = activeProviders.map { provider ->
@@ -951,7 +994,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         combined.addAll(items)
                     }
                 }
-                _searchResults.value = combined
+                _searchResults.value = if (_adultContentEnabled.value) combined else combined.filterNot { isAdultVideoItem(it) }
                 updateRecommendedVideosAsync()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Search failed: ${e.localizedMessage}", e)
@@ -986,7 +1029,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (activeId == "all") {
                     val activeProviders = pluginManager.getAllAvailableProviders().filter {
-                        _enabledProviderIds.value.contains(it.providerId)
+                        _enabledProviderIds.value.contains(it.providerId) &&
+                        (_adultContentEnabled.value || !isAdultProviderId(it.providerId))
                     }
 
                     val deferreds = activeProviders.map { provider ->
@@ -1043,7 +1087,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                _trendingVideos.value = combined
+                _trendingVideos.value = if (_adultContentEnabled.value) combined else combined.filterNot { isAdultVideoItem(it) }
                 updateRecommendedVideosAsync()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed: ${e.localizedMessage}", e)
@@ -1079,7 +1123,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (targetProviderId.isNullOrEmpty() || targetProviderId == "all") {
             targetProviderId = if (_activeProviderId.value != "all") _activeProviderId.value else "dailymotion"
         }
-        if (targetProviderId in subTorrentProviderIds || targetProviderId.contains("torrent")) {
+        if (targetProviderId in subTorrentProviderIds || targetProviderId.contains("torrent") || targetProviderId == "tmdb" || targetProviderId == "tmdb_movies") {
             targetProviderId = "unified_torrents"
         }
 
