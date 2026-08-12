@@ -6,6 +6,7 @@ import com.example.model.ExtractorErrorType
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
 import com.example.plugin.sdk.model.ProviderType
+import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -26,6 +27,11 @@ object YtDlpResolver {
                 if (!isInitialized) {
                     try {
                         YoutubeDL.getInstance().init(context.applicationContext)
+                        try {
+                            FFmpeg.getInstance().init(context.applicationContext)
+                        } catch (fe: Throwable) {
+                            Log.w(TAG, "FFmpeg init warning: ${fe.message}")
+                        }
                         isInitialized = true
                         Log.d(TAG, "YoutubeDL initialized successfully")
                     } catch (e: Throwable) {

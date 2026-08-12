@@ -15,6 +15,7 @@ import coil.request.CachePolicy
 import com.example.ui.MainViewModel
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -23,7 +24,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.plugin.providers.ArchiveOrgProvider.contextRef = applicationContext
-        com.example.extractor.YtDlpResolver.init(applicationContext)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                com.example.extractor.YtDlpResolver.init(applicationContext)
+            } catch (e: Exception) {
+                // Ignore background init failure
+            }
+        }
         enableEdgeToEdge()
         setupHighRefreshRate()
         setupCoilCache()

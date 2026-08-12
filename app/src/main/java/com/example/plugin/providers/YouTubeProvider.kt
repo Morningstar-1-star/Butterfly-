@@ -5,6 +5,7 @@ import com.example.model.FeedResult
 import com.example.plugin.bridge.HttpBridge
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.*
+import com.example.util.YouTubeApiHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -24,6 +25,11 @@ class YouTubeProvider(
     )
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        val apiItems = YouTubeApiHelper.fetchPopularVideos(25)
+        if (!apiItems.isNullOrEmpty()) {
+            return@withContext PagedResult(items = apiItems, hasMore = false)
+        }
+
         when (val result = YouTubeExtractorHelper.fetchTrendingVideos()) {
             is FeedResult.Success -> {
                 val items = result.items.map { item ->
@@ -49,6 +55,11 @@ class YouTubeProvider(
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        val apiSearchResult = YouTubeApiHelper.search(query, 25)
+        if (apiSearchResult != null && apiSearchResult.videoItems.isNotEmpty()) {
+            return@withContext PagedResult(items = apiSearchResult.videoItems, hasMore = false)
+        }
+
         when (val result = YouTubeExtractorHelper.searchVideos(query)) {
             is FeedResult.Success -> {
                 val items = result.items.map { item ->
@@ -195,6 +206,10 @@ class YouTubeProvider(
 
     override suspend fun getChannel(channelIdOrUrl: String): PluginChannel = withContext(Dispatchers.IO) {
         val channelId = channelIdOrUrl.substringAfterLast("/")
+        val apiChannel = YouTubeApiHelper.getChannelDetails(channelId)
+        if (apiChannel != null) {
+            return@withContext apiChannel
+        }
         PluginChannel(
             id = channelId,
             name = "YouTube Channel ($channelId)"

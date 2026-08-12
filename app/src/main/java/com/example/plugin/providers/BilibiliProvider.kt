@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Jsoup
 
 class BilibiliProvider(
     private val context: Context? = null,
@@ -18,22 +19,82 @@ class BilibiliProvider(
 
     override val providerId: String = "bilibili"
 
+    @Volatile
+    private var cachedBuvid3: String? = null
+
+    private suspend fun getBuvid3(): String {
+        cachedBuvid3?.let { if (it.isNotBlank()) return it }
+        return try {
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Referer" to "https://www.bilibili.com/"
+            )
+            val resp = http.get("https://api.bilibili.com/x/frontend/finger/spi", headers)
+            if (resp.statusCode == 200) {
+                val root = JSONObject(resp.body)
+                val b3 = root.optJSONObject("data")?.optString("b_3") ?: ""
+                if (b3.isNotBlank()) {
+                    cachedBuvid3 = b3
+                    b3
+                } else ""
+            } else ""
+        } catch (e: Exception) {
+            Log.w("BilibiliProvider", "Failed to fetch buvid3 cookie: ${e.message}")
+            ""
+        }
+    }
+
+    private suspend fun buildRequestHeaders(): Map<String, String> {
+        val buvid3 = getBuvid3()
+        val headers = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Referer" to "https://www.bilibili.com/",
+            "Accept" to "application/json, text/plain, */*",
+            "Accept-Language" to "zh-CN,zh;q=0.9,en;q=0.8"
+        )
+        if (buvid3.isNotBlank()) {
+            headers["Cookie"] = "buvid3=$buvid3; buvid4=$buvid3"
+        }
+        return headers
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        val url = "https://api.bilibili.com/x/web-interface/popular?ps=25&pn=$page"
-        val headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Referer" to "https://www.bilibili.com/"
+        val headers = buildRequestHeaders()
+
+        // Attempt 1: Popular API
+        val popularUrl = "https://api.bilibili.com/x/web-interface/popular?ps=25&pn=$page"
+        var items = parseBilibiliListApi(popularUrl, headers)
+
+        // Attempt 2: Ranking API
+        if (items.isEmpty()) {
+            val rankingUrl = "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all"
+            items = parseBilibiliListApi(rankingUrl, headers)
+        }
+
+        // Attempt 3: Recommended Feed API
+        if (items.isEmpty()) {
+            val rcmdUrl = "https://api.bilibili.com/x/web-interface/index/top/feed/rcmd?ps=25"
+            items = parseBilibiliListApi(rcmdUrl, headers)
+        }
+
+        PagedResult(
+            items = items,
+            nextPageToken = (page + 1).toString(),
+            hasMore = items.isNotEmpty()
         )
-        val resp = http.get(url, headers)
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList(), hasMore = false)
+    }
 
-        try {
+    private suspend fun parseBilibiliListApi(url: String, headers: Map<String, String>): List<PluginVideoItem> {
+        return try {
+            val resp = http.get(url, headers)
+            if (resp.statusCode != 200) return emptyList()
+
             val root = JSONObject(resp.body)
-            if (root.optInt("code", -1) != 0) return@withContext PagedResult(emptyList(), hasMore = false)
+            if (root.optInt("code", -1) != 0) return emptyList()
 
-            val dataObj = root.optJSONObject("data") ?: return@withContext PagedResult(emptyList(), hasMore = false)
-            val listArr = dataObj.optJSONArray("list") ?: JSONArray()
+            val dataObj = root.optJSONObject("data") ?: return emptyList()
+            val listArr = dataObj.optJSONArray("list") ?: dataObj.optJSONArray("item") ?: JSONArray()
 
             val items = mutableListOf<PluginVideoItem>()
             for (i in 0 until listArr.length()) {
@@ -51,13 +112,13 @@ class BilibiliProvider(
                 if (pic.startsWith("//")) pic = "https:$pic"
 
                 val ownerObj = itemObj.optJSONObject("owner")
-                val ownerName = ownerObj?.optString("name") ?: "Bilibili Uploader"
+                val ownerName = ownerObj?.optString("name") ?: itemObj.optString("author", "Bilibili Uploader")
                 var ownerFace = ownerObj?.optString("face")
                 if (ownerFace?.startsWith("//") == true) ownerFace = "https:$ownerFace"
                 val ownerMid = ownerObj?.optLong("mid", 0L) ?: 0L
 
                 val statObj = itemObj.optJSONObject("stat")
-                val viewCount = statObj?.optLong("view", 0L) ?: 0L
+                val viewCount = statObj?.optLong("view", 0L) ?: itemObj.optLong("play", 0L)
 
                 val durationSec = itemObj.optLong("duration", 0L)
 
@@ -65,7 +126,7 @@ class BilibiliProvider(
                     PluginVideoItem(
                         id = bvid,
                         title = cleanTitle.ifBlank { "Bilibili Video ($bvid)" },
-                        uploaderName = ownerName,
+                        uploaderName = ownerName.ifBlank { "Bilibili Uploader" },
                         uploaderUrl = if (ownerMid > 0) "https://space.bilibili.com/$ownerMid" else null,
                         uploaderAvatarUrl = ownerFace,
                         viewCount = viewCount,
@@ -75,15 +136,10 @@ class BilibiliProvider(
                     )
                 )
             }
-
-            PagedResult(
-                items = items,
-                nextPageToken = (page + 1).toString(),
-                hasMore = items.isNotEmpty()
-            )
+            items
         } catch (e: Exception) {
-            Log.e("BilibiliProvider", "Error parsing home feed: ${e.message}", e)
-            PagedResult(emptyList(), hasMore = false)
+            Log.e("BilibiliProvider", "Error in parseBilibiliListApi for $url: ${e.message}")
+            emptyList()
         }
     }
 
@@ -91,20 +147,42 @@ class BilibiliProvider(
         if (query.isBlank()) return@withContext PagedResult(emptyList(), hasMore = false)
         val page = pageToken?.toIntOrNull() ?: 1
         val encodedQuery = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-        val url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=$encodedQuery&page=$page"
-        val headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Referer" to "https://www.bilibili.com/"
+        val headers = buildRequestHeaders()
+
+        // Attempt 1: Search type API
+        val searchTypeUrl = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=$encodedQuery&page=$page"
+        var items = parseBilibiliSearchApi(searchTypeUrl, headers)
+
+        // Attempt 2: Search all API
+        if (items.isEmpty()) {
+            val searchAllUrl = "https://api.bilibili.com/x/web-interface/search/all/v2?keyword=$encodedQuery&page=$page"
+            items = parseBilibiliSearchApi(searchAllUrl, headers)
+        }
+
+        // Attempt 3: HTML Web Search Scraping
+        if (items.isEmpty()) {
+            items = parseBilibiliHtmlSearch(query, page)
+        }
+
+        PagedResult(
+            items = items,
+            nextPageToken = (page + 1).toString(),
+            hasMore = items.isNotEmpty()
         )
-        val resp = http.get(url, headers)
-        if (resp.statusCode != 200) return@withContext PagedResult(emptyList(), hasMore = false)
+    }
 
-        try {
+    private suspend fun parseBilibiliSearchApi(url: String, headers: Map<String, String>): List<PluginVideoItem> {
+        return try {
+            val resp = http.get(url, headers)
+            if (resp.statusCode != 200) return emptyList()
+
             val root = JSONObject(resp.body)
-            if (root.optInt("code", -1) != 0) return@withContext PagedResult(emptyList(), hasMore = false)
+            if (root.optInt("code", -1) != 0) return emptyList()
 
-            val dataObj = root.optJSONObject("data") ?: return@withContext PagedResult(emptyList(), hasMore = false)
-            val resultArr = dataObj.optJSONArray("result") ?: JSONArray()
+            val dataObj = root.optJSONObject("data") ?: return emptyList()
+            val resultArr = dataObj.optJSONArray("result")
+                ?: dataObj.optJSONObject("result")?.optJSONArray("video")
+                ?: JSONArray()
 
             val items = mutableListOf<PluginVideoItem>()
             for (i in 0 until resultArr.length()) {
@@ -122,9 +200,7 @@ class BilibiliProvider(
                 if (pic.startsWith("//")) pic = "https:$pic"
 
                 val author = itemObj.optString("author").ifBlank { "Bilibili Uploader" }
-
                 val viewCount = itemObj.optLong("play", 0L)
-
                 val durationStr = itemObj.optString("duration")
                 val durationSec = parseDurationSeconds(durationStr)
 
@@ -140,15 +216,51 @@ class BilibiliProvider(
                     )
                 )
             }
-
-            PagedResult(
-                items = items,
-                nextPageToken = (page + 1).toString(),
-                hasMore = items.isNotEmpty()
-            )
+            items
         } catch (e: Exception) {
-            Log.e("BilibiliProvider", "Error parsing search results for '$query': ${e.message}", e)
-            PagedResult(emptyList(), hasMore = false)
+            Log.e("BilibiliProvider", "Error in parseBilibiliSearchApi for $url: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun parseBilibiliHtmlSearch(query: String, page: Int): List<PluginVideoItem> {
+        return try {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val htmlUrl = "https://search.bilibili.com/all?keyword=$encoded&page=$page"
+            val doc = Jsoup.connect(htmlUrl)
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                .referrer("https://www.bilibili.com/")
+                .timeout(10000)
+                .get()
+
+            val cardElements = doc.select(".bili-video-card, .video-item, .search-card")
+            val items = mutableListOf<PluginVideoItem>()
+
+            for (card in cardElements) {
+                val link = card.select("a[href*=/video/]").firstOrNull()?.attr("href") ?: ""
+                val bvid = Regex("BV[a-zA-Z0-9]{10}", RegexOption.IGNORE_CASE).find(link)?.value
+                    ?: Regex("av[0-9]+", RegexOption.IGNORE_CASE).find(link)?.value
+                    ?: continue
+
+                val title = card.select(".bili-video-card__info--tit, .title").text().trim()
+                val author = card.select(".bili-video-card__info--author, .up-name").text().trim()
+                var pic = card.select("img").attr("src").ifBlank { card.select("img").attr("data-src") }
+                if (pic.startsWith("//")) pic = "https:$pic"
+
+                items.add(
+                    PluginVideoItem(
+                        id = bvid,
+                        title = title.ifBlank { "Bilibili Video ($bvid)" },
+                        uploaderName = author.ifBlank { "Bilibili Uploader" },
+                        thumbnailUrl = pic.takeIf { it.isNotBlank() },
+                        providerId = providerId
+                    )
+                )
+            }
+            items
+        } catch (e: Exception) {
+            Log.e("BilibiliProvider", "Error parsing Bilibili HTML search: ${e.message}")
+            emptyList()
         }
     }
 

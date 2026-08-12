@@ -375,6 +375,24 @@ object YouTubeExtractorHelper {
     }
 
     fun searchVideos(query: String): FeedResult {
+        val apiSearch = com.example.util.YouTubeApiHelper.search(query, 25)
+        if (apiSearch != null && apiSearch.videoItems.isNotEmpty()) {
+            val items = apiSearch.videoItems.map { item ->
+                VideoItem(
+                    id = item.id,
+                    title = item.title,
+                    uploaderName = item.uploaderName,
+                    uploaderUrl = item.uploaderUrl,
+                    uploaderAvatarUrl = item.uploaderAvatarUrl,
+                    viewCount = item.viewCount,
+                    durationSeconds = item.durationSeconds,
+                    uploadDate = item.uploadDate,
+                    thumbnailUrl = item.thumbnailUrl
+                )
+            }
+            return FeedResult.Success(items)
+        }
+
         ensureInitialized()
         return try {
             val service = getYouTubeService()
@@ -421,6 +439,24 @@ object YouTubeExtractorHelper {
     }
 
     fun fetchTrendingVideos(): FeedResult {
+        val apiPopular = com.example.util.YouTubeApiHelper.fetchPopularVideos(25)
+        if (!apiPopular.isNullOrEmpty()) {
+            val items = apiPopular.map { item ->
+                VideoItem(
+                    id = item.id,
+                    title = item.title,
+                    uploaderName = item.uploaderName,
+                    uploaderUrl = item.uploaderUrl,
+                    uploaderAvatarUrl = item.uploaderAvatarUrl,
+                    viewCount = item.viewCount,
+                    durationSeconds = item.durationSeconds,
+                    uploadDate = item.uploadDate,
+                    thumbnailUrl = item.thumbnailUrl
+                )
+            }
+            return FeedResult.Success(items)
+        }
+
         ensureInitialized()
         return try {
             searchVideos("trending videos")

@@ -952,7 +952,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val deferreds = activeProviders.map { provider ->
                         async {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                     val paged = provider.search(q)
                                     paged.items.map { item ->
                                         VideoItem(
@@ -980,7 +980,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     val provider = getActiveProvider()
                     if (provider != null) {
-                        val items = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        val items = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                             val paged = provider.search(q)
                             paged.items.map { item ->
                                 VideoItem(
@@ -1042,7 +1042,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val deferreds = activeProviders.map { provider ->
                         async {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                     val paged = provider.home(pageToken)
                                     paged.items.map { item ->
                                         VideoItem(
@@ -1072,7 +1072,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     val provider = getActiveProvider()
                     if (provider != null) {
-                        val items = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        val items = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                             val paged = provider.home(pageToken)
                             paged.items.map { item ->
                                 VideoItem(
