@@ -116,6 +116,7 @@ data class PluginVideoStream(
     val fps: Int = 0,
     val isMuxed: Boolean = false,
     val codec: String? = null,
+    val audioUrl: String? = null,
     val headers: Map<String, String> = emptyMap()
 )
 

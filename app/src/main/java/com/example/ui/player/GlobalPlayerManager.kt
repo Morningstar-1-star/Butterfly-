@@ -315,17 +315,21 @@ object GlobalPlayerManager {
                 streamOption?.headers?.let { combinedHeaders.putAll(it) }
 
                 val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+                val defaultHeaders = mutableMapOf<String, String>()
                 var customUserAgentSet = false
                 combinedHeaders.forEach { (k, v) ->
                     if (k.equals("User-Agent", ignoreCase = true)) {
                         dataSourceFactory.setUserAgent(v)
                         customUserAgentSet = true
                     } else {
-                        dataSourceFactory.setDefaultRequestProperties(mapOf(k to v))
+                        defaultHeaders[k] = v
                     }
                 }
                 if (!customUserAgentSet) {
                     dataSourceFactory.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                }
+                if (defaultHeaders.isNotEmpty()) {
+                    dataSourceFactory.setDefaultRequestProperties(defaultHeaders)
                 }
 
                 if (streamOption != null) {

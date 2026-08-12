@@ -214,12 +214,19 @@ class SourcePipelineEngine(
 
             val pType = if (infoHash != null && !isResolvedDebrid) ProviderType.TORRENT else ProviderType.OTHER
 
+            val pHeaders = if (stream.headers.isNotEmpty()) {
+                stream.headers
+            } else {
+                providerOutputs.firstOrNull { it.first.providerId == provider.providerId }?.second?.httpHeaders ?: emptyMap()
+            }
+
             val option = PlayableStreamOption(
                 qualityLabel = title,
                 format = format,
                 isMuxed = stream.isMuxed,
                 videoUrl = finalUrl,
-                audioUrl = null,
+                audioUrl = stream.audioUrl,
+                headers = pHeaders,
                 providerType = pType
             )
 

@@ -14,7 +14,6 @@ import java.util.concurrent.TimeUnit
 object YouTubeApiHelper {
 
     private const val TAG = "YouTubeApiHelper"
-    private const val FALLBACK_API_KEY = "AIzaSyA7lJpsAy5x2RJyt8VieIp1VS01g_P5A8Q"
     private const val BASE_URL = "https://www.googleapis.com/youtube/v3"
 
     private val client = OkHttpClient.Builder()
@@ -31,10 +30,10 @@ object YouTubeApiHelper {
             if (!key.isNullOrBlank() && key != "null" && !key.contains("MY_")) {
                 key
             } else {
-                FALLBACK_API_KEY
+                ""
             }
         } catch (e: Throwable) {
-            FALLBACK_API_KEY
+            ""
         }
     }
 

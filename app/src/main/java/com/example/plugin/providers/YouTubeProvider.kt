@@ -102,30 +102,49 @@ class YouTubeProvider(
                 val sd = res.streamData
                 val videoStreams = mutableListOf<PluginVideoStream>()
 
-                sd.progressiveStreams.forEach { vs ->
-                    videoStreams.add(
-                        PluginVideoStream(
-                            url = vs.url ?: "",
-                            qualityLabel = vs.resolution ?: "720p",
-                            format = vs.format?.name ?: "mp4",
-                            height = vs.height,
-                            fps = vs.fps,
-                            isMuxed = true
+                if (sd.availableStreamOptions.isNotEmpty()) {
+                    sd.availableStreamOptions.forEach { opt ->
+                        videoStreams.add(
+                            PluginVideoStream(
+                                url = opt.videoUrl ?: "",
+                                qualityLabel = opt.qualityLabel,
+                                format = opt.format,
+                                isMuxed = opt.isMuxed,
+                                audioUrl = opt.audioUrl,
+                                headers = opt.headers
+                            )
                         )
-                    )
-                }
+                    }
+                } else {
+                    sd.progressiveStreams.forEach { vs ->
+                        videoStreams.add(
+                            PluginVideoStream(
+                                url = vs.url ?: "",
+                                qualityLabel = vs.resolution ?: "720p",
+                                format = vs.format?.name ?: "mp4",
+                                height = vs.height,
+                                fps = vs.fps,
+                                isMuxed = true,
+                                headers = sd.headers
+                            )
+                        )
+                    }
 
-                sd.videoOnlyStreams.forEach { vo ->
-                    videoStreams.add(
-                        PluginVideoStream(
-                            url = vo.url ?: "",
-                            qualityLabel = vo.resolution ?: "1080p",
-                            format = vo.format?.name ?: "mp4",
-                            height = vo.height,
-                            fps = vo.fps,
-                            isMuxed = false
+                    val bestAudioUrl = sd.audioStreams.maxByOrNull { it.averageBitrate }?.url
+                    sd.videoOnlyStreams.forEach { vo ->
+                        videoStreams.add(
+                            PluginVideoStream(
+                                url = vo.url ?: "",
+                                qualityLabel = vo.resolution ?: "1080p",
+                                format = vo.format?.name ?: "mp4",
+                                height = vo.height,
+                                fps = vo.fps,
+                                isMuxed = false,
+                                audioUrl = bestAudioUrl,
+                                headers = sd.headers
+                            )
                         )
-                    )
+                    }
                 }
 
                 val audioStreams = sd.audioStreams.map { audio ->
@@ -133,7 +152,8 @@ class YouTubeProvider(
                         url = audio.url ?: "",
                         qualityLabel = "${audio.averageBitrate} kbps",
                         format = audio.format?.name ?: "m4a",
-                        bitrate = audio.averageBitrate.toLong()
+                        bitrate = audio.averageBitrate.toLong(),
+                        headers = sd.headers
                     )
                 }
 
@@ -159,7 +179,9 @@ class YouTubeProvider(
                     videoStreams = videoStreams,
                     audioStreams = audioStreams,
                     subtitles = subtitles,
-                    hlsUrl = sd.hlsUrl
+                    hlsUrl = sd.hlsUrl,
+                    httpHeaders = sd.headers,
+                    thumbnailUrl = sd.thumbnailUrl
                 )
             }
             is YouTubeExtractorHelper.ExtractionResult.Error -> {

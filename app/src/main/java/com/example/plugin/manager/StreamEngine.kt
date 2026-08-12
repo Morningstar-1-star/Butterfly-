@@ -136,7 +136,8 @@ class StreamEngine(
                 format = stream.format,
                 isMuxed = stream.isMuxed,
                 videoUrl = validation.url,
-                audioUrl = null
+                audioUrl = stream.audioUrl,
+                headers = if (stream.headers.isNotEmpty()) stream.headers else streamInfo.httpHeaders
             )
 
             results.add(

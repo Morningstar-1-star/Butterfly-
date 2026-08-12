@@ -302,8 +302,20 @@ class BilibiliProvider(
                             format = opt.format,
                             height = 0,
                             fps = 30,
-                            isMuxed = opt.isMuxed
+                            isMuxed = opt.isMuxed,
+                            audioUrl = opt.audioUrl,
+                            headers = opt.headers
                         )
+                    }
+                    val audioStreams = res.playableOptions.mapNotNull { opt ->
+                        opt.audioUrl?.let { aUrl ->
+                            PluginAudioStream(
+                                url = aUrl,
+                                qualityLabel = "Audio Track",
+                                format = opt.format,
+                                headers = opt.headers
+                            )
+                        }
                     }
 
                     return@withContext PluginStreamInfo(
@@ -313,6 +325,8 @@ class BilibiliProvider(
                         channelName = sd.channelName,
                         description = sd.description,
                         videoStreams = videoStreams,
+                        audioStreams = audioStreams,
+                        httpHeaders = sd.headers,
                         thumbnailUrl = sd.thumbnailUrl
                     )
                 }
