@@ -22,8 +22,7 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        testInstrumentationRunner =
-            "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             abiFilters += listOf(
@@ -43,9 +42,7 @@ android {
             isCrunchPngs = false
             isMinifyEnabled = false
             proguardFiles(
-                getDefaultProguardFile(
-                    "proguard-android-optimize.txt"
-                ),
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
@@ -65,6 +62,11 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+
+            // yt-dlp-android 0.18.1 contains ZIP payloads
+            // packaged with .so names. Do NOT run llvm-strip on them.
+            keepDebugSymbols += "**/libffmpeg.zip.so"
+            keepDebugSymbols += "**/libpython.zip.so"
         }
     }
 
@@ -106,7 +108,7 @@ dependencies {
     // JavaScript engine
     implementation("org.mozilla:rhino:1.7.15")
 
-    // Media3 / ExoPlayer
+    // Media3
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
@@ -133,7 +135,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // Moshi code generation
+    // Moshi
     ksp(libs.moshi.kotlin.codegen)
 
     // Unit tests
