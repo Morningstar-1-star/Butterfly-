@@ -147,10 +147,12 @@ class SourcePipelineEngine(
             val title = stream.qualityLabel.ifBlank { "${provider.providerId} Stream" }
             val infoHash = extractInfoHash(rawUrl)
 
+            // Resolve headers once and reuse below.
             val pHeaders = if (stream.headers.isNotEmpty()) {
                 stream.headers
             } else {
-                providerOutputs.firstOrNull { it.first.providerId == provider.providerId }?.second?.httpHeaders ?: emptyMap()
+                providerOutputs.firstOrNull { it.first.providerId == provider.providerId }
+                    ?.second?.httpHeaders ?: emptyMap()
             }
 
             // Stage: Initial Stream Validation
@@ -165,7 +167,8 @@ class SourcePipelineEngine(
                         httpStatus = if (validation.httpCode != 0) validation.httpCode else null,
                         urlType = if (infoHash != null) "MAGNET" else "URL",
                         stage = SourceLifecycleStage.VALIDATED,
-                        failureReason = validation.failureReason?.description ?: "Initial URL or magnet validation failed"
+                        failureReason = validation.failureReason?.description
+                            ?: "Initial URL or magnet validation failed"
                     )
                 )
                 continue
@@ -220,12 +223,6 @@ class SourcePipelineEngine(
 
             val pType = if (infoHash != null && !isResolvedDebrid) ProviderType.TORRENT else ProviderType.OTHER
 
-            val pHeaders = if (stream.headers.isNotEmpty()) {
-                stream.headers
-            } else {
-                providerOutputs.firstOrNull { it.first.providerId == provider.providerId }?.second?.httpHeaders ?: emptyMap()
-            }
-
             val option = PlayableStreamOption(
                 qualityLabel = title,
                 format = format,
@@ -246,22 +243,34 @@ class SourcePipelineEngine(
                 when (val ytRes = com.example.extractor.YtDlpResolver.extractStreamInfo(ctx, idOrUrl)) {
                     is com.example.extractor.YtDlpResolver.ExtractionResult.Success -> {
                         for (opt in ytRes.playableOptions) {
-                            playable.add(Pair(opt, 300)) // Top priority score for direct yt-dlp extracted streams
+                            playable.add(Pair(opt, 300))
                         }
                     }
+
                     is com.example.extractor.YtDlpResolver.ExtractionResult.Error -> {
-                        Log.w("SourcePipelineEngine", "Direct YtDlpResolver extraction failed: ${ytRes.message}")
+                        Log.w(
+                            "SourcePipelineEngine",
+                            "Direct YtDlpResolver extraction failed: ${ytRes.message}"
+                        )
                     }
                 }
             } catch (e: Exception) {
-                Log.w("SourcePipelineEngine", "YtDlpResolver execution exception: ${e.message}")
+                Log.w(
+                    "SourcePipelineEngine",
+                    "YtDlpResolver execution exception: ${e.message}"
+                )
             }
         }
 
         // Sort descending by score
-        val sortedPlayable = playable.sortedByDescending { it.second }.map { it.first }
+        val sortedPlayable = playable
+            .sortedByDescending { it.second }
+            .map { it.first }
 
-        Log.d("SourcePipelineEngine", "Pipeline completed: ${sortedPlayable.size} playable streams found (${failedLogs.size} failed)")
+        Log.d(
+            "SourcePipelineEngine",
+            "Pipeline completed: ${sortedPlayable.size} playable streams found (${failedLogs.size} failed)"
+        )
 
         PipelineValidationResult(
             playableStreams = sortedPlayable,
@@ -276,16 +285,24 @@ class SourcePipelineEngine(
         mediaType: String = "unknown"
     ): Pair<ContentProviderApi, PluginStreamInfo>? {
         val startTime = System.currentTimeMillis()
-        intelligenceEngine?.recordRequestStart(provider.providerId, mediaType = mediaType)
+        intelligenceEngine?.recordRequestStart(
+            provider.providerId,
+            mediaType = mediaType
+        )
 
         return try {
             val result = withTimeoutOrNull(6000L) {
                 provider.getStreams(idOrUrl)
             }
+
             val latency = System.currentTimeMillis() - startTime
 
             if (result != null) {
-                healthMonitor.recordSuccess(provider.providerId, latency)
+                healthMonitor.recordSuccess(
+                    provider.providerId,
+                    latency
+                )
+
                 intelligenceEngine?.recordRequestSuccess(
                     providerId = provider.providerId,
                     startupTimeMs = latency,
@@ -293,10 +310,19 @@ class SourcePipelineEngine(
                     quality = "auto",
                     networkResult = "SUCCESS"
                 )
+
                 Pair(provider, result)
             } else {
-                Log.w("SourcePipelineEngine", "Provider '${provider.providerId}' timed out (>6s)")
-                healthMonitor.recordFailure(provider.providerId, StreamFailureReason.TIMEOUT)
+                Log.w(
+                    "SourcePipelineEngine",
+                    "Provider '${provider.providerId}' timed out (>6s)"
+                )
+
+                healthMonitor.recordFailure(
+                    provider.providerId,
+                    StreamFailureReason.TIMEOUT
+                )
+
                 intelligenceEngine?.recordRequestFailure(
                     providerId = provider.providerId,
                     failureReason = "Timeout (>6s)",
@@ -304,11 +330,20 @@ class SourcePipelineEngine(
                     quality = "auto",
                     networkResult = "TIMEOUT"
                 )
+
                 null
             }
         } catch (e: Exception) {
-            Log.e("SourcePipelineEngine", "Provider '${provider.providerId}' threw exception: ${e.message}")
-            healthMonitor.recordFailure(provider.providerId, StreamFailureReason.PARSING_FAILED)
+            Log.e(
+                "SourcePipelineEngine",
+                "Provider '${provider.providerId}' threw exception: ${e.message}"
+            )
+
+            healthMonitor.recordFailure(
+                provider.providerId,
+                StreamFailureReason.PARSING_FAILED
+            )
+
             intelligenceEngine?.recordRequestFailure(
                 providerId = provider.providerId,
                 failureReason = e.message ?: "Exception",
@@ -316,6 +351,7 @@ class SourcePipelineEngine(
                 quality = "auto",
                 networkResult = "PARSING_FAILED"
             )
+
             null
         }
     }
