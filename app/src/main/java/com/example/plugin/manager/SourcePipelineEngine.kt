@@ -147,8 +147,14 @@ class SourcePipelineEngine(
             val title = stream.qualityLabel.ifBlank { "${provider.providerId} Stream" }
             val infoHash = extractInfoHash(rawUrl)
 
+            val pHeaders = if (stream.headers.isNotEmpty()) {
+                stream.headers
+            } else {
+                providerOutputs.firstOrNull { it.first.providerId == provider.providerId }?.second?.httpHeaders ?: emptyMap()
+            }
+
             // Stage: Initial Stream Validation
-            val validation = streamValidator.validateStream(rawUrl)
+            val validation = streamValidator.validateStream(rawUrl, pHeaders)
             if (!validation.isValid) {
                 failedLogs.add(
                     FailedSourceLog(

@@ -19,7 +19,7 @@ class StreamValidator {
         .followSslRedirects(true)
         .build()
 
-    suspend fun validateStream(url: String): StreamValidationResult = withContext(Dispatchers.IO) {
+    suspend fun validateStream(url: String, headers: Map<String, String> = emptyMap()): StreamValidationResult = withContext(Dispatchers.IO) {
         val cleanUrl = url.trim()
         val startTime = System.currentTimeMillis()
 
@@ -74,12 +74,24 @@ class StreamValidator {
 
         // Probe HTTP Stream
         try {
-            val request = Request.Builder()
-                .url(cleanUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .header("Range", "bytes=0-1024")
-                .head() // Try HEAD first
-                .build()
+            val reqBuilder = Request.Builder().url(cleanUrl)
+            
+            val ua = headers["User-Agent"] ?: headers["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            reqBuilder.header("User-Agent", ua)
+            reqBuilder.header("Range", "bytes=0-1024")
+
+            val isBilibili = cleanUrl.contains("bilibili.com", ignoreCase = true) || cleanUrl.contains("bilivideo.com", ignoreCase = true) || cleanUrl.contains("hdslb.com", ignoreCase = true)
+            if (isBilibili && !headers.containsKey("Referer") && !headers.containsKey("referer")) {
+                reqBuilder.header("Referer", "https://www.bilibili.com/")
+            }
+
+            headers.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Range", ignoreCase = true) && v.isNotBlank()) {
+                    reqBuilder.header(k, v)
+                }
+            }
+
+            val request = reqBuilder.head().build()
 
             var response = try { httpClient.newCall(request).execute() } catch (e: Exception) { null }
 

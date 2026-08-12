@@ -332,6 +332,8 @@ object GlobalPlayerManager {
                     dataSourceFactory.setDefaultRequestProperties(defaultHeaders)
                 }
 
+                val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
+
                 if (streamOption != null) {
                     val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
                     val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
@@ -346,25 +348,20 @@ object GlobalPlayerManager {
                                 .build()
                             builder.setSubtitleConfigurations(listOf(subtitleConfig))
                         }
-                        val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(builder.build())
+                        val mediaSource = mediaSourceFactory.createMediaSource(builder.build())
                         player.setMediaSource(mediaSource)
                     } else if (!streamOption.isMuxed && vUrl != null && aUrl != null) {
-                        val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
-                        val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(MediaItem.fromUri(Uri.parse(aUrl)))
+                        val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
+                        val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(aUrl)))
 
                         val mergedSource = MergingMediaSource(videoSource, audioSource)
                         player.setMediaSource(mergedSource)
                     } else if (vUrl != null) {
-                        val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
+                        val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
                         player.setMediaSource(mediaSource)
                     }
                 } else if (!hlsUrl.isNullOrEmpty()) {
-                    val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(MediaItem.fromUri(Uri.parse(hlsUrl)))
+                    val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(hlsUrl)))
                     player.setMediaSource(mediaSource)
                 }
 
