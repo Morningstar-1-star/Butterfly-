@@ -23,14 +23,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.repository.FirebaseSyncRepository.init(applicationContext)
         com.example.plugin.providers.ArchiveOrgProvider.contextRef = applicationContext
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            try {
-                com.example.extractor.YtDlpResolver.init(applicationContext)
-            } catch (e: Exception) {
-                // Ignore background init failure
-            }
-        }
         enableEdgeToEdge()
         setupHighRefreshRate()
         setupCoilCache()

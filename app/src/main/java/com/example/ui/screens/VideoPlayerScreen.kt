@@ -103,6 +103,9 @@ fun VideoPlayerScreen(
         }
     }
 
+    val globalPlayerPosMs by com.example.ui.player.GlobalPlayerManager.currentPositionMs.collectAsState()
+    val globalPlayerDurationMs by com.example.ui.player.GlobalPlayerManager.durationMs.collectAsState()
+
     val nextEpisode = remember(allEpisodes, currentEpisodeIndex) {
         if (currentEpisodeIndex >= 0 && currentEpisodeIndex + 1 < allEpisodes.size) {
             allEpisodes[currentEpisodeIndex + 1]
@@ -160,6 +163,16 @@ fun VideoPlayerScreen(
         }
     }
 
+    val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
+    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption) {
+        (activeProviderItem?.isTorrent == true) ||
+                (currentStreamData?.isTorrent == true) ||
+                (selectedOption?.isTorrent == true) ||
+                (currentStreamData?.providerId?.lowercase()?.contains("eztv") == true) ||
+                (currentStreamData?.providerId?.lowercase()?.contains("torrent") == true) ||
+                (currentStreamData?.providerId?.lowercase()?.contains("yts") == true)
+    }
+
     val isTvSeries = remember(currentStreamData, seasonsAndEpisodes) {
         if (currentStreamData == null) false
         else {
@@ -175,8 +188,8 @@ fun VideoPlayerScreen(
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
 
-    LaunchedEffect(currentStreamData?.videoId) {
-        if (currentStreamData != null) {
+    LaunchedEffect(currentStreamData?.videoId, isTorrentStream) {
+        if (currentStreamData != null && isTorrentStream) {
             try {
                 val tmdbSeasons = com.example.util.TMDBHelper.fetchTvSeasonsAndEpisodes(currentStreamData)
                 if (tmdbSeasons.isNotEmpty()) {
@@ -185,7 +198,7 @@ fun VideoPlayerScreen(
             } catch (e: Exception) {
                 // Keep initial generated seasons
             }
-        } else {
+        } else if (currentStreamData == null) {
             seasonsAndEpisodes = emptyList()
         }
     }
@@ -196,13 +209,6 @@ fun VideoPlayerScreen(
 
     val recommendedContent = remember(currentStreamData, trendingVideos) {
         currentStreamData?.let { com.example.util.SeriesDataHelper.getRecommendedContent(it, trendingVideos) } ?: emptyList()
-    }
-
-    val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
-    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption) {
-        (activeProviderItem?.isTorrent == true) ||
-                (currentStreamData?.isTorrent == true) ||
-                (selectedOption?.isTorrent == true)
     }
 
     var fetchedComments by remember(currentStreamData?.videoId, activeVideoId) {
@@ -282,6 +288,8 @@ fun VideoPlayerScreen(
                 isPlaying = isPlaying,
                 videoId = activeVideoId,
                 initialPositionMs = initialPositionMs,
+                availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
+                onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
                 failedSourceLogs = failedSourceLogs,
                 onProgressUpdate = { pos, dur ->
                     activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
@@ -317,6 +325,14 @@ fun VideoPlayerScreen(
                     }
                 )
             }
+
+            com.example.sponsorblock.ui.SponsorBlockPlayerOverlay(
+                videoId = activeVideoId ?: currentStreamData?.videoId,
+                currentPositionMs = globalPlayerPosMs,
+                durationMs = globalPlayerDurationMs,
+                onSeekTo = { targetMs -> com.example.ui.player.GlobalPlayerManager.seekTo(targetMs) },
+                streamTitle = currentStreamData?.title
+            )
         }
     } else {
         Scaffold(
@@ -404,6 +420,8 @@ fun VideoPlayerScreen(
                     isPlaying = isPlaying,
                     videoId = activeVideoId,
                     initialPositionMs = initialPositionMs,
+                    availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
+                    onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
                     failedSourceLogs = failedSourceLogs,
                     onProgressUpdate = { pos, dur ->
                         activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
@@ -438,6 +456,14 @@ fun VideoPlayerScreen(
                         }
                     )
                 }
+
+                com.example.sponsorblock.ui.SponsorBlockPlayerOverlay(
+                    videoId = activeVideoId ?: currentStreamData?.videoId,
+                    currentPositionMs = globalPlayerPosMs,
+                    durationMs = globalPlayerDurationMs,
+                    onSeekTo = { targetMs -> com.example.ui.player.GlobalPlayerManager.seekTo(targetMs) },
+                    streamTitle = currentStreamData?.title
+                )
             }
 
             // CONTAINER FOR SCROLLABLE CONTENT & STICKY LIQUID GLASS FLOATING ACTION TOOLBAR

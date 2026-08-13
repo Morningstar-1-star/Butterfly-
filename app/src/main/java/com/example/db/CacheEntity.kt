@@ -72,6 +72,20 @@ data class UserPlaylistEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "offline_downloads")
+data class OfflineDownloadEntity(
+    @PrimaryKey val videoId: String,
+    val title: String,
+    val channelName: String,
+    val thumbnailUrl: String? = null,
+    val localFilePath: String = "",
+    val qualityLabel: String = "Auto",
+    val totalBytes: Long = 0L,
+    val downloadedBytes: Long = 0L,
+    val status: String = "COMPLETED", // DOWNLOADING, COMPLETED, FAILED
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface UserDataDao {
     @Query("SELECT * FROM watch_history ORDER BY timestamp DESC")
@@ -79,6 +93,12 @@ interface UserDataDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWatchHistory(item: WatchHistoryEntity)
+
+    @Query("DELETE FROM watch_history WHERE videoId NOT IN (SELECT videoId FROM watch_history ORDER BY timestamp DESC LIMIT :limit)")
+    suspend fun trimWatchHistory(limit: Int = 50)
+
+    @Query("DELETE FROM watch_history WHERE videoId = :videoId")
+    suspend fun deleteWatchHistory(videoId: String)
 
     @Query("DELETE FROM watch_history")
     suspend fun clearWatchHistory()
@@ -109,4 +129,13 @@ interface UserDataDao {
 
     @Query("DELETE FROM user_playlists WHERE id = :id")
     suspend fun deletePlaylist(id: String)
+
+    @Query("SELECT * FROM offline_downloads ORDER BY timestamp DESC")
+    fun getOfflineDownloadsFlow(): Flow<List<OfflineDownloadEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateDownload(item: OfflineDownloadEntity)
+
+    @Query("DELETE FROM offline_downloads WHERE videoId = :videoId")
+    suspend fun deleteDownload(videoId: String)
 }

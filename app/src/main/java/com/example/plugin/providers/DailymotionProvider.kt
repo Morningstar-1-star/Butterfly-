@@ -60,26 +60,90 @@ class DailymotionProvider(
         val metaUrl = "https://api.dailymotion.com/video/$id?fields=title,description,views_total,bookmarks_total"
         val respMeta = http.get(metaUrl)
         val jsonMeta = JSONObject(respMeta.body)
+        val title = jsonMeta.optString("title", "Dailymotion Video $id")
+        val description = jsonMeta.optString("description", "Dailymotion video stream")
 
-        val embedUrl = "https://www.dailymotion.com/embed/video/$id?autoplay=1&ui-logo=0&ui-start-screen-info=0"
+        val streams = mutableListOf<PluginVideoStream>()
+        var hlsManifestUrl: String? = null
 
-        PluginStreamInfo(
-            id = id,
-            url = embedUrl,
-            title = jsonMeta.optString("title", "Dailymotion Video"),
-            channelName = "Dailymotion",
-            viewCount = jsonMeta.optLong("views_total", 0),
-            likeCount = jsonMeta.optLong("bookmarks_total", 0),
-            description = jsonMeta.optString("description", "Dailymotion video stream"),
-            hlsUrl = null,
-            videoStreams = listOf(
+        // 1. Query player metadata JSON for direct HLS stream URL
+        try {
+            val playerMetaUrl = "https://www.dailymotion.com/player/metadata/video/$id"
+            val pMetaResp = http.get(playerMetaUrl)
+            if (pMetaResp.statusCode == 200) {
+                val pMetaJson = JSONObject(pMetaResp.body)
+                val qualitiesObj = pMetaJson.optJSONObject("qualities")
+                val autoArr = qualitiesObj?.optJSONArray("auto")
+                if (autoArr != null && autoArr.length() > 0) {
+                    val m3u8 = autoArr.getJSONObject(0).optString("url")
+                    if (m3u8.isNotBlank()) {
+                        hlsManifestUrl = m3u8
+                        streams.add(
+                            PluginVideoStream(
+                                url = m3u8,
+                                qualityLabel = "Auto HLS Stream",
+                                format = "hls",
+                                isMuxed = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Player metadata fetch warning
+        }
+
+        // 2. Fallback to YtDlpResolver if HLS is still missing
+        if (streams.isEmpty()) {
+            val ctx = com.example.plugin.providers.ArchiveOrgProvider.contextRef
+            if (ctx != null) {
+                try {
+                    val fullUrl = "https://www.dailymotion.com/video/$id"
+                    when (val ytRes = com.example.extractor.YtDlpResolver.extractStreamInfo(ctx, fullUrl)) {
+                        is com.example.extractor.YtDlpResolver.ExtractionResult.Success -> {
+                            for (opt in ytRes.playableOptions) {
+                                val vUrl = opt.videoUrl ?: continue
+                                streams.add(
+                                    PluginVideoStream(
+                                        url = vUrl,
+                                        qualityLabel = opt.qualityLabel,
+                                        format = opt.format,
+                                        isMuxed = opt.isMuxed
+                                    )
+                                )
+                            }
+                        }
+                        else -> {}
+                    }
+                } catch (e: Exception) {
+                    // YtDlp fallback warning
+                }
+            }
+        }
+
+        // 3. Fallback to embed URL if still empty
+        if (streams.isEmpty()) {
+            val embedUrl = "https://www.dailymotion.com/embed/video/$id?autoplay=1"
+            streams.add(
                 PluginVideoStream(
                     url = embedUrl,
-                    qualityLabel = "Embed Auto Play",
+                    qualityLabel = "Embed Stream",
                     format = "embed",
                     isMuxed = true
                 )
             )
+        }
+
+        PluginStreamInfo(
+            id = id,
+            url = streams.firstOrNull()?.url ?: "https://www.dailymotion.com/video/$id",
+            title = title,
+            channelName = "Dailymotion",
+            viewCount = jsonMeta.optLong("views_total", 0),
+            likeCount = jsonMeta.optLong("bookmarks_total", 0),
+            description = description,
+            hlsUrl = hlsManifestUrl,
+            videoStreams = streams
         )
     }
 

@@ -29,12 +29,17 @@ import com.example.plugin.manager.RepositoryManager
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.PluginStreamInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import com.example.model.SearchSuggestionItem
+import com.example.engine.SearchAutocompleteEngine
 
 import com.example.db.AppDatabase
 import com.example.db.WatchHistoryEntity
@@ -187,7 +192,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun isAdultProviderId(providerId: String?): Boolean {
         val pid = providerId?.lowercase() ?: return false
         return pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") ||
-               pid.contains("hentai") || pid.contains("javinfo") || pid == "adult" || pid.contains("jav")
+               pid.contains("hentai") || pid.contains("javinfo") || pid == "adult" || pid.contains("jav") ||
+               pid.contains("pornhub") || pid.contains("redtube") || pid.contains("xhamster")
     }
 
     fun isAdultVideoItem(item: VideoItem): Boolean {
@@ -197,7 +203,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val id = item.id.lowercase()
         return uploader.contains("18+") || uploader.contains("jav") || uploader.contains("porn") || uploader.contains("hentai") ||
                title.contains("18+") || title.contains("jav") || title.contains("porn") || title.contains("hentai") ||
-               id.startsWith("jav_") || id.startsWith("adult_") || id.contains("apijav") || id.contains("eporner")
+               id.startsWith("jav_") || id.startsWith("adult_") || id.contains("apijav") || id.contains("eporner") ||
+               id.contains("pornhub") || id.contains("redtube") || id.contains("xhamster")
     }
 
     // Theme & Appearance Settings
@@ -242,6 +249,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val repositories: StateFlow<List<Repository>> = repositoryManager.repositories
     val extensionStatuses: StateFlow<List<ExtensionStatus>> = extensionManager.extensionStatuses
 
+    // Firebase Sync Repository & Cloud Account Status
+    val syncStatus: StateFlow<com.example.repository.CloudSyncStatus> = com.example.repository.FirebaseSyncRepository.syncStatus
+
+    fun setCustomApiKey(apiKey: String): Boolean {
+        return com.example.repository.FirebaseSyncRepository.setCustomApiKey(apiKey)
+    }
+
+    fun signInWithEmail(email: String, pass: String, onResult: (Boolean, String?) -> Unit) {
+        com.example.repository.FirebaseSyncRepository.signInWithEmail(email, pass, onResult)
+    }
+
+    fun registerWithEmail(email: String, pass: String, onResult: (Boolean, String?) -> Unit) {
+        com.example.repository.FirebaseSyncRepository.registerWithEmail(email, pass, onResult)
+    }
+
+    fun signOutCloudUser() {
+        com.example.repository.FirebaseSyncRepository.signOutUser()
+    }
+
+    fun triggerCloudBackup() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                com.example.repository.FirebaseSyncRepository.triggerFullSync(
+                    watchHistory = _watchHistory.value.map {
+                        com.example.db.WatchHistoryEntity(
+                            videoId = it.id,
+                            title = it.title ?: it.id,
+                            channelName = it.uploaderName ?: "",
+                            thumbnailUrl = it.thumbnailUrl,
+                            providerId = it.providerId ?: "general"
+                        )
+                    },
+                    likedIds = _likedVideoIds.value,
+                    dislikedIds = _dislikedVideoIds.value,
+                    watchLaterList = _watchLaterList.value
+                )
+            } catch (t: Throwable) {
+                Log.e("MainViewModel", "Error in triggerCloudBackup", t)
+            }
+        }
+    }
+
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
 
@@ -261,8 +310,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>(
         setOf(
-            "all", "unified_torrents", "youtube", "bilibili", "jikan_anime",
-            "dailymotion", "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
+            "all", "unified_torrents", "youtube", "jikan_anime",
+            "dailymotion", "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner", "pornhub", "redtube", "xhamster",
             "peertube", "vimeo", "archive_org", "ted", "nasa", "direct_mp4", "direct_hls", "rss_video", "json"
         )
     )
@@ -273,6 +322,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchSuggestions = MutableStateFlow<List<SearchSuggestionItem>>(emptyList())
+    val searchSuggestions: StateFlow<List<SearchSuggestionItem>> = _searchSuggestions.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<VideoItem>>(emptyList())
     val searchResults: StateFlow<List<VideoItem>> = _searchResults.asStateFlow()
@@ -352,9 +404,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.example.util.NotInterestedManager.markNotInterested(getApplication(), video.id)
         val updated = _hiddenVideoIds.value + video.id
         _hiddenVideoIds.value = updated
+        _notInterestedVideoIds.value = _notInterestedVideoIds.value + video.id
+        val channel = video.uploaderName.trim()
+        if (channel.isNotBlank()) {
+            _notInterestedChannels.value = _notInterestedChannels.value + channel.lowercase()
+        }
         _trendingVideos.value = _trendingVideos.value.filterNot { it.id == video.id }
         _searchResults.value = _searchResults.value.filterNot { it.id == video.id }
         _recommendedVideos.value = _recommendedVideos.value.filterNot { it.id == video.id }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                com.example.repository.FirebaseSyncRepository.pushNotInterestedToCloud(
+                    _notInterestedChannels.value,
+                    _notInterestedVideoIds.value
+                )
+            } catch (t: Throwable) {
+                Log.e("MainViewModel", "Error saving Not Interested preference", t)
+            }
+        }
+        updateRecommendedVideosAsync()
     }
 
     fun clearSearch() {
@@ -395,19 +463,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_watchProgressMap.value.containsKey(video.id)) {
             _watchProgressMap.value = _watchProgressMap.value + (video.id to 0.15f)
         }
+        val historyEntity = WatchHistoryEntity(
+            videoId = video.id,
+            title = video.title ?: video.id,
+            channelName = video.uploaderName ?: "",
+            thumbnailUrl = video.thumbnailUrl,
+            providerId = video.providerId,
+            progressFraction = _watchProgressMap.value[video.id] ?: 0.15f
+        )
         viewModelScope.launch(Dispatchers.IO) {
-            userDataDao.insertWatchHistory(
-                WatchHistoryEntity(
-                    videoId = video.id,
-                    title = video.title,
-                    channelName = video.uploaderName,
-                    thumbnailUrl = video.thumbnailUrl,
-                    providerId = video.providerId,
-                    progressFraction = _watchProgressMap.value[video.id] ?: 0.15f
-                )
-            )
+            try {
+                userDataDao.insertWatchHistory(historyEntity)
+                com.example.repository.FirebaseSyncRepository.pushWatchHistoryToCloud(historyEntity)
+            } catch (t: Throwable) {
+                Log.e("MainViewModel", "Error saving watch history or pushing to cloud", t)
+            }
         }
         updateRecommendedVideosAsync()
+    }
+
+    fun removeFromWatchHistory(video: VideoItem) {
+        _watchHistory.value = _watchHistory.value.filterNot { it.id == video.id }
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.deleteWatchHistory(video.id)
+        }
+    }
+
+    fun clearWatchHistory() {
+        _watchHistory.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.clearWatchHistory()
+        }
     }
 
     fun toggleLikeVideo(videoId: String) {
@@ -415,22 +501,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (current.contains(videoId)) {
             _likedVideoIds.value = current - videoId
             viewModelScope.launch(Dispatchers.IO) {
-                userDataDao.deleteLikedVideo(videoId)
+                try {
+                    userDataDao.deleteLikedVideo(videoId)
+                    com.example.repository.FirebaseSyncRepository.pushLikesToCloud(_likedVideoIds.value, _dislikedVideoIds.value)
+                } catch (t: Throwable) {
+                    Log.e("MainViewModel", "Error deleting liked video", t)
+                }
             }
         } else {
             _likedVideoIds.value = current + videoId
             _dislikedVideoIds.value = _dislikedVideoIds.value - videoId
             viewModelScope.launch(Dispatchers.IO) {
-                val matchingItem = (_searchResults.value + _trendingVideos.value + _watchHistory.value).firstOrNull { it.id == videoId }
-                userDataDao.insertLikedVideo(
-                    LikedVideoEntity(
-                        videoId = videoId,
-                        title = matchingItem?.title ?: videoId,
-                        channelName = matchingItem?.uploaderName ?: "",
-                        thumbnailUrl = matchingItem?.thumbnailUrl,
-                        providerId = matchingItem?.providerId
+                try {
+                    val matchingItem = (_searchResults.value + _trendingVideos.value + _watchHistory.value).firstOrNull { it.id == videoId }
+                    userDataDao.insertLikedVideo(
+                        LikedVideoEntity(
+                            videoId = videoId,
+                            title = matchingItem?.title ?: videoId,
+                            channelName = matchingItem?.uploaderName ?: "",
+                            thumbnailUrl = matchingItem?.thumbnailUrl,
+                            providerId = matchingItem?.providerId
+                        )
                     )
-                )
+                    com.example.repository.FirebaseSyncRepository.pushLikesToCloud(_likedVideoIds.value, _dislikedVideoIds.value)
+                } catch (t: Throwable) {
+                    Log.e("MainViewModel", "Error inserting liked video", t)
+                }
             }
         }
         updateRecommendedVideosAsync()
@@ -444,77 +540,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _dislikedVideoIds.value = current + videoId
             _likedVideoIds.value = _likedVideoIds.value - videoId
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                com.example.repository.FirebaseSyncRepository.pushLikesToCloud(_likedVideoIds.value, _dislikedVideoIds.value)
+            } catch (t: Throwable) {
+                Log.e("MainViewModel", "Error pushing dislike to cloud", t)
+            }
+        }
         updateRecommendedVideosAsync()
     }
 
+    private val _notInterestedChannels = MutableStateFlow<Set<String>>(emptySet())
+    val notInterestedChannels: StateFlow<Set<String>> = _notInterestedChannels.asStateFlow()
+
+    private val _notInterestedVideoIds = MutableStateFlow<Set<String>>(emptySet())
+    val notInterestedVideoIds: StateFlow<Set<String>> = _notInterestedVideoIds.asStateFlow()
+
     /**
-     * Pattern Understanding & Recommendation Engine:
-     * Analyzes user watch history, liked video titles, channel names, and clean tags
-     * to rank content matching user preferences (e.g., Spider-Man, Marvel, specific channels or keywords).
+     * Smart Circadian & Persona Recommendation Engine Pipeline:
+     * Ranks videos using multi-signal taste vectors, completion ratios,
+     * channel affinity, time-of-day circadian learning, and channel diversity caps.
      */
     fun getRecommendedVideos(): List<VideoItem> {
         val allAvailable = (_trendingVideos.value + _searchResults.value).distinctBy { (it.providerId ?: "") + "_" + it.id }
         if (allAvailable.isEmpty()) return emptyList()
 
-        val history = _watchHistory.value
-        val likedIds = _likedVideoIds.value
-        val dislikedIds = _dislikedVideoIds.value
-
-        if (history.isEmpty() && likedIds.isEmpty()) {
-            return allAvailable.take(10)
+        val historyEntities = _watchHistory.value.map { video ->
+            WatchHistoryEntity(
+                videoId = video.id,
+                title = video.title ?: video.id,
+                channelName = video.uploaderName ?: "",
+                thumbnailUrl = video.thumbnailUrl,
+                providerId = video.providerId ?: "general",
+                progressFraction = _watchProgressMap.value[video.id] ?: 0.5f
+            )
         }
 
-        // Collect favorite keywords, tags, and uploader names
-        val positiveKeywords = mutableListOf<String>()
-        val likedVideos = allAvailable.filter { likedIds.contains(it.id) }
-
-        (history.take(10) + likedVideos).forEach { item ->
-            positiveKeywords.addAll(item.cleanTags)
-            positiveKeywords.addAll(item.title.split(" ", "-", "_", "|", ":", ",").map { it.lowercase().trim() })
-            positiveKeywords.add(item.uploaderName.lowercase().trim())
+        val bookmarkEntities = _watchLaterList.value.map { video ->
+            com.example.db.BookmarkEntity(
+                videoId = video.id,
+                title = video.title ?: video.id,
+                channelName = video.uploaderName ?: "",
+                thumbnailUrl = video.thumbnailUrl,
+                providerId = video.providerId
+            )
         }
 
-        val stopWords = setOf("with", "from", "that", "this", "what", "video", "official", "full", "hd", "4k", "2024", "2025", "2026", "the", "and", "for", "you", "about", "are", "have", "more", "a", "an", "of", "in", "on")
-        val keywordFreq = positiveKeywords
-            .map { it.replace("#", "").lowercase().trim() }
-            .filter { it.length >= 3 && it !in stopWords }
-            .groupingBy { it }
-            .eachCount()
+        val profile = com.example.engine.RecommendationPipelineEngine.buildTasteProfile(
+            watchHistory = historyEntities,
+            bookmarks = bookmarkEntities,
+            likedVideoIds = _likedVideoIds.value,
+            dislikedVideoIds = _dislikedVideoIds.value,
+            notInterestedChannels = _notInterestedChannels.value,
+            notInterestedVideoIds = _notInterestedVideoIds.value,
+            recentSearches = if (_searchQuery.value.isNotBlank()) listOf(_searchQuery.value) else emptyList()
+        )
 
-        val scoredList = allAvailable.map { video ->
-            if (dislikedIds.contains(video.id)) {
-                return@map video to -100.0f
-            }
+        val ranked = com.example.engine.RecommendationPipelineEngine.processPipeline(
+            candidates = allAvailable,
+            tasteProfile = profile,
+            watchHistory = historyEntities,
+            likedVideoIds = _likedVideoIds.value,
+            dislikedVideoIds = _dislikedVideoIds.value
+        )
 
-            var score = 0.0f
-
-            // Uploader preference boost
-            if (history.any { it.uploaderName.equals(video.uploaderName, ignoreCase = true) }) {
-                score += 15.0f
-            }
-
-            // Keyword / Tag match boost
-            val videoTokens = (video.cleanTags + video.title.split(" ", "-", "_", "|", ":", ",")).map { it.replace("#", "").lowercase().trim() }
-            videoTokens.forEach { token ->
-                val count = keywordFreq[token] ?: 0
-                if (count > 0) {
-                    score += (count * 5.0f)
-                }
-            }
-
-            // Small boost for high view count / freshness
-            if (video.viewCount > 0) {
-                score += kotlin.math.log10(video.viewCount.toDouble()).toFloat()
-            }
-
-            video to score
-        }
-
-        return scoredList
-            .sortedByDescending { it.second }
-            .map { it.first }
-            .distinctBy { (it.providerId ?: "") + "_" + it.id }
-            .take(15)
+        return ranked.take(20)
     }
 
     private val _userPlaylists = MutableStateFlow<List<UserPlaylist>>(emptyList())
@@ -536,15 +626,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_watchLaterList.value.none { it.id == video.id }) {
             _watchLaterList.value = listOf(video) + _watchLaterList.value
             viewModelScope.launch(Dispatchers.IO) {
-                userDataDao.insertBookmark(
-                    BookmarkEntity(
-                        videoId = video.id,
-                        title = video.title,
-                        channelName = video.uploaderName,
-                        thumbnailUrl = video.thumbnailUrl,
-                        providerId = video.providerId
+                try {
+                    userDataDao.insertBookmark(
+                        BookmarkEntity(
+                            videoId = video.id,
+                            title = video.title ?: video.id,
+                            channelName = video.uploaderName ?: "",
+                            thumbnailUrl = video.thumbnailUrl,
+                            providerId = video.providerId
+                        )
                     )
-                )
+                    com.example.repository.FirebaseSyncRepository.pushWatchLaterToCloud(_watchLaterList.value)
+                } catch (t: Throwable) {
+                    Log.e("MainViewModel", "Error adding to Watch Later", t)
+                }
             }
         }
     }
@@ -732,6 +827,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 extensionManager.refreshExtensions()
                 refreshProvidersList()
                 setActiveProvider("all")
+            }
+            @OptIn(FlowPreview::class)
+            launch {
+                _searchQuery
+                    .debounce(250)
+                    .collectLatest { query ->
+                        if (query.isBlank()) {
+                            _searchSuggestions.value = emptyList()
+                        } else {
+                            val suggestions = SearchAutocompleteEngine.getSuggestions(
+                                query = query,
+                                recentHistory = _recentSearches.value,
+                                adultEnabled = _adultContentEnabled.value
+                            )
+                            _searchSuggestions.value = suggestions
+                        }
+                    }
             }
         }
     }

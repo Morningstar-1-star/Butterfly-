@@ -37,7 +37,9 @@ import com.example.ui.MainViewModel
 fun LibraryScreen(
     viewModel: MainViewModel,
     onSelectVideo: (VideoItem) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    topPadding: androidx.compose.ui.unit.Dp = 108.dp,
+    bottomPadding: androidx.compose.ui.unit.Dp = 160.dp
 ) {
     val savedList by viewModel.watchLaterList.collectAsState()
     
@@ -71,14 +73,14 @@ fun LibraryScreen(
         }
     }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(top = topPadding)
+    ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = Modifier.fillMaxSize()
         ) {
             // SEARCH BAR ("Search your vault...")
             OutlinedTextField(

@@ -113,7 +113,7 @@ private fun NavItem(
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.90f else if (isSelected) 1.05f else 1.0f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMediumLow
         ),
         label = "nav_scale"

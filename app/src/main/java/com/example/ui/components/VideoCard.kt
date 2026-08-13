@@ -84,34 +84,57 @@ fun VideoCard(
     onNotInterested: ((VideoItem) -> Unit)? = null,
     onReport: ((VideoItem) -> Unit)? = null
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed = interactionSource.collectIsPressedAsState().value
     var showBottomSheet by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
-    val seriesPillText = remember(video.title, video.uploadDate, video.id) {
-        com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate)
+    val seriesPillText = remember(video.title, video.uploadDate, video.id, video.providerId) {
+        com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate, video.providerId)
     }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "card_scale"
-    )
+    val providerBadgeInfo = remember(video.providerId, video.title, video.uploaderName, video.uploadDate, video.id) {
+        val pid = (video.providerId ?: "").lowercase()
+        val titleLower = video.title.lowercase()
+        val uploaderLower = video.uploaderName.lowercase()
+        val uploadDateLower = (video.uploadDate ?: "").lowercase()
+
+        val name = when {
+            pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
+            pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
+            video.id.startsWith("tv_") || (pid.contains("eztv") && (titleLower.contains("s0") || titleLower.contains("season"))) -> "Series"
+            video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet", "watchmode") -> "Movie"
+            pid == "archive_org" -> "Archive"
+            pid == "youtube" -> "YouTube"
+            pid == "dailymotion" -> "Dailymotion"
+            pid == "vimeo" -> "Vimeo"
+            else -> "Video"
+        }
+
+        val bgColor = when (name) {
+            "Movie", "Movies" -> Color(0xFFE5A00D)
+            "Series" -> Color(0xFF0288D1)
+            "Anime" -> Color(0xFF9C27B0)
+            "18+" -> Color(0xFFC2185B)
+            "YouTube" -> Color(0xFFFF0000)
+            else -> Color(0xFF1976D2)
+        }
+        Pair(name, bgColor)
+    }
+
+    val thumbnailImageRequest = remember(video.thumbnailUrl) {
+        if (!video.thumbnailUrl.isNullOrEmpty()) {
+            ImageRequest.Builder(context)
+                .data(video.thumbnailUrl)
+                .crossfade(false)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .build()
+        } else null
+    }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) { onClick() },
+            .clickable { onClick() },
         shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -126,9 +149,9 @@ fun VideoCard(
                     .aspectRatio(16f / 9f)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                if (!video.thumbnailUrl.isNullOrEmpty()) {
+                if (thumbnailImageRequest != null) {
                     AsyncImage(
-                        model = video.thumbnailUrl,
+                        model = thumbnailImageRequest,
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -165,7 +188,7 @@ fun VideoCard(
                 }
 
                 // Series Season/Episode Pill badge on bottom-left of thumbnail
-                if (!seriesPillText.isNullOrEmpty() && (video.id.startsWith("tv_") || video.title.contains("s0", ignoreCase = true) || video.title.contains("season", ignoreCase = true) || (video.uploadDate ?: "").contains("tv", ignoreCase = true) || (video.uploadDate ?: "").contains("ep", ignoreCase = true) || (video.providerId ?: "").contains("eztv") || (video.providerId ?: "").contains("torrent"))) {
+                if (!seriesPillText.isNullOrEmpty()) {
                     Text(
                         text = seriesPillText,
                         color = Color.White,
@@ -183,34 +206,8 @@ fun VideoCard(
                 }
 
                 if (!video.providerId.isNullOrEmpty()) {
-                    val pid = video.providerId.lowercase()
-                    val titleLower = video.title.lowercase()
-                    val uploaderLower = video.uploaderName.lowercase()
-                    val uploadDateLower = (video.uploadDate ?: "").lowercase()
-
-                    val providerBadgeName = when {
-                        pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
-                        pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
-                        video.id.startsWith("tv_") || uploadDateLower.contains("tv series") || uploadDateLower.contains("s1:") || uploadDateLower.contains("season") || uploadDateLower.contains("ep ") || uploadDateLower.contains("episodes") || titleLower.contains("s0") || titleLower.contains("s1") || titleLower.contains("season") || pid == "eztv" || uploaderLower.contains("tv network") -> "Series"
-                        video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet", "watchmode") || uploaderLower.contains("marvel") || uploaderLower.contains("dc") || uploaderLower.contains("disney") || uploaderLower.contains("warner") || uploaderLower.contains("universal") || uploaderLower.contains("sony") || uploaderLower.contains("paramount") || uploaderLower.contains("studio") || uploaderLower.contains("pictures") || uploaderLower.contains("cinema") -> "Movie"
-                        pid == "archive_org" -> "Archive"
-                        pid == "youtube" -> "YouTube"
-                        pid == "dailymotion" -> "Dailymotion"
-                        pid == "vimeo" -> "Vimeo"
-                        else -> "Movie"
-                    }
-
-                    val badgeBgColor = when (providerBadgeName) {
-                        "Movie", "Movies" -> Color(0xFFE5A00D)
-                        "Series" -> Color(0xFF0288D1)
-                        "Anime" -> Color(0xFF9C27B0)
-                        "18+" -> Color(0xFFC2185B)
-                        "YouTube" -> Color(0xFFFF0000)
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-
                     Text(
-                        text = providerBadgeName,
+                        text = providerBadgeInfo.first,
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -218,7 +215,7 @@ fun VideoCard(
                             .align(Alignment.TopStart)
                             .padding(8.dp)
                             .background(
-                                color = badgeBgColor.copy(alpha = 0.95f),
+                                color = providerBadgeInfo.second.copy(alpha = 0.95f),
                                 shape = RoundedCornerShape(6.dp)
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -255,7 +252,6 @@ fun VideoCard(
                 val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl, video.title) {
                     com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl, video.title)
                 }
-                val context = LocalContext.current
 
                 Box(
                     modifier = Modifier
@@ -269,50 +265,20 @@ fun VideoCard(
                         val logoImageRequest = remember(primaryUrl) {
                             ImageRequest.Builder(context)
                                 .data(primaryUrl)
-                                .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                                .crossfade(true)
+                                .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                                .crossfade(false)
+                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                                 .build()
                         }
 
-                        SubcomposeAsyncImage(
+                        AsyncImage(
                             model = logoImageRequest,
                             contentDescription = video.uploaderName,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(4.dp),
-                            loading = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(brandInfo.backgroundColor),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = brandInfo.brandShortText,
-                                        color = brandInfo.textColor,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
-                                        maxLines = 1
-                                    )
-                                }
-                            },
-                            error = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(brandInfo.backgroundColor),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = brandInfo.brandShortText,
-                                        color = brandInfo.textColor,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
+                                .padding(4.dp)
                         )
                     } else {
                         Text(
@@ -389,8 +355,6 @@ fun VideoCard(
             }
         }
     }
-
-    val context = LocalContext.current
 
     if (showBottomSheet) {
         val sheetState = rememberModalBottomSheetState()

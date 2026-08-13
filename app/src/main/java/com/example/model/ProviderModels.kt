@@ -8,9 +8,11 @@ enum class AppScreen {
     SHORTS,
     SUBSCRIPTIONS,
     ACCOUNT,
+    LIBRARY,
     PROVIDERS,
     PLAYER,
-    SETTINGS
+    SETTINGS,
+    SPONSORBLOCK_SETTINGS
 }
 
 data class ProviderUiItem(

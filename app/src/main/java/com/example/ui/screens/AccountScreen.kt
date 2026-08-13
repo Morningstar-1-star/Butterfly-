@@ -6,9 +6,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -19,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,12 +48,31 @@ fun AccountScreen(
     val playbackQueue by viewModel.playbackQueue.collectAsState()
     val watchLaterList by viewModel.watchLaterList.collectAsState()
     val userPlaylists by viewModel.userPlaylists.collectAsState()
+    val watchHistory by viewModel.watchHistory.collectAsState()
+    val watchProgressMap by viewModel.watchProgressMap.collectAsState()
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
     var selectedPlaylist by remember { mutableStateOf<UserPlaylist?>(null) }
     var isViewingWatchLaterDetail by remember { mutableStateOf(false) }
+    var isViewingHistoryDetail by remember { mutableStateOf(false) }
+    var isViewingDownloadsDetail by remember { mutableStateOf(false) }
 
+    // Detail View: Full Watch History Page
+    if (isViewingHistoryDetail) {
+        HistoryDetailScreen(
+            videos = watchHistory,
+            watchProgressMap = watchProgressMap,
+            onPlayVideo = { onSelectVideo(it) },
+            onRemoveFromHistory = { viewModel.removeFromWatchHistory(it) },
+            onSaveToWatchLater = { viewModel.addToWatchLater(it) },
+            onClearAll = { viewModel.clearWatchHistory() },
+            onBackClick = { isViewingHistoryDetail = false }
+        )
+        return
+    }
+
+    // Detail View: Watch Later Page
     if (isViewingWatchLaterDetail) {
         PlaylistDetailScreen(
             title = "Watch later",
@@ -75,6 +99,7 @@ fun AccountScreen(
         return
     }
 
+    // Detail View: Custom User Playlist Page
     if (selectedPlaylist != null) {
         val activePl = userPlaylists.firstOrNull { it.id == selectedPlaylist?.id } ?: selectedPlaylist!!
         PlaylistDetailScreen(
@@ -98,6 +123,15 @@ fun AccountScreen(
             },
             onRemoveVideo = { video -> viewModel.removeFromPlaylist(activePl.id, video) },
             onBackClick = { selectedPlaylist = null }
+        )
+        return
+    }
+
+    // Detail View: Downloads Page
+    if (isViewingDownloadsDetail) {
+        DownloadsDetailScreen(
+            onBackClick = { isViewingDownloadsDetail = false },
+            onPlayVideo = { onSelectVideo(it) }
         )
         return
     }
@@ -149,148 +183,140 @@ fun AccountScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // PROFILE CARD
+            // 1. PROFILE HEADER CARD (YouTube Style)
             item {
-                Card(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
+                            .size(68.dp)
+                            .clip(CircleShape)
+                            .background(getAvatarBrush(userProfile.avatarPreset)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(CircleShape)
-                                    .background(getAvatarBrush(userProfile.avatarPreset)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!userProfile.avatarUrl.isNullOrEmpty()) {
-                                    AsyncImage(
-                                        model = userProfile.avatarUrl,
-                                        contentDescription = "Avatar",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Text(
-                                        text = userProfile.name.take(1).uppercase(),
-                                        fontSize = 26.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = userProfile.name,
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = userProfile.handle,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = userProfile.bio,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    editName = userProfile.name
-                                    editHandle = userProfile.handle
-                                    editBio = userProfile.bio
-                                    editAvatarUrl = userProfile.avatarUrl ?: ""
-                                    editAvatarPreset = userProfile.avatarPreset
-                                    showEditProfileDialog = true
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit Profile",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                        if (!userProfile.avatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = userProfile.avatarUrl,
+                                contentDescription = "Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = userProfile.name.take(1).uppercase(),
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
                         }
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = userProfile.name,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = userProfile.handle,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(text = "•", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = "View channel",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(10.dp)
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            editName = userProfile.name
+                            editHandle = userProfile.handle
+                            editBio = userProfile.bio
+                            editAvatarUrl = userProfile.avatarUrl ?: ""
+                            editAvatarPreset = userProfile.avatarPreset
+                            showEditProfileDialog = true
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Profile",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
 
-            // PLAYBACK QUEUE SECTION
+            // 2. HISTORY SECTION (Horizontal Recently Played Video Items)
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .clickable { isViewingHistoryDetail = true }
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.PlaylistPlay,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Next in Queue (${playbackQueue.size})",
-                                fontSize = 18.sp,
+                                text = "History",
+                                fontSize = 19.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onBackground
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = "View History",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(14.dp)
+                            )
                         }
 
-                        if (playbackQueue.isNotEmpty()) {
-                            Row {
-                                TextButton(onClick = { viewModel.playNextInQueue() }) {
-                                    Text("Play Queue", fontSize = 12.sp)
-                                }
-                                TextButton(onClick = { viewModel.clearQueue() }) {
-                                    Text("Clear", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                                }
-                            }
+                        TextButton(onClick = { isViewingHistoryDetail = true }) {
+                            Text("View all", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    if (playbackQueue.isEmpty()) {
+                    if (watchHistory.isEmpty()) {
                         EmptyStateCard(
-                            icon = Icons.Outlined.QueueMusic,
-                            title = "Queue is empty",
-                            description = "Use 'Play next in queue' from the 3-dots menu on any video card to add items here."
+                            icon = Icons.Outlined.History,
+                            title = "No watched videos yet",
+                            description = "Videos you watch will appear here so you can easily resume or re-watch them."
                         )
                     } else {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(playbackQueue) { video ->
-                                QueueVideoCard(
+                            items(watchHistory) { video ->
+                                HistoryVideoCard(
                                     video = video,
+                                    progressFraction = watchProgressMap[video.id] ?: 0.2f,
                                     onPlay = { onSelectVideo(video) },
-                                    onRemove = { viewModel.removeFromQueue(video) }
+                                    onRemove = { viewModel.removeFromWatchHistory(video) },
+                                    onSaveWatchLater = { viewModel.addToWatchLater(video) }
                                 )
                             }
                         }
@@ -298,29 +324,29 @@ fun AccountScreen(
                 }
             }
 
-            // PLAYLISTS SECTION
+            // 3. PLAYLISTS SECTION (Custom Playlists + Watch Later)
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.BookmarkBorder,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Playlists (${userPlaylists.size})",
-                                fontSize = 18.sp,
+                                text = "Playlists",
+                                fontSize = 19.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(14.dp)
                             )
                         }
 
@@ -333,84 +359,64 @@ fun AccountScreen(
                         }
                     }
 
-                    if (userPlaylists.isEmpty()) {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.BookmarkBorder,
-                            title = "No playlists created yet",
-                            description = "Tap '+' above to create a playlist or save videos from the 3-dots option menu."
-                        )
-                    } else {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(userPlaylists) { playlist ->
-                                PlaylistCardItem(
-                                    playlist = playlist,
-                                    onClick = { selectedPlaylist = playlist }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // WATCH LATER SECTION
-            item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { isViewingWatchLaterDetail = true }
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.WatchLater,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Watch Later (${watchLaterList.size})",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                        // Watch Later Card (Always First)
+                        item {
+                            WatchLaterPlaylistTile(
+                                itemCount = watchLaterList.size,
+                                onClick = { isViewingWatchLaterDetail = true }
                             )
                         }
 
-                        TextButton(onClick = { isViewingWatchLaterDetail = true }) {
-                            Text("View all", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (watchLaterList.isEmpty()) {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.WatchLater,
-                            title = "No videos in Watch Later",
-                            description = "Save videos to Watch Later using the 3-dots menu on any video card."
-                        )
-                    } else {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(watchLaterList) { video ->
-                                WatchLaterVideoCard(
-                                    video = video,
-                                    onPlay = { onSelectVideo(video) },
-                                    onRemove = { viewModel.removeFromWatchLater(video) }
-                                )
-                            }
+                        // User Custom Playlists
+                        items(userPlaylists) { playlist ->
+                            UserPlaylistTile(
+                                playlist = playlist,
+                                onClick = { selectedPlaylist = playlist }
+                            )
                         }
                     }
                 }
             }
 
-            // QUICK PREFERENCES & SHORTCUTS
+            // 4. DOWNLOADS SECTION
+            item {
+                AccountNavigationTile(
+                    icon = Icons.Outlined.FileDownload,
+                    title = "Downloads",
+                    subtitle = "0 videos downloaded • Available offline",
+                    onClick = { isViewingDownloadsDetail = true }
+                )
+            }
+
+            // 5. MOVIES & TV SECTION (Saved Library)
+            item {
+                AccountNavigationTile(
+                    icon = Icons.Outlined.Movie,
+                    title = "Your movies & TV",
+                    subtitle = "Saved movies, series, vault & favorites",
+                    onClick = { viewModel.navigateToScreen(AppScreen.LIBRARY) }
+                )
+            }
+
+            // 6. YOUR VIDEOS / QUEUE SECTION
+            item {
+                AccountNavigationTile(
+                    icon = Icons.Outlined.VideoLibrary,
+                    title = "Your videos & queue (${playbackQueue.size})",
+                    subtitle = "Playback queue and queued playlist items",
+                    onClick = {
+                        if (playbackQueue.isNotEmpty()) {
+                            onSelectVideo(playbackQueue.first())
+                        }
+                    }
+                )
+            }
+
+            // 7. PREFERENCES & EXTENSIONS
             item {
                 Card(
                     modifier = Modifier
@@ -429,7 +435,7 @@ fun AccountScreen(
                         AccountMenuItem(
                             icon = Icons.Outlined.Extension,
                             title = "Content Providers & Extensions",
-                            subtitle = "Manage installed sources and plugins",
+                            subtitle = "Manage active extensions & sources",
                             onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) }
                         )
 
@@ -482,7 +488,7 @@ fun AccountScreen(
                         AccountMenuItem(
                             icon = Icons.Outlined.Settings,
                             title = "App Settings",
-                            subtitle = "Extractor settings, playback preferences & PO token",
+                            subtitle = "Extractor settings, adult filters & playback",
                             onClick = { viewModel.navigateToScreen(AppScreen.SETTINGS) }
                         )
                     }
@@ -491,32 +497,89 @@ fun AccountScreen(
         }
     }
 
-    // EDIT PROFILE DIALOG
+    // CREATE PLAYLIST DIALOG
+    if (showCreatePlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("New Playlist", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newPlaylistTitle,
+                    onValueChange = { newPlaylistTitle = it },
+                    label = { Text("Playlist Title") },
+                    placeholder = { Text("e.g. Favorite Music") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newPlaylistTitle.isNotBlank()) {
+                            viewModel.createPlaylist(newPlaylistTitle.trim())
+                            newPlaylistTitle = ""
+                            showCreatePlaylistDialog = false
+                        }
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlaylistDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // EDIT PROFILE & ACCOUNT OPTIONS DIALOG
     if (showEditProfileDialog) {
+        val syncStatus by viewModel.syncStatus.collectAsState()
+        val likedVideoIds by viewModel.likedVideoIds.collectAsState()
+        val currentTimeSlot = remember { com.example.engine.RecommendationPipelineEngine.getCurrentTimeSlot() }
+
+        var emailInput by remember { mutableStateOf("") }
+        var passwordInput by remember { mutableStateOf("") }
+        var authErrorMessage by remember { mutableStateOf<String?>(null) }
+        var isRegisteringMode by remember { mutableStateOf(false) }
+        var isSubmittingAuth by remember { mutableStateOf(false) }
+
         AlertDialog(
             onDismissRequest = { showEditProfileDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Person,
+                        imageVector = Icons.Default.ManageAccounts,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Edit Local Profile", fontWeight = FontWeight.Bold)
+                    Text("Account & Profile Settings", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // SECTION 1: LOCAL PROFILE DETAILS
+                    Text(
+                        text = "Local Profile Details",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
                         label = { Text("Display Name") },
-                        placeholder = { Text("e.g. Lucifer") },
+                        placeholder = { Text("e.g. BeaT BoX") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -525,7 +588,7 @@ fun AccountScreen(
                         value = editHandle,
                         onValueChange = { editHandle = it },
                         label = { Text("Profile Tag / Handle") },
-                        placeholder = { Text("e.g. @lucifer") },
+                        placeholder = { Text("e.g. @beatbox5789") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -540,7 +603,7 @@ fun AccountScreen(
                     )
 
                     Text(
-                        text = "Avatar Poster Theme",
+                        text = "Avatar Theme",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -573,14 +636,261 @@ fun AccountScreen(
                         }
                     }
 
-                    OutlinedTextField(
-                        value = editAvatarUrl,
-                        onValueChange = { editAvatarUrl = it },
-                        label = { Text("Custom Avatar Image URL (Optional)") },
-                        placeholder = { Text("https://i.imgur.com/avatar.jpg") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // SECTION 2: FIREBASE LOGIN & CLOUD SYNC
+                    Text(
+                        text = "Firebase Cloud Sync (butterfly-208b2)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
+
+                    val isUserEmailLoggedIn = !syncStatus.userEmail.isNullOrBlank() && !syncStatus.userEmail!!.contains("guest")
+
+                    ElevatedCard(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudSync,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isUserEmailLoggedIn) "Cloud Account Active" else "Guest Mode (Local)",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isUserEmailLoggedIn) Color(0xFF1B5E20) else MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = if (isUserEmailLoggedIn) "CONNECTED" else "GUEST",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isUserEmailLoggedIn) Color.White else MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (isUserEmailLoggedIn) {
+                                Text(
+                                    text = "Logged in as: ${syncStatus.userEmail}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { viewModel.triggerCloudBackup() },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = !syncStatus.isSyncing
+                                    ) {
+                                        Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Sync Now", fontSize = 12.sp)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { viewModel.signOutCloudUser() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Sign Out", fontSize = 12.sp)
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "Sign in to sync your watch history, likes & playlists securely with Firebase.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                OutlinedTextField(
+                                    value = emailInput,
+                                    onValueChange = { emailInput = it; authErrorMessage = null },
+                                    label = { Text("Email Address") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                OutlinedTextField(
+                                    value = passwordInput,
+                                    onValueChange = { passwordInput = it; authErrorMessage = null },
+                                    label = { Text("Password") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                if (authErrorMessage != null) {
+                                    Text(
+                                        text = authErrorMessage!!,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                var customApiKeyInput by remember { mutableStateOf("") }
+                                var showApiKeyConfig by remember { mutableStateOf(false) }
+
+                                if (authErrorMessage?.contains("API Key Invalid", ignoreCase = true) == true || showApiKeyConfig) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "🔑 Enter Firebase Web API Key",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "Copy from Firebase Console -> Project Settings -> General -> Web API Key (AIzaSy...).",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        OutlinedTextField(
+                                            value = customApiKeyInput,
+                                            onValueChange = { customApiKeyInput = it },
+                                            placeholder = { Text("AIzaSy...", fontSize = 11.sp) },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Button(
+                                            onClick = {
+                                                if (customApiKeyInput.isNotBlank()) {
+                                                    val ok = viewModel.setCustomApiKey(customApiKeyInput)
+                                                    if (ok) {
+                                                        authErrorMessage = "API Key applied! Try login/register now."
+                                                        showApiKeyConfig = false
+                                                    } else {
+                                                        authErrorMessage = "Failed to set API Key."
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.align(Alignment.End)
+                                        ) {
+                                            Text("Apply API Key", fontSize = 11.sp)
+                                        }
+                                    }
+                                } else {
+                                    TextButton(
+                                        onClick = { showApiKeyConfig = true },
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Set Firebase Web API Key (AIzaSy...)", fontSize = 10.sp)
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            isRegisteringMode = !isRegisteringMode
+                                            authErrorMessage = null
+                                        }
+                                    ) {
+                                        Text(
+                                            text = if (isRegisteringMode) "Have account? Sign in" else "Need account? Register",
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (emailInput.isBlank() || passwordInput.isBlank()) {
+                                                authErrorMessage = "Please enter both email and password"
+                                                return@Button
+                                            }
+                                            isSubmittingAuth = true
+                                            authErrorMessage = null
+
+                                            if (isRegisteringMode) {
+                                                viewModel.registerWithEmail(emailInput, passwordInput) { success, error ->
+                                                    isSubmittingAuth = false
+                                                    if (!success) authErrorMessage = error ?: "Registration failed"
+                                                }
+                                            } else {
+                                                viewModel.signInWithEmail(emailInput, passwordInput) { success, error ->
+                                                    isSubmittingAuth = false
+                                                    if (!success) authErrorMessage = error ?: "Sign in failed"
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSubmittingAuth
+                                    ) {
+                                        if (isSubmittingAuth) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                                        } else {
+                                            Text(if (isRegisteringMode) "Register" else "Login", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // SECTION 3: SMART RECOMMENDATION ENGINE
+                    Text(
+                        text = "Smart Recommendation Engine",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = true,
+                            onClick = {},
+                            label = { Text("Slot: $currentTimeSlot", fontSize = 11.sp) },
+                            leadingIcon = { Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        )
+                        FilterChip(
+                            selected = true,
+                            onClick = {},
+                            label = { Text("Likes Active: ${likedVideoIds.size}", fontSize = 11.sp) },
+                            leadingIcon = { Icon(Icons.Default.ThumbUp, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -596,7 +906,7 @@ fun AccountScreen(
                         showEditProfileDialog = false
                     }
                 ) {
-                    Text("Save Profile")
+                    Text("Save & Close")
                 }
             },
             dismissButton = {
@@ -606,103 +916,390 @@ fun AccountScreen(
             }
         )
     }
+}
 
-    // CREATE PLAYLIST DIALOG
-    if (showCreatePlaylistDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreatePlaylistDialog = false },
-            title = { Text("Create New Playlist") },
-            text = {
-                OutlinedTextField(
-                    value = newPlaylistTitle,
-                    onValueChange = { newPlaylistTitle = it },
-                    label = { Text("Playlist Name") },
-                    placeholder = { Text("e.g. My Favorites") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newPlaylistTitle.isNotBlank()) {
-                            viewModel.createPlaylist(newPlaylistTitle.trim())
-                            newPlaylistTitle = ""
-                            showCreatePlaylistDialog = false
-                        }
-                    }
+// ---------------------- COMPOSABLE HELPERS ----------------------
+
+@Composable
+fun HistoryVideoCard(
+    video: VideoItem,
+    progressFraction: Float,
+    onPlay: () -> Unit,
+    onRemove: () -> Unit,
+    onSaveWatchLater: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .clickable { onPlay() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(90.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black)
+        ) {
+            AsyncImage(
+                model = video.thumbnailUrl,
+                contentDescription = video.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            // Duration Badge
+            if (video.formattedDuration.isNotBlank()) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
                 ) {
-                    Text("Create")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreatePlaylistDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // PLAYLIST DETAILS MODAL / DIALOG
-    if (selectedPlaylist != null) {
-        AlertDialog(
-            onDismissRequest = { selectedPlaylist = null },
-            title = { Text(selectedPlaylist!!.title) },
-            text = {
-                val videos = selectedPlaylist!!.videos
-                if (videos.isEmpty()) {
                     Text(
-                        text = "This playlist is currently empty. Add videos using the 3-dots menu on any video card.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = video.formattedDuration,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 300.dp)
-                    ) {
-                        videos.forEach { video ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        onSelectVideo(video)
-                                        selectedPlaylist = null
-                                    }
-                                    .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = video.title,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedPlaylist = null }) {
-                    Text("Close")
                 }
             }
-        )
+
+            // Red Progress Bar at Bottom of Thumbnail
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progressFraction.coerceIn(0.05f, 1f))
+                    .height(3.dp)
+                    .background(Color.Red)
+                    .align(Alignment.BottomStart)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = video.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                if (!video.uploaderName.isNullOrEmpty()) {
+                    Text(
+                        text = video.uploaderName,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Play") },
+                        onClick = {
+                            showMenu = false
+                            onPlay()
+                        },
+                        leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save to Watch Later") },
+                        onClick = {
+                            showMenu = false
+                            onSaveWatchLater()
+                        },
+                        leadingIcon = { Icon(Icons.Outlined.WatchLater, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Remove from history") },
+                        onClick = {
+                            showMenu = false
+                            onRemove()
+                        },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun EmptyStateCard(
+fun WatchLaterPlaylistTile(
+    itemCount: Int,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(160.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(90.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.WatchLater,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(36.dp)
+                )
+
+                Surface(
+                    color = Color.Black.copy(alpha = 0.75f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                ) {
+                    Text(
+                        text = "$itemCount",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Watch later",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
+            Text(
+                text = "Private • Playlist",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun UserPlaylistTile(
+    playlist: UserPlaylist,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(160.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(90.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                if (playlist.videos.isNotEmpty() && !playlist.videos.first().thumbnailUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = playlist.videos.first().thumbnailUrl,
+                        contentDescription = playlist.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.PlaylistPlay,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Surface(
+                    color = Color.Black.copy(alpha = 0.75f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                ) {
+                    Text(
+                        text = "${playlist.videos.size}",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = playlist.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "Private • Playlist",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun AccountNavigationTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun AccountMenuItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun EmptyStateCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     description: String
@@ -710,296 +1307,199 @@ private fun EmptyStateCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
         )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.size(36.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = description,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun QueueVideoCard(
-    video: VideoItem,
-    onPlay: () -> Unit,
-    onRemove: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .width(160.dp)
-            .clickable { onPlay() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(90.dp)
-            ) {
-                if (!video.thumbnailUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = video.thumbnailUrl,
-                        contentDescription = video.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(2.dp)
-                        .size(28.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Remove",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-            Column(modifier = Modifier.padding(8.dp)) {
-                Text(
-                    text = video.title,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = video.uploaderName,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaylistCardItem(
-    playlist: UserPlaylist,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .width(140.dp)
-            .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(85.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Outlined.BookmarkBorder,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${playlist.videos.size} videos",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-            Column(modifier = Modifier.padding(8.dp)) {
-                Text(
-                    text = playlist.title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun WatchLaterVideoCard(
-    video: VideoItem,
-    onPlay: () -> Unit,
-    onRemove: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .width(160.dp)
-            .clickable { onPlay() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(90.dp)
-            ) {
-                if (!video.thumbnailUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = video.thumbnailUrl,
-                        contentDescription = video.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(2.dp)
-                        .size(28.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Remove",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-            Column(modifier = Modifier.padding(8.dp)) {
-                Text(
-                    text = video.title,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = video.uploaderName,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AccountMenuItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String? = null,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        color = Color.Transparent
-    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = title,
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp)
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                if (subtitle != null) {
-                    Text(
-                        text = subtitle,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Text(
+                    text = description,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HistoryDetailScreen(
+    videos: List<VideoItem>,
+    watchProgressMap: Map<String, Float>,
+    onPlayVideo: (VideoItem) -> Unit,
+    onRemoveFromHistory: (VideoItem) -> Unit,
+    onSaveToWatchLater: (VideoItem) -> Unit,
+    onClearAll: () -> Unit,
+    onBackClick: () -> Unit
+) {
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Watch History (${videos.size})", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (videos.isNotEmpty()) {
+                        IconButton(onClick = { showClearDialog = true }) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = "Clear History", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
+            )
+        }
+    ) { innerPadding ->
+        if (videos.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No watch history items found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(videos) { video ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            VideoCard(
+                                video = video,
+                                onClick = { onPlayVideo(video) },
+                                watchProgressFraction = watchProgressMap[video.id] ?: 0.2f,
+                                onSaveToWatchLater = { onSaveToWatchLater(video) }
+                            )
+                        }
+                        IconButton(onClick = { onRemoveFromHistory(video) }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove from history",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Clear Watch History?") },
+            text = { Text("This will remove all videos from your watch history.") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        onClearAll()
+                        showClearDialog = false
+                    }
+                ) {
+                    Text("Clear All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DownloadsDetailScreen(
+    onBackClick: () -> Unit,
+    onPlayVideo: (VideoItem) -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Downloads", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FileDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(56.dp)
+                )
+                Text(
+                    text = "No downloaded videos yet",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = "Downloaded videos will appear here and can be played offline.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
 }
 
 private fun getAvatarBrush(preset: String): androidx.compose.ui.graphics.Brush {
-    return when (preset) {
-        "pink" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFFF4081), Color(0xFFE91E63)))
-        "blue" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF0288D1)))
-        "emerald" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF00E676), Color(0xFF009688)))
-        "gold" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFFFD600), Color(0xFFFF9100)))
-        else -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF8E24AA), Color(0xFFAB47BC)))
+    return when (preset.lowercase()) {
+        "purple" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)))
+        "pink" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFFF416C), Color(0xFFFF4B2B)))
+        "blue" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF2193b0), Color(0xFF6dd5ed)))
+        "emerald" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF11998e), Color(0xFF38ef7d)))
+        "gold" -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFF2994A), Color(0xFFF2C94C)))
+        else -> androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)))
     }
 }

@@ -52,9 +52,10 @@ interface SourceMetricsDao {
         WatchHistoryEntity::class,
         BookmarkEntity::class,
         LikedVideoEntity::class,
-        UserPlaylistEntity::class
+        UserPlaylistEntity::class,
+        OfflineDownloadEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

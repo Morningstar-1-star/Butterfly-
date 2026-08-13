@@ -44,9 +44,17 @@ object SeriesDataHelper {
         }
     }
 
-    fun getSeriesPillText(title: String?, uploadDate: String? = null): String? {
+    fun getSeriesPillText(title: String?, uploadDate: String? = null, providerId: String? = null): String? {
+        val pid = (providerId ?: "").lowercase()
         val clean = (title ?: "").lowercase()
         val uploadClean = (uploadDate ?: "").lowercase()
+
+        val isTorrentSeries = pid.contains("eztv") || pid.contains("torrent") || pid.contains("unified") || clean.contains("eztv") || clean.contains("s0") || clean.contains("s1") || clean.contains("season")
+        val isArchiveWithEp = pid.contains("archive") && (uploadClean.contains("ep") || clean.contains("episodes") || clean.contains("s0") || clean.contains("season"))
+
+        if (!isTorrentSeries && !isArchiveWithEp) {
+            return null
+        }
 
         if (uploadClean.contains("s") && uploadClean.contains("ep")) {
             return uploadDate
@@ -73,7 +81,8 @@ object SeriesDataHelper {
             clean.contains("s01") || clean.contains("season 1") || clean.contains("s1:") -> "S1 · 10 ep"
             clean.contains("s02") || clean.contains("season 2") -> "S2 · 12 ep"
             clean.contains("s03") || clean.contains("season 3") -> "S3 · 12 ep"
-            else -> "S1 · 10 ep"
+            isTorrentSeries -> "S1 · 10 ep"
+            else -> null
         }
     }
 
@@ -92,12 +101,14 @@ object SeriesDataHelper {
     }
 
     fun generateSeasonsAndEpisodes(streamData: StreamData): List<SeriesSeason> {
-        val providerId = streamData.providerId ?: "youtube"
+        val providerId = (streamData.providerId ?: "youtube").lowercase()
         val baseShowTitle = extractBaseShowTitle(streamData.title)
         val thumb = streamData.effectiveThumbnailUrl ?: "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg"
+        val isTorrent = streamData.isTorrent || providerId.contains("eztv") || providerId.contains("torrent") || providerId.contains("yts") || providerId.contains("unified") || providerId.contains("tv")
+        val isArchive = providerId == "archive_org" || streamData.availableStreamOptions.any { it.videoUrl?.contains("archive.org") == true }
 
         // Archive.org handling:
-        if (providerId == "archive_org" || streamData.availableStreamOptions.any { it.videoUrl?.contains("archive.org") == true }) {
+        if (isArchive) {
             if (streamData.availableStreamOptions.size > 1) {
                 val optionEpisodes = streamData.availableStreamOptions.mapIndexed { index, option ->
                     val epNum = index + 1
@@ -118,6 +129,11 @@ object SeriesDataHelper {
                 // Standalone Archive video -> no episode list
                 return emptyList()
             }
+        }
+
+        // Return empty if not torrent or torrent-series
+        if (!isTorrent) {
+            return emptyList()
         }
 
         // If provider has multiple stream options for torrents/TV shows, map each stream option directly to an episode!

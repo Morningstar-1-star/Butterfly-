@@ -39,13 +39,25 @@ fun SettingsScreen(
     val enabledProviders by viewModel.enabledProviderIds.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
 
-    // Expandable accordion section states in exact requested order:
-    // 1. Appearance, 2. Player, 3. Gestures, 4. Shorts, 5. Sources
+    // Expandable accordion section states:
     var isAppearanceExpanded by remember { mutableStateOf(true) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
+    var isSponsorBlockExpanded by remember { mutableStateOf(false) }
     var isGesturesExpanded by remember { mutableStateOf(false) }
     var isShortsExpanded by remember { mutableStateOf(false) }
     var isSourcesExpanded by remember { mutableStateOf(false) }
+
+    // SponsorBlock Preferences State
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sbPrefs = remember { com.example.sponsorblock.SponsorBlockPreferences.getInstance(context) }
+    val sbEnabled by sbPrefs.isEnabled.collectAsState()
+    val sbShowUndo by sbPrefs.showUndoSkipNotification.collectAsState()
+    val sbCompactSkip by sbPrefs.useCompactSkipButton.collectAsState()
+    val sbAutoHide by sbPrefs.autoHideSkipButton.collectAsState()
+    val sbApiUrl by sbPrefs.apiUrl.collectAsState()
+    val sbSkippedCount by sbPrefs.skippedSegmentsCount.collectAsState()
+    val sbSkippedTime by sbPrefs.skippedTimeSeconds.collectAsState()
+    var sbApiUrlInput by remember(sbApiUrl) { mutableStateOf(sbApiUrl) }
 
     // State Toggles for Player, Gestures, Shorts
     var autoPlayEnabled by remember { mutableStateOf(true) }
@@ -55,8 +67,8 @@ fun SettingsScreen(
     var showShortsSection by remember { mutableStateOf(true) }
     var autoPlayShorts by remember { mutableStateOf(true) }
 
-    val allExpanded = isAppearanceExpanded && isPlayerExpanded && isGesturesExpanded && 
-            isShortsExpanded && isSourcesExpanded
+    val allExpanded = isAppearanceExpanded && isPlayerExpanded && isSponsorBlockExpanded &&
+            isGesturesExpanded && isShortsExpanded && isSourcesExpanded
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -85,6 +97,7 @@ fun SettingsScreen(
                         val target = !allExpanded
                         isAppearanceExpanded = target
                         isPlayerExpanded = target
+                        isSponsorBlockExpanded = target
                         isGesturesExpanded = target
                         isShortsExpanded = target
                         isSourcesExpanded = target
@@ -280,6 +293,213 @@ fun SettingsScreen(
                             },
                             label = { Text(defaultQuality, fontWeight = FontWeight.Bold) }
                         )
+                    }
+
+                }
+            }
+
+            // 3. SMART SKIP & SPONSORBLOCK CONFIGURATION
+            item {
+                ExpandableSettingsCard(
+                    title = "Smart Skip & SponsorBlock",
+                    icon = Icons.Outlined.Shield,
+                    isExpanded = isSponsorBlockExpanded,
+                    onToggleExpand = { isSponsorBlockExpanded = !isSponsorBlockExpanded },
+                    badgeText = if (sbEnabled) "Active" else "Disabled"
+                ) {
+                    SettingsSwitchRow(
+                        title = "Enable Smart Skip & SponsorBlock",
+                        subtitle = "Automatically skip YouTube sponsors, anime OP/EDs, TV intros, and movie musical songs",
+                        checked = sbEnabled,
+                        onCheckedChange = { sbPrefs.setEnabled(it) }
+                    )
+
+                    if (sbEnabled) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        val platformGroups = remember {
+                            listOf(
+                                "YouTube (SponsorBlock API)" to listOf(
+                                    com.example.sponsorblock.model.SponsorBlockCategory.SPONSOR,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.SELFPROMO,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.INTERACTION,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.HIGHLIGHT,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.INTRO,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.OUTRO,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.PREVIEW,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.FILLER,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.TANGENT
+                                ),
+                                "Anime (AniSkip API)" to listOf(
+                                    com.example.sponsorblock.model.SponsorBlockCategory.ANIME_OP,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.ANIME_ED,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.ANIME_RECAP
+                                ),
+                                "TV Series (TheIntroDB API)" to listOf(
+                                    com.example.sponsorblock.model.SponsorBlockCategory.TV_INTRO,
+                                    com.example.sponsorblock.model.SponsorBlockCategory.TV_CREDITS
+                                ),
+                                "Movies (Stream Chapters & Songs)" to listOf(
+                                    com.example.sponsorblock.model.SponsorBlockCategory.MOVIE_SONG
+                                )
+                            )
+                        }
+
+                        platformGroups.forEach { (platformTitle, categories) ->
+                            Text(
+                                text = platformTitle,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+
+                            categories.forEach { category ->
+                                val currentAction = sbPrefs.getCategoryAction(category)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(category.color)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = category.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    SingleChoiceSegmentedButtonRow {
+                                        val actions = com.example.sponsorblock.model.SponsorBlockAction.values()
+                                        actions.forEachIndexed { index, action ->
+                                            SegmentedButton(
+                                                selected = (currentAction == action),
+                                                onClick = { sbPrefs.setCategoryAction(category, action) },
+                                                shape = SegmentedButtonDefaults.itemShape(index = index, count = actions.size)
+                                            ) {
+                                                Text(
+                                                    text = when(action) {
+                                                        com.example.sponsorblock.model.SponsorBlockAction.AUTO_SKIP -> "Skip"
+                                                        com.example.sponsorblock.model.SponsorBlockAction.MANUAL_SKIP -> "Button"
+                                                        com.example.sponsorblock.model.SponsorBlockAction.DISABLE -> "Off"
+                                                    },
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        Text(
+                            text = "Player Overlay Controls",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        SettingsSwitchRow(
+                            title = "Show Undo Skip Banner",
+                            subtitle = "Display a quick notification to undo automatic segment skips",
+                            checked = sbShowUndo,
+                            onCheckedChange = { sbPrefs.setShowUndoSkipNotification(it) }
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        SettingsSwitchRow(
+                            title = "Compact Skip Button",
+                            subtitle = "Reduce manual skip button size on player screen",
+                            checked = sbCompactSkip,
+                            onCheckedChange = { sbPrefs.setUseCompactSkipButton(it) }
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        SettingsSwitchRow(
+                            title = "Auto-Hide Skip Button",
+                            subtitle = "Hide manual skip button after 5 seconds",
+                            checked = sbAutoHide,
+                            onCheckedChange = { sbPrefs.setAutoHideSkipButton(it) }
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        Column {
+                            Text(
+                                text = "SponsorBlock Server Endpoint",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = sbApiUrlInput,
+                                onValueChange = {
+                                    sbApiUrlInput = it
+                                    sbPrefs.setApiUrl(it)
+                                },
+                                placeholder = { Text("https://sponsor.ajay.app") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        val totalMinutes = (sbSkippedTime / 60.0).toLong()
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Skipped $sbSkippedCount segments",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Saved ~$totalMinutes minutes of time",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (sbSkippedCount > 0) {
+                                    TextButton(onClick = { sbPrefs.resetStats() }) {
+                                        Text("Reset", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

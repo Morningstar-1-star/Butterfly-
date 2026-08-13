@@ -249,6 +249,37 @@ class EpornerProvider(
             }
         }
 
+        // 4. Fallback to YtDlpResolver if validatedStreams is still empty
+        if (validatedStreams.isEmpty()) {
+            val ctx = com.example.plugin.providers.ArchiveOrgProvider.contextRef
+            if (ctx != null) {
+                try {
+                    val fullEpornerUrl = "https://www.eporner.com/video-$id/"
+                    when (val ytRes = com.example.extractor.YtDlpResolver.extractStreamInfo(ctx, fullEpornerUrl)) {
+                        is com.example.extractor.YtDlpResolver.ExtractionResult.Success -> {
+                            for (opt in ytRes.playableOptions) {
+                                val vUrl = opt.videoUrl ?: continue
+                                if (!seenFinalUrls.contains(vUrl)) {
+                                    seenFinalUrls.add(vUrl)
+                                    validatedStreams.add(
+                                        PluginVideoStream(
+                                            url = vUrl,
+                                            qualityLabel = opt.qualityLabel,
+                                            format = opt.format,
+                                            isMuxed = opt.isMuxed
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        else -> {}
+                    }
+                } catch (e: Exception) {
+                    Log.w("EpornerProvider", "YtDlp fallback failed: ${e.message}")
+                }
+            }
+        }
+
         val primaryStreamUrl = validatedStreams.firstOrNull()?.url ?: ""
         val highResThumb = "https://static.eporner.com/thumbs/$id/big.jpg"
 

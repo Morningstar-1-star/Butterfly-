@@ -47,28 +47,23 @@ object YtDlpResolver {
         return u.contains("youtube.com") || u.contains("youtu.be") || u.contains("youtube-nocookie.com")
     }
 
-    fun isBilibiliUrl(url: String): Boolean {
-        val u = url.lowercase().trim()
-        return u.contains("bilibili.com") || u.contains("b23.tv") || u.contains("bilibili.tv") ||
-                u.startsWith("bv") || u.startsWith("av") || u.contains("/bv") || u.contains("/av")
-    }
-
     fun isYtDlpSupportedUrl(url: String): Boolean {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return false
 
-        if (isYouTubeUrl(trimmed) || isBilibiliUrl(trimmed)) return true
+        if (isYouTubeUrl(trimmed)) return true
 
-        // Raw 11-char YouTube ID or BV id
+        // Raw 11-char YouTube ID
         if (Regex("^[a-zA-Z0-9_-]{11}$").matches(trimmed)) return true
-        if (Regex("^BV[a-zA-Z0-9]{10}$", RegexOption.IGNORE_CASE).matches(trimmed)) return true
-        if (Regex("^av[0-9]+$", RegexOption.IGNORE_CASE).matches(trimmed)) return true
 
-        // Check common video hosts supported by yt-dlp
+        // Check video hosts supported by yt-dlp
         if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
             val u = trimmed.lowercase()
-            return u.contains("dailymotion.com") || u.contains("vimeo.com") ||
-                    u.contains("tiktok.com") || u.contains("twitter.com") || u.contains("x.com") ||
+            return u.contains("dailymotion.com") || u.contains("dai.ly") ||
+                    u.contains("eporner.com") || u.contains("archive.org") ||
+                    u.contains("vimeo.com") || u.contains("tiktok.com") ||
+                    u.contains("twitter.com") || u.contains("x.com") ||
+                    u.contains("pornhub.com") || u.contains("xhamster.com") || u.contains("redtube.com") || u.contains("xvideos.com") ||
                     u.contains("peer.tube") || u.contains("nicovideo.jp") || u.contains("twitch.tv")
         }
 
@@ -79,14 +74,6 @@ object YtDlpResolver {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return input
 
-        // Handle Bilibili BV/AV IDs directly
-        if (Regex("^BV[a-zA-Z0-9]{10}$", RegexOption.IGNORE_CASE).matches(trimmed)) {
-            return "https://www.bilibili.com/video/$trimmed"
-        }
-        if (Regex("^av[0-9]+$", RegexOption.IGNORE_CASE).matches(trimmed)) {
-            return "https://www.bilibili.com/video/$trimmed"
-        }
-
         // Handle YouTube 11-char ID
         if (Regex("^[a-zA-Z0-9_-]{11}$").matches(trimmed)) {
             return "https://www.youtube.com/watch?v=$trimmed"
@@ -94,9 +81,6 @@ object YtDlpResolver {
 
         // Standardize URLs
         if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
-            if (isBilibiliUrl(trimmed)) {
-                return "https://www.bilibili.com/video/$trimmed"
-            }
             if (isYouTubeUrl(trimmed)) {
                 return "https://www.youtube.com/watch?v=$trimmed"
             }
@@ -125,11 +109,19 @@ object YtDlpResolver {
     ): ExtractionResult = withContext(Dispatchers.IO) {
         init(context)
 
+        if (!isInitialized) {
+            Log.w(TAG, "extractStreamInfo skipped because YoutubeDL is not initialized")
+            return@withContext ExtractionResult.Error(
+                errorType = ExtractorErrorType.UNKNOWN,
+                message = "yt-dlp engine unavailable on this device",
+                causeMessage = "YoutubeDL initialization failed or native library missing"
+            )
+        }
+
         val fullUrl = normalizeUrl(urlOrId)
-        val isBilibili = isBilibiliUrl(fullUrl)
         val isYouTube = isYouTubeUrl(fullUrl)
 
-        Log.d(TAG, "Starting yt-dlp extraction for: $fullUrl (bilibili=$isBilibili, youtube=$isYouTube)")
+        Log.d(TAG, "Starting yt-dlp extraction for: $fullUrl (youtube=$isYouTube)")
 
         try {
             val request = YoutubeDLRequest(fullUrl)
@@ -139,15 +131,10 @@ object YtDlpResolver {
             request.addOption("--no-playlist")
             request.addOption("--socket-timeout", "15")
 
-            if (isBilibili) {
-                request.addOption("--add-header", "Referer:https://www.bilibili.com/")
-                request.addOption("--add-header", "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-            }
-
             val videoInfo: VideoInfo = YoutubeDL.getInstance().getInfo(request)
 
             val title = videoInfo.title ?: "Extracted Video"
-            val uploader = videoInfo.uploader ?: if (isBilibili) "Bilibili Uploader" else if (isYouTube) "YouTube Channel" else "Web Creator"
+            val uploader = videoInfo.uploader ?: if (isYouTube) "YouTube Channel" else "Web Creator"
             val duration = videoInfo.duration.toLong()
             val thumbnail = videoInfo.thumbnail
 
@@ -156,15 +143,6 @@ object YtDlpResolver {
             videoInfo.httpHeaders?.forEach { (k, v) ->
                 if (!v.isNullOrBlank()) {
                     extractedHeaders[k] = v
-                }
-            }
-
-            if (isBilibili) {
-                if (!extractedHeaders.containsKey("Referer") && !extractedHeaders.containsKey("referer")) {
-                    extractedHeaders["Referer"] = "https://www.bilibili.com/"
-                }
-                if (!extractedHeaders.containsKey("User-Agent") && !extractedHeaders.containsKey("user-agent")) {
-                    extractedHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                 }
             }
 
@@ -266,7 +244,7 @@ object YtDlpResolver {
                 selectedStreamOption = selectedOpt,
                 thumbnailUrl = thumbnail,
                 headers = extractedHeaders,
-                providerId = if (isBilibili) "bilibili" else if (isYouTube) "youtube" else "ytdlp"
+                providerId = if (isYouTube) "youtube" else "ytdlp"
             )
 
             Log.d(TAG, "yt-dlp Extraction successful: title='$title', options=${options.size}, headers=${extractedHeaders.size}")
@@ -302,9 +280,9 @@ object YtDlpResolver {
                 },
                 causeMessage = msg
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             val msg = e.localizedMessage ?: "Unknown extraction error"
-            Log.e(TAG, "Exception during yt-dlp extraction: $msg", e)
+            Log.e(TAG, "Throwable during yt-dlp extraction: $msg", e)
             ExtractionResult.Error(
                 errorType = ExtractorErrorType.UNKNOWN,
                 message = "Extraction failed: $msg",

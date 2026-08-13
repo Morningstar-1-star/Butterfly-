@@ -180,7 +180,7 @@ object YouTubeExtractorHelper {
                 if (ytDlpRes is YtDlpResolver.ExtractionResult.Success) {
                     return ExtractionResult.Success(ytDlpRes.streamData)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 logWarn("YouTubeExtractor", "YtDlpResolver attempt failed: ${e.message}")
             }
         }
@@ -328,7 +328,7 @@ object YouTubeExtractorHelper {
 
             ExtractionResult.Success(streamData)
 
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             logError("YouTubeExtractor", "Exception in fetchStreamData for $fullUrl", e)
             e.printStackTrace()
 

@@ -25,6 +25,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -76,6 +77,8 @@ fun UniversalVideoPlayer(
     isPlaying: Boolean = true,
     videoId: String? = null,
     initialPositionMs: Long = 0L,
+    availableStreamOptions: List<PlayableStreamOption> = emptyList(),
+    onSelectStreamOption: (PlayableStreamOption) -> Unit = {},
     failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
@@ -100,15 +103,40 @@ fun UniversalVideoPlayer(
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showSpeedSubMenu by remember { mutableStateOf(false) }
+    var showQualitySubMenu by remember { mutableStateOf(false) }
     val speedOptions = remember { listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f) }
 
-    // Gesture Seek Notification Toast
+    // Gesture Controls State
+    var brightnessLevel by remember { mutableFloatStateOf(0.7f) }
+    var volumeLevel by remember { mutableFloatStateOf(0.7f) }
+    var gestureNoticeText by remember { mutableStateOf<String?>(null) }
+    var gestureNoticeIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
     var seekNoticeText by remember { mutableStateOf<String?>(null) }
+
+    val curPos by GlobalPlayerManager.currentPositionMs.collectAsState()
+    val durMs by GlobalPlayerManager.durationMs.collectAsState()
 
     LaunchedEffect(seekNoticeText) {
         if (seekNoticeText != null) {
             delay(1200)
             seekNoticeText = null
+        }
+    }
+
+    // SponsorBlock Auto-Skip Effect
+    LaunchedEffect(videoId) {
+        if (!videoId.isNullOrBlank()) {
+            com.example.util.SponsorBlockHelper.fetchSegments(videoId)
+        }
+    }
+
+    LaunchedEffect(curPos, videoId) {
+        if (!videoId.isNullOrBlank() && curPos > 0) {
+            val skipSegment = com.example.util.SponsorBlockHelper.getSkipTargetMs(videoId, curPos)
+            if (skipSegment != null) {
+                GlobalPlayerManager.seekTo(skipSegment.endMs)
+                seekNoticeText = "Skipped ${skipSegment.category.replaceFirstChar { it.uppercase() }}"
+            }
         }
     }
 
@@ -120,9 +148,6 @@ fun UniversalVideoPlayer(
     }
 
     // Continuous progress tracking loop
-    val curPos by GlobalPlayerManager.currentPositionMs.collectAsState()
-    val durMs by GlobalPlayerManager.durationMs.collectAsState()
-
     LaunchedEffect(curPos, durMs) {
         if (durMs > 0 && curPos >= 0) {
             onProgressUpdate(curPos, durMs)
@@ -176,18 +201,70 @@ fun UniversalVideoPlayer(
                         val halfWidth = size.width / 2
                         val seekMs = seekSecs * 1000L
                         if (offset.x < halfWidth) {
-                            seekNoticeText = "◄◄ ${seekSecs}s Rewind"
+                            gestureNoticeText = "◄◄ ${seekSecs}s Rewind"
                             if (!isEmbedOrWebPage) {
                                 GlobalPlayerManager.seekTo(exoPlayer.currentPosition - seekMs)
                                 GlobalPlayerManager.showControls()
                             }
                         } else {
-                            seekNoticeText = "${seekSecs}s Forward ►►"
+                            gestureNoticeText = "${seekSecs}s Forward ►►"
                             if (!isEmbedOrWebPage) {
                                 GlobalPlayerManager.seekTo(exoPlayer.currentPosition + seekMs)
                                 GlobalPlayerManager.showControls()
                             }
                         }
+                    }
+                )
+            }
+            .pointerInput(isEmbedOrWebPage) {
+                detectDragGestures(
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        if (!isEmbedOrWebPage) {
+                            val dx = dragAmount.x
+                            val dy = dragAmount.y
+                            val absDx = kotlin.math.abs(dx)
+                            val absDy = kotlin.math.abs(dy)
+                            if (absDy > absDx) {
+                                if (change.position.x < size.width / 2) {
+                                    // Left side = Brightness
+                                    val delta = -dy / size.height
+                                    brightnessLevel = (brightnessLevel + delta).coerceIn(0.1f, 1.0f)
+                                    val activity = context as? Activity
+                                        ?: (context as? ContextWrapper)?.baseContext as? Activity
+                                    activity?.let { act ->
+                                        val lp = act.window.attributes
+                                        lp.screenBrightness = brightnessLevel
+                                        act.window.attributes = lp
+                                    }
+                                    gestureNoticeText = "Brightness ${(brightnessLevel * 100).toInt()}%"
+                                    gestureNoticeIcon = Icons.Default.BrightnessMedium
+                                } else {
+                                    // Right side = Volume
+                                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                    if (audioManager != null) {
+                                        val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                                        val delta = -dy / size.height
+                                        volumeLevel = (volumeLevel + delta).coerceIn(0f, 1f)
+                                        val targetVol = (volumeLevel * maxVol).toInt()
+                                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                        gestureNoticeText = "Volume ${(volumeLevel * 100).toInt()}%"
+                                        gestureNoticeIcon = if (targetVol == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
+                                    }
+                                }
+                            } else if (absDx > absDy) {
+                                // Horizontal = Smooth Seek
+                                val seekDeltaSecs = (dx / size.width) * 60f
+                                val targetPos = (exoPlayer.currentPosition + (seekDeltaSecs * 1000).toLong()).coerceIn(0L, exoPlayer.duration.coerceAtLeast(1L))
+                                GlobalPlayerManager.seekTo(targetPos)
+                                val sign = if (seekDeltaSecs >= 0) "+" else ""
+                                gestureNoticeText = "Seek ${sign}${seekDeltaSecs.toInt()}s"
+                                gestureNoticeIcon = Icons.Default.FastForward
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        // Gesture finished
                     }
                 )
             },
@@ -577,6 +654,7 @@ fun UniversalVideoPlayer(
                 onDismissRequest = {
                     showSettingsSheet = false
                     showSpeedSubMenu = false
+                    showQualitySubMenu = false
                 },
                 containerColor = Color(0xFF1E1E1E),
                 contentColor = Color.White
@@ -592,13 +670,20 @@ fun UniversalVideoPlayer(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (showSpeedSubMenu) "Playback Speed" else "Settings",
+                            text = when {
+                                showQualitySubMenu -> "Video Quality"
+                                showSpeedSubMenu -> "Playback Speed"
+                                else -> "Settings"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        if (showSpeedSubMenu) {
-                            TextButton(onClick = { showSpeedSubMenu = false }) {
+                        if (showSpeedSubMenu || showQualitySubMenu) {
+                            TextButton(onClick = {
+                                showSpeedSubMenu = false
+                                showQualitySubMenu = false
+                            }) {
                                 Text("Back", color = MaterialTheme.colorScheme.primary)
                             }
                         }
@@ -609,7 +694,57 @@ fun UniversalVideoPlayer(
                         color = Color.White.copy(alpha = 0.12f)
                     )
 
-                    if (showSpeedSubMenu) {
+                    if (showQualitySubMenu) {
+                        if (availableStreamOptions.isEmpty()) {
+                            Text(
+                                text = "Auto (Default quality stream)",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 14.dp, horizontal = 12.dp)
+                            )
+                        } else {
+                            availableStreamOptions.forEach { option ->
+                                val isSelected = (streamOption?.qualityLabel == option.qualityLabel || streamOption?.videoUrl == option.videoUrl)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onSelectStreamOption(option)
+                                            Toast.makeText(context, "Quality set to ${option.qualityLabel}", Toast.LENGTH_SHORT).show()
+                                            showQualitySubMenu = false
+                                            showSettingsSheet = false
+                                        }
+                                        .padding(vertical = 14.dp, horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = option.qualityLabel,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                        )
+                                        if (!option.format.isNullOrBlank()) {
+                                            Text(
+                                                text = option.format ?: "",
+                                                fontSize = 11.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (showSpeedSubMenu) {
                         // Playback Speed Selector List
                         speedOptions.forEach { speed ->
                             val isSelected = (playbackSpeed == speed)
@@ -649,7 +784,38 @@ fun UniversalVideoPlayer(
                         }
                     } else {
                         // Main Settings Items
-                        // 1. Playback Speed
+                        // 0. Quality Selector
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showQualitySubMenu = true }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.HighQuality,
+                                    contentDescription = "Quality",
+                                    tint = Color.White
+                                )
+                                Text(
+                                    text = "Quality",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = streamOption?.qualityLabel ?: "Auto",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -737,16 +903,31 @@ fun UniversalVideoPlayer(
                         var currentFormatPref by remember {
                             mutableStateOf(com.example.util.DebridSettingsManager.getArchiveFormatPreference(context))
                         }
+                        // 4. Offline Download
+                        val activeData by GlobalPlayerManager.activeStreamData.collectAsState()
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    val newPref = if (currentFormatPref == "FAST_H264") "ORIGINAL_QUALITY" else "FAST_H264"
-                                    currentFormatPref = newPref
-                                    com.example.util.DebridSettingsManager.setArchiveFormatPreference(context, newPref)
-                                    val toastMsg = if (newPref == "FAST_H264") "Fast H.264 Mode (Instant Playback)" else "Original Uncompressed Quality"
-                                    Toast.makeText(context, "Format: $toastMsg", Toast.LENGTH_SHORT).show()
+                                    val vid = videoId ?: activeData?.videoId ?: "vid_${System.currentTimeMillis()}"
+                                    val title = activeData?.title ?: "Downloaded Video"
+                                    val channel = activeData?.channelName ?: "Media Stream"
+                                    val url = rawVideoUrl ?: ""
+                                    if (url.isNotBlank()) {
+                                        com.example.util.OfflineDownloadManager.downloadVideo(
+                                            context = context,
+                                            videoId = vid,
+                                            title = title,
+                                            channelName = channel,
+                                            videoUrl = url,
+                                            thumbnailUrl = activeData?.thumbnailUrl,
+                                            qualityLabel = streamOption?.qualityLabel ?: "Auto"
+                                        )
+                                        Toast.makeText(context, "Downloading '$title' for offline viewing", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "No downloadable stream URL found", Toast.LENGTH_SHORT).show()
+                                    }
                                     showSettingsSheet = false
                                 }
                                 .padding(vertical = 14.dp, horizontal = 12.dp),
@@ -758,18 +939,18 @@ fun UniversalVideoPlayer(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.HighQuality,
-                                    contentDescription = "Format Preference",
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Download Offline",
                                     tint = Color.White
                                 )
                                 Text(
-                                    text = "Format Preference",
+                                    text = "Download Offline",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.White
                                 )
                             }
                             Text(
-                                text = if (currentFormatPref == "FAST_H264") "Fast H.264" else "Original Quality",
+                                text = "Save to Device",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
@@ -780,26 +961,38 @@ fun UniversalVideoPlayer(
             }
         }
 
-
-
-        // Gesture Seek Notice Overlay
+        // Gesture & Seek Overlay Notice
+        val activeNoticeText = gestureNoticeText ?: seekNoticeText
         AnimatedVisibility(
-            visible = seekNoticeText != null,
+            visible = activeNoticeText != null,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
+                    .background(Color.Black.copy(alpha = 0.82f))
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                Text(
-                    text = seekNoticeText ?: "",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    gestureNoticeIcon?.let { icon ->
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Text(
+                        text = activeNoticeText ?: "",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
             }
         }
     }

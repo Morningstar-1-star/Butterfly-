@@ -15,6 +15,8 @@ fun YouTubePlayerView(
     isPlaying: Boolean = true,
     videoId: String? = null,
     initialPositionMs: Long = 0L,
+    availableStreamOptions: List<PlayableStreamOption> = emptyList(),
+    onSelectStreamOption: (PlayableStreamOption) -> Unit = {},
     failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
@@ -28,6 +30,8 @@ fun YouTubePlayerView(
         isPlaying = isPlaying,
         videoId = videoId,
         initialPositionMs = initialPositionMs,
+        availableStreamOptions = availableStreamOptions,
+        onSelectStreamOption = onSelectStreamOption,
         failedSourceLogs = failedSourceLogs,
         onProgressUpdate = onProgressUpdate,
         modifier = modifier

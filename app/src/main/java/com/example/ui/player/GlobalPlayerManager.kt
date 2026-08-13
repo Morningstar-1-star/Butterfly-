@@ -32,7 +32,12 @@ object GlobalPlayerManager {
     private var scope = CoroutineScope(Dispatchers.Main)
     private var progressTrackerJob: Job? = null
 
-    private val okHttpClient = OkHttpClient.Builder().build()
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 
     private val _activeStreamData = MutableStateFlow<StreamData?>(null)
     val activeStreamData: StateFlow<StreamData?> = _activeStreamData.asStateFlow()
@@ -61,27 +66,20 @@ object GlobalPlayerManager {
     private val _areControlsVisible = MutableStateFlow(true)
     val areControlsVisible: StateFlow<Boolean> = _areControlsVisible.asStateFlow()
 
+    fun setControlsVisibility(visible: Boolean) {
+        _areControlsVisible.value = visible
+    }
+
     fun showControls() {
-        val pv = playerViewInstance ?: return
-        pv.showController()
         _areControlsVisible.value = true
     }
 
     fun hideControls() {
-        val pv = playerViewInstance ?: return
-        pv.hideController()
         _areControlsVisible.value = false
     }
 
     fun toggleControlsVisibility() {
-        val pv = playerViewInstance ?: return
-        if (pv.isControllerFullyVisible) {
-            pv.hideController()
-            _areControlsVisible.value = false
-        } else {
-            pv.showController()
-            _areControlsVisible.value = true
-        }
+        _areControlsVisible.value = !_areControlsVisible.value
     }
 
     private val _playbackEnded = MutableStateFlow(false)
@@ -165,7 +163,19 @@ object GlobalPlayerManager {
     fun getExoPlayer(context: Context): ExoPlayer {
         val existing = exoPlayerInstance
         return if (existing == null) {
-            val player = ExoPlayer.Builder(context.applicationContext).build()
+            val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    15_000, // minBufferMs
+                    50_000, // maxBufferMs
+                    1_500,  // bufferForPlaybackMs (1.5s for ultra-fast start)
+                    3_000   // bufferForPlaybackAfterRebufferMs
+                )
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
+
+            val player = ExoPlayer.Builder(context.applicationContext)
+                .setLoadControl(loadControl)
+                .build()
             player.playWhenReady = true
             player.addListener(object : Player.Listener {
                 override fun onRenderedFirstFrame() {
@@ -328,19 +338,59 @@ object GlobalPlayerManager {
                 if (!customUserAgentSet) {
                     dataSourceFactory.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
                 }
+
+                // Inject domain-specific referer & origin headers if not explicitly specified
+                val lowerTarget = rawUrl.lowercase()
+                val hasReferer = defaultHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
+                if (!hasReferer) {
+                    when {
+                        lowerTarget.contains("youtube.com") || lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtu.be") -> {
+                            defaultHeaders["Referer"] = "https://www.youtube.com/"
+                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                defaultHeaders["Origin"] = "https://www.youtube.com"
+                            }
+                        }
+                        lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") -> {
+                            defaultHeaders["Referer"] = "https://www.dailymotion.com/"
+                        }
+                        lowerTarget.contains("archive.org") -> {
+                            defaultHeaders["Referer"] = "https://archive.org/"
+                        }
+                        lowerTarget.contains("pornhub.com") -> {
+                            defaultHeaders["Referer"] = "https://www.pornhub.com/"
+                        }
+                        lowerTarget.contains("eporner.com") -> {
+                            defaultHeaders["Referer"] = "https://www.eporner.com/"
+                        }
+                        lowerTarget.contains("redtube.com") -> {
+                            defaultHeaders["Referer"] = "https://www.redtube.com/"
+                        }
+                        lowerTarget.contains("xhamster.com") -> {
+                            defaultHeaders["Referer"] = "https://xhamster.com/"
+                        }
+                        lowerTarget.contains("xvideos.com") -> {
+                            defaultHeaders["Referer"] = "https://www.xvideos.com/"
+                        }
+                        lowerTarget.contains("vimeo.com") -> {
+                            defaultHeaders["Referer"] = "https://vimeo.com/"
+                        }
+                    }
+                }
+
                 if (defaultHeaders.isNotEmpty()) {
                     dataSourceFactory.setDefaultRequestProperties(defaultHeaders)
                 }
 
                 val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
 
+                var mediaSourceSet = false
                 if (streamOption != null) {
                     val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
                     val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
 
-                    if (streamOption.isMuxed && vUrl != null) {
+                    if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
                         val builder = MediaItem.Builder().setUri(Uri.parse(vUrl))
-                        if (captionOption != null) {
+                        if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
                             val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(captionOption.url))
                                 .setMimeType(MimeTypes.TEXT_VTT)
                                 .setLanguage(captionOption.languageCode)
@@ -350,19 +400,29 @@ object GlobalPlayerManager {
                         }
                         val mediaSource = mediaSourceFactory.createMediaSource(builder.build())
                         player.setMediaSource(mediaSource)
-                    } else if (!streamOption.isMuxed && vUrl != null && aUrl != null) {
+                        mediaSourceSet = true
+                    } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
                         val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
                         val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(aUrl)))
 
                         val mergedSource = MergingMediaSource(videoSource, audioSource)
                         player.setMediaSource(mergedSource)
-                    } else if (vUrl != null) {
+                        mediaSourceSet = true
+                    } else if (!vUrl.isNullOrEmpty()) {
                         val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
                         player.setMediaSource(mediaSource)
+                        mediaSourceSet = true
                     }
-                } else if (!hlsUrl.isNullOrEmpty()) {
+                }
+
+                if (!mediaSourceSet && !hlsUrl.isNullOrEmpty()) {
                     val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(hlsUrl)))
                     player.setMediaSource(mediaSource)
+                    mediaSourceSet = true
+                } else if (!mediaSourceSet && !rawUrl.isNullOrEmpty()) {
+                    val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(rawUrl)))
+                    player.setMediaSource(mediaSource)
+                    mediaSourceSet = true
                 }
 
                 if (initialPos > 0L) {
@@ -372,8 +432,8 @@ object GlobalPlayerManager {
                 player.prepare()
                 player.playWhenReady = true
                 _isPlaying.value = true
-            } catch (e: Exception) {
-                _playerError.value = e.localizedMessage
+            } catch (e: Throwable) {
+                _playerError.value = e.localizedMessage ?: "Playback initialization failed"
                 _isEmbedOrWebPage.value = true
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -60,7 +61,9 @@ fun ExploreScreen(
     viewModel: MainViewModel,
     onMovieSelected: (VideoItem) -> Unit,
     onGenreSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    topPadding: Dp = 108.dp,
+    bottomPadding: Dp = 160.dp
 ) {
     val userProfile by viewModel.userProfile.collectAsState()
     val savedList by viewModel.watchLaterList.collectAsState()
@@ -117,22 +120,6 @@ fun ExploreScreen(
                     }
                 } catch (e: Exception) { emptyList() }
             }
-            val bilibiliDeferred = async {
-                try {
-                    com.example.plugin.providers.BilibiliProvider().home().items.map { item ->
-                        VideoItem(
-                            id = item.id,
-                            title = item.title,
-                            uploaderName = item.uploaderName,
-                            thumbnailUrl = item.thumbnailUrl,
-                            durationSeconds = item.durationSeconds,
-                            viewCount = item.viewCount,
-                            providerId = "bilibili"
-                        )
-                    }
-                } catch (e: Exception) { emptyList() }
-            }
-
             val liveHeroes = heroesDeferred.await()
             if (liveHeroes.isNotEmpty()) {
                 heroItems = liveHeroes
@@ -151,11 +138,9 @@ fun ExploreScreen(
 
             val javInfoItems = javInfoDeferred.await()
             val ytItems = ytDeferred.await()
-            val bilibiliItems = bilibiliDeferred.await()
 
             rawCategories = listOf(
                 CuratedCategory("youtube", "YouTube Trending", "🔴", ytItems),
-                CuratedCategory("bilibili", "Bilibili Popular", "⚡", bilibiliItems),
                 CuratedCategory("mystery", "Mystery Mindbenders", "🔍", mystery),
                 CuratedCategory("horror", "Horror Nights", "🍿", horror),
                 CuratedCategory("scifi", "Sci-Fi Dimensions", "✨", scifi),
@@ -193,7 +178,7 @@ fun ExploreScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 160.dp),
+            contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // 1. TOP HEADER ("Watch Now" + User Avatar Badge)
@@ -479,6 +464,18 @@ private fun ExploreMediaCard(
     onClick: () -> Unit,
     onToggleSave: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val posterRequest = remember(video.thumbnailUrl) {
+        if (!video.thumbnailUrl.isNullOrEmpty()) {
+            coil.request.ImageRequest.Builder(context)
+                .data(video.thumbnailUrl)
+                .crossfade(false)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .build()
+        } else null
+    }
+
     Card(
         modifier = Modifier
             .width(150.dp)
@@ -494,9 +491,9 @@ private fun ExploreMediaCard(
                     .height(210.dp)
                     .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
             ) {
-                if (!video.thumbnailUrl.isNullOrEmpty()) {
+                if (posterRequest != null) {
                     AsyncImage(
-                        model = video.thumbnailUrl,
+                        model = posterRequest,
                         contentDescription = video.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
