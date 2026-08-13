@@ -14,8 +14,6 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.example.ui.MainViewModel
 import com.example.ui.screens.HomeScreen
-import com.example.ui.theme.MyApplicationTheme
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -23,8 +21,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        com.example.repository.FirebaseSyncRepository.init(applicationContext)
-        com.example.plugin.providers.ArchiveOrgProvider.contextRef = applicationContext
+
+        // Required by ArchiveOrgProvider for provider operations.
+        com.example.plugin.providers.ArchiveOrgProvider.contextRef =
+            applicationContext
+
         enableEdgeToEdge()
         setupHighRefreshRate()
         setupCoilCache()
@@ -33,7 +34,7 @@ class MainActivity : ComponentActivity() {
             val themeMode by viewModel.themeMode.collectAsState()
             val accentColor by viewModel.accentColor.collectAsState()
 
-            MyApplicationTheme(
+            com.example.ui.theme.MyApplicationTheme(
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
@@ -44,15 +45,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (viewModel.activeVideoId.value != null && com.example.ui.player.GlobalPlayerManager.isPlaying.value) {
+
+        if (
+            viewModel.activeVideoId.value != null &&
+            com.example.ui.player.GlobalPlayerManager.isPlaying.value
+        ) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
-                    val params = android.app.PictureInPictureParams.Builder()
-                        .setAspectRatio(android.util.Rational(16, 9))
-                        .build()
+                    val params =
+                        android.app.PictureInPictureParams.Builder()
+                            .setAspectRatio(android.util.Rational(16, 9))
+                            .build()
+
                     enterPictureInPictureMode(params)
-                } catch (e: Exception) {
-                    // Ignore
+                } catch (_: Exception) {
+                    // PiP is optional.
                 }
             }
         }
@@ -62,31 +69,40 @@ class MainActivity : ComponentActivity() {
         isInPictureInPictureMode: Boolean,
         newConfig: android.content.res.Configuration
     ) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        super.onPictureInPictureModeChanged(
+            isInPictureInPictureMode,
+            newConfig
+        )
+
         viewModel.setPipMode(isInPictureInPictureMode)
     }
 
     private fun setupCoilCache() {
         try {
-            val imageLoader = ImageLoader.Builder(applicationContext)
-                .memoryCache {
-                    MemoryCache.Builder(applicationContext)
-                        .maxSizePercent(0.25)
-                        .build()
-                }
-                .diskCache {
-                    DiskCache.Builder()
-                        .directory(applicationContext.cacheDir.resolve("image_cache"))
-                        .maxSizeBytes(250 * 1024 * 1024) // 250MB fast disk cache
-                        .build()
-                }
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .crossfade(true)
-                .build()
+            val imageLoader =
+                ImageLoader.Builder(applicationContext)
+                    .memoryCache {
+                        MemoryCache.Builder(applicationContext)
+                            .maxSizePercent(0.25)
+                            .build()
+                    }
+                    .diskCache {
+                        DiskCache.Builder()
+                            .directory(
+                                applicationContext.cacheDir
+                                    .resolve("image_cache")
+                            )
+                            .maxSizeBytes(250L * 1024 * 1024)
+                            .build()
+                    }
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(true)
+                    .build()
+
             Coil.setImageLoader(imageLoader)
-        } catch (e: Exception) {
-            // Optional
+        } catch (_: Exception) {
+            // Cache setup is optional.
         }
     }
 
@@ -94,22 +110,29 @@ class MainActivity : ComponentActivity() {
         try {
             val currentWindow = window
             val params = currentWindow.attributes
+
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                display?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
-                    params.preferredDisplayModeId = maxMode.modeId
-                }
-            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                display?.supportedModes
+                    ?.maxByOrNull { it.refreshRate }
+                    ?.let { maxMode ->
+                        params.preferredDisplayModeId = maxMode.modeId
+                    }
+            } else if (
+                android.os.Build.VERSION.SDK_INT >=
+                android.os.Build.VERSION_CODES.M
+            ) {
                 @Suppress("DEPRECATION")
-                currentWindow.windowManager.defaultDisplay?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
-                    params.preferredDisplayModeId = maxMode.modeId
-                }
+                currentWindow.windowManager.defaultDisplay
+                    ?.supportedModes
+                    ?.maxByOrNull { it.refreshRate }
+                    ?.let { maxMode ->
+                        params.preferredDisplayModeId = maxMode.modeId
+                    }
             }
+
             currentWindow.attributes = params
-        } catch (e: Exception) {
-            // High refresh rate optional
+        } catch (_: Exception) {
+            // High refresh rate is optional.
         }
     }
 }
-
-
-
