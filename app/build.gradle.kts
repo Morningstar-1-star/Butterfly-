@@ -18,6 +18,7 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
     ndk {
       abiFilters += listOf("arm64-v8a")
     }
@@ -31,17 +32,13 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      val keystorePath =
+        System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
-    }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
     }
   }
 
@@ -49,21 +46,37 @@ android {
     release {
       isCrunchPngs = false
       isMinifyEnabled = false
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+      proguardFiles(
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro"
+      )
+
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+
+    // Uses Android's automatically generated debug keystore.
+    debug {
+    }
   }
+
   compileOptions {
     isCoreLibraryDesugaringEnabled = true
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+
   buildFeatures {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+    }
+  }
+
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -75,8 +88,6 @@ secrets {
   defaultPropertiesFileName = ".env.example"
 }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   coreLibraryDesugaring(libs.desugar.jdk.libs)
 
@@ -94,21 +105,20 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.coil.compose)
 
-  // Mozilla Rhino JavaScript engine for executing JS providers
   implementation("org.mozilla:rhino:1.7.15")
 
-  // Media3 ExoPlayer
+  // Media3 / ExoPlayer
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.datasource.okhttp)
 
-  // NewPipeExtractor & dependencies
+  // NewPipe
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)
 
-  // youtubedl-android (yt-dlp)
+  // yt-dlp
   implementation(libs.youtubedl.android.library)
   implementation(libs.youtubedl.android.ffmpeg)
 
@@ -117,9 +127,17 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
-  implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+
+  // Room
+  implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.room.ktx)
+  ksp(libs.androidx.room.compiler)
+
+  // Moshi code generation
+  ksp(libs.moshi.kotlin.codegen)
+
+  // Tests
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -129,15 +147,15 @@ dependencies {
   testImplementation(libs.roborazzi)
   testImplementation(libs.roborazzi.compose)
   testImplementation(libs.roborazzi.junit.rule)
+
+  // Android tests
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
+
+  // Debug
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
-  "ksp"(libs.androidx.room.compiler)
-  implementation(libs.androidx.room.runtime)
-  implementation(libs.androidx.room.ktx)
-  "ksp"(libs.moshi.kotlin.codegen)
 }
