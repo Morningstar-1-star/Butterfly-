@@ -92,19 +92,27 @@ class JavInfoFanzaProvider(
         val code = extractCode(idOrUrl)
         val cleanCodeNoDash = code.lowercase().replace("-", "")
 
-        val videoStreams = listOf(
-            PluginVideoStream(
-                url = "https://server.apijav.com/?mvapm_embed=$code",
-                qualityLabel = "PRO HD (FANZA Direct Server)",
-                format = "embed",
-                isMuxed = true
-            ),
-            PluginVideoStream(
-                url = "https://missav.ws/en/$code",
-                qualityLabel = "MissAV Mirror Stream",
-                format = "embed",
-                isMuxed = true
-            ),
+        val videoStreams = mutableListOf<PluginVideoStream>()
+
+        try {
+            val directApiJav = ApiJavServerProvider(http).getStreams(code)
+            videoStreams.addAll(directApiJav.videoStreams.filter { it.format == "hls" || it.format == "mp4" })
+        } catch (e: Exception) {
+            // Ignore
+        }
+
+        if (videoStreams.isEmpty()) {
+            videoStreams.add(
+                PluginVideoStream(
+                    url = "https://server.apijav.com/?mvapm_embed=$code",
+                    qualityLabel = "PRO HD (FANZA Direct Server)",
+                    format = "embed",
+                    isMuxed = true
+                )
+            )
+        }
+
+        videoStreams.add(
             PluginVideoStream(
                 url = "https://cc3001.dmm.co.jp/litevideo/freepv/${cleanCodeNoDash.take(1)}/${cleanCodeNoDash.take(3)}/$cleanCodeNoDash/${cleanCodeNoDash}_mvh_w.mp4",
                 qualityLabel = "FANZA Official Trailer (Direct MP4)",

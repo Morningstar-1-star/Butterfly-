@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,13 @@ import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,10 +43,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.model.SearchFilterState
+import com.example.model.SearchTypeFilter
+import com.example.model.SearchDurationFilter
 import com.example.model.SearchSuggestionItem
 import com.example.model.VideoItem
+import com.example.model.ProviderUiItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.VideoCard
+import com.example.ui.components.SearchFilterDialog
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -51,6 +64,8 @@ fun SearchScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchSuggestions by viewModel.searchSuggestions.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val searchFilter by viewModel.searchFilter.collectAsState()
+    val availableProviders by viewModel.availableProviders.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
@@ -58,10 +73,28 @@ fun SearchScreen(
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
 
+    var showFilterDialog by remember { mutableStateOf(false) }
+
+    val watchedVideoIds = remember(watchHistory) { watchHistory.map { it.id }.toSet() }
+
     LaunchedEffect(Unit) {
         try {
             focusRequester.requestFocus()
         } catch (_: Exception) {}
+    }
+
+    if (showFilterDialog) {
+        SearchFilterDialog(
+            currentFilter = searchFilter,
+            availableProviders = availableProviders,
+            onDismiss = { showFilterDialog = false },
+            onApply = { newFilter ->
+                viewModel.updateSearchFilter(newFilter)
+            },
+            onReset = {
+                viewModel.resetSearchFilter()
+            }
+        )
     }
 
     // Default trending topic fallbacks when user has no recent searches
@@ -94,12 +127,12 @@ fun SearchScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // TOP SEARCH BAR (Exact YouTube Layout)
+        // TOP SEARCH BAR (Exact YouTube Layout with 3-Dots Filter Menu)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
@@ -159,25 +192,238 @@ fun SearchScreen(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .height(50.dp)
+                    .height(48.dp)
                     .focusRequester(focusRequester)
             )
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             // Mic Icon Button
             IconButton(
                 onClick = { /* Voice Search action */ },
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
                     contentDescription = "Voice Search",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
+            }
+
+            Spacer(modifier = Modifier.width(2.dp))
+
+            // 3-Dots Filter Menu (Circled in YouTube screenshot)
+            Box {
+                IconButton(
+                    onClick = { showFilterDialog = true },
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Search Filters",
+                        tint = if (searchFilter.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                if (searchFilter.isActive) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 4.dp)
+                            .size(8.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    )
+                }
+            }
+        }
+
+        // HORIZONTAL QUICK FILTER CHIPS (YouTube Style Bar)
+        if (searchResults.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // "Filter" button chip with active badge
+                item {
+                    SearchQuickChip(
+                        label = if (searchFilter.isActive) "Filters (${searchFilter.activeFilterCount})" else "Filters",
+                        selected = searchFilter.isActive,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (searchFilter.isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        onClick = { showFilterDialog = true }
+                    )
+                }
+
+                // "All" chip
+                item {
+                    SearchQuickChip(
+                        label = "All",
+                        selected = !searchFilter.isActive,
+                        onClick = { viewModel.resetSearchFilter() }
+                    )
+                }
+
+                // "Torrents" chip
+                item {
+                    val isSelected = searchFilter.type == SearchTypeFilter.TORRENTS || searchFilter.isTorrentOnly
+                    SearchQuickChip(
+                        label = "Torrents",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(type = SearchTypeFilter.ALL, isTorrentOnly = false)
+                                else searchFilter.copy(type = SearchTypeFilter.TORRENTS, isTorrentOnly = true)
+                            )
+                        }
+                    )
+                }
+
+                // "Movies" chip
+                item {
+                    val isSelected = searchFilter.type == SearchTypeFilter.MOVIES
+                    SearchQuickChip(
+                        label = "Movies",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(type = SearchTypeFilter.ALL)
+                                else searchFilter.copy(type = SearchTypeFilter.MOVIES)
+                            )
+                        }
+                    )
+                }
+
+                // "TV Shows" chip
+                item {
+                    val isSelected = searchFilter.type == SearchTypeFilter.TV_SHOWS
+                    SearchQuickChip(
+                        label = "TV Shows",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(type = SearchTypeFilter.ALL)
+                                else searchFilter.copy(type = SearchTypeFilter.TV_SHOWS)
+                            )
+                        }
+                    )
+                }
+
+                // "YouTube" chip
+                item {
+                    val isSelected = searchFilter.sourceProviderId.equals("youtube", ignoreCase = true)
+                    SearchQuickChip(
+                        label = "YouTube",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(sourceProviderId = "ALL")
+                                else searchFilter.copy(sourceProviderId = "youtube")
+                            )
+                        }
+                    )
+                }
+
+                // "Unwatched" chip
+                item {
+                    SearchQuickChip(
+                        label = "Unwatched",
+                        selected = searchFilter.isUnwatchedOnly,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                searchFilter.copy(
+                                    isUnwatchedOnly = !searchFilter.isUnwatchedOnly,
+                                    isWatchedOnly = false
+                                )
+                            )
+                        }
+                    )
+                }
+
+                // "Watched" chip
+                item {
+                    SearchQuickChip(
+                        label = "Watched",
+                        selected = searchFilter.isWatchedOnly,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                searchFilter.copy(
+                                    isWatchedOnly = !searchFilter.isWatchedOnly,
+                                    isUnwatchedOnly = false
+                                )
+                            )
+                        }
+                    )
+                }
+
+                // "Under 4 mins"
+                item {
+                    val isSelected = searchFilter.duration == SearchDurationFilter.UNDER_4_MIN
+                    SearchQuickChip(
+                        label = "< 4 min",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(duration = SearchDurationFilter.ANY)
+                                else searchFilter.copy(duration = SearchDurationFilter.UNDER_4_MIN)
+                            )
+                        }
+                    )
+                }
+
+                // "4 - 20 mins"
+                item {
+                    val isSelected = searchFilter.duration == SearchDurationFilter.FOUR_TO_TWENTY_MIN
+                    SearchQuickChip(
+                        label = "4 – 20 min",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(duration = SearchDurationFilter.ANY)
+                                else searchFilter.copy(duration = SearchDurationFilter.FOUR_TO_TWENTY_MIN)
+                            )
+                        }
+                    )
+                }
+
+                // "Over 20 mins"
+                item {
+                    val isSelected = searchFilter.duration == SearchDurationFilter.OVER_20_MIN
+                    SearchQuickChip(
+                        label = "> 20 min",
+                        selected = isSelected,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                if (isSelected) searchFilter.copy(duration = SearchDurationFilter.ANY)
+                                else searchFilter.copy(duration = SearchDurationFilter.OVER_20_MIN)
+                            )
+                        }
+                    )
+                }
+
+                // "4K UHD"
+                item {
+                    SearchQuickChip(
+                        label = "4K UHD",
+                        selected = searchFilter.is4kOnly,
+                        onClick = {
+                            viewModel.updateSearchFilter(
+                                searchFilter.copy(is4kOnly = !searchFilter.is4kOnly)
+                            )
+                        }
+                    )
+                }
             }
         }
 
@@ -202,27 +448,100 @@ fun SearchScreen(
                 }
             }
         } else if (searchResults.isNotEmpty()) {
-            // SEARCH RESULTS VIEW
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 16.dp, end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                item {
-                    Text(
-                        text = "Results for \"$searchQuery\"",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val baseResults = searchResults
+                .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+            val filteredResults = remember(baseResults, searchFilter, watchedVideoIds) {
+                searchFilter.applyTo(baseResults, watchedVideoIds)
+            }
+
+            LaunchedEffect(filteredResults) {
+                if (filteredResults.isNotEmpty()) {
+                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, filteredResults, maxCount = 12)
                 }
-                val filteredResults = searchResults.filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
-                items(filteredResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
-                    VideoCard(
-                        video = video,
-                        onClick = { onSelectVideo(video) }
-                    )
+            }
+
+            if (filteredResults.isEmpty() && baseResults.isNotEmpty()) {
+                // Empty filter results with option to reset
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SearchOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No results match active filters",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Found ${baseResults.size} total results for \"$searchQuery\", but none match the current filter criteria.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { viewModel.resetSearchFilter() },
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Reset Filters")
+                        }
+                    }
+                }
+            } else {
+                // SEARCH RESULTS VIEW
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 16.dp, end = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Results for \"$searchQuery\"",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (searchFilter.isActive) {
+                                Text(
+                                    text = "${filteredResults.size} of ${baseResults.size}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                    items(filteredResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
+                        VideoCard(
+                            video = video,
+                            onClick = { onSelectVideo(video) }
+                        )
+                    }
                 }
             }
         } else if (searchQuery.isNotEmpty()) {
@@ -447,3 +766,39 @@ private fun SearchSuggestionRow(
         }
     }
 }
+
+@Composable
+private fun SearchQuickChip(
+    label: String,
+    selected: Boolean,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit
+) {
+    val backgroundColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val contentColor = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = backgroundColor,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (leadingIcon != null) {
+                leadingIcon()
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = contentColor
+            )
+        }
+    }
+}
+

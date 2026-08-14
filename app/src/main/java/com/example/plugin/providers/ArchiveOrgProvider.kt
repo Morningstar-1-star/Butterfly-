@@ -16,28 +16,65 @@ class ArchiveOrgProvider(
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
-        // Target curated high quality collections: feature films, animations, classic TV, anime, cartoons
-        val curatedQuery = "mediatype:movies AND (collection:feature_films OR collection:animationandcartoons OR collection:classic_tv OR collection:anime OR collection:movies OR collection:prelinger OR collection:silent_films OR downloads:[1000 TO *])"
+
+        // Rotate queries and sort modes across pages for unlimited variety and rare content discovery
+        val categories = listOf(
+            "mediatype:movies AND (collection:anime OR collection:animationandcartoons OR collection:the-anime-cascade OR " +
+                    "collection:feature_films OR collection:movies OR collection:wrestling OR collection:vhsvault OR collection:movie_trailers OR " +
+                    "\"wwe\" OR \"wwf\" OR \"anime\" OR \"vhs tape\" OR \"trailer\")",
+
+            "mediatype:movies AND (collection:anime OR collection:the-anime-cascade OR collection:unsorted-anime-collection OR " +
+                    "\"japanese animation\" OR \"rare anime\" OR \"anime movie\")",
+
+            "mediatype:movies AND (collection:feature_films OR collection:cinema OR collection:cult_movies OR collection:classic_tv OR " +
+                    "\"feature film\" OR \"cult classic\" OR \"full movie\")",
+
+            "mediatype:movies AND (collection:wrestling OR \"wwe\" OR \"wwf\" OR \"pro wrestling\" OR \"wcw\" OR \"extreme championship wrestling\")",
+
+            "mediatype:movies AND (collection:vhsvault OR collection:vhs OR \"vhs tape\" OR \"vhs rip\" OR \"vhs recording\" OR \"rare cassette\")",
+
+            "mediatype:movies AND (collection:movie_trailers OR \"movie trailer\" OR \"teaser trailer\" OR \"cinema promo\" OR \"rare trailer\")"
+        )
+
+        val queryIndex = (page - 1) % categories.size
+        val curatedQuery = categories[queryIndex]
+        val sortModes = listOf("downloads+desc", "publicdate+desc", "addeddate+desc", "review_date+desc")
+        val sortMode = sortModes[(page - 1) % sortModes.size]
+
         val encodedQuery = java.net.URLEncoder.encode(curatedQuery, "UTF-8")
-        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl%5B%5D=identifier%2Ctitle%2Ccreator%2Cpublicdate%2Cdescription%2Cdownloads&sort%5B%5D=downloads+desc&rows=25&page=$page&output=json"
-        val resp = http.get(url)
+        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl%5B%5D=identifier%2Ctitle%2Ccreator%2Cpublicdate%2Cdescription%2Cdownloads&sort%5B%5D=$sortMode&rows=30&page=$page&output=json"
+        val resp = try { http.get(url) } catch (e: Exception) { return@withContext PagedResult(emptyList()) }
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 
         val (items, numFound) = parseArchiveList(resp.body)
-        PagedResult(items = items, nextPageToken = (page + 1).toString(), hasMore = page * 25 < numFound)
+        PagedResult(
+            items = items,
+            nextPageToken = (page + 1).toString(),
+            hasMore = page * 30 < numFound
+        )
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
         val clean = query.replace("[^a-zA-Z0-9 ]".toRegex(), " ").trim()
-        val searchQuery = if (clean.isNotBlank()) clean else "classic movies cartoons anime"
-        val encodedQuery = java.net.URLEncoder.encode("mediatype:movies AND ($searchQuery)", "UTF-8")
-        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl%5B%5D=identifier%2Ctitle%2Ccreator%2Cpublicdate%2Cdescription%2Cdownloads&sort%5B%5D=downloads+desc&rows=25&page=$page&output=json"
-        val resp = http.get(url)
+
+        val queryTerm = if (clean.isNotBlank()) {
+            "($clean OR \"$clean\")"
+        } else {
+            "(anime OR feature films OR wwe OR vhs vault OR trailers)"
+        }
+
+        val encodedQuery = java.net.URLEncoder.encode("mediatype:movies AND $queryTerm", "UTF-8")
+        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl%5B%5D=identifier%2Ctitle%2Ccreator%2Cpublicdate%2Cdescription%2Cdownloads&sort%5B%5D=downloads+desc&rows=30&page=$page&output=json"
+        val resp = try { http.get(url) } catch (e: Exception) { return@withContext PagedResult(emptyList()) }
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 
         val (items, numFound) = parseArchiveList(resp.body)
-        PagedResult(items = items, nextPageToken = (page + 1).toString(), hasMore = page * 25 < numFound)
+        PagedResult(
+            items = items,
+            nextPageToken = (page + 1).toString(),
+            hasMore = page * 30 < numFound
+        )
     }
 
     companion object {
@@ -301,13 +338,57 @@ class ArchiveOrgProvider(
     }
 
     override suspend fun getComments(idOrUrl: String, pageToken: String?): PagedResult<PluginComment> = withContext(Dispatchers.IO) {
-        val identifier = extractId(idOrUrl)
-        val comments = listOf(
-            PluginComment("ac1", "Archivist_John", null, "Classic historical masterpiece! Great preservation quality.", "1 month ago", 84L),
-            PluginComment("ac2", "FilmBuff99", null, "Subtitles and audio line up perfectly. Thank you Internet Archive!", "3 weeks ago", 45L),
-            PluginComment("ac3", "RetroCinema", null, "A timeless classic. Super clean scan.", "2 weeks ago", 29L)
-        )
-        PagedResult(items = comments)
+        val reqInfo = parseRequest(idOrUrl)
+        val identifier = reqInfo.identifier
+        val comments = mutableListOf<PluginComment>()
+
+        try {
+            val url = "https://archive.org/metadata/$identifier"
+            val resp = http.get(url)
+            if (resp.statusCode == 200 && resp.body.isNotBlank()) {
+                val json = JSONObject(resp.body)
+                val reviewsArr = json.optJSONArray("reviews")
+                if (reviewsArr != null) {
+                    for (i in 0 until reviewsArr.length()) {
+                        val r = reviewsArr.optJSONObject(i) ?: continue
+                        val reviewer = r.optString("reviewer", "Archive User")
+                        val reviewTitle = r.optString("reviewtitle", "")
+                        val reviewBody = r.optString("reviewbody", "")
+                        val reviewDate = r.optString("reviewdate", "Recently")
+                        val stars = r.optInt("stars", 5)
+
+                        val fullText = if (reviewTitle.isNotBlank() && reviewBody.isNotBlank()) {
+                            "$reviewTitle\n$reviewBody"
+                        } else reviewBody.ifBlank { reviewTitle }
+
+                        if (fullText.isNotBlank()) {
+                            comments.add(
+                                PluginComment(
+                                    id = "ia_rev_${identifier}_$i",
+                                    authorName = reviewer,
+                                    content = fullText,
+                                    publishedTime = reviewDate,
+                                    likeCount = (stars * 12).toLong()
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback
+        }
+
+        if (comments.isEmpty()) {
+            comments.addAll(
+                listOf(
+                    PluginComment(id = "ac1", authorName = "Archivist_John", authorAvatarUrl = null, content = "Classic historical masterpiece! Great preservation quality.", publishedTime = "1 month ago", likeCount = 84L),
+                    PluginComment(id = "ac2", authorName = "FilmBuff99", authorAvatarUrl = null, content = "Subtitles and audio line up perfectly. Thank you Internet Archive!", publishedTime = "3 weeks ago", likeCount = 45L),
+                    PluginComment(id = "ac3", authorName = "RetroCinema", authorAvatarUrl = null, content = "A timeless classic. Super clean scan.", publishedTime = "2 weeks ago", likeCount = 29L)
+                )
+            )
+        }
+        PagedResult(items = comments, hasMore = false)
     }
 
     override suspend fun getSubtitles(idOrUrl: String): List<PluginSubtitle> = withContext(Dispatchers.IO) {

@@ -280,7 +280,19 @@ class EpornerProvider(
             }
         }
 
-        val primaryStreamUrl = validatedStreams.firstOrNull()?.url ?: ""
+        if (validatedStreams.isEmpty()) {
+            val embedUrl = "https://www.eporner.com/embed/$id/"
+            validatedStreams.add(
+                PluginVideoStream(
+                    url = embedUrl,
+                    qualityLabel = "Eporner Web Stream",
+                    format = "embed",
+                    isMuxed = true
+                )
+            )
+        }
+
+        val primaryStreamUrl = validatedStreams.firstOrNull()?.url ?: "https://www.eporner.com/embed/$id/"
         val highResThumb = "https://static.eporner.com/thumbs/$id/big.jpg"
 
         val tagsFormatted = if (metaKeywords.isNotBlank()) {
@@ -333,7 +345,7 @@ class EpornerProvider(
 
                     val timeMatch = Regex("""<span[^>]*class=["'][^"']*comm_date[^"']*["'][^>]*>(.*?)</span>""", RegexOption.IGNORE_CASE).find(block)
 
-                    val author = authorMatch?.groupValues?.get(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: "EpornerUser${(100..999).random()}"
+                    val author = authorMatch?.groupValues?.get(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: "User"
                     val text = textMatch?.groupValues?.get(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: ""
                     val timeText = timeMatch?.groupValues?.get(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: "Recently"
 
@@ -345,7 +357,7 @@ class EpornerProvider(
                                 authorName = author,
                                 content = text,
                                 publishedTime = timeText,
-                                likeCount = (3..85).random().toLong()
+                                likeCount = 0L
                             )
                         )
                     }
@@ -353,21 +365,6 @@ class EpornerProvider(
             }
         } catch (e: Exception) {
             Log.w("EpornerProvider", "Failed parsing comments: ${e.message}")
-        }
-
-        if (comments.isEmpty()) {
-            // Fallback realistic community comments for the video topic
-            val videoItem = try { getVideo(id) } catch (e: Exception) { null }
-            val vTitle = videoItem?.title ?: "this video"
-            val uploader = videoItem?.uploaderName ?: "Creator"
-
-            val templateComments = listOf(
-                PluginComment("c1", "PornEnthusiast99", null, "Awesome quality! $uploader always uploads top-tier content.", "2 days ago", 48L),
-                PluginComment("c2", "HD_Lover_Alex", null, "The 1080p full HD quality is crystal clear. Loved watching $vTitle!", "3 days ago", 32L),
-                PluginComment("c3", "CinemaFanatic_Sam", null, "Great upload as always. Keep them coming!", "5 days ago", 19L),
-                PluginComment("c4", "MidnightWatcher", null, "Smooth streaming with zero buffering. Highly recommended!", "1 week ago", 12L)
-            )
-            return@withContext PagedResult(templateComments)
         }
 
         PagedResult(comments)
@@ -403,8 +400,8 @@ class EpornerProvider(
                                 title = relTitle,
                                 uploaderName = "Eporner Creator",
                                 thumbnailUrl = thumbUrl,
-                                durationSeconds = 600L,
-                                viewCount = (10000..500000).random().toLong(),
+                                durationSeconds = 0L,
+                                viewCount = 0L,
                                 providerId = providerId
                             )
                         )

@@ -25,9 +25,9 @@ class YouTubeProvider(
     )
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val apiItems = YouTubeApiHelper.fetchPopularVideos(25)
+        val apiItems = YouTubeApiHelper.fetchPopularVideos(25, pageToken)
         if (!apiItems.isNullOrEmpty()) {
-            return@withContext PagedResult(items = apiItems, hasMore = false)
+            return@withContext PagedResult(items = apiItems, hasMore = true)
         }
 
         when (val result = YouTubeExtractorHelper.fetchTrendingVideos()) {
@@ -55,9 +55,9 @@ class YouTubeProvider(
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
-        val apiSearchResult = YouTubeApiHelper.search(query, 25)
+        val apiSearchResult = YouTubeApiHelper.search(query, 25, pageToken)
         if (apiSearchResult != null && apiSearchResult.videoItems.isNotEmpty()) {
-            return@withContext PagedResult(items = apiSearchResult.videoItems, hasMore = false)
+            return@withContext PagedResult(items = apiSearchResult.videoItems, hasMore = true)
         }
 
         when (val result = YouTubeExtractorHelper.searchVideos(query)) {

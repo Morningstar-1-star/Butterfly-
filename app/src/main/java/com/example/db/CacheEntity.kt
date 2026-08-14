@@ -133,9 +133,15 @@ interface UserDataDao {
     @Query("SELECT * FROM offline_downloads ORDER BY timestamp DESC")
     fun getOfflineDownloadsFlow(): Flow<List<OfflineDownloadEntity>>
 
+    @Query("SELECT * FROM offline_downloads WHERE videoId = :videoId LIMIT 1")
+    suspend fun getDownloadById(videoId: String): OfflineDownloadEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateDownload(item: OfflineDownloadEntity)
 
     @Query("DELETE FROM offline_downloads WHERE videoId = :videoId")
     suspend fun deleteDownload(videoId: String)
+
+    @Query("DELETE FROM offline_downloads")
+    suspend fun clearAllDownloads()
 }

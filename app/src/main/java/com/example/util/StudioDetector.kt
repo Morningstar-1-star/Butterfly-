@@ -76,7 +76,7 @@ object StudioDetector {
             lower.contains("witcher") || lower.contains("bridgerton") || lower.contains("netflix") -> "Netflix"
 
             lower.contains("game of thrones") || lower.contains("house of the dragon") ||
-            lower.contains("last of us") || lower.contains("euphoria") || lower.contains("hbo") -> "HBO Original"
+            lower.contains("last of us") || lower.contains("euphoria") || lower.contains("hbo") -> "HBO Max"
 
             isTv -> "TV Network"
             else -> "Hollywood Cinema"

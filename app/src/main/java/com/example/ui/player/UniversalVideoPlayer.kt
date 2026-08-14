@@ -99,12 +99,39 @@ fun UniversalVideoPlayer(
     val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
 
     // Playback Speed & Scaling Controls
+    val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
+    val activeStreamData by GlobalPlayerManager.activeStreamData.collectAsState()
+
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showSpeedSubMenu by remember { mutableStateOf(false) }
     var showQualitySubMenu by remember { mutableStateOf(false) }
-    val speedOptions = remember { listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f) }
+    val speedOptions = remember { listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f) }
+    var customPlayerSpeedInput by remember { mutableStateOf("") }
+    var isMusicTrackDetected by remember { mutableStateOf(false) }
+
+    // Resolve Default Playback Speed according to settings & music detection
+    LaunchedEffect(videoId, rawVideoUrl, activeStreamData) {
+        val currentTitle = activeStreamData?.title
+        val currentUploader = activeStreamData?.channelName
+        val currentDesc = activeStreamData?.description
+        val currentTags = activeStreamData?.relatedVideos?.flatMap { it.tags }
+        val currentProvider = providerId ?: activeStreamData?.providerId
+
+        val isMusic = com.example.util.PlaybackPreferences.isMusicMedia(
+            title = currentTitle,
+            uploaderName = currentUploader,
+            description = currentDesc,
+            tags = currentTags,
+            providerId = currentProvider
+        )
+        isMusicTrackDetected = isMusic
+
+        val targetSpeed = playbackPrefs.getEffectiveSpeed(isMusic)
+        playbackSpeed = targetSpeed
+        GlobalPlayerManager.setPlaybackSpeed(targetSpeed)
+    }
 
     // Gesture Controls State
     var brightnessLevel by remember { mutableFloatStateOf(0.7f) }
@@ -182,8 +209,6 @@ fun UniversalVideoPlayer(
     } else {
         modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 4.dp)
-            .clip(RoundedCornerShape(16.dp))
             .aspectRatio(16f / 9f)
             .background(Color.Black)
     }
@@ -563,85 +588,132 @@ fun UniversalVideoPlayer(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // YouTube Style Top Right Control Toolbar
+                // Top Header (Title + Actions Toolbar)
                 AnimatedVisibility(
                     visible = areControlsVisible,
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.85f),
+                                    Color.Black.copy(alpha = 0.45f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 16.dp)
                 ) {
+                    val currentDisplayTitle = activeStreamData?.title?.takeIf { it.isNotBlank() }
+                        ?: streamOption?.qualityLabel?.takeIf { it.isNotBlank() && !it.contains("http") }
+                        ?: "Playing Video"
+                    val currentUploader = activeStreamData?.channelName?.takeIf { it.isNotBlank() }
+
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Quick Playback Speed Button / Badge
-                        Surface(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                showSpeedSubMenu = true
-                                showSettingsSheet = true
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            contentColor = Color.White
+                        // Title + Channel Name Display
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Speed,
-                                    contentDescription = "Playback Speed",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                            Text(
+                                text = currentDisplayTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            if (!currentUploader.isNullOrBlank()) {
                                 Text(
-                                    text = if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    text = currentUploader,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
 
-                        // Settings Gear Icon
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                showSpeedSubMenu = false
-                                showSettingsSheet = true
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                        // Right-side actions (Speed, Settings, Fullscreen)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Player Settings",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                            // Quick Playback Speed Button / Badge
+                            Surface(
+                                onClick = {
+                                    GlobalPlayerManager.showControls()
+                                    showSpeedSubMenu = true
+                                    showSettingsSheet = true
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                contentColor = Color.White
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Speed,
+                                        contentDescription = "Playback Speed",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
 
-                        // Fullscreen Toggle Icon
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                toggleFullscreen(currentPlayerContext)
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = "Toggle Fullscreen",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            // Settings Gear Icon
+                            IconButton(
+                                onClick = {
+                                    GlobalPlayerManager.showControls()
+                                    showSpeedSubMenu = false
+                                    showSettingsSheet = true
+                                },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Player Settings",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            // Fullscreen Toggle Icon
+                            IconButton(
+                                onClick = {
+                                    GlobalPlayerManager.showControls()
+                                    toggleFullscreen(currentPlayerContext)
+                                },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = "Toggle Fullscreen",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -745,40 +817,106 @@ fun UniversalVideoPlayer(
                             }
                         }
                     } else if (showSpeedSubMenu) {
-                        // Playback Speed Selector List
-                        speedOptions.forEach { speed ->
-                            val isSelected = (playbackSpeed == speed)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        playbackSpeed = speed
-                                        GlobalPlayerManager.setPlaybackSpeed(speed)
-                                        Toast.makeText(
-                                            context,
-                                            "Playback speed set to ${if (speed == 1.0f) "Normal" else "${speed}x"}",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                        showSpeedSubMenu = false
-                                        showSettingsSheet = false
+                        // Playback Speed Selector List & Custom Input
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isMusicTrackDetected && playbackPrefs.disableSpeedForMusic.collectAsState().value) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "🎵 Music video detected — Automatically playing at 1.0× speed",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
                                     }
-                                    .padding(vertical = 14.dp, horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                }
+                            }
+
+                            // Custom Speed Input Field
+                            var inputVal by remember { mutableStateOf("") }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = if (speed == 1.0f) "Normal (1.0x)" else "${speed}x",
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
-                                )
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
+                                OutlinedTextField(
+                                    value = inputVal,
+                                    onValueChange = { inputVal = it },
+                                    placeholder = { Text("Custom speed e.g. 1.35, 5, 8", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = Color.Gray
                                     )
+                                )
+                                Button(
+                                    onClick = {
+                                        val parsed = inputVal.toFloatOrNull()
+                                        if (parsed != null && parsed >= 0.1f && parsed <= 16.0f) {
+                                            playbackSpeed = parsed
+                                            GlobalPlayerManager.setPlaybackSpeed(parsed)
+                                            Toast.makeText(context, "Speed set to ${parsed}x", Toast.LENGTH_SHORT).show()
+                                            showSpeedSubMenu = false
+                                            showSettingsSheet = false
+                                        } else {
+                                            Toast.makeText(context, "Enter speed between 0.1x and 16x", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Text("Apply", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+
+                            // Presets
+                            speedOptions.forEach { speed ->
+                                val isSelected = (playbackSpeed == speed)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            playbackSpeed = speed
+                                            GlobalPlayerManager.setPlaybackSpeed(speed)
+                                            Toast.makeText(
+                                                context,
+                                                "Playback speed set to ${if (speed == 1.0f) "Normal" else "${speed}x"}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            showSpeedSubMenu = false
+                                            showSettingsSheet = false
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (speed == 1.0f) "Normal (1.0x)" else "${speed}x",
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

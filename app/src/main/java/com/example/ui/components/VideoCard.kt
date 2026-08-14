@@ -41,6 +41,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,10 +83,14 @@ fun VideoCard(
     onDownload: ((VideoItem) -> Unit)? = null,
     onShare: ((VideoItem) -> Unit)? = null,
     onNotInterested: ((VideoItem) -> Unit)? = null,
-    onReport: ((VideoItem) -> Unit)? = null
+    onReport: ((VideoItem) -> Unit)? = null,
+    onChannelClick: ((String) -> Unit)? = null
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val videoTagPrefs = remember { com.example.util.VideoTagPreferences.getInstance(context) }
+    val hideAllTags by videoTagPrefs.hideAllTags.collectAsState()
+    val hiddenTags by videoTagPrefs.hiddenTags.collectAsState()
 
     val seriesPillText = remember(video.title, video.uploadDate, video.id, video.providerId) {
         com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate, video.providerId)
@@ -121,14 +126,7 @@ fun VideoCard(
     }
 
     val thumbnailImageRequest = remember(video.thumbnailUrl) {
-        if (!video.thumbnailUrl.isNullOrEmpty()) {
-            ImageRequest.Builder(context)
-                .data(video.thumbnailUrl)
-                .crossfade(false)
-                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                .build()
-        } else null
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 100)
     }
 
     Card(
@@ -205,7 +203,11 @@ fun VideoCard(
                     )
                 }
 
-                if (!video.providerId.isNullOrEmpty()) {
+                val isTagVisible = remember(hideAllTags, hiddenTags, providerBadgeInfo.first) {
+                    videoTagPrefs.isTagVisible(providerBadgeInfo.first)
+                }
+
+                if (!video.providerId.isNullOrEmpty() && isTagVisible) {
                     Text(
                         text = providerBadgeInfo.first,
                         color = Color.White,
@@ -253,11 +255,20 @@ fun VideoCard(
                     com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl, video.title)
                 }
 
+                val targetChannelName = remember(video.uploaderName, brandInfo.brandName) {
+                    if (video.uploaderName.isBlank() || video.uploaderName.lowercase().contains("tv network") || video.uploaderName == "T") brandInfo.brandName else video.uploaderName
+                }
+
                 Box(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(brandInfo.backgroundColor),
+                        .background(brandInfo.backgroundColor)
+                        .then(
+                            if (onChannelClick != null && targetChannelName.isNotBlank()) {
+                                Modifier.clickable { onChannelClick(targetChannelName) }
+                            } else Modifier
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (brandInfo.logoUrls.isNotEmpty()) {
@@ -310,13 +321,16 @@ fun VideoCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = if (video.uploaderName.isBlank() || video.uploaderName.lowercase().contains("tv network") || video.uploaderName == "T") brandInfo.brandName else video.uploaderName,
+                        text = targetChannelName,
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (onChannelClick != null && targetChannelName.isNotBlank()) {
+                            Modifier.clickable { onChannelClick(targetChannelName) }
+                        } else Modifier
                     )
 
                     Spacer(modifier = Modifier.height(2.dp))

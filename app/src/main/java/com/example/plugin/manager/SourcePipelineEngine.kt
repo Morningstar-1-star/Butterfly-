@@ -97,7 +97,10 @@ class SourcePipelineEngine(
             for (vStream in streamInfo.videoStreams) {
                 rawStreamsWithProvider.add(Pair(provider, vStream))
             }
-            if (streamInfo.videoStreams.isEmpty() && streamInfo.url.isNotBlank()) {
+            if (streamInfo.videoStreams.isEmpty() && streamInfo.url.isNotBlank() &&
+                !streamInfo.url.contains("youtube.com/watch", ignoreCase = true) &&
+                !streamInfo.url.contains("youtu.be/", ignoreCase = true)
+            ) {
                 rawStreamsWithProvider.add(
                     Pair(
                         provider,
@@ -239,10 +242,9 @@ class SourcePipelineEngine(
             playable.add(Pair(option, score))
         }
 
-        // Query YtDlpResolver if no streams were found or if the input is a direct YouTube link
+        // Query YtDlpResolver as a fallback only if no streams were found from standard providers
         val ctx = context ?: com.example.plugin.providers.ArchiveOrgProvider.contextRef
-        val isDirectYouTube = com.example.extractor.YtDlpResolver.isYouTubeUrl(idOrUrl) || Regex("^[a-zA-Z0-9_-]{11}$").matches(idOrUrl.trim())
-        if (ctx != null && (playable.isEmpty() || isDirectYouTube) && com.example.extractor.YtDlpResolver.isYtDlpSupportedUrl(idOrUrl)) {
+        if (ctx != null && playable.isEmpty() && com.example.extractor.YtDlpResolver.isYtDlpSupportedUrl(idOrUrl)) {
             try {
                 when (val ytRes = com.example.extractor.YtDlpResolver.extractStreamInfo(ctx, idOrUrl)) {
                     is com.example.extractor.YtDlpResolver.ExtractionResult.Success -> {

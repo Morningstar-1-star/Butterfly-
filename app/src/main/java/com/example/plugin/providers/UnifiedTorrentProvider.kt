@@ -49,6 +49,7 @@ class UnifiedTorrentProvider(
     }
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        val currentPage = pageToken?.toIntOrNull() ?: 1
         coroutineScope {
             val jobs = subProviders.map { provider ->
                 async {
@@ -65,13 +66,14 @@ class UnifiedTorrentProvider(
             val deduplicated = results.distinctBy { it.id.lowercase() }.map { it.copy(providerId = providerId) }
             PagedResult(
                 items = deduplicated,
-                nextPageToken = pageToken,
+                nextPageToken = if (deduplicated.isNotEmpty()) (currentPage + 1).toString() else null,
                 hasMore = deduplicated.isNotEmpty()
             )
         }
     }
 
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        val currentPage = pageToken?.toIntOrNull() ?: 1
         coroutineScope {
             val jobs = subProviders.map { provider ->
                 async {
@@ -88,7 +90,7 @@ class UnifiedTorrentProvider(
             val deduplicated = results.distinctBy { it.id.lowercase() }.map { it.copy(providerId = providerId) }
             PagedResult(
                 items = deduplicated,
-                nextPageToken = pageToken,
+                nextPageToken = if (deduplicated.isNotEmpty()) (currentPage + 1).toString() else null,
                 hasMore = deduplicated.isNotEmpty()
             )
         }

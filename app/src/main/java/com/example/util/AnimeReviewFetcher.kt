@@ -174,8 +174,8 @@ object AnimeReviewFetcher {
                         authorAvatarUrl = avatarUrl,
                         commentText = cleanBody.ifBlank { summary },
                         timeAgo = dateStr,
-                        likeCount = node.optInt("rating", (10..500).random()),
-                        dislikeCount = (1..30).random(),
+                        likeCount = node.optInt("rating", 0),
+                        dislikeCount = 0,
                         rating = ratingVal,
                         ratingText = ratingText,
                         reviewTitle = if (summary.isNotBlank()) summary else extractHeadline(cleanBody, animeTitle),
@@ -239,7 +239,7 @@ object AnimeReviewFetcher {
                 val cleanText = stripMarkdownAndHtml(rawReviewText)
                 val score = item.optInt("score", 0)
                 val isSpoiler = item.optBoolean("is_spoiler", false)
-                val votes = item.optInt("votes", (5..300).random())
+                val votes = item.optInt("votes", 0)
                 val dateStr = formatDateFromIso(item.optString("date", ""))
 
                 val userObj = item.optJSONObject("user")
@@ -263,7 +263,7 @@ object AnimeReviewFetcher {
                         commentText = cleanText,
                         timeAgo = dateStr,
                         likeCount = votes,
-                        dislikeCount = (1..25).random(),
+                        dislikeCount = 0,
                         rating = if (score > 0) score.toFloat() else null,
                         ratingText = if (score > 0) "$score/10" else null,
                         reviewTitle = headline,

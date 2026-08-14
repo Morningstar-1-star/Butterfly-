@@ -1,6 +1,7 @@
 package com.example.util
 
 import androidx.compose.ui.graphics.Color
+import kotlin.math.abs
 
 data class BrandLogoInfo(
     val logoUrls: List<String>,
@@ -8,60 +9,59 @@ data class BrandLogoInfo(
     val brandShortText: String,
     val backgroundColor: Color,
     val textColor: Color,
-    val subscriberCountText: String = "48.5M subscribers"
+    val subscriberCountText: String = "Verified Channel"
 )
 
 object ChannelLogoHelper {
 
+    private val AVATAR_PALETTE = listOf(
+        Pair(Color(0xFFE50914), Color.White), // Red
+        Pair(Color(0xFF0078D4), Color.White), // Blue
+        Pair(Color(0xFF107C41), Color.White), // Green
+        Pair(Color(0xFF673AB7), Color.White), // Deep Purple
+        Pair(Color(0xFFFF6F00), Color.White), // Orange
+        Pair(Color(0xFFD81B60), Color.White), // Pink
+        Pair(Color(0xFF00838F), Color.White), // Cyan
+        Pair(Color(0xFF283593), Color.White), // Indigo
+        Pair(Color(0xFF4E342E), Color.White), // Brown
+        Pair(Color(0xFF37474F), Color.White)  // Blue Grey
+    )
+
     fun getBrandInfo(uploaderName: String?, rawAvatarUrl: String?, videoTitle: String? = null): BrandLogoInfo {
+        val cleanName = when {
+            uploaderName.isNullOrBlank() -> "Official Creator"
+            uploaderName.trim().lowercase() == "tv network" -> "Verified Studio"
+            else -> uploaderName.trim()
+        }
+
+        // If a real remote avatar URL is provided, respect it completely
         if (!rawAvatarUrl.isNullOrEmpty() && (rawAvatarUrl.startsWith("http://") || rawAvatarUrl.startsWith("https://"))) {
             return BrandLogoInfo(
                 logoUrls = listOf(rawAvatarUrl),
-                brandName = uploaderName ?: "Channel",
-                brandShortText = (uploaderName ?: "C").take(2).uppercase(),
+                brandName = cleanName,
+                brandShortText = getInitials(cleanName),
                 backgroundColor = Color(0xFF1E212A),
-                textColor = Color.White
+                textColor = Color.White,
+                subscriberCountText = "Verified Channel"
             )
         }
 
-        val name = uploaderName?.lowercase()?.trim() ?: ""
+        val name = cleanName.lowercase()
         val title = videoTitle?.lowercase()?.trim() ?: ""
         val combined = "$name $title"
 
         return when {
+            // Major Movie / TV Studios
             combined.contains("house of the dragon") || combined.contains("game of thrones") || combined.contains("last of us") || combined.contains("hbo") || combined.contains("euphoria") || combined.contains("succession") || combined.contains("white lotus") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/200px-HBO_logo.svg.png",
                     "https://image.tmdb.org/t/p/w200/qq2330a108a.png"
                 ),
-                brandName = "HBO",
+                brandName = "HBO Max",
                 brandShortText = "HBO",
                 backgroundColor = Color(0xFF000000),
                 textColor = Color.White,
                 subscriberCountText = "48.5M subscribers"
-            )
-
-            combined.contains("chernin") || combined.contains("last house") || combined.contains("planet of the apes") || combined.contains("ford v ferrari") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://image.tmdb.org/t/p/w200/42133.png",
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Universal_Pictures_logo_2012.svg/200px-Universal_Pictures_logo_2012.svg.png"
-                ),
-                brandName = "Chernin Entertainment",
-                brandShortText = "CHERNIN",
-                backgroundColor = Color(0xFF12141A),
-                textColor = Color.White,
-                subscriberCountText = "12.4M subscribers"
-            )
-
-            combined.contains("evil dead") || combined.contains("new line") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Warner_Bros_logo.svg/200px-Warner_Bros_logo.svg.png"
-                ),
-                brandName = "New Line Cinema",
-                brandShortText = "NEW LINE",
-                backgroundColor = Color(0xFF002B49),
-                textColor = Color(0xFFFFD700),
-                subscriberCountText = "18.2M subscribers"
             )
 
             combined.contains("marvel") || combined.contains("avengers") || combined.contains("spider-man") || combined.contains("loki") || combined.contains("wandavision") -> BrandLogoInfo(
@@ -69,7 +69,7 @@ object ChannelLogoHelper {
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Marvel_Logo.svg/200px-Marvel_Logo.svg.png",
                     "https://image.tmdb.org/t/p/w200/420.png"
                 ),
-                brandName = "Marvel Studios",
+                brandName = if (name.contains("marvel")) cleanName else "Marvel Studios",
                 brandShortText = "MARVEL",
                 backgroundColor = Color(0xFFE50914),
                 textColor = Color.White,
@@ -80,7 +80,7 @@ object ChannelLogoHelper {
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Pixar_Animation_Studios_logo.svg/200px-Pixar_Animation_Studios_logo.svg.png"
                 ),
-                brandName = "Pixar",
+                brandName = if (name.contains("pixar")) cleanName else "Pixar",
                 brandShortText = "PIXAR",
                 backgroundColor = Color(0xFF003366),
                 textColor = Color.White,
@@ -91,7 +91,7 @@ object ChannelLogoHelper {
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/DC_Comics_logo.svg/200px-DC_Comics_logo.svg.png"
                 ),
-                brandName = "DC Comics",
+                brandName = if (name.contains("dc")) cleanName else "DC Comics",
                 brandShortText = "DC",
                 backgroundColor = Color(0xFF0078D4),
                 textColor = Color.White,
@@ -102,62 +102,29 @@ object ChannelLogoHelper {
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/200px-Disney%2B_logo.svg.png"
                 ),
-                brandName = "Disney+",
+                brandName = if (name.contains("disney")) cleanName else "Disney+",
                 brandShortText = "DISNEY",
                 backgroundColor = Color(0xFF113CCF),
                 textColor = Color.White,
                 subscriberCountText = "52.0M subscribers"
             )
 
-            combined.contains("universal") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Universal_Pictures_logo_2012.svg/200px-Universal_Pictures_logo_2012.svg.png"
-                ),
-                brandName = "Universal Pictures",
-                brandShortText = "UNI",
-                backgroundColor = Color(0xFF0D1B2A),
-                textColor = Color.White,
-                subscriberCountText = "19.5M subscribers"
-            )
-
             combined.contains("warner") || combined.contains("wb") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Warner_Bros_logo.svg/200px-Warner_Bros_logo.svg.png"
                 ),
-                brandName = "Warner Bros",
+                brandName = if (name.contains("warner")) cleanName else "Warner Bros",
                 brandShortText = "WB",
                 backgroundColor = Color(0xFF002B49),
                 textColor = Color(0xFFFFD700),
                 subscriberCountText = "28.9M subscribers"
             )
 
-            combined.contains("sony") || combined.contains("columbia") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Sony_Pictures_Entertainment_logo.svg/200px-Sony_Pictures_Entertainment_logo.svg.png"
-                ),
-                brandName = "Sony Pictures",
-                brandShortText = "SONY",
-                backgroundColor = Color(0xFF000000),
-                textColor = Color.White,
-                subscriberCountText = "14.2M subscribers"
-            )
-
-            combined.contains("paramount") || combined.contains("yellowstone") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Paramount_Pictures_2022.svg/200px-Paramount_Pictures_2022.svg.png"
-                ),
-                brandName = "Paramount+",
-                brandShortText = "PARA",
-                backgroundColor = Color(0xFF0033A0),
-                textColor = Color.White,
-                subscriberCountText = "16.7M subscribers"
-            )
-
             combined.contains("netflix") || combined.contains("stranger things") || combined.contains("squid game") || combined.contains("wednesday") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/200px-Netflix_2015_logo.svg.png"
                 ),
-                brandName = "Netflix",
+                brandName = if (name.contains("netflix")) cleanName else "Netflix",
                 brandShortText = "NETFLIX",
                 backgroundColor = Color(0xFFE50914),
                 textColor = Color.White,
@@ -168,73 +135,135 @@ object ChannelLogoHelper {
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Apple_TV_Plus_Logo.svg/200px-Apple_TV_Plus_Logo.svg.png"
                 ),
-                brandName = "Apple TV+",
+                brandName = if (name.contains("apple")) cleanName else "Apple TV+",
                 brandShortText = "APPLE",
                 backgroundColor = Color(0xFF222222),
                 textColor = Color.White,
                 subscriberCountText = "11.1M subscribers"
             )
 
-            combined.contains("amazon") || combined.contains("the boys") || combined.contains("reacher") || combined.contains("fallout") -> BrandLogoInfo(
+            combined.contains("amazon") || combined.contains("prime video") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Prime_Video.png/200px-Prime_Video.png"
                 ),
-                brandName = "Amazon MGM Studios",
+                brandName = if (name.contains("amazon") || name.contains("prime")) cleanName else "Prime Video",
                 brandShortText = "PRIME",
                 backgroundColor = Color(0xFF00A8E1),
                 textColor = Color.White,
                 subscriberCountText = "25.3M subscribers"
             )
 
-            combined.contains("amc") || combined.contains("breaking bad") || combined.contains("better call saul") || combined.contains("walking dead") -> BrandLogoInfo(
+            // Internet Archive / Public Domain
+            combined.contains("archive.org") || combined.contains("internet archive") || combined.contains("prelinger") || combined.contains("librivox") -> BrandLogoInfo(
                 logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/AMC_logo.svg/200px-AMC_logo.svg.png"
+                    "https://archive.org/images/ia-logo.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Internet_Archive_logo_and_wordmark.svg/200px-Internet_Archive_logo_and_wordmark.svg.png"
                 ),
-                brandName = "AMC Networks",
-                brandShortText = "AMC",
+                brandName = cleanName,
+                brandShortText = "ARCHIVE",
+                backgroundColor = Color(0xFF333333),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "Public Library • Free Access"
+            )
+
+            // Adult Studios & Channels
+            combined.contains("sislovesme") || combined.contains("sis loves me") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = "SisLovesMe",
+                brandShortText = "SLM",
+                backgroundColor = Color(0xFFFF4081),
+                textColor = Color.White,
+                subscriberCountText = "Official Studio • Verified"
+            )
+
+            combined.contains("brazzers") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = "Brazzers",
+                brandShortText = "ZZ",
+                backgroundColor = Color(0xFFFFB300),
+                textColor = Color.Black,
+                subscriberCountText = "Official Studio • Verified"
+            )
+
+            combined.contains("reality kings") || combined.contains("realitykings") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = "Reality Kings",
+                brandShortText = "RK",
+                backgroundColor = Color(0xFFE91E63),
+                textColor = Color.White,
+                subscriberCountText = "Official Studio • Verified"
+            )
+
+            combined.contains("familystrokes") || combined.contains("family strokes") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = "Family Strokes",
+                brandShortText = "FS",
+                backgroundColor = Color(0xFF9C27B0),
+                textColor = Color.White,
+                subscriberCountText = "Official Studio • Verified"
+            )
+
+            combined.contains("blacked") || combined.contains("vixen") || combined.contains("tushy") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = cleanName,
+                brandShortText = cleanName.take(3).uppercase(),
+                backgroundColor = Color(0xFF212121),
+                textColor = Color.White,
+                subscriberCountText = "Official Channel • Verified"
+            )
+
+            combined.contains("pornhub") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Pornhub-logo.svg/200px-Pornhub-logo.svg.png"),
+                brandName = cleanName,
+                brandShortText = "PH",
                 backgroundColor = Color(0xFF222222),
-                textColor = Color.White,
-                subscriberCountText = "15.0M subscribers"
+                textColor = Color(0xFFFF9900),
+                subscriberCountText = "Verified Channel"
             )
 
-            combined.contains("flex x cop") || combined.contains("sbs") || combined.contains("k drama") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/BBC_Logo_2021.svg/200px-BBC_Logo_2021.svg.png"
-                ),
-                brandName = "SBS Drama",
-                brandShortText = "SBS",
-                backgroundColor = Color(0xFF005BAC),
+            combined.contains("eporner") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = cleanName,
+                brandShortText = "EP",
+                backgroundColor = Color(0xFF1E88E5),
                 textColor = Color.White,
-                subscriberCountText = "8.9M subscribers"
+                subscriberCountText = "HD Creator Network"
             )
 
-            combined.contains("white fox") || combined.contains("ghibli") || combined.contains("toei") ||
-            combined.contains("mappa") || combined.contains("aniplex") || combined.contains("madhouse") ||
-            combined.contains("anime") || combined.contains("jikan") || combined.contains("nyaa") ||
-            combined.contains("gintama") || combined.contains("naruto") || combined.contains("jujutsu") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/Studio_Ghibli_logo.svg/200px-Studio_Ghibli_logo.svg.png"
-                ),
-                brandName = if (uploaderName.isNullOrBlank() || uploaderName.lowercase().contains("tv network")) "Tokyo TV / Anime" else uploaderName,
-                brandShortText = "ANIME",
-                backgroundColor = Color(0xFF673AB7),
+            combined.contains("dailymotion") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Dailymotion_logo_%282015%29.svg/200px-Dailymotion_logo_%282015%29.svg.png"),
+                brandName = cleanName,
+                brandShortText = "DM",
+                backgroundColor = Color(0xFF0066DC),
                 textColor = Color.White,
-                subscriberCountText = "21.4M subscribers"
+                subscriberCountText = "Official Partner"
             )
 
+            // Dynamic Hash-derived branding for any YouTube channel / general creator
             else -> {
-                val displayName = if (uploaderName.isNullOrBlank() || uploaderName.lowercase().contains("tv network")) "HBO / Warner Studios" else uploaderName
+                val hash = abs(cleanName.hashCode())
+                val palette = AVATAR_PALETTE[hash % AVATAR_PALETTE.size]
+                val initials = getInitials(cleanName)
+
                 BrandLogoInfo(
-                    logoUrls = listOf(
-                        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/200px-HBO_logo.svg.png"
-                    ),
-                    brandName = displayName,
-                    brandShortText = displayName.take(3).uppercase(),
-                    backgroundColor = Color(0xFF1E212A),
-                    textColor = Color(0xFFFFC107),
-                    subscriberCountText = "14.5M subscribers"
+                    logoUrls = emptyList(),
+                    brandName = cleanName,
+                    brandShortText = initials,
+                    backgroundColor = palette.first,
+                    textColor = palette.second,
+                    subscriberCountText = "Verified Creator"
                 )
             }
         }
     }
+
+    private fun getInitials(name: String): String {
+        val words = name.trim().split(Regex("[\\s•/_-]+")).filter { it.isNotBlank() }
+        return when {
+            words.isEmpty() -> "C"
+            words.size == 1 -> words[0].take(2).uppercase()
+            else -> "${words[0].first().uppercaseChar()}${words[1].first().uppercaseChar()}"
+        }
+    }
 }
+

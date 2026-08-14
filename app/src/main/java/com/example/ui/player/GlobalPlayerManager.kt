@@ -48,8 +48,14 @@ object GlobalPlayerManager {
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
+    private val _bufferedPositionMs = MutableStateFlow(0L)
+    val bufferedPositionMs: StateFlow<Long> = _bufferedPositionMs.asStateFlow()
+
     private val _progressFraction = MutableStateFlow(0f)
     val progressFraction: StateFlow<Float> = _progressFraction.asStateFlow()
+
+    private val _bufferedFraction = MutableStateFlow(0f)
+    val bufferedFraction: StateFlow<Float> = _bufferedFraction.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -185,17 +191,30 @@ object GlobalPlayerManager {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _isPlaying.value = playing
                     if (playing) {
-                        // Fallback trigger if surface didn't emit onRenderedFirstFrame
                         _firstFrameRendered.value = true
                     }
+                    updatePlayerPositions(player)
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
                     _isPlaying.value = player.isPlaying
+                    updatePlayerPositions(player)
                     if (state == Player.STATE_ENDED) {
                         _isPlaying.value = false
                         _playbackEnded.value = true
                     }
+                }
+
+                override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                    updatePlayerPositions(player)
+                }
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int
+                ) {
+                    updatePlayerPositions(player)
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -212,24 +231,30 @@ object GlobalPlayerManager {
         }
     }
 
+    private fun updatePlayerPositions(player: ExoPlayer) {
+        val cur = player.currentPosition
+        val dur = player.duration
+        val buf = player.bufferedPosition
+        if (dur > 0 && cur >= 0) {
+            _currentPositionMs.value = cur
+            _durationMs.value = dur
+            _bufferedPositionMs.value = buf.coerceAtLeast(cur)
+            _progressFraction.value = (cur.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+            _bufferedFraction.value = (buf.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+        } else if (cur >= 0) {
+            _currentPositionMs.value = cur
+        }
+    }
+
     private fun startProgressTracker() {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
             while (isActive) {
                 val player = exoPlayerInstance
-                if (player != null && player.isPlaying) {
-                    val cur = player.currentPosition
-                    val dur = player.duration
-                    if (dur > 0 && cur >= 0) {
-                        _currentPositionMs.value = cur
-                        _durationMs.value = dur
-                        val newFrac = (cur.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
-                        if (kotlin.math.abs(_progressFraction.value - newFrac) >= 0.005f) {
-                            _progressFraction.value = newFrac
-                        }
-                    }
+                if (player != null) {
+                    updatePlayerPositions(player)
                 }
-                delay(500)
+                delay(150)
             }
         }
     }
@@ -350,14 +375,23 @@ object GlobalPlayerManager {
                                 defaultHeaders["Origin"] = "https://www.youtube.com"
                             }
                         }
-                        lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") -> {
+                        lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") || lowerTarget.contains("cdndirector") -> {
                             defaultHeaders["Referer"] = "https://www.dailymotion.com/"
+                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                defaultHeaders["Origin"] = "https://www.dailymotion.com"
+                            }
                         }
                         lowerTarget.contains("archive.org") -> {
                             defaultHeaders["Referer"] = "https://archive.org/"
                         }
-                        lowerTarget.contains("pornhub.com") -> {
+                        lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
                             defaultHeaders["Referer"] = "https://www.pornhub.com/"
+                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                defaultHeaders["Origin"] = "https://www.pornhub.com"
+                            }
+                            if (!defaultHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                                defaultHeaders["Cookie"] = "age_verified=1"
+                            }
                         }
                         lowerTarget.contains("eporner.com") -> {
                             defaultHeaders["Referer"] = "https://www.eporner.com/"
@@ -374,6 +408,12 @@ object GlobalPlayerManager {
                         lowerTarget.contains("vimeo.com") -> {
                             defaultHeaders["Referer"] = "https://vimeo.com/"
                         }
+                        lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
+                            defaultHeaders["Referer"] = "https://upload18.org/"
+                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                defaultHeaders["Origin"] = "https://upload18.org"
+                            }
+                        }
                     }
                 }
 
@@ -383,44 +423,77 @@ object GlobalPlayerManager {
 
                 val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
 
+                fun buildMediaItem(
+                    url: String,
+                    format: String? = null,
+                    subtitles: List<MediaItem.SubtitleConfiguration> = emptyList()
+                ): MediaItem {
+                    val uri = Uri.parse(url)
+                    val lowerUrl = url.lowercase()
+                    val lowerFormat = format?.lowercase()
+
+                    val builder = MediaItem.Builder().setUri(uri)
+
+                    if (lowerFormat == "hls" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
+                        builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                    } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
+                        builder.setMimeType(MimeTypes.APPLICATION_MPD)
+                    } else if (lowerFormat == "mp4" || lowerUrl.contains(".mp4")) {
+                        builder.setMimeType(MimeTypes.APPLICATION_MP4)
+                    }
+
+                    if (subtitles.isNotEmpty()) {
+                        builder.setSubtitleConfigurations(subtitles)
+                    }
+
+                    return builder.build()
+                }
+
                 var mediaSourceSet = false
                 if (streamOption != null) {
                     val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
                     val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
 
+                    val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+                    if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
+                        val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(captionOption.url))
+                            .setMimeType(MimeTypes.TEXT_VTT)
+                            .setLanguage(captionOption.languageCode)
+                            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                            .build()
+                        subtitleConfigs.add(subtitleConfig)
+                    }
+
                     if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
-                        val builder = MediaItem.Builder().setUri(Uri.parse(vUrl))
-                        if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
-                            val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(captionOption.url))
-                                .setMimeType(MimeTypes.TEXT_VTT)
-                                .setLanguage(captionOption.languageCode)
-                                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                                .build()
-                            builder.setSubtitleConfigurations(listOf(subtitleConfig))
-                        }
-                        val mediaSource = mediaSourceFactory.createMediaSource(builder.build())
+                        val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
+                        val mediaSource = mediaSourceFactory.createMediaSource(item)
                         player.setMediaSource(mediaSource)
                         mediaSourceSet = true
                     } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
-                        val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
-                        val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(aUrl)))
+                        val videoItem = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
+                        val audioItem = buildMediaItem(aUrl)
+                        val videoSource = mediaSourceFactory.createMediaSource(videoItem)
+                        val audioSource = mediaSourceFactory.createMediaSource(audioItem)
 
                         val mergedSource = MergingMediaSource(videoSource, audioSource)
                         player.setMediaSource(mergedSource)
                         mediaSourceSet = true
                     } else if (!vUrl.isNullOrEmpty()) {
-                        val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(vUrl)))
+                        val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
+                        val mediaSource = mediaSourceFactory.createMediaSource(item)
                         player.setMediaSource(mediaSource)
                         mediaSourceSet = true
                     }
                 }
 
                 if (!mediaSourceSet && !hlsUrl.isNullOrEmpty()) {
-                    val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(hlsUrl)))
+                    val item = buildMediaItem(hlsUrl, "hls")
+                    val mediaSource = mediaSourceFactory.createMediaSource(item)
                     player.setMediaSource(mediaSource)
                     mediaSourceSet = true
                 } else if (!mediaSourceSet && !rawUrl.isNullOrEmpty()) {
-                    val mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(rawUrl)))
+                    val item = buildMediaItem(rawUrl, streamOption?.format)
+                    val mediaSource = mediaSourceFactory.createMediaSource(item)
                     player.setMediaSource(mediaSource)
                     mediaSourceSet = true
                 }
@@ -466,7 +539,13 @@ object GlobalPlayerManager {
     }
 
     fun seekTo(positionMs: Long) {
-        exoPlayerInstance?.seekTo(positionMs.coerceAtLeast(0L))
+        val target = positionMs.coerceAtLeast(0L)
+        exoPlayerInstance?.seekTo(target)
+        _currentPositionMs.value = target
+        val dur = _durationMs.value
+        if (dur > 0) {
+            _progressFraction.value = (target.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {

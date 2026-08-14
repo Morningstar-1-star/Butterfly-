@@ -15,10 +15,16 @@ import kotlinx.coroutines.launch
 
 class MainApplication : Application() {
 
+    companion object {
+        lateinit var appContext: Application
+            private set
+    }
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
+        appContext = this
 
         // Configure high-performance Coil ImageLoader for 120 FPS smooth scrolling
         val imageLoader = ImageLoader.Builder(this)

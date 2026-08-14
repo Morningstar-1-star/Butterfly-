@@ -14,7 +14,7 @@ class DailymotionProvider(
 
     override val providerId: String = "dailymotion"
 
-    private val fields = "id,title,owner,owner.username,owner.avatar_360_url,views_total,created_time,thumbnail_720_url,duration"
+    private val fields = "id,title,description,owner,owner.username,owner.screenname,owner.avatar_360_url,views_total,bookmarks_total,likes_total,created_time,thumbnail_720_url,duration"
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val page = pageToken?.toIntOrNull() ?: 1
@@ -40,13 +40,18 @@ class DailymotionProvider(
         val id = extractId(idOrUrl)
         val url = "https://api.dailymotion.com/video/$id?fields=$fields"
         val resp = http.get(url)
-        val json = JSONObject(resp.body)
+        val json = if (resp.statusCode == 200) JSONObject(resp.body) else JSONObject()
         val owner = json.optJSONObject("owner")
+        val uploaderScreen = owner?.optString("screenname")?.takeIf { it.isNotBlank() }
+        val uploaderUser = owner?.optString("username")?.takeIf { it.isNotBlank() }
+        val realUploader = uploaderScreen ?: uploaderUser ?: "Dailymotion Creator"
+        val realAvatar = owner?.optString("avatar_360_url")
+
         PluginVideoItem(
             id = json.optString("id", id),
             title = json.optString("title", "Dailymotion Video"),
-            uploaderName = owner?.optString("username") ?: "Dailymotion Creator",
-            uploaderAvatarUrl = owner?.optString("avatar_360_url"),
+            uploaderName = realUploader,
+            uploaderAvatarUrl = realAvatar,
             viewCount = json.optLong("views_total", 0),
             durationSeconds = json.optLong("duration", 0),
             uploadDate = json.optLong("created_time", 0).toString(),
@@ -57,21 +62,73 @@ class DailymotionProvider(
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
         val id = extractId(idOrUrl)
-        val metaUrl = "https://api.dailymotion.com/video/$id?fields=title,description,views_total,bookmarks_total"
-        val respMeta = http.get(metaUrl)
-        val jsonMeta = JSONObject(respMeta.body)
-        val title = jsonMeta.optString("title", "Dailymotion Video $id")
-        val description = jsonMeta.optString("description", "Dailymotion video stream")
+        var title = "Dailymotion Video $id"
+        var description = "Dailymotion video stream"
+        var channelName = "Dailymotion Creator"
+        var channelAvatarUrl: String? = null
+        var viewCount = 0L
+        var likeCount = 0L
+        var uploadDate = ""
+        var thumbnailUrl: String? = null
+
+        // 1. Fetch metadata from official API
+        try {
+            val metaUrl = "https://api.dailymotion.com/video/$id?fields=$fields"
+            val respMeta = http.get(metaUrl)
+            if (respMeta.statusCode == 200) {
+                val jsonMeta = JSONObject(respMeta.body)
+                title = jsonMeta.optString("title", title)
+                description = jsonMeta.optString("description", description)
+                val owner = jsonMeta.optJSONObject("owner")
+                val uploaderScreen = owner?.optString("screenname")?.takeIf { it.isNotBlank() }
+                val uploaderUser = owner?.optString("username")?.takeIf { it.isNotBlank() }
+                if (uploaderScreen != null || uploaderUser != null) {
+                    channelName = uploaderScreen ?: uploaderUser ?: "Dailymotion Creator"
+                }
+                channelAvatarUrl = owner?.optString("avatar_360_url")
+                viewCount = jsonMeta.optLong("views_total", 0)
+                likeCount = jsonMeta.optLong("likes_total", jsonMeta.optLong("bookmarks_total", 0))
+                val cTime = jsonMeta.optLong("created_time", 0)
+                if (cTime > 0) uploadDate = cTime.toString()
+                thumbnailUrl = jsonMeta.optString("thumbnail_720_url").takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            // Log/continue
+        }
 
         val streams = mutableListOf<PluginVideoStream>()
         var hlsManifestUrl: String? = null
 
-        // 1. Query player metadata JSON for direct HLS stream URL
+        // 2. Query player metadata JSON for direct HLS master stream URL
         try {
             val playerMetaUrl = "https://www.dailymotion.com/player/metadata/video/$id"
-            val pMetaResp = http.get(playerMetaUrl)
+            val pMetaResp = http.get(
+                url = playerMetaUrl,
+                headers = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Referer" to "https://www.dailymotion.com/video/$id",
+                    "Origin" to "https://www.dailymotion.com"
+                )
+            )
             if (pMetaResp.statusCode == 200) {
                 val pMetaJson = JSONObject(pMetaResp.body)
+                val metaTitle = pMetaJson.optString("title")
+                if (metaTitle.isNotBlank()) title = metaTitle
+
+                val ownerObj = pMetaJson.optJSONObject("owner")
+                if (ownerObj != null) {
+                    val sName = ownerObj.optString("screenname").takeIf { it.isNotBlank() }
+                    val uName = ownerObj.optString("username").takeIf { it.isNotBlank() }
+                    if (sName != null || uName != null) {
+                        channelName = sName ?: uName ?: channelName
+                    }
+                    val avatars = ownerObj.optJSONObject("avatars")
+                    val avUrl = avatars?.optString("360")?.takeIf { it.isNotBlank() }
+                        ?: avatars?.optString("60")?.takeIf { it.isNotBlank() }
+                        ?: ownerObj.optString("avatar_360_url").takeIf { it.isNotBlank() }
+                    if (avUrl != null) channelAvatarUrl = avUrl
+                }
+
                 val qualitiesObj = pMetaJson.optJSONObject("qualities")
                 val autoArr = qualitiesObj?.optJSONArray("auto")
                 if (autoArr != null && autoArr.length() > 0) {
@@ -81,11 +138,53 @@ class DailymotionProvider(
                         streams.add(
                             PluginVideoStream(
                                 url = m3u8,
-                                qualityLabel = "Auto HLS Stream",
+                                qualityLabel = "Auto (Adaptive HLS)",
                                 format = "hls",
                                 isMuxed = true
                             )
                         )
+
+                        // Also parse sub-qualities from the manifest for explicit resolution switching
+                        try {
+                            val manifestResp = http.get(
+                                url = m3u8,
+                                headers = mapOf(
+                                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                                    "Referer" to "https://www.dailymotion.com/video/$id",
+                                    "Origin" to "https://www.dailymotion.com"
+                                )
+                            )
+                            if (manifestResp.statusCode == 200 && manifestResp.body.isNotBlank()) {
+                                val lines = manifestResp.body.lines()
+                                for (i in lines.indices) {
+                                    val line = lines[i].trim()
+                                    if (line.startsWith("#EXT-X-STREAM-INF")) {
+                                        val nameMatch = java.util.regex.Pattern.compile("NAME=\"([^\"]+)\"").matcher(line)
+                                        val resMatch = java.util.regex.Pattern.compile("RESOLUTION=([0-9x]+)").matcher(line)
+                                        val label = if (nameMatch.find()) {
+                                            "${nameMatch.group(1)}p"
+                                        } else if (resMatch.find()) {
+                                            resMatch.group(1).split("x").lastOrNull()?.let { "${it}p" } ?: "HLS Stream"
+                                        } else {
+                                            "HLS Stream"
+                                        }
+                                        val nextUrl = lines.getOrNull(i + 1)?.trim()
+                                        if (!nextUrl.isNullOrBlank() && nextUrl.startsWith("http")) {
+                                            streams.add(
+                                                PluginVideoStream(
+                                                    url = nextUrl,
+                                                    qualityLabel = label,
+                                                    format = "hls",
+                                                    isMuxed = true
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            // Sub-quality parsing warning
+                        }
                     }
                 }
             }
@@ -93,7 +192,7 @@ class DailymotionProvider(
             // Player metadata fetch warning
         }
 
-        // 2. Fallback to YtDlpResolver if HLS is still missing
+        // 3. Fallback to YtDlpResolver if HLS is still missing
         if (streams.isEmpty()) {
             val ctx = com.example.plugin.providers.ArchiveOrgProvider.contextRef
             if (ctx != null) {
@@ -107,7 +206,7 @@ class DailymotionProvider(
                                     PluginVideoStream(
                                         url = vUrl,
                                         qualityLabel = opt.qualityLabel,
-                                        format = opt.format,
+                                        format = opt.format ?: "hls",
                                         isMuxed = opt.isMuxed
                                     )
                                 )
@@ -121,29 +220,26 @@ class DailymotionProvider(
             }
         }
 
-        // 3. Fallback to embed URL if still empty
-        if (streams.isEmpty()) {
-            val embedUrl = "https://www.dailymotion.com/embed/video/$id?autoplay=1"
-            streams.add(
-                PluginVideoStream(
-                    url = embedUrl,
-                    qualityLabel = "Embed Stream",
-                    format = "embed",
-                    isMuxed = true
-                )
-            )
-        }
+        val primaryPlayableUrl = streams.firstOrNull()?.url ?: hlsManifestUrl ?: "https://www.dailymotion.com/embed/video/$id?autoplay=1"
 
         PluginStreamInfo(
             id = id,
-            url = streams.firstOrNull()?.url ?: "https://www.dailymotion.com/video/$id",
+            url = primaryPlayableUrl,
             title = title,
-            channelName = "Dailymotion",
-            viewCount = jsonMeta.optLong("views_total", 0),
-            likeCount = jsonMeta.optLong("bookmarks_total", 0),
+            channelName = channelName,
+            channelAvatarUrl = channelAvatarUrl,
+            viewCount = viewCount,
+            likeCount = likeCount,
+            uploadDate = uploadDate,
+            thumbnailUrl = thumbnailUrl,
             description = description,
-            hlsUrl = hlsManifestUrl,
-            videoStreams = streams
+            hlsUrl = hlsManifestUrl ?: streams.firstOrNull { it.format == "hls" }?.url,
+            videoStreams = streams,
+            httpHeaders = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Referer" to "https://www.dailymotion.com/video/$id",
+                "Origin" to "https://www.dailymotion.com"
+            )
         )
     }
 

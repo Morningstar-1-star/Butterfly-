@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -25,6 +26,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +64,7 @@ fun HomeScreen(
     val isSearching by viewModel.isSearching.collectAsState()
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val isLoadingTrending by viewModel.isLoadingTrending.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val feedError by viewModel.feedError.collectAsState()
     val activeVideoId by viewModel.activeVideoId.collectAsState()
     val extractionResult by viewModel.extractionResult.collectAsState()
@@ -72,19 +76,49 @@ fun HomeScreen(
     val watchHistory by viewModel.watchHistory.collectAsState()
     val recommendedVideos by viewModel.recommendedVideos.collectAsState()
     val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
+    val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
+    val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
 
     val userProfile by viewModel.userProfile.collectAsState()
     val globalActiveStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
-    val hasShownGreeting by viewModel.hasShownGreeting.collectAsState()
-    var showGreetingText by remember { mutableStateOf(!hasShownGreeting) }
 
-    LaunchedEffect(hasShownGreeting) {
-        if (!hasShownGreeting) {
-            showGreetingText = true
-            kotlinx.coroutines.delay(3800)
-            showGreetingText = false
-            viewModel.markGreetingShown()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val currentOccasion = remember { com.example.ui.components.OccasionDetector.getCurrentOccasion() }
+    val (currentSlotKey, greetingText) = remember {
+        val istCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata"))
+        val hour = istCal.get(java.util.Calendar.HOUR_OF_DAY)
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+        }.format(istCal.time)
+        val (slot, greeting) = when (hour) {
+            in 5..11 -> "morning" to "Good Morning"
+            in 12..16 -> "afternoon" to "Good Afternoon"
+            in 17..20 -> "evening" to "Good Evening"
+            else -> "night" to "Good Night"
+        }
+        val finalGreeting = if (currentOccasion != com.example.ui.components.OccasionTheme.DEFAULT && currentOccasion.greetingTitle.isNotBlank()) {
+            currentOccasion.greetingTitle
+        } else {
+            greeting
+        }
+        "${dateStr}_$slot" to finalGreeting
+    }
+
+    var showGreetingOnTitle by remember {
+        val prefs = context.getSharedPreferences("butterfly_greeting_prefs", android.content.Context.MODE_PRIVATE)
+        val lastSlot = prefs.getString("last_shown_greeting_slot", "")
+        val shouldShow = (lastSlot != currentSlotKey)
+        if (shouldShow) {
+            prefs.edit().putString("last_shown_greeting_slot", currentSlotKey).apply()
+        }
+        mutableStateOf(shouldShow)
+    }
+
+    LaunchedEffect(showGreetingOnTitle) {
+        if (showGreetingOnTitle) {
+            kotlinx.coroutines.delay(2700L)
+            showGreetingOnTitle = false
         }
     }
 
@@ -94,43 +128,41 @@ fun HomeScreen(
     var isBarsVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
 
+    val feedListState = rememberLazyListState()
+
     LaunchedEffect(currentScreen, isSearchExpanded) {
         isBarsVisible = true
     }
 
-    var scrollAccumulator by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    LaunchedEffect(feedListState.firstVisibleItemIndex) {
+        if (feedListState.firstVisibleItemIndex == 0) {
+            isBarsVisible = true
+        }
+    }
+
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val layoutInfo = feedListState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && lastVisible >= total - 3
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value && !isLoadingTrending && !isSearching && !isLoadingMore) {
+            viewModel.loadMoreContent()
+        }
+    }
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
-                if ((delta > 0 && scrollAccumulator < 0) || (delta < 0 && scrollAccumulator > 0)) {
-                    scrollAccumulator = 0f
-                }
-                scrollAccumulator += delta
-
-                if (scrollAccumulator < -28f) {
-                    if (isBarsVisible && !isSearchExpanded) {
-                        isBarsVisible = false
-                    }
-                    scrollAccumulator = 0f
-                } else if (scrollAccumulator > 28f) {
-                    if (!isBarsVisible) {
-                        isBarsVisible = true
-                    }
-                    scrollAccumulator = 0f
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                if (available.y > 0f && !isBarsVisible) {
+                if (delta < -14f && isBarsVisible && !isSearchExpanded && feedListState.firstVisibleItemIndex > 0) {
+                    isBarsVisible = false
+                } else if (delta > 14f && !isBarsVisible) {
                     isBarsVisible = true
-                    scrollAccumulator = 0f
                 }
                 return Offset.Zero
             }
@@ -317,12 +349,25 @@ fun HomeScreen(
                             )
                         }
 
-                        AppScreen.SUBSCRIPTIONS, AppScreen.LIBRARY -> {
+                        AppScreen.SUBSCRIPTIONS -> {
+                            SubscriptionsScreen(
+                                viewModel = viewModel,
+                                onSelectVideo = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                onOpenSearch = { isSearchExpanded = true },
+                                topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
+                                bottomPadding = bottomBarPaddingDp + 90.dp
+                            )
+                        }
+
+                        AppScreen.LIBRARY -> {
                             LibraryScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
                                     viewModel.playVideo(video.id, video.providerId)
                                 },
+                                onBackClick = { viewModel.navigateToScreen(AppScreen.ACCOUNT) },
                                 topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
                                 bottomPadding = bottomBarPaddingDp + 90.dp
                             )
@@ -336,22 +381,61 @@ fun HomeScreen(
                         }
 
                         AppScreen.HOME -> {
+                            val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                            val feedList = remember(rawFeed, hiddenVideoIds, adultContentEnabled) {
+                            val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
                                 rawFeed
-                                    .filterNot { hiddenVideoIds.contains(it.id) }
+                                    .filterNot { item ->
+                                        val vid = item.id.trim()
+                                        val ch = item.uploaderName.trim().lowercase()
+                                        hiddenVideoIds.contains(vid) ||
+                                                notInterestedVideoIds.contains(vid) ||
+                                                (ch.isNotEmpty() && notInterestedChannels.contains(ch))
+                                    }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                                    .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
                             }
-                            val shortsFeedList = remember(rawFeed, adultContentEnabled) {
-                                rawFeed.filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                            val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
+                                rawFeed
+                                    .filterNot { item ->
+                                        val vid = item.id.trim()
+                                        val ch = item.uploaderName.trim().lowercase()
+                                        hiddenVideoIds.contains(vid) ||
+                                                notInterestedVideoIds.contains(vid) ||
+                                                (ch.isNotEmpty() && notInterestedChannels.contains(ch))
+                                    }
+                                    .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                                    .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
                             }
 
+                            LaunchedEffect(feedList) {
+                                if (feedList.isNotEmpty()) {
+                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 12)
+                                }
+                            }
+
+                            val pullRefreshState = rememberPullToRefreshState()
+                            val isRefreshingFeed = (isLoadingTrending || isSearching) && feedList.isNotEmpty()
+
                             PullToRefreshBox(
-                                isRefreshing = isLoadingTrending || isSearching,
+                                isRefreshing = isRefreshingFeed,
                                 onRefresh = { viewModel.refreshFeed() },
+                                state = pullRefreshState,
+                                indicator = {
+                                    PullToRefreshDefaults.Indicator(
+                                        state = pullRefreshState,
+                                        isRefreshing = isRefreshingFeed,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(top = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp + 8.dp else 16.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    )
+                                },
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 LazyColumn(
+                                    state = feedListState,
                                     modifier = Modifier.fillMaxSize(),
                                     contentPadding = PaddingValues(
                                         top = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
@@ -359,7 +443,7 @@ fun HomeScreen(
                                     )
                                 ) {
                                     // SHORTS CAROUSEL SECTION (ONLY IF ENABLED)
-                                    if (showShortsFeed) {
+                                    if (showShortsFeed && feedList.isNotEmpty()) {
                                         item {
                                             if (shortsFeedList.isNotEmpty()) {
                                                 Column(modifier = Modifier.padding(vertical = 12.dp)) {
@@ -413,7 +497,7 @@ fun HomeScreen(
                                         }
                                     }
 
-                                    // FEED ERROR / CARDS
+                                    // FEED ERROR / SKELETON / CARDS
                                     if (feedError != null) {
                                         item {
                                             FeedErrorDiagnosticCard(
@@ -427,48 +511,67 @@ fun HomeScreen(
                                                 }
                                             )
                                         }
+                                    } else if ((isLoadingTrending || isSearching) && feedList.isEmpty()) {
+                                        item {
+                                            FeedSkeletonLoading(
+                                                itemCount = 5,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    } else if (feedList.isEmpty()) {
+                                        item {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "No videos found. Try selecting another category or tag.",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
                                     } else {
-                                        if (feedList.isEmpty()) {
+                                        items(feedList, key = { it.id }) { video ->
+                                            VideoCard(
+                                                video = video,
+                                                watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                onClick = {
+                                                    viewModel.playVideo(video.id, video.providerId)
+                                                },
+                                                onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                                                onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                                onSaveToPlaylist = { v ->
+                                                    val userPls = viewModel.userPlaylists.value
+                                                    if (userPls.isNotEmpty()) {
+                                                        viewModel.addToPlaylist(userPls.first().id, v)
+                                                    } else {
+                                                        viewModel.createPlaylist("Favorites")
+                                                        val updated = viewModel.userPlaylists.value
+                                                        if (updated.isNotEmpty()) {
+                                                            viewModel.addToPlaylist(updated.first().id, v)
+                                                        }
+                                                    }
+                                                },
+                                                onDownload = { v ->
+                                                    viewModel.showDownloadSheet(v)
+                                                },
+                                                onNotInterested = { v ->
+                                                    viewModel.markNotInterested(v)
+                                                },
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                                            )
+                                        }
+
+                                        if (isLoadingMore) {
                                             item {
-                                                Box(
+                                                VideoCardSkeleton(
+                                                    shimmerBrush = rememberShimmerBrush(),
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .padding(32.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = "No videos found. Try selecting another category or tag.",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        } else {
-                                            items(feedList, key = { it.id }) { video ->
-                                                VideoCard(
-                                                    video = video,
-                                                    watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                    onClick = {
-                                                        viewModel.playVideo(video.id, video.providerId)
-                                                    },
-                                                    onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
-                                                    onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                                    onSaveToPlaylist = { v ->
-                                                        val userPls = viewModel.userPlaylists.value
-                                                        if (userPls.isNotEmpty()) {
-                                                            viewModel.addToPlaylist(userPls.first().id, v)
-                                                        } else {
-                                                            viewModel.createPlaylist("Favorites")
-                                                            val updated = viewModel.userPlaylists.value
-                                                            if (updated.isNotEmpty()) {
-                                                                viewModel.addToPlaylist(updated.first().id, v)
-                                                            }
-                                                        }
-                                                    },
-                                                    onNotInterested = { v ->
-                                                        viewModel.markNotInterested(v)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                                                        .padding(bottom = 16.dp)
                                                 )
                                             }
                                         }
@@ -499,101 +602,29 @@ fun HomeScreen(
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        androidx.compose.ui.graphics.Brush.linearGradient(
-                                            listOf(Color(0xFF8E24AA), Color(0xFFE91E63))
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                androidx.compose.foundation.Canvas(modifier = Modifier.size(20.dp)) {
-                                    val w = size.width
-                                    val h = size.height
-                                    val wingColor = Color.White
-                                    drawCircle(
-                                        color = wingColor,
-                                        radius = w * 0.28f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.35f)
-                                    )
-                                    drawCircle(
-                                        color = wingColor,
-                                        radius = w * 0.28f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.35f)
-                                    )
-                                    drawCircle(
-                                        color = wingColor.copy(alpha = 0.85f),
-                                        radius = w * 0.20f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.68f)
-                                    )
-                                    drawCircle(
-                                        color = wingColor.copy(alpha = 0.85f),
-                                        radius = w * 0.20f,
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.68f)
-                                    )
-                                    drawLine(
-                                        color = Color(0xFF4A148C),
-                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.20f),
-                                        end = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.82f),
-                                        strokeWidth = w * 0.08f
-                                    )
-                                    drawLine(
-                                        color = Color(0xFF4A148C),
-                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
-                                        end = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.10f),
-                                        strokeWidth = w * 0.05f
-                                    )
-                                    drawLine(
-                                        color = Color(0xFF4A148C),
-                                        start = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f),
-                                        end = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.10f),
-                                        strokeWidth = w * 0.05f
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
+                            com.example.ui.components.ThemedButterflyLogo(
+                                size = 34.dp,
+                                occasion = currentOccasion
+                            )
+                            Spacer(modifier = Modifier.width(9.dp))
                             AnimatedContent(
-                                targetState = showGreetingText,
+                                targetState = showGreetingOnTitle,
                                 transitionSpec = {
                                     if (targetState) {
-                                        (slideInHorizontally(
-                                            animationSpec = tween(600, easing = FastOutSlowInEasing),
-                                            initialOffsetX = { -it }
-                                        ) + fadeIn(animationSpec = tween(600))) togetherWith (
-                                            slideOutHorizontally(
-                                                animationSpec = tween(400),
-                                                targetOffsetX = { it }
-                                            ) + fadeOut(animationSpec = tween(400))
-                                        )
+                                        (slideInVertically(animationSpec = tween(400), initialOffsetY = { it / 2 }) + fadeIn(animationSpec = tween(400))) togetherWith
+                                                (slideOutVertically(animationSpec = tween(350), targetOffsetY = { -it / 2 }) + fadeOut(animationSpec = tween(350)))
                                     } else {
-                                        (slideInHorizontally(
-                                            animationSpec = tween(600, easing = FastOutSlowInEasing),
-                                            initialOffsetX = { -it }
-                                        ) + fadeIn(animationSpec = tween(600))) togetherWith (
-                                            slideOutHorizontally(
-                                                animationSpec = tween(400),
-                                                targetOffsetX = { it }
-                                            ) + fadeOut(animationSpec = tween(400))
-                                        )
+                                        (slideInVertically(animationSpec = tween(400), initialOffsetY = { -it / 2 }) + fadeIn(animationSpec = tween(400))) togetherWith
+                                                (slideOutVertically(animationSpec = tween(350), targetOffsetY = { it / 2 }) + fadeOut(animationSpec = tween(350)))
                                     }
                                 },
                                 label = "TopBarTitleAnimation"
                             ) { isGreeting ->
                                 if (isGreeting) {
-                                    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                                    val timeGreeting = when (hour) {
-                                        in 4..11 -> "Good morning"
-                                        in 12..16 -> "Good afternoon"
-                                        in 17..21 -> "Good evening"
-                                        else -> "Good night"
-                                    }
                                     Text(
-                                        text = "Hi, $timeGreeting, ${userProfile.name}!",
+                                        text = greetingText,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
+                                        fontSize = 20.sp,
                                         color = MaterialTheme.colorScheme.primary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -750,6 +781,31 @@ fun HomeScreen(
                     }
                 )
             }
+        }
+
+        // DOWNLOAD QUALITY PICKER FROM HOME FEED
+        if (viewModel.isDownloadSheetVisible && viewModel.downloadSheetVideoItem != null) {
+            val sheetVideo = viewModel.downloadSheetVideoItem!!
+            val sheetStream = viewModel.downloadSheetStreamData
+            com.example.ui.components.DownloadQualityBottomSheet(
+                videoTitle = sheetVideo.title,
+                channelName = sheetVideo.uploaderName,
+                thumbnailUrl = sheetVideo.thumbnailUrl,
+                durationText = sheetVideo.formattedDuration,
+                availableOptions = sheetStream?.availableStreamOptions ?: emptyList(),
+                onConfirmDownload = { qualityLabel, chosenOption ->
+                    viewModel.dismissDownloadSheet()
+                    viewModel.startDownload(
+                        videoId = sheetVideo.id,
+                        title = sheetVideo.title,
+                        channelName = sheetVideo.uploaderName,
+                        thumbnailUrl = sheetVideo.thumbnailUrl,
+                        qualityLabel = qualityLabel,
+                        streamOption = chosenOption
+                    )
+                },
+                onDismissRequest = { viewModel.dismissDownloadSheet() }
+            )
         }
     }
 }

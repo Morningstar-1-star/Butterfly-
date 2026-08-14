@@ -75,5 +75,9 @@ data class MediaDetailInfo(
     val genres: List<String> = listOf("Action", "Adventure", "Comedy", "Drama"),
     val cast: List<CastMember> = emptyList(),
     val screenshots: List<String> = emptyList(),
-    val clipsAndTrailers: List<VideoTrailerClip> = emptyList()
+    val clipsAndTrailers: List<VideoTrailerClip> = emptyList(),
+    val budget: String? = null,
+    val revenue: String? = null,
+    val boxOffice: String? = null,
+    val status: String? = null
 )

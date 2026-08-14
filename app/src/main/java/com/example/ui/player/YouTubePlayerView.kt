@@ -19,6 +19,7 @@ fun YouTubePlayerView(
     onSelectStreamOption: (PlayableStreamOption) -> Unit = {},
     failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
+    onBackClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     UniversalVideoPlayer(
@@ -34,6 +35,7 @@ fun YouTubePlayerView(
         onSelectStreamOption = onSelectStreamOption,
         failedSourceLogs = failedSourceLogs,
         onProgressUpdate = onProgressUpdate,
+        onBackClick = onBackClick,
         modifier = modifier
     )
 }

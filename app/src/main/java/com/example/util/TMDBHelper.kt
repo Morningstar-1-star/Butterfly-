@@ -80,7 +80,18 @@ object TMDBHelper {
         return clean
     }
 
+    fun isJavOrAdultProvider(providerId: String?, title: String? = null): Boolean {
+        val pid = (providerId ?: "").lowercase()
+        val t = (title ?: "").lowercase()
+        return pid.contains("jav") || pid.contains("apijav") || pid.contains("porn") ||
+                pid.contains("hentai") || pid.contains("adult") || pid.contains("eporner") ||
+                t.contains("javinfo") || t.contains("apijav") || t.contains("missav")
+    }
+
     suspend fun fetchMediaDetails(rawTitle: String, videoId: String? = null): MediaDetailInfo = withContext(Dispatchers.IO) {
+        if (isJavOrAdultProvider(null, rawTitle)) {
+            return@withContext getLocalDetailsForTitle(rawTitle, rawTitle.lowercase())
+        }
         val cleanTitle = cleanTitleForSearch(rawTitle)
         val lower = cleanTitle.lowercase()
 
@@ -418,6 +429,12 @@ object TMDBHelper {
                 )
             }
 
+            val budgetLong = detailJson.optLong("budget", 0L)
+            val revenueLong = detailJson.optLong("revenue", 0L)
+            val budgetText = if (budgetLong > 0) "$%,d".format(java.util.Locale.US, budgetLong) else null
+            val revenueText = if (revenueLong > 0) "$%,d".format(java.util.Locale.US, revenueLong) else null
+            val statusText = detailJson.optString("status").takeIf { it.isNotBlank() }
+
             return MediaDetailInfo(
                 title = canonicalTitle,
                 plotOverview = overview,
@@ -429,7 +446,11 @@ object TMDBHelper {
                 genres = genresList,
                 cast = castList,
                 screenshots = screenshotsList,
-                clipsAndTrailers = clipsList
+                clipsAndTrailers = clipsList,
+                budget = budgetText,
+                revenue = revenueText,
+                boxOffice = revenueText,
+                status = statusText
             )
 
         } catch (e: Exception) {
@@ -557,6 +578,12 @@ object TMDBHelper {
     private val tvSeasonsCache = ConcurrentHashMap<String, List<SeriesSeason>>()
 
     suspend fun fetchTvSeasonsAndEpisodes(streamData: StreamData): List<SeriesSeason> = withContext(Dispatchers.IO) {
+        if (isJavOrAdultProvider(streamData.providerId, streamData.title)) {
+            return@withContext emptyList()
+        }
+        if (!com.example.util.SeriesDataHelper.isLikelyTvSeries(streamData)) {
+            return@withContext emptyList()
+        }
         val rawTitle = streamData.title
         val videoId = streamData.videoId
         val cleanTitle = cleanTitleForSearch(rawTitle)
@@ -1092,7 +1119,7 @@ object TMDBHelper {
             )
         )
 
-        return@withContext (list + realAdultTmdbMovies).distinctBy { it.id }
+        return@withContext list.distinctBy { it.id }
     }
 
     suspend fun resolveRealPoster(query: String): String? = withContext(Dispatchers.IO) {

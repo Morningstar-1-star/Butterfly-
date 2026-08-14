@@ -51,13 +51,26 @@ class TorrentioAggregatorProvider(
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
-        val cleanId = extractId(idOrUrl)
-        PluginVideoItem(
-            id = cleanId,
-            title = "Torrentio Stream $cleanId",
-            uploaderName = "Torrentio Multi-Indexer",
-            providerId = providerId
-        )
+        val details = com.example.util.TMDBHelper.fetchMediaDetails(idOrUrl, idOrUrl)
+        if (details.title.isNotBlank()) {
+            PluginVideoItem(
+                id = idOrUrl,
+                title = details.title,
+                uploaderName = details.studioOrCollection.ifBlank { "Torrentio Multi-Indexer" },
+                durationSeconds = 0L,
+                thumbnailUrl = details.screenshots.firstOrNull(),
+                providerId = providerId,
+                uploadDate = details.releaseDateFormatted
+            )
+        } else {
+            val cleanId = extractId(idOrUrl)
+            PluginVideoItem(
+                id = cleanId,
+                title = cleanId,
+                uploaderName = "Torrentio Multi-Indexer",
+                providerId = providerId
+            )
+        }
     }
 
     override suspend fun getStreams(idOrUrl: String): PluginStreamInfo = withContext(Dispatchers.IO) {
@@ -117,11 +130,15 @@ class TorrentioAggregatorProvider(
             }
         }
 
+        val isTv = identity.mediaType == com.example.model.MediaType.TV
+        val resolvedMediaTitle = identity.rawQueryOrUrl.takeIf { it.isNotBlank() && it != "Unknown" } ?: idOrUrl
+        val resolvedStudioName = getStudioName(resolvedMediaTitle, isTv)
+
         PluginStreamInfo(
             id = idOrUrl,
             url = videoStreams.firstOrNull()?.url ?: "",
-            title = "Torrentio Stream",
-            channelName = "Torrentio Multi-Indexer",
+            title = resolvedMediaTitle,
+            channelName = resolvedStudioName,
             description = "",
             videoStreams = videoStreams
         )

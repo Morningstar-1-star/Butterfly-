@@ -202,24 +202,6 @@ class JavInfoProvider(
 
         if (movieData != null) {
             // Add Magnets from downloadLinks
-            for (link in movieData.downloadLinks) {
-                if (link.magnet.isNotBlank() && !seenUrls.contains(link.magnet)) {
-                    seenUrls.add(link.magnet)
-                    val label = StringBuilder(link.name.ifBlank { "Magnet Link" })
-                    if (!link.size.isNullOrBlank()) label.append(" (${link.size})")
-                    if (link.hd) label.append(" [HD]")
-
-                    videoStreams.add(
-                        PluginVideoStream(
-                            url = link.magnet,
-                            qualityLabel = label.toString(),
-                            format = "torrent",
-                            isMuxed = true
-                        )
-                    )
-                }
-            }
-
             // Add HLS stream if returned
             if (!movieData.hlsUrl.isNullOrBlank() && !seenUrls.contains(movieData.hlsUrl)) {
                 seenUrls.add(movieData.hlsUrl)
@@ -247,9 +229,22 @@ class JavInfoProvider(
             }
         }
 
-        // Add standard fallback player embed streams
+        // Try resolving direct HLS stream via ApiJavServerProvider
+        try {
+            val directApiJav = ApiJavServerProvider(http).getStreams(code)
+            for (st in directApiJav.videoStreams) {
+                if ((st.format == "hls" || st.format == "mp4") && st.url.isNotBlank() && !seenUrls.contains(st.url)) {
+                    seenUrls.add(st.url)
+                    videoStreams.add(st)
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+
+        // Add standard fallback player embed streams if no direct streams resolved
         val embed1 = "https://server.apijav.com/?mvapm_embed=$code"
-        if (!seenUrls.contains(embed1)) {
+        if (videoStreams.isEmpty() && !seenUrls.contains(embed1)) {
             seenUrls.add(embed1)
             videoStreams.add(
                 PluginVideoStream(

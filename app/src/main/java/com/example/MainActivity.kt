@@ -14,6 +14,8 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.example.ui.MainViewModel
 import com.example.ui.screens.HomeScreen
+import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -21,11 +23,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Required by ArchiveOrgProvider for provider operations.
-        com.example.plugin.providers.ArchiveOrgProvider.contextRef =
-            applicationContext
-
+        com.example.repository.SyncRepository.init(applicationContext)
+        com.example.plugin.providers.ArchiveOrgProvider.contextRef = applicationContext
         enableEdgeToEdge()
         setupHighRefreshRate()
         setupCoilCache()
@@ -34,7 +33,7 @@ class MainActivity : ComponentActivity() {
             val themeMode by viewModel.themeMode.collectAsState()
             val accentColor by viewModel.accentColor.collectAsState()
 
-            com.example.ui.theme.MyApplicationTheme(
+            MyApplicationTheme(
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
@@ -45,21 +44,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-
-        if (
-            viewModel.activeVideoId.value != null &&
-            com.example.ui.player.GlobalPlayerManager.isPlaying.value
-        ) {
+        if (viewModel.activeVideoId.value != null && com.example.ui.player.GlobalPlayerManager.isPlaying.value) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
-                    val params =
-                        android.app.PictureInPictureParams.Builder()
-                            .setAspectRatio(android.util.Rational(16, 9))
-                            .build()
-
+                    val params = android.app.PictureInPictureParams.Builder()
+                        .setAspectRatio(android.util.Rational(16, 9))
+                        .build()
                     enterPictureInPictureMode(params)
-                } catch (_: Exception) {
-                    // PiP is optional.
+                } catch (e: Exception) {
+                    // Ignore
                 }
             }
         }
@@ -69,40 +62,48 @@ class MainActivity : ComponentActivity() {
         isInPictureInPictureMode: Boolean,
         newConfig: android.content.res.Configuration
     ) {
-        super.onPictureInPictureModeChanged(
-            isInPictureInPictureMode,
-            newConfig
-        )
-
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         viewModel.setPipMode(isInPictureInPictureMode)
     }
 
     private fun setupCoilCache() {
         try {
-            val imageLoader =
-                ImageLoader.Builder(applicationContext)
-                    .memoryCache {
-                        MemoryCache.Builder(applicationContext)
-                            .maxSizePercent(0.25)
-                            .build()
-                    }
-                    .diskCache {
-                        DiskCache.Builder()
-                            .directory(
-                                applicationContext.cacheDir
-                                    .resolve("image_cache")
-                            )
-                            .maxSizeBytes(250L * 1024 * 1024)
-                            .build()
-                    }
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .crossfade(true)
-                    .build()
+            val okHttpClient = okhttp3.OkHttpClient.Builder()
+                .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
+                .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                .addInterceptor { chain ->
+                    val request = chain.request().newBuilder()
+                        .header("Cache-Control", "public, max-age=604800, max-stale=2419200")
+                        .build()
+                    chain.proceed(request)
+                }
+                .build()
 
+            val imageLoader = ImageLoader.Builder(applicationContext)
+                .okHttpClient(okHttpClient)
+                .memoryCache {
+                    MemoryCache.Builder(applicationContext)
+                        .maxSizePercent(0.35)
+                        .strongReferencesEnabled(true)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(applicationContext.cacheDir.resolve("image_cache_v2"))
+                        .maxSizeBytes(500L * 1024 * 1024) // 500MB dedicated disk cache
+                        .build()
+                }
+                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565) // 50% RAM savings, 2x faster decode on low-end devices
+                .allowHardware(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .networkCachePolicy(CachePolicy.ENABLED)
+                .crossfade(120)
+                .build()
             Coil.setImageLoader(imageLoader)
-        } catch (_: Exception) {
-            // Cache setup is optional.
+        } catch (e: Exception) {
+            // Optional
         }
     }
 
@@ -110,29 +111,22 @@ class MainActivity : ComponentActivity() {
         try {
             val currentWindow = window
             val params = currentWindow.attributes
-
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                display?.supportedModes
-                    ?.maxByOrNull { it.refreshRate }
-                    ?.let { maxMode ->
-                        params.preferredDisplayModeId = maxMode.modeId
-                    }
-            } else if (
-                android.os.Build.VERSION.SDK_INT >=
-                android.os.Build.VERSION_CODES.M
-            ) {
+                display?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
+                    params.preferredDisplayModeId = maxMode.modeId
+                }
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 @Suppress("DEPRECATION")
-                currentWindow.windowManager.defaultDisplay
-                    ?.supportedModes
-                    ?.maxByOrNull { it.refreshRate }
-                    ?.let { maxMode ->
-                        params.preferredDisplayModeId = maxMode.modeId
-                    }
+                currentWindow.windowManager.defaultDisplay?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
+                    params.preferredDisplayModeId = maxMode.modeId
+                }
             }
-
             currentWindow.attributes = params
-        } catch (_: Exception) {
-            // High refresh rate is optional.
+        } catch (e: Exception) {
+            // High refresh rate optional
         }
     }
 }
+
+
+

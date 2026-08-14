@@ -95,4 +95,20 @@ object DebridSettingsManager {
     fun setArchiveFormatPreference(context: Context, mode: String) {
         getPrefs(context).edit().putString(KEY_ARCHIVE_FORMAT_PREF, mode).apply()
     }
+
+    fun getDefaultDownloadQuality(context: Context): String {
+        return getPrefs(context).getString("default_download_quality", "720p") ?: "720p"
+    }
+
+    fun setDefaultDownloadQuality(context: Context, quality: String) {
+        getPrefs(context).edit().putString("default_download_quality", quality).apply()
+    }
+
+    fun getRememberDownloadQuality(context: Context): Boolean {
+        return getPrefs(context).getBoolean("remember_download_quality", false)
+    }
+
+    fun setRememberDownloadQuality(context: Context, remember: Boolean) {
+        getPrefs(context).edit().putBoolean("remember_download_quality", remember).apply()
+    }
 }

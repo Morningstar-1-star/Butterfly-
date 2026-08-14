@@ -210,7 +210,7 @@ object TorrentReviewFetcher {
                         val rawRating = if (ratingVal != null && ratingVal > 0) {
                             ratingVal.toFloat()
                         } else {
-                            (6..9).random().toFloat()
+                            0f
                         }
 
                         val avatarUrl = when {
@@ -232,9 +232,6 @@ object TorrentReviewFetcher {
 
                         val titleHeadline = extractReviewHeadline(contentText, canonicalTitle)
 
-                        val helpfulCount = if (rawRating >= 7f) (20..1500).random() else (5..700).random()
-                        val dislikeCount = if (rawRating < 6f) (10..400).random() else (2..120).random()
-
                         parsedComments.add(
                             VideoComment(
                                 id = revId,
@@ -242,8 +239,8 @@ object TorrentReviewFetcher {
                                 authorAvatarUrl = avatarUrl,
                                 commentText = contentText,
                                 timeAgo = formattedDate,
-                                likeCount = helpfulCount,
-                                dislikeCount = dislikeCount,
+                                likeCount = 0,
+                                dislikeCount = 0,
                                 isLikedByMe = false,
                                 isDislikedByMe = false,
                                 rating = rawRating,
@@ -258,26 +255,9 @@ object TorrentReviewFetcher {
                 }
             }
 
-            if (parsedComments.size < 80) {
-                val needed = 80 - parsedComments.size
-                val generated = if (seasonNum != null && episodeNum != null) {
-                    generateEpisodeReviews(canonicalTitle, seasonNum!!, episodeNum!!, null, needed)
-                } else {
-                    generateRichImdbReviews(canonicalTitle, needed)
-                }
-                parsedComments.addAll(generated)
-            }
-
-            // Real total count calculated from voteCount or totalResultsCount
-            val calculatedTotalCount = maxOf(
-                totalResultsCount,
-                if (voteCount > 0) (voteCount / 3) else 850,
-                parsedComments.size
-            )
-
             TorrentReviewsResult(
                 reviews = parsedComments,
-                totalCount = calculatedTotalCount,
+                totalCount = maxOf(totalResultsCount, parsedComments.size),
                 averageRating = avgRating,
                 mediaTitle = canonicalTitle,
                 imdbId = imdbId
@@ -286,81 +266,13 @@ object TorrentReviewFetcher {
         } catch (e: Exception) {
             e.printStackTrace()
             val fallbackTitle = cleanTorrentTitle(title).ifBlank { "Media Item" }
-            val fallbackRevs = if (seasonNum != null && episodeNum != null) {
-                generateEpisodeReviews(fallbackTitle, seasonNum!!, episodeNum!!, null, 80)
-            } else {
-                generateRichImdbReviews(fallbackTitle, 80)
-            }
             TorrentReviewsResult(
-                reviews = fallbackRevs,
-                totalCount = (650..2400).random(),
-                averageRating = 8.4f,
+                reviews = emptyList(),
+                totalCount = 0,
+                averageRating = 0f,
                 mediaTitle = fallbackTitle
             )
         }
-    }
-
-    private fun generateEpisodeReviews(
-        showTitle: String,
-        seasonNum: Int,
-        episodeNum: Int,
-        episodeName: String?,
-        count: Int
-    ): List<VideoComment> {
-        val epLabel = if (!episodeName.isNullOrBlank()) "Episode $episodeNum: $episodeName" else "Season $seasonNum Episode $episodeNum"
-        val usernames = listOf(
-            "tv_junkie_sam", "episode_critic_dan", "series_binger_kate", "drama_fanatic_alex",
-            "tv_buff_chris", "plot_analyst_rachel", "cliffhanger_king", "weekly_watcher_leo",
-            "screen_junkie_maya", "character_arc_tom", "binge_master_grace", "scene_stealer_noah"
-        )
-        val headlines = listOf(
-            "Sensational $epLabel - Best episode of the season!",
-            "Intense pacing and remarkable acting in $epLabel",
-            "A breathtaking chapter that answers big questions!",
-            "Mind-blowing twists in $epLabel!",
-            "Unbelievable cinematography and narrative rhythm",
-            "I could not stop watching - Episode $episodeNum delivers!",
-            "Peak storytelling for $showTitle!",
-            "An emotional and action-packed masterpiece"
-        )
-        val templates = listOf(
-            "Season $seasonNum Episode $episodeNum of $showTitle completely blew me away! The direction, character dynamics, and dramatic tension in $epLabel were top notch. Must-watch TV!",
-            "I was on the edge of my seat throughout $epLabel. $showTitle continues to deliver phenomenal episodes. The climax of Episode $episodeNum left me breathless!",
-            "What a stellar episode! The writing in $epLabel is razor sharp and the performances are deeply moving. Definitely one of the strongest episodes so far.",
-            "Episode $episodeNum of $showTitle is a masterclass in suspense. Every scene in $epLabel was executed with precision. 10/10!",
-            "The story developments in Season $seasonNum Episode $episodeNum took me completely by surprise. Magnificent direction for $showTitle!"
-        )
-        val dates = listOf("Today", "1 day ago", "2 days ago", "4 days ago", "1 week ago", "2 weeks ago")
-
-        val list = mutableListOf<VideoComment>()
-        for (i in 0 until count) {
-            val username = usernames[(i + episodeNum * 3) % usernames.size] + "_e$episodeNum"
-            val headline = headlines[(i + episodeNum) % headlines.size]
-            val body = templates[(i + episodeNum * 2) % templates.size]
-            val ratingVal = ((75 + ((i * 7 + episodeNum * 13) % 25)) / 10.0f)
-            val dateStr = dates[(i + episodeNum) % dates.size]
-            val helpful = (40 + (i * 35 + episodeNum * 20) % 900)
-            val dislike = (2 + (i * 3) % 40)
-
-            list.add(
-                VideoComment(
-                    id = "ep_rev_s${seasonNum}_e${episodeNum}_$i",
-                    authorName = "@$username",
-                    authorAvatarUrl = null,
-                    commentText = body,
-                    timeAgo = dateStr,
-                    likeCount = helpful,
-                    dislikeCount = dislike,
-                    isLikedByMe = false,
-                    isDislikedByMe = false,
-                    rating = ratingVal,
-                    reviewTitle = headline,
-                    isSpoiler = (i % 7 == 0),
-                    totalReviewsCountText = formatCount(120 + count)
-                )
-            )
-        }
-        return list
     }
 
     private fun cleanTorrentTitle(raw: String): String {
@@ -402,82 +314,5 @@ object TorrentReviewFetcher {
             count >= 1000 -> String.format(Locale.US, "%.1fK", count / 1000.0)
             else -> count.toString()
         }
-    }
-
-    private fun generateRichImdbReviews(title: String, count: Int): List<VideoComment> {
-        val usernames = listOf(
-            "cinema_critic_mark", "film_buff_sarah", "movie_lover_alex", "retro_cinema_john",
-            "screen_geek_88", "popcorn_master_chris", "theatre_goer_sam", "storyteller_mike",
-            "hollywood_insider_ben", "reel_reviewer_tom", "cinephile_claire", "critics_choice_dan",
-            "couch_critic_megan", "movie_magic_jake", "silver_screen_steve", "box_office_analyst",
-            "character_arc_enthusiast", "performance_fanatic", "heartfelt_cinema_luke", "weekly_viewer_dave",
-            "cinephile_notes", "spotlight_reviewer", "frame_by_frame", "midnight_moviegoer"
-        )
-
-        val headlines = listOf(
-            "An absolute triumph of cinema and storytelling!",
-            "Emotionally resonant with breathtaking visual direction",
-            "A worthy release that exceeded all my expectations",
-            "Surpassed my expectations in every single way",
-            "Gripping, hilarious, and surprisingly deep",
-            "Delivers a masterclass in cinematic pacing",
-            "A heartfelt exploration of themes and character arcs",
-            "Visual perfection paired with undeniably strong performances",
-            "Kept me on the edge of my seat from start to finish!",
-            "The character dynamics and dialogue hit all the right notes",
-            "A rollercoaster of suspense, laughter, and pure wonder",
-            "Proof that compelling writing and directing win every time",
-            "Incredible lead performances and outstanding cinematography",
-            "Will leave fans both old and new thoroughly entertained",
-            "A magnificent release that lives up to all the hype",
-            "Deeply touching, inventive, and visually stunning"
-        )
-
-        val reviewTemplates = listOf(
-            "I walked into $title with high expectations, and it blew them all away! The direction and sound design create an immersive atmosphere from the very first minute. The script strikes a perfect balance between high-stakes tension and genuine character moments. Highly recommended!",
-            "What a remarkable experience! $title manages to explore rich new territory while delivering top-tier entertainment. The pacing is tight, the character interactions are razor-sharp, and the climax is satisfying. A masterclass of modern screenwriting.",
-            "Honestly, $title completely won me over. The cast gives exceptional performances, making every scene feel grounded and engaging. The visual direction and score elevate the entire presentation.",
-            "A triumphant release that delivers on every front. $title offers crisp dialogue, superb direction, and unforgettable sequences. The work behind this is top quality across the board.",
-            "As a long-time enthusiast of cinema, $title delivered everything I could have hoped for. The subtle details, brilliant pacing, and emotional payoff make this a must-watch.",
-            "An incredible viewing experience! The emotional arc is handled with delicate nuance. $title proves that great direction and passionate performances create timeless screen entertainment.",
-            "From the opening scene to the closing credits, $title captivates you completely. The comedic and dramatic timing is spot on, and the experience stays with you long after watching."
-        )
-
-        val dates = listOf(
-            "Today", "1 day ago", "2 days ago", "3 days ago", "5 days ago",
-            "1 week ago", "2 weeks ago", "3 weeks ago", "1 month ago", "2 months ago"
-        )
-
-        val list = mutableListOf<VideoComment>()
-        for (i in 0 until count) {
-            val username = usernames[i % usernames.size] + if (i >= usernames.size) "_${i}" else ""
-            val headline = headlines[i % headlines.size]
-            val bodyTemplate = reviewTemplates[i % reviewTemplates.size]
-            val body = bodyTemplate.replace("\$title", title)
-            val ratingVal = (7..10).random().toFloat()
-            val dateStr = dates[i % dates.size]
-            val helpful = (25..1400).random()
-            val dislike = (2..60).random()
-            val isSpoiler = (i % 8 == 0)
-
-            list.add(
-                VideoComment(
-                    id = "gen_imdb_${System.currentTimeMillis()}_$i",
-                    authorName = "@$username",
-                    authorAvatarUrl = null,
-                    commentText = body,
-                    timeAgo = dateStr,
-                    likeCount = helpful,
-                    dislikeCount = dislike,
-                    isLikedByMe = false,
-                    isDislikedByMe = false,
-                    rating = ratingVal,
-                    reviewTitle = headline,
-                    isSpoiler = isSpoiler,
-                    totalReviewsCountText = formatCount(350 + count)
-                )
-            )
-        }
-        return list
     }
 }

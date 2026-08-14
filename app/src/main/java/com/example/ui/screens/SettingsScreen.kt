@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppScreen
 import com.example.ui.MainViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,16 +41,32 @@ fun SettingsScreen(
     val enabledProviders by viewModel.enabledProviderIds.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
 
+    val watchHistory by viewModel.watchHistory.collectAsState()
+    val likedVideoIds by viewModel.likedVideoIds.collectAsState()
+    val dislikedVideoIds by viewModel.dislikedVideoIds.collectAsState()
+    val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
+    val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
+    val watchLaterList by viewModel.watchLaterList.collectAsState()
+    val userPlaylists by viewModel.userPlaylists.collectAsState()
+
     // Expandable accordion section states:
     var isAppearanceExpanded by remember { mutableStateOf(true) }
+    var isPersonalizationExpanded by remember { mutableStateOf(false) }
+    var isTagsExpanded by remember { mutableStateOf(false) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isSponsorBlockExpanded by remember { mutableStateOf(false) }
     var isGesturesExpanded by remember { mutableStateOf(false) }
     var isShortsExpanded by remember { mutableStateOf(false) }
     var isSourcesExpanded by remember { mutableStateOf(false) }
 
-    // SponsorBlock Preferences State
+    // Video Tag Preferences State
     val context = androidx.compose.ui.platform.LocalContext.current
+    val tagPrefs = remember { com.example.util.VideoTagPreferences.getInstance(context) }
+    val hideAllTags by tagPrefs.hideAllTags.collectAsState()
+    val hiddenTags by tagPrefs.hiddenTags.collectAsState()
+
+    // SponsorBlock Preferences State
     val sbPrefs = remember { com.example.sponsorblock.SponsorBlockPreferences.getInstance(context) }
     val sbEnabled by sbPrefs.isEnabled.collectAsState()
     val sbShowUndo by sbPrefs.showUndoSkipNotification.collectAsState()
@@ -59,6 +77,13 @@ fun SettingsScreen(
     val sbSkippedTime by sbPrefs.skippedTimeSeconds.collectAsState()
     var sbApiUrlInput by remember(sbApiUrl) { mutableStateOf(sbApiUrl) }
 
+    // Playback Preferences State
+    val playbackPrefs = remember { com.example.util.PlaybackPreferences.getInstance(context) }
+    val forceCustomSpeed by playbackPrefs.forceCustomSpeed.collectAsState()
+    val defaultSpeed by playbackPrefs.defaultSpeed.collectAsState()
+    val disableSpeedForMusic by playbackPrefs.disableSpeedForMusic.collectAsState()
+    var customSpeedInputText by remember(defaultSpeed) { mutableStateOf(if (defaultSpeed == 1.0f) "" else defaultSpeed.toString()) }
+
     // State Toggles for Player, Gestures, Shorts
     var autoPlayEnabled by remember { mutableStateOf(true) }
     var universalPlayerMode by remember { mutableStateOf(true) }
@@ -67,7 +92,7 @@ fun SettingsScreen(
     var showShortsSection by remember { mutableStateOf(true) }
     var autoPlayShorts by remember { mutableStateOf(true) }
 
-    val allExpanded = isAppearanceExpanded && isPlayerExpanded && isSponsorBlockExpanded &&
+    val allExpanded = isAppearanceExpanded && isPersonalizationExpanded && isTagsExpanded && isPlayerExpanded && isSponsorBlockExpanded &&
             isGesturesExpanded && isShortsExpanded && isSourcesExpanded
 
     Scaffold(
@@ -96,6 +121,8 @@ fun SettingsScreen(
                     TextButton(onClick = {
                         val target = !allExpanded
                         isAppearanceExpanded = target
+                        isPersonalizationExpanded = target
+                        isTagsExpanded = target
                         isPlayerExpanded = target
                         isSponsorBlockExpanded = target
                         isGesturesExpanded = target
@@ -239,7 +266,477 @@ fun SettingsScreen(
                 }
             }
 
-            // 2. PLAYER & PLAYBACK SETTINGS
+            // 2. PERSONALIZATION DATA (IMPORT / EXPORT / SYNC)
+            item {
+                var showExportDialog by remember { mutableStateOf(false) }
+                var showImportDialog by remember { mutableStateOf(false) }
+                var showClearDialog by remember { mutableStateOf(false) }
+                var exportJsonText by remember { mutableStateOf("") }
+                var importJsonInput by remember { mutableStateOf("") }
+                var importSummary by remember { mutableStateOf<com.example.util.PersonalizationDataManager.ImportSummary?>(null) }
+                val coroutineScope = rememberCoroutineScope()
+
+                val stats = remember(
+                    watchHistory,
+                    likedVideoIds,
+                    dislikedVideoIds,
+                    notInterestedVideoIds,
+                    notInterestedChannels,
+                    recentSearches,
+                    watchLaterList,
+                    userPlaylists
+                ) {
+                    com.example.util.PersonalizationDataManager.getStats(
+                        watchHistory = watchHistory,
+                        likedVideoIds = likedVideoIds,
+                        dislikedVideoIds = dislikedVideoIds,
+                        notInterestedVideoIds = notInterestedVideoIds,
+                        notInterestedChannels = notInterestedChannels,
+                        recentSearches = recentSearches,
+                        watchLaterList = watchLaterList,
+                        userPlaylists = userPlaylists
+                    )
+                }
+
+                if (showExportDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showExportDialog = false },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.FileDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Export Personalization Data", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                        },
+                        text = {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "Your likes, watch history, search history, not-interested blocks, playlists, and taste signals have been packaged into JSON format.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedTextField(
+                                    value = exportJsonText,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(160.dp),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    com.example.util.PersonalizationDataManager.copyToClipboard(context, exportJsonText)
+                                    Toast.makeText(context, "Copied JSON to clipboard!", Toast.LENGTH_SHORT).show()
+                                    showExportDialog = false
+                                }
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Copy JSON")
+                            }
+                        },
+                        dismissButton = {
+                            Row {
+                                TextButton(
+                                    onClick = {
+                                        com.example.util.PersonalizationDataManager.shareJson(context, exportJsonText)
+                                        showExportDialog = false
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Share")
+                                }
+                                TextButton(onClick = { showExportDialog = false }) {
+                                    Text("Close")
+                                }
+                            }
+                        }
+                    )
+                }
+
+                if (showImportDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showImportDialog = false },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Import Personalization Data", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                        },
+                        text = {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "Paste previously exported Butterfly personalization JSON below or paste from clipboard:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = importJsonInput,
+                                    onValueChange = { importJsonInput = it },
+                                    placeholder = { Text("Paste JSON here...") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(140.dp),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        val clipText = com.example.util.PersonalizationDataManager.readFromClipboard(context)
+                                        if (!clipText.isNullOrBlank()) {
+                                            importJsonInput = clipText
+                                            Toast.makeText(context, "Pasted from clipboard", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Paste from Clipboard")
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        val result = com.example.util.PersonalizationDataManager.importFromJson(context, viewModel, importJsonInput)
+                                        importSummary = result
+                                        showImportDialog = false
+                                        if (result.success) {
+                                            Toast.makeText(context, "Data imported successfully!", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "Import failed: ${result.errorMessage}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                enabled = importJsonInput.isNotBlank()
+                            ) {
+                                Text("Import & Apply")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showImportDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
+                if (importSummary != null) {
+                    val summary = importSummary!!
+                    AlertDialog(
+                        onDismissRequest = { importSummary = null },
+                        title = {
+                            Text(
+                                text = if (summary.success) "Import Succeeded" else "Import Failed",
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            if (summary.success) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Successfully imported personalization data:", style = MaterialTheme.typography.bodyMedium)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("• ${summary.likesCount} Liked Videos", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.dislikesCount} Disliked Videos", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.watchHistoryCount} Watch History Items", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.notInterestedCount} Not Interested Videos", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.blockedChannelsCount} Blocked Channels", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.searchHistoryCount} Search History Queries", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.bookmarksCount} Saved Bookmarks", style = MaterialTheme.typography.bodySmall)
+                                    Text("• ${summary.playlistsCount} Custom Playlists", style = MaterialTheme.typography.bodySmall)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("Recommendation pipeline and feed updated.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                }
+                            } else {
+                                Text("Error: ${summary.errorMessage}", color = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = { importSummary = null }) {
+                                Text("Done")
+                            }
+                        }
+                    )
+                }
+
+                if (showClearDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showClearDialog = false },
+                        title = { Text("Reset Personalization Data?") },
+                        text = { Text("This will clear all local likes, watch history, search history, not-interested blocks, and custom playlists.") },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        viewModel.clearHistory()
+                                        com.example.util.NotInterestedManager.clearAll(context)
+                                        viewModel.setNotInterestedData(emptySet(), emptySet())
+                                        viewModel.setLikedVideoIds(emptySet())
+                                        viewModel.setDislikedVideoIds(emptySet())
+                                        viewModel.clearRecentSearches()
+                                        showClearDialog = false
+                                        Toast.makeText(context, "Personalization data cleared", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Clear Everything")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showClearDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
+                ExpandableSettingsCard(
+                    title = "Personalization Data",
+                    icon = Icons.Outlined.ManageAccounts,
+                    isExpanded = isPersonalizationExpanded,
+                    onToggleExpand = { isPersonalizationExpanded = !isPersonalizationExpanded },
+                    badgeText = "${stats.likesCount} Likes • ${stats.watchHistoryCount} Watched • ${stats.notInterestedCount} Not Int."
+                ) {
+                    Text(
+                        text = "Import & Export User Signals",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Backup or restore your likes, dislikes, Not Interested videos, blocked channels, watch/search history, interactions, preferences, and recommendation signals for accurate, personalized recommendations.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Stats Badges Row 1
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PersonalizationStatBadge("Likes", "${stats.likesCount}", Icons.Default.ThumbUp, Modifier.weight(1f))
+                        PersonalizationStatBadge("Dislikes", "${stats.dislikesCount}", Icons.Default.ThumbDown, Modifier.weight(1f))
+                        PersonalizationStatBadge("Watched", "${stats.watchHistoryCount}", Icons.Default.History, Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    // Stats Badges Row 2
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PersonalizationStatBadge("Not Interested", "${stats.notInterestedCount}", Icons.Default.Block, Modifier.weight(1f))
+                        PersonalizationStatBadge("Blocked Ch.", "${stats.blockedChannelsCount}", Icons.Default.Cancel, Modifier.weight(1f))
+                        PersonalizationStatBadge("Playlists", "${stats.playlistsCount}", Icons.Default.PlaylistPlay, Modifier.weight(1f))
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Export & Import Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    exportJsonText = com.example.util.PersonalizationDataManager.exportToJson(context, viewModel)
+                                    showExportDialog = true
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Export Data")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val clipboardText = com.example.util.PersonalizationDataManager.readFromClipboard(context)
+                                if (!clipboardText.isNullOrBlank() && clipboardText.contains("Butterfly")) {
+                                    importJsonInput = clipboardText
+                                }
+                                showImportDialog = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Import Data")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { showClearDialog = true },
+                        modifier = Modifier.align(Alignment.End),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reset Personalization Data", fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // 3. VIDEO TAGS & BADGES
+            item {
+                val tagBadgeText = when {
+                    hideAllTags -> "All Hidden"
+                    hiddenTags.isNotEmpty() -> "${hiddenTags.size} Hidden"
+                    else -> "Visible"
+                }
+
+                ExpandableSettingsCard(
+                    title = "Video Tags & Badges",
+                    icon = Icons.Outlined.LocalOffer,
+                    isExpanded = isTagsExpanded,
+                    onToggleExpand = { isTagsExpanded = !isTagsExpanded },
+                    badgeText = tagBadgeText
+                ) {
+                    SettingsSwitchRow(
+                        title = "Hide All Video Tags",
+                        subtitle = "Hide all corner tags (Dailymotion, YouTube, Anime, Series, Movies, etc.) from video cards",
+                        checked = hideAllTags,
+                        onCheckedChange = { tagPrefs.setHideAllTags(it) }
+                    )
+
+                    if (!hideAllTags) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Hide Specific Tags",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Toggle individual tags to hide or show on video thumbnails",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (hiddenTags.isNotEmpty()) {
+                                TextButton(onClick = { tagPrefs.unhideAllSpecificTags() }) {
+                                    Text("Unhide All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        val availableTags = remember {
+                            listOf(
+                                Triple("Dailymotion", Color(0xFF1976D2), "Dailymotion video source"),
+                                Triple("YouTube", Color(0xFFFF0000), "YouTube video source"),
+                                Triple("Anime", Color(0xFF9C27B0), "Anime & animated content"),
+                                Triple("Series", Color(0xFF0288D1), "TV shows & serial episodes"),
+                                Triple("Movie", Color(0xFFE5A00D), "Full movies & feature films"),
+                                Triple("18+", Color(0xFFC2185B), "Adult & mature catalog"),
+                                Triple("Archive", Color(0xFF1976D2), "Internet Archive public media"),
+                                Triple("Vimeo", Color(0xFF1976D2), "Vimeo video source")
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            availableTags.forEach { (tagName, tagColor, tagDesc) ->
+                                val isHidden = tagPrefs.isTagHidden(tagName)
+                                Surface(
+                                    color = if (isHidden) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = tagName,
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .background(
+                                                        color = if (isHidden) Color.Gray.copy(alpha = 0.5f) else tagColor.copy(alpha = 0.95f),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    )
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = if (tagName == "Movie") "Movies" else tagName,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (isHidden) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = tagDesc,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = if (isHidden) "Hidden" else "Shown",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isHidden) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(end = 8.dp)
+                                            )
+                                            Switch(
+                                                checked = !isHidden,
+                                                onCheckedChange = { isShown ->
+                                                    tagPrefs.setTagHidden(tagName, !isShown)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. PLAYER & PLAYBACK SETTINGS
             item {
                 ExpandableSettingsCard(
                     title = "Player Configuration",
@@ -293,6 +790,129 @@ fun SettingsScreen(
                             },
                             label = { Text(defaultQuality, fontWeight = FontWeight.Bold) }
                         )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    // DEFAULT PLAYBACK SPEED SECTION
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FastForward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "DEFAULT PLAYBACK SPEED",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            SettingsSwitchRow(
+                                title = "Force Custom Speed",
+                                subtitle = "Every video opens at the speed specified below",
+                                checked = forceCustomSpeed,
+                                onCheckedChange = { playbackPrefs.setForceCustomSpeed(it) }
+                            )
+
+                            val presetSpeeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
+
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(presetSpeeds) { speed ->
+                                    val isSelected = (defaultSpeed == speed && customSpeedInputText.isBlank()) ||
+                                            (customSpeedInputText.toFloatOrNull() == speed)
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            customSpeedInputText = ""
+                                            playbackPrefs.setDefaultSpeed(speed)
+                                            playbackPrefs.setForceCustomSpeed(true)
+                                        },
+                                        label = { Text("${speed}×", fontWeight = FontWeight.Bold) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    )
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = customSpeedInputText,
+                                onValueChange = { input ->
+                                    customSpeedInputText = input
+                                    val parsed = input.toFloatOrNull()
+                                    if (parsed != null && parsed >= 0.1f && parsed <= 16.0f) {
+                                        playbackPrefs.setDefaultSpeed(parsed)
+                                        playbackPrefs.setForceCustomSpeed(true)
+                                    }
+                                },
+                                placeholder = { Text("Custom, e.g. 1.35 or 5") },
+                                trailingIcon = {
+                                    if (customSpeedInputText.isNotEmpty()) {
+                                        IconButton(onClick = { customSpeedInputText = "" }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Clear")
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Text(
+                                text = "Tap a preset, or type any custom value (0.1–16×) and it overrides the presets.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                            SettingsSwitchRow(
+                                title = "🎵 Disable Custom Speed for Music",
+                                subtitle = "Detected music videos play at 1.0× automatically",
+                                checked = disableSpeedForMusic,
+                                onCheckedChange = { playbackPrefs.setDisableSpeedForMusic(it) }
+                            )
+
+                            Button(
+                                onClick = {
+                                    val parsed = customSpeedInputText.toFloatOrNull()
+                                    if (parsed != null && parsed >= 0.1f && parsed <= 16.0f) {
+                                        playbackPrefs.setDefaultSpeed(parsed)
+                                        playbackPrefs.setForceCustomSpeed(true)
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        "Playback speed saved: ${if (forceCustomSpeed) "${defaultSpeed}x" else "Default (1.0x)"}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Save Speed", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
 
                 }
@@ -942,5 +1562,47 @@ private fun SettingsSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange
         )
+    }
+}
+
+@Composable
+private fun PersonalizationStatBadge(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Column {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }

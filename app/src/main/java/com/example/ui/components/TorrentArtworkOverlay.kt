@@ -154,70 +154,13 @@ fun TorrentArtworkOverlay(
                         onRetry = onRetry,
                         onOpenPoTokenConfig = {}
                     )
-                } else {
-                    // TMDB TITLE / LOGO BADGE IN FULL COLOR
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.75f),
-                        shape = RoundedCornerShape(12.dp),
-                        tonalElevation = 6.dp,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = "TMDB",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFFFFD600), // VIBRANT GOLD
-                                modifier = Modifier
-                                    .background(Color(0xFF2B2200), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = title.ifEmpty { "Torrent Media" },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    // RESOLVING / BUFFERING STATUS UI OVERLAY
+                } else if (isExtracting || torrentState == TorrentState.RESOLVING || torrentState == TorrentState.BUFFERING) {
+                    // Minimal, sleek, premium circular progress indicator without distracting overlays
                     CircularProgressIndicator(
-                        color = Color(0xFF00E5FF), // CYAN
-                        strokeWidth = 3.dp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        strokeWidth = 2.5.dp,
                         modifier = Modifier.size(36.dp)
                     )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    val displayMessage = when (torrentState) {
-                        TorrentState.RESOLVING -> statusMessage ?: "RESOLVING TORRENT METADATA & MAGNET..."
-                        TorrentState.BUFFERING -> statusMessage ?: "BUFFERING TORRENT PEERS FOR PLAYBACK..."
-                        TorrentState.TORRENT_FOUND -> "MAGNET LINK READY • STARTING MEDIA3 ENGINE..."
-                        TorrentState.PLAYING -> "PLAYBACK READY"
-                        TorrentState.IDLE -> "PREPARING TORRENT STREAM..."
-                    }
-
-                    Surface(
-                        color = Color(0xAA000000),
-                        shape = RoundedCornerShape(20.dp)
-                    ) {
-                        Text(
-                            text = displayMessage,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFE0E0E0),
-                            letterSpacing = 0.8.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
-                    }
                 }
             }
         } else {
@@ -229,18 +172,11 @@ fun TorrentArtworkOverlay(
                     onOpenPoTokenConfig = {}
                 )
             } else if (isExtracting) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(color = Color.White)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = statusMessage ?: "Loading video stream...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.LightGray
-                    )
-                }
+                CircularProgressIndicator(
+                    color = Color.White.copy(alpha = 0.85f),
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size(36.dp)
+                )
             }
         }
     }

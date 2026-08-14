@@ -23,10 +23,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.db.OfflineDownloadEntity
 import com.example.model.AppScreen
 import com.example.model.UserPlaylist
 import com.example.model.VideoItem
@@ -49,6 +51,8 @@ fun AccountScreen(
     val userPlaylists by viewModel.userPlaylists.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
     val watchProgressMap by viewModel.watchProgressMap.collectAsState()
+    val offlineDownloads by viewModel.offlineDownloads.collectAsState()
+    val liveProgressMap by viewModel.downloadLiveProgress.collectAsState()
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
@@ -56,6 +60,19 @@ fun AccountScreen(
     var isViewingWatchLaterDetail by remember { mutableStateOf(false) }
     var isViewingHistoryDetail by remember { mutableStateOf(false) }
     var isViewingDownloadsDetail by remember { mutableStateOf(false) }
+    var isViewingMoviesAndTvDetail by remember { mutableStateOf(false) }
+
+    // Detail View: Movies & TV (Library) Page
+    if (isViewingMoviesAndTvDetail) {
+        LibraryScreen(
+            viewModel = viewModel,
+            onSelectVideo = onSelectVideo,
+            onBackClick = { isViewingMoviesAndTvDetail = false },
+            topPadding = 0.dp,
+            bottomPadding = 90.dp
+        )
+        return
+    }
 
     // Detail View: Full Watch History Page
     if (isViewingHistoryDetail) {
@@ -129,6 +146,7 @@ fun AccountScreen(
     // Detail View: Downloads Page
     if (isViewingDownloadsDetail) {
         DownloadsDetailScreen(
+            viewModel = viewModel,
             onBackClick = { isViewingDownloadsDetail = false },
             onPlayVideo = { onSelectVideo(it) }
         )
@@ -383,10 +401,17 @@ fun AccountScreen(
 
             // 4. DOWNLOADS SECTION
             item {
+                val completedCount = offlineDownloads.count { it.status == "COMPLETED" }
+                val activeDownloadingCount = liveProgressMap.values.count { it.status == "DOWNLOADING" }
+                val downloadSubtitle = when {
+                    activeDownloadingCount > 0 -> "$activeDownloadingCount downloading • $completedCount offline"
+                    completedCount > 0 -> "$completedCount video${if (completedCount == 1) "" else "s"} downloaded • Available offline"
+                    else -> "0 videos downloaded • Available offline"
+                }
                 AccountNavigationTile(
                     icon = Icons.Outlined.FileDownload,
                     title = "Downloads",
-                    subtitle = "0 videos downloaded • Available offline",
+                    subtitle = downloadSubtitle,
                     onClick = { isViewingDownloadsDetail = true }
                 )
             }
@@ -395,9 +420,9 @@ fun AccountScreen(
             item {
                 AccountNavigationTile(
                     icon = Icons.Outlined.Movie,
-                    title = "Your movies & TV",
+                    title = "Movies & Tv",
                     subtitle = "Saved movies, series, vault & favorites",
-                    onClick = { viewModel.navigateToScreen(AppScreen.LIBRARY) }
+                    onClick = { isViewingMoviesAndTvDetail = true }
                 )
             }
 
@@ -534,6 +559,7 @@ fun AccountScreen(
 
     // EDIT PROFILE & ACCOUNT OPTIONS DIALOG
     if (showEditProfileDialog) {
+        val syncStatus by viewModel.syncStatus.collectAsState()
         val likedVideoIds by viewModel.likedVideoIds.collectAsState()
         val currentTimeSlot = remember { com.example.engine.RecommendationPipelineEngine.getCurrentTimeSlot() }
 
@@ -635,6 +661,174 @@ fun AccountScreen(
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // SECTION 2: ACCOUNT SYNC & BACKUP
+                    Text(
+                        text = "Account Sync & Cloud Backup",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    val isUserEmailLoggedIn = !syncStatus.userEmail.isNullOrBlank() && !syncStatus.userEmail!!.contains("guest")
+
+                    ElevatedCard(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudSync,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isUserEmailLoggedIn) "Cloud Account Active" else "Guest Mode (Local)",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isUserEmailLoggedIn) Color(0xFF1B5E20) else MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = if (isUserEmailLoggedIn) "CONNECTED" else "GUEST",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isUserEmailLoggedIn) Color.White else MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (isUserEmailLoggedIn) {
+                                Text(
+                                    text = "Logged in as: ${syncStatus.userEmail}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { viewModel.triggerCloudBackup() },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = !syncStatus.isSyncing
+                                    ) {
+                                        Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Sync Now", fontSize = 12.sp)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { viewModel.signOutCloudUser() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Sign Out", fontSize = 12.sp)
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "Sign in to sync your watch history, likes & playlists across devices.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                OutlinedTextField(
+                                    value = emailInput,
+                                    onValueChange = { emailInput = it; authErrorMessage = null },
+                                    label = { Text("Email Address") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                OutlinedTextField(
+                                    value = passwordInput,
+                                    onValueChange = { passwordInput = it; authErrorMessage = null },
+                                    label = { Text("Password") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                if (authErrorMessage != null) {
+                                    Text(
+                                        text = authErrorMessage!!,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            isRegisteringMode = !isRegisteringMode
+                                            authErrorMessage = null
+                                        }
+                                    ) {
+                                        Text(
+                                            text = if (isRegisteringMode) "Have account? Sign in" else "Need account? Register",
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (emailInput.isBlank() || passwordInput.isBlank()) {
+                                                authErrorMessage = "Please enter both email and password"
+                                                return@Button
+                                            }
+                                            isSubmittingAuth = true
+                                            authErrorMessage = null
+
+                                            if (isRegisteringMode) {
+                                                viewModel.registerWithEmail(emailInput, passwordInput) { success, error ->
+                                                    isSubmittingAuth = false
+                                                    if (!success) authErrorMessage = error ?: "Registration failed"
+                                                }
+                                            } else {
+                                                viewModel.signInWithEmail(emailInput, passwordInput) { success, error ->
+                                                    isSubmittingAuth = false
+                                                    if (!success) authErrorMessage = error ?: "Sign in failed"
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSubmittingAuth
+                                    ) {
+                                        if (isSubmittingAuth) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                                        } else {
+                                            Text(if (isRegisteringMode) "Register" else "Login", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -1218,48 +1412,407 @@ fun HistoryDetailScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadsDetailScreen(
+    viewModel: MainViewModel,
     onBackClick: () -> Unit,
     onPlayVideo: (VideoItem) -> Unit
 ) {
+    val downloads by viewModel.offlineDownloads.collectAsState()
+    val liveProgressMap by viewModel.downloadLiveProgress.collectAsState()
+    var showClearAllConfirmDialog by remember { mutableStateOf(false) }
+
+    val totalStorageUsedBytes = remember(downloads) {
+        downloads.sumOf { if (it.downloadedBytes > 0) it.downloadedBytes else 0L }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Downloads", fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text(
+                            text = "Downloads",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        if (downloads.isNotEmpty()) {
+                            Text(
+                                text = "${downloads.size} video${if (downloads.size == 1) "" else "s"} • ${com.example.util.OfflineDownloadManager.formatBytes(totalStorageUsedBytes)} used",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (downloads.isNotEmpty()) {
+                        IconButton(onClick = { showClearAllConfirmDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.DeleteSweep,
+                                contentDescription = "Clear all downloads",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+        if (downloads.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(horizontal = 32.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                        modifier = Modifier.size(80.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.FileDownload,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "No downloaded videos yet",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = "Tap the Download button under any video to watch offline anytime with zero data usage.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.FileDownload,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(56.dp)
+                items(downloads, key = { it.videoId }) { download ->
+                    val liveInfo = liveProgressMap[download.videoId]
+                    val isLiveDownloading = liveInfo?.status == "DOWNLOADING" || download.status == "DOWNLOADING"
+                    val isLivePaused = liveInfo?.status == "PAUSED" || download.status == "PAUSED"
+                    val isLiveCompleted = (liveInfo?.status == "COMPLETED" || download.status == "COMPLETED") && !isLiveDownloading
+                    val progressVal = liveInfo?.progress ?: if (download.totalBytes > 0) (download.downloadedBytes.toFloat() / download.totalBytes).coerceIn(0f, 1f) else 0f
+                    val downloadedBytes = liveInfo?.downloadedBytes ?: download.downloadedBytes
+                    val totalBytes = liveInfo?.totalBytes ?: download.totalBytes
+                    val speedKbps = liveInfo?.speedKbps ?: 0L
+
+                    OfflineDownloadCard(
+                        download = download,
+                        isDownloading = isLiveDownloading,
+                        isPaused = isLivePaused,
+                        isCompleted = isLiveCompleted,
+                        progress = progressVal,
+                        downloadedBytes = downloadedBytes,
+                        totalBytes = totalBytes,
+                        speedKbps = speedKbps,
+                        onPlayClick = {
+                            viewModel.playOfflineDownload(download)
+                        },
+                        onPauseClick = {
+                            viewModel.pauseDownload(download.videoId)
+                        },
+                        onResumeClick = {
+                            viewModel.resumeDownload(download.videoId)
+                        },
+                        onDeleteClick = {
+                            viewModel.deleteDownload(download.videoId, download.localFilePath)
+                        }
+                    )
+                }
+            }
+        }
+
+        if (showClearAllConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearAllConfirmDialog = false },
+                icon = {
+                    Icon(
+                        Icons.Outlined.DeleteSweep,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                },
+                title = { Text("Delete all downloads?") },
+                text = {
+                    Text("This will permanently remove all downloaded videos from your device storage.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.clearAllDownloads()
+                            showClearAllConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete all")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearAllConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun OfflineDownloadCard(
+    download: OfflineDownloadEntity,
+    isDownloading: Boolean,
+    isPaused: Boolean,
+    isCompleted: Boolean,
+    progress: Float,
+    downloadedBytes: Long,
+    totalBytes: Long,
+    speedKbps: Long,
+    onPlayClick: () -> Unit,
+    onPauseClick: () -> Unit,
+    onResumeClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isDownloading) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onPlayClick() }
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Thumbnail with Play / Progress badge
+                Box(
+                    modifier = Modifier
+                        .width(110.dp)
+                        .height(66.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    if (!download.thumbnailUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = download.thumbnailUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.VideoLibrary,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+
+                    // Play overlay icon
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.6f),
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "Play offline",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Quality pill badge
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.8f),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(4.dp)
+                    ) {
+                        Text(
+                            text = download.qualityLabel.ifBlank { "720p" },
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+
+                // Title & Details
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = download.title.ifBlank { "Untitled Video" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = download.channelName.ifBlank { "Creator" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Download status text
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (isDownloading) {
+                            Text(
+                                text = "Downloading • ${(progress * 100).toInt()}%",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (speedKbps > 0) {
+                                Text(
+                                    text = "(${speedKbps} KB/s)",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else if (isPaused) {
+                            Text(
+                                text = "Paused • ${(progress * 100).toInt()}%",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        } else if (isCompleted) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Downloaded • ${com.example.util.OfflineDownloadManager.formatBytes(downloadedBytes)}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                text = "Download failed",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+
+                // Control Action Buttons (Play / Pause / Resume / Delete)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (isDownloading) {
+                        IconButton(onClick = onPauseClick, modifier = Modifier.size(34.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Pause,
+                                contentDescription = "Pause download",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else if (isPaused) {
+                        IconButton(onClick = onResumeClick, modifier = Modifier.size(34.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = "Resume download",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onDeleteClick, modifier = Modifier.size(34.dp)) {
+                        Icon(
+                            imageVector = Icons.Outlined.Delete,
+                            contentDescription = "Delete download",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            // Download Progress Bar
+            if (isDownloading || isPaused) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = if (isPaused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-                Text(
-                    text = "No downloaded videos yet",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "Downloaded videos will appear here and can be played offline.",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "${com.example.util.OfflineDownloadManager.formatBytes(downloadedBytes)} / ${com.example.util.OfflineDownloadManager.formatBytes(totalBytes)}",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (isDownloading) "Tap to play while downloading" else "Tap to play downloaded part",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
     }

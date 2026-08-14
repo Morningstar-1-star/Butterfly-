@@ -129,9 +129,14 @@ object YtDlpResolver {
             // Prefer Android-compatible H.264 (avc1) + AAC (m4a/mp4a) or best progressive mp4
             request.addOption("-f", "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[vcodec^=h264]+bestaudio[acodec^=aac]/best[vcodec^=avc1]/best[ext=mp4]/best")
             request.addOption("--no-playlist")
-            request.addOption("--socket-timeout", "15")
+            request.addOption("--socket-timeout", "4")
+            if (isYouTube) {
+                request.addOption("--extractor-args", "youtube:player_client=ios,android_creator,tv")
+            }
 
-            val videoInfo: VideoInfo = YoutubeDL.getInstance().getInfo(request)
+            val videoInfo: VideoInfo = kotlinx.coroutines.withTimeoutOrNull(4500L) {
+                YoutubeDL.getInstance().getInfo(request)
+            } ?: throw YoutubeDLException("yt-dlp extraction timed out after 4.5s")
 
             val title = videoInfo.title ?: "Extracted Video"
             val uploader = videoInfo.uploader ?: if (isYouTube) "YouTube Channel" else "Web Creator"
@@ -180,30 +185,37 @@ object YtDlpResolver {
                     )
                 }
 
-                // If no muxed format found, pair best video with best audio
-                if (options.isEmpty()) {
-                    val videoFmts = formats.filter { !it.url.isNullOrEmpty() && it.vcodec != "none" && it.vcodec != null }
-                    val audioFmts = formats.filter { !it.url.isNullOrEmpty() && it.acodec != "none" && it.acodec != null }
+                // Build adaptive streams for all available resolutions (1080p, 1440p, 4K, 720p, etc.)
+                val videoFmts = formats.filter { !it.url.isNullOrEmpty() && it.vcodec != "none" && it.vcodec != null }
+                    .distinctBy { it.height }
+                    .sortedByDescending { it.height }
+                val audioFmts = formats.filter { !it.url.isNullOrEmpty() && it.acodec != "none" && it.acodec != null }
+                val bestAudio = audioFmts.maxByOrNull { it.tbr } ?: audioFmts.firstOrNull()
 
-                    val bestVideo = videoFmts.maxByOrNull { it.height } ?: videoFmts.firstOrNull()
-                    val bestAudio = audioFmts.maxByOrNull { it.tbr } ?: audioFmts.firstOrNull()
-
-                    if (bestVideo != null) {
-                        val fmtHeaders = extractedHeaders.toMutableMap()
-                        bestVideo.httpHeaders?.forEach { (k, v) -> if (!v.isNullOrBlank()) fmtHeaders[k] = v }
-
-                        options.add(
-                            PlayableStreamOption(
-                                qualityLabel = "${bestVideo.height.takeIf { it > 0 }?.let { "${it}p" } ?: "Adaptive"} (yt-dlp)",
-                                format = bestVideo.ext ?: "mp4",
-                                isMuxed = bestAudio == null,
-                                videoUrl = bestVideo.url,
-                                audioUrl = bestAudio?.url,
-                                headers = fmtHeaders,
-                                providerType = ProviderType.OTHER
-                            )
-                        )
+                for (vf in videoFmts) {
+                    val fmtHeaders = extractedHeaders.toMutableMap()
+                    vf.httpHeaders?.forEach { (k, v) -> if (!v.isNullOrBlank()) fmtHeaders[k] = v }
+                    val h = vf.height
+                    val label = when {
+                        h >= 2160 -> "2160p (4K)"
+                        h >= 1440 -> "1440p (2K)"
+                        h >= 1080 -> "1080p HD"
+                        h >= 720 -> "720p HD"
+                        h > 0 -> "${h}p"
+                        else -> "Adaptive Quality"
                     }
+
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = label,
+                            format = vf.ext ?: "mp4",
+                            isMuxed = bestAudio == null,
+                            videoUrl = vf.url,
+                            audioUrl = bestAudio?.url,
+                            headers = fmtHeaders,
+                            providerType = ProviderType.OTHER
+                        )
+                    )
                 }
             }
 
@@ -230,7 +242,9 @@ object YtDlpResolver {
                 )
             }
 
-            val selectedOpt = options.first()
+            val selectedOpt = options.firstOrNull { it.qualityLabel.contains("1080p") }
+                ?: options.firstOrNull { it.qualityLabel.contains("720p") }
+                ?: options.first()
 
             val streamData = StreamData(
                 videoId = videoInfo.id ?: urlOrId,

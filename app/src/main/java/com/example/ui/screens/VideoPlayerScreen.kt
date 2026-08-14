@@ -42,6 +42,7 @@ import com.example.ui.components.ErrorDiagnosticCard
 import com.example.ui.components.TorrentArtworkOverlay
 import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoDetailsSection
+import com.example.ui.components.DownloadQualityBottomSheet
 import com.example.ui.player.GlobalPlayerManager
 import com.example.ui.player.YouTubePlayerView
 import kotlinx.coroutines.delay
@@ -71,6 +72,16 @@ fun VideoPlayerScreen(
     val providerId = currentStreamData?.providerId
     val providerName = availableProviders.firstOrNull { it.id == providerId }?.name ?: providerId ?: "Video Player"
 
+    val studioOrChannelName = remember(currentStreamData, providerId, availableProviders) {
+        val rawCh = currentStreamData?.channelName?.takeIf { it.isNotBlank() }
+        if (rawCh != null && !rawCh.contains("Torrent", ignoreCase = true) && rawCh != "Butterfly Stream") {
+            rawCh
+        } else {
+            val pName = availableProviders.firstOrNull { it.id == providerId }?.name ?: providerId ?: ""
+            if (pName.isNotBlank() && !pName.contains("Torrent", ignoreCase = true)) pName else "Official Channel"
+        }
+    }
+
     val initialPositionMs = remember(activeVideoId) { activeVideoId?.let { watchPositionMsMap[it] } ?: 0L }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -82,6 +93,18 @@ fun VideoPlayerScreen(
     var showCommentsSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
+    var showDownloadQualitySheet by remember { mutableStateOf(false) }
+
+    val offlineDownloads by viewModel.offlineDownloads.collectAsState()
+    val liveProgressMap by viewModel.downloadLiveProgress.collectAsState()
+
+    val isDownloaded = remember(offlineDownloads, activeVideoId) {
+        offlineDownloads.any { it.videoId == activeVideoId && it.status == "COMPLETED" }
+    }
+    val currentDownloadInfo = activeVideoId?.let { liveProgressMap[it] }
+    val isDownloading = currentDownloadInfo?.status == "DOWNLOADING" || 
+        offlineDownloads.any { it.videoId == activeVideoId && it.status == "DOWNLOADING" }
+    val downloadProgressFraction = currentDownloadInfo?.progress ?: 0f
 
     var seasonsAndEpisodes by remember(currentStreamData?.videoId) {
         mutableStateOf<List<com.example.model.SeriesSeason>>(
@@ -164,8 +187,13 @@ fun VideoPlayerScreen(
     }
 
     val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
-    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption) {
-        (activeProviderItem?.isTorrent == true) ||
+    val isJavOrAdult = remember(currentStreamData, providerId) {
+        com.example.util.TMDBHelper.isJavOrAdultProvider(currentStreamData?.providerId ?: providerId, currentStreamData?.title)
+    }
+
+    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption, isJavOrAdult) {
+        if (isJavOrAdult) false
+        else (activeProviderItem?.isTorrent == true) ||
                 (currentStreamData?.isTorrent == true) ||
                 (selectedOption?.isTorrent == true) ||
                 (currentStreamData?.providerId?.lowercase()?.contains("eztv") == true) ||
@@ -173,23 +201,53 @@ fun VideoPlayerScreen(
                 (currentStreamData?.providerId?.lowercase()?.contains("yts") == true)
     }
 
-    val isTvSeries = remember(currentStreamData, seasonsAndEpisodes) {
-        if (currentStreamData == null) false
+    val isTvSeries = remember(currentStreamData, seasonsAndEpisodes, isJavOrAdult) {
+        if (currentStreamData == null || isJavOrAdult) false
         else {
             val totalEpisodes = seasonsAndEpisodes.sumOf { it.episodes.size }
             totalEpisodes > 1
         }
     }
 
-    var selectedPlayerTab by remember(isTvSeries) {
-        mutableStateOf(if (isTvSeries) com.example.ui.components.PlayerTab.SEASONS_EPISODES else com.example.ui.components.PlayerTab.RELATED)
+    var selectedPlayerTab by remember(isTvSeries, isJavOrAdult) {
+        mutableStateOf(if (isTvSeries && !isJavOrAdult) com.example.ui.components.PlayerTab.SEASONS_EPISODES else com.example.ui.components.PlayerTab.RELATED)
     }
 
     val trendingVideos by viewModel.trendingVideos.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val activeVideoItem by viewModel.activeVideoItem.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
 
-    LaunchedEffect(currentStreamData?.videoId, isTorrentStream) {
-        if (currentStreamData != null && isTorrentStream) {
+    val currentVideoItem = remember(currentStreamData, activeVideoId, activeVideoItem, trendingVideos, searchResults) {
+        if (currentStreamData != null) {
+            VideoItem(
+                id = activeVideoId ?: "playing_video",
+                title = currentStreamData.title,
+                uploaderName = currentStreamData.channelName,
+                thumbnailUrl = currentStreamData.thumbnailUrl,
+                providerId = providerId ?: currentStreamData.providerId ?: "youtube"
+            )
+        } else if (activeVideoItem != null) {
+            activeVideoItem
+        } else {
+            activeVideoId?.let { vid ->
+                trendingVideos.firstOrNull { it.id == vid }
+                    ?: searchResults.firstOrNull { it.id == vid }
+                    ?: VideoItem(
+                        id = vid,
+                        title = if (vid.length == 11) "YouTube Video" else vid,
+                        uploaderName = providerId?.replaceFirstChar { it.uppercase() } ?: "YouTube",
+                        thumbnailUrl = if (vid.length == 11) "https://i.ytimg.com/vi/$vid/hqdefault.jpg" else null,
+                        providerId = providerId ?: "youtube"
+                    )
+            }
+        }
+    }
+
+    LaunchedEffect(currentStreamData?.videoId, isTorrentStream, isJavOrAdult) {
+        if (isJavOrAdult || currentStreamData == null) {
+            seasonsAndEpisodes = emptyList()
+        } else if (isTorrentStream) {
             try {
                 val tmdbSeasons = com.example.util.TMDBHelper.fetchTvSeasonsAndEpisodes(currentStreamData)
                 if (tmdbSeasons.isNotEmpty()) {
@@ -198,17 +256,23 @@ fun VideoPlayerScreen(
             } catch (e: Exception) {
                 // Keep initial generated seasons
             }
-        } else if (currentStreamData == null) {
-            seasonsAndEpisodes = emptyList()
         }
     }
 
-    val relatedContent = remember(currentStreamData, trendingVideos) {
-        currentStreamData?.let { com.example.util.SeriesDataHelper.getRelatedContent(it, trendingVideos) } ?: emptyList()
+    val relatedContent = remember(currentStreamData, trendingVideos, activeVideoId) {
+        if (currentStreamData != null) {
+            com.example.util.SeriesDataHelper.getRelatedContent(currentStreamData, trendingVideos)
+        } else {
+            trendingVideos.filter { it.id != activeVideoId }.take(10)
+        }
     }
 
-    val recommendedContent = remember(currentStreamData, trendingVideos) {
-        currentStreamData?.let { com.example.util.SeriesDataHelper.getRecommendedContent(it, trendingVideos) } ?: emptyList()
+    val recommendedContent = remember(currentStreamData, trendingVideos, activeVideoId) {
+        if (currentStreamData != null) {
+            com.example.util.SeriesDataHelper.getRecommendedContent(currentStreamData, trendingVideos)
+        } else {
+            trendingVideos.filter { it.id != activeVideoId }.take(10)
+        }
     }
 
     var fetchedComments by remember(currentStreamData?.videoId, activeVideoId) {
@@ -221,11 +285,11 @@ fun VideoPlayerScreen(
         mutableStateOf<com.example.util.TorrentReviewsResult?>(null)
     }
 
-    LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
-        if (currentStreamData != null) {
+    LaunchedEffect(currentStreamData?.videoId, activeVideoId, currentVideoItem?.title) {
+        val vid = activeVideoId ?: currentStreamData?.videoId ?: ""
+        val titleToFetch = currentStreamData?.title ?: currentVideoItem?.title ?: vid
+        if (vid.isNotBlank() || titleToFetch.isNotBlank()) {
             isCommentsLoading = true
-            val titleToFetch = currentStreamData.title
-            val vid = activeVideoId ?: currentStreamData.videoId
             val res = com.example.util.TorrentReviewFetcher.fetchReviewsForTorrent(
                 title = titleToFetch,
                 videoId = vid,
@@ -242,18 +306,6 @@ fun VideoPlayerScreen(
 
     val playerComments = fetchedComments
 
-    val currentVideoItem = remember(currentStreamData, activeVideoId) {
-        currentStreamData?.let { data ->
-            VideoItem(
-                id = activeVideoId ?: "playing_video",
-                title = data.title,
-                uploaderName = data.channelName,
-                thumbnailUrl = data.thumbnailUrl,
-                providerId = providerId ?: "youtube"
-            )
-        }
-    }
-
     val firstFrameRendered by GlobalPlayerManager.firstFrameRendered.collectAsState()
 
     val displayPosterUrl = currentStreamData?.effectiveThumbnailUrl ?: currentVideoItem?.thumbnailUrl
@@ -263,11 +315,6 @@ fun VideoPlayerScreen(
     val isSavedInWatchLater = currentVideoItem != null && watchLaterList.any { it.id == currentVideoItem.id }
 
     val listState = rememberLazyListState()
-    val isScrolledPastHeader by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 420
-        }
-    }
 
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -294,6 +341,7 @@ fun VideoPlayerScreen(
                 onProgressUpdate = { pos, dur ->
                     activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
                 },
+                onBackClick = onBackClick,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -337,63 +385,13 @@ fun VideoPlayerScreen(
     } else {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            modifier = modifier.fillMaxSize(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = currentStreamData?.title ?: "Now Playing",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (providerName.isNotEmpty()) {
-                            Text(
-                                text = "Source: $providerName",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Minimize to Mini Player",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    IconButton(onClick = { viewModel.closeVideo() }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close Video",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = modifier.fillMaxSize().statusBarsPadding(),
+            containerColor = MaterialTheme.colorScheme.background
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
         ) {
             // STICKY PLAYER AREA
             Box(
@@ -466,7 +464,7 @@ fun VideoPlayerScreen(
                 )
             }
 
-            // CONTAINER FOR SCROLLABLE CONTENT & STICKY LIQUID GLASS FLOATING ACTION TOOLBAR
+            // CONTAINER FOR SCROLLABLE CONTENT
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -475,59 +473,76 @@ fun VideoPlayerScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp)
+                    contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
-                    // Video Details Section
-                    if (currentStreamData != null) {
-                        item {
-                            VideoDetailsSection(
-                                streamData = currentStreamData,
-                                selectedOption = selectedOption,
-                                selectedCaption = selectedCaption,
-                                onSelectOption = { viewModel.selectStreamOption(it) },
-                                onSelectCaption = { viewModel.selectCaptionOption(it) },
-                                onTagClick = { tag ->
-                                    viewModel.updateSearchQuery(tag)
-                                    viewModel.performSearch(tag)
-                                    onBackClick()
-                                },
-                                isLiked = isLiked,
-                                isDisliked = isDisliked,
-                                isSaved = isSavedInWatchLater,
-                                onLikeClick = {
-                                    isLiked = !isLiked
-                                    if (isLiked) isDisliked = false
-                                    activeVideoId?.let { id -> viewModel.toggleLikeVideo(id) }
-                                },
-                                onDislikeClick = {
-                                    isDisliked = !isDisliked
-                                    if (isDisliked) isLiked = false
-                                    activeVideoId?.let { id -> viewModel.toggleDislikeVideo(id) }
-                                },
-                                onSaveClick = {
-                                    currentVideoItem?.let { video ->
-                                        if (isSavedInWatchLater) {
-                                            viewModel.removeFromWatchLater(video)
-                                            coroutineScope.launch {
-                                                snackbarHostState.showSnackbar("Removed from Watch Later")
-                                            }
-                                        } else {
-                                            viewModel.addToWatchLater(video)
-                                            coroutineScope.launch {
-                                                snackbarHostState.showSnackbar("Saved to Watch Later")
-                                            }
+                    // Video Details Section (Always visible with instant preview & live stream info)
+                    item {
+                        VideoDetailsSection(
+                            streamData = currentStreamData,
+                            previewItem = currentVideoItem,
+                            selectedOption = selectedOption,
+                            selectedCaption = selectedCaption,
+                            onSelectOption = { viewModel.selectStreamOption(it) },
+                            onSelectCaption = { viewModel.selectCaptionOption(it) },
+                            onTagClick = { tag ->
+                                viewModel.updateSearchQuery(tag)
+                                viewModel.performSearch(tag)
+                                onBackClick()
+                            },
+                            isLiked = isLiked,
+                            isDisliked = isDisliked,
+                            isSaved = isSavedInWatchLater,
+                            onLikeClick = {
+                                isLiked = !isLiked
+                                if (isLiked) isDisliked = false
+                                activeVideoId?.let { id -> viewModel.toggleLikeVideo(id) }
+                            },
+                            onDislikeClick = {
+                                isDisliked = !isDisliked
+                                if (isDisliked) isLiked = false
+                                activeVideoId?.let { id -> viewModel.toggleDislikeVideo(id) }
+                            },
+                            onSaveClick = {
+                                currentVideoItem?.let { video ->
+                                    if (isSavedInWatchLater) {
+                                        viewModel.removeFromWatchLater(video)
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Removed from Watch Later")
+                                        }
+                                    } else {
+                                        viewModel.addToWatchLater(video)
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Saved to Watch Later")
                                         }
                                     }
-                                },
-                                onSaveLongClick = { showSaveToPlaylistSheet = true },
-                                onShareClick = {
+                                }
+                            },
+                            onSaveLongClick = { showSaveToPlaylistSheet = true },
+                            onShareClick = {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Video link copied to clipboard")
+                                }
+                            },
+                            onCommentsClick = { showCommentsSheet = true },
+                            onChannelClick = { channelName ->
+                                viewModel.openChannel(channelName)
+                            },
+                            isSubscribed = viewModel.isSubscribed(currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: ""),
+                            onSubscribeClick = {
+                                val chName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: ""
+                                if (chName.isNotBlank()) {
+                                    val isNowSub = !viewModel.isSubscribed(chName)
+                                    viewModel.toggleSubscription(chName, currentStreamData?.channelAvatarUrl ?: currentVideoItem?.thumbnailUrl)
                                     coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Video link copied to clipboard")
+                                        snackbarHostState.showSnackbar(if (isNowSub) "Subscribed to $chName" else "Unsubscribed from $chName")
                                     }
-                                },
-                                onCommentsClick = { showCommentsSheet = true }
-                            )
-                        }
+                                }
+                            },
+                            isDownloaded = isDownloaded,
+                            isDownloading = isDownloading,
+                            downloadProgress = downloadProgressFraction,
+                            onDownloadClick = { showDownloadQualitySheet = true }
+                        )
                     }
 
                     // Interactive Player Tab Bar (Seasons & Episodes, Related, Recommended, Comments)
@@ -577,7 +592,11 @@ fun VideoPlayerScreen(
                         com.example.ui.components.PlayerTab.RELATED -> {
                             if (relatedContent.isNotEmpty()) {
                                 items(relatedContent) { video ->
-                                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp)
+                                    ) {
                                         VideoCard(
                                             video = video,
                                             onClick = {
@@ -606,7 +625,11 @@ fun VideoPlayerScreen(
                         com.example.ui.components.PlayerTab.RECOMMENDED -> {
                             if (recommendedContent.isNotEmpty()) {
                                 items(recommendedContent) { video ->
-                                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp)
+                                    ) {
                                         VideoCard(
                                             video = video,
                                             onClick = {
@@ -651,161 +674,37 @@ fun VideoPlayerScreen(
                         }
                     }
                 }
-
-                // STICKY LIQUID GLASS FLOATING ACTION CAPSULES AT BOTTOM (ONLY APPEARS ON SCROLLING DOWN)
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = isScrolledPastHeader,
-                    enter = fadeIn() + slideInVertically { it / 2 },
-                    exit = fadeOut() + slideOutVertically { it / 2 },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 20.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // CAPSULE 1 (LEFT): LIKE, DISLIKE, COMMENTS
-                        Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                            tonalElevation = 12.dp,
-                            modifier = Modifier
-                                .shadow(elevation = 16.dp, shape = RoundedCornerShape(28.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                                .border(width = 1.dp, color = Color.White.copy(alpha = 0.4f), shape = RoundedCornerShape(28.dp))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // LIKE
-                                Row(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .clickable {
-                                            isLiked = !isLiked
-                                            if (isLiked) isDisliked = false
-                                        }
-                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                                        contentDescription = "Like",
-                                        tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isLiked) "38K" else "37K",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-
-                                // DISLIKE
-                                IconButton(
-                                    onClick = {
-                                        isDisliked = !isDisliked
-                                        if (isDisliked) isLiked = false
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                                        contentDescription = "Dislike",
-                                        tint = if (isDisliked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                }
-
-                                // COMMENTS
-                                IconButton(
-                                    onClick = { showCommentsSheet = true },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.ChatBubbleOutline,
-                                        contentDescription = "Comments",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // CAPSULE 2 (RIGHT): SAVE / WATCH LATER, MORE / SHARE
-                        Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                            tonalElevation = 12.dp,
-                            modifier = Modifier
-                                .shadow(elevation = 16.dp, shape = RoundedCornerShape(28.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                                .border(width = 1.dp, color = Color.White.copy(alpha = 0.4f), shape = RoundedCornerShape(28.dp))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // SAVE (TAP FOR WATCH LATER, LONG PRESS FOR PLAYLISTS)
-                                Box(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .combinedClickable(
-                                            onClick = {
-                                                currentVideoItem?.let { video ->
-                                                    if (isSavedInWatchLater) {
-                                                        viewModel.removeFromWatchLater(video)
-                                                        coroutineScope.launch {
-                                                            snackbarHostState.showSnackbar("Removed from Watch Later")
-                                                        }
-                                                    } else {
-                                                        viewModel.addToWatchLater(video)
-                                                        coroutineScope.launch {
-                                                            snackbarHostState.showSnackbar("Saved to Watch Later")
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                            onLongClick = {
-                                                showSaveToPlaylistSheet = true
-                                            }
-                                        )
-                                        .padding(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isSavedInWatchLater) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                                        contentDescription = "Save video",
-                                        tint = if (isSavedInWatchLater) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                // MORE OPTIONS / SHARE
-                                IconButton(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Video link copied to clipboard")
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreHoriz,
-                                        contentDescription = "More",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
+    }
+
+    // MODAL BOTTOM SHEET: DOWNLOAD QUALITY PICKER
+    if (showDownloadQualitySheet) {
+        DownloadQualityBottomSheet(
+            videoTitle = currentStreamData?.title ?: currentVideoItem?.title ?: "Video",
+            channelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: "Channel",
+            thumbnailUrl = currentStreamData?.channelAvatarUrl ?: currentVideoItem?.thumbnailUrl,
+            durationText = currentVideoItem?.formattedDuration,
+            availableOptions = currentStreamData?.availableStreamOptions ?: emptyList(),
+            onConfirmDownload = { qualityLabel, chosenStreamOption ->
+                showDownloadQualitySheet = false
+                val targetVideoId = activeVideoId ?: currentStreamData?.videoId ?: currentVideoItem?.id
+                if (!targetVideoId.isNullOrBlank()) {
+                    viewModel.startDownload(
+                        videoId = targetVideoId,
+                        title = currentStreamData?.title ?: currentVideoItem?.title ?: "Video",
+                        channelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: "Channel",
+                        thumbnailUrl = currentStreamData?.channelAvatarUrl ?: currentVideoItem?.thumbnailUrl,
+                        qualityLabel = qualityLabel,
+                        streamOption = chosenStreamOption ?: selectedOption
+                    )
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Download started in $qualityLabel")
+                    }
+                }
+            },
+            onDismissRequest = { showDownloadQualitySheet = false }
+        )
     }
 
     // MODAL BOTTOM SHEET: SAVE TO PLAYLIST

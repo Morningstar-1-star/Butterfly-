@@ -45,6 +45,7 @@ desugarJdkLibs = "2.1.4"
 jsoup = "1.18.3"
 nanojson = "1.9"
 
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -95,6 +96,7 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
@@ -104,6 +106,7 @@ jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 nanojson = { group = "com.grack", name = "nanojson", version.ref = "nanojson" }
 youtubedl-android-library = { group = "io.github.junkfood02.youtubedl-android", name = "library", version = "0.18.1" }
 youtubedl-android-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version = "0.18.1" }
+
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

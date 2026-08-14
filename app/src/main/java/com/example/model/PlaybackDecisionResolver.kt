@@ -19,32 +19,33 @@ object PlaybackDecisionResolver {
             return PlaybackSourceType.MAGNET
         }
 
-        // 2. Explicit Embed formats or known embed domain patterns
-        if (fmtLower == "embed" ||
+        // 2. Direct video streams (.m3u8, .mp4, .mkv, .webm, hls) take absolute priority for native ExoPlayer
+        if (fmtLower == "hls" || fmtLower == "mp4" || fmtLower == "mkv" || fmtLower == "webm" ||
+            urlLower.endsWith(".m3u8") || urlLower.contains(".m3u8") || urlLower.contains("m3u8") ||
+            urlLower.endsWith(".mp4") || urlLower.contains(".mp4") ||
+            urlLower.endsWith(".mkv") || urlLower.contains(".mkv") ||
+            urlLower.endsWith(".webm") || urlLower.contains(".webm") ||
+            urlLower.contains("googlevideo.com") ||
+            urlLower.contains("requestdl") || // TorBox direct download link
+            urlLower.contains("phncdn.com") ||
+            urlLower.contains("dmcdn.net") ||
+            urlLower.contains("cdndirector.dailymotion.com") ||
+            urlLower.contains("eporner.com/dload")
+        ) {
+            return PlaybackSourceType.DIRECT_STREAM
+        }
+
+        // 3. Explicit Embed formats or known embed domain patterns
+        if (fmtLower == "embed" || fmtLower == "iframe" ||
             urlLower.contains("/embed/") ||
             urlLower.contains("vidsrc") ||
-            urlLower.contains("apijav") ||
-            urlLower.contains("dailymotion.com") ||
-            urlLower.contains("vimeo.com") ||
-            urlLower.contains("peertube") ||
             urlLower.contains("nvembed") ||
             urlLower.contains("mvembed")
         ) {
             return PlaybackSourceType.EMBED_WEBVIEW
         }
 
-        // 3. Direct video streams
-        if (fmtLower == "hls" || fmtLower == "mp4" ||
-            urlLower.endsWith(".m3u8") || urlLower.contains(".m3u8") ||
-            urlLower.endsWith(".mp4") || urlLower.contains(".mp4") ||
-            urlLower.endsWith(".mkv") || urlLower.contains(".mkv") ||
-            urlLower.contains("googlevideo.com") ||
-            urlLower.contains("requestdl") // TorBox direct download link
-        ) {
-            return PlaybackSourceType.DIRECT_STREAM
-        }
-
-        // Fallback for HTTP/HTTPS URLs: if not explicit video extension, treat as embed
+        // Fallback for HTTP/HTTPS URLs: if not explicit video extension or stream, treat as embed
         return if (urlLower.startsWith("http://") || urlLower.startsWith("https://")) {
             PlaybackSourceType.EMBED_WEBVIEW
         } else {
@@ -52,3 +53,5 @@ object PlaybackDecisionResolver {
         }
     }
 }
+
+

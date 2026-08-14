@@ -59,10 +59,11 @@ object YouTubeApiHelper {
         val playlists: List<PluginPlaylist>
     )
 
-    fun fetchPopularVideos(maxResults: Int = 25): List<PluginVideoItem>? {
+    fun fetchPopularVideos(maxResults: Int = 25, pageToken: String? = null): List<PluginVideoItem>? {
         if (isQuotaExceeded()) return null
         val apiKey = getEffectiveApiKey()
-        val url = "$BASE_URL/videos?part=snippet,contentDetails,statistics&chart=mostPopular&regionCode=US&maxResults=$maxResults&key=$apiKey"
+        val pageParam = if (!pageToken.isNullOrBlank()) "&pageToken=$pageToken" else ""
+        val url = "$BASE_URL/videos?part=snippet,contentDetails,statistics&chart=mostPopular&regionCode=US&maxResults=$maxResults$pageParam&key=$apiKey"
 
         return try {
             val request = Request.Builder().url(url).build()
@@ -137,13 +138,14 @@ object YouTubeApiHelper {
         }
     }
 
-    fun search(query: String, maxResults: Int = 25): SearchResult? {
+    fun search(query: String, maxResults: Int = 25, pageToken: String? = null): SearchResult? {
         if (isQuotaExceeded()) return null
         val apiKey = getEffectiveApiKey()
 
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val url = "$BASE_URL/search?part=snippet&q=$encodedQuery&type=video,channel,playlist&maxResults=$maxResults&key=$apiKey"
+            val pageParam = if (!pageToken.isNullOrBlank()) "&pageToken=$pageToken" else ""
+            val url = "$BASE_URL/search?part=snippet&q=$encodedQuery&type=video,channel,playlist&maxResults=$maxResults$pageParam&key=$apiKey"
 
             val request = Request.Builder().url(url).build()
             val response = client.newCall(request).execute()

@@ -38,6 +38,7 @@ fun LibraryScreen(
     viewModel: MainViewModel,
     onSelectVideo: (VideoItem) -> Unit,
     modifier: Modifier = Modifier,
+    onBackClick: (() -> Unit)? = null,
     topPadding: androidx.compose.ui.unit.Dp = 108.dp,
     bottomPadding: androidx.compose.ui.unit.Dp = 160.dp
 ) {
@@ -82,13 +83,37 @@ fun LibraryScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // SEARCH BAR ("Search your vault...")
+            if (onBackClick != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Movies & Tv",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+
+            // SEARCH BAR ("Search Movies & TV...")
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        text = "Search your vault...",
+                        text = "Search Movies & TV...",
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )

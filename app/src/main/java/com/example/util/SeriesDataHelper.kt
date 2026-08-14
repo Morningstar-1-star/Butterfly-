@@ -45,6 +45,9 @@ object SeriesDataHelper {
     }
 
     fun getSeriesPillText(title: String?, uploadDate: String? = null, providerId: String? = null): String? {
+        if (TMDBHelper.isJavOrAdultProvider(providerId, title)) {
+            return null
+        }
         val pid = (providerId ?: "").lowercase()
         val clean = (title ?: "").lowercase()
         val uploadClean = (uploadDate ?: "").lowercase()
@@ -100,14 +103,46 @@ object SeriesDataHelper {
             .ifEmpty { rawTitle }
     }
 
+    fun isLikelyTvSeries(streamData: StreamData): Boolean {
+        if (TMDBHelper.isJavOrAdultProvider(streamData.providerId, streamData.title)) return false
+        val vid = streamData.videoId.lowercase()
+        val title = streamData.title.lowercase()
+        val providerId = (streamData.providerId ?: "").lowercase()
+
+        // Explicit movie indicators -> NOT a TV series
+        if (vid.startsWith("movie_") || providerId == "yts" || title.contains("yify")) {
+            if (!title.matches(Regex(".*s\\d{1,2}e\\d{1,2}.*")) && !title.contains("season") && !vid.startsWith("tv_")) {
+                return false
+            }
+        }
+
+        if (vid.startsWith("tv_") || providerId.contains("eztv") || title.matches(Regex(".*s\\d{1,2}e\\d{1,2}.*")) || title.contains("season ") || title.contains("episode ")) {
+            return true
+        }
+
+        // Popular TV series check
+        val tvShowNames = listOf(
+            "house of the dragon", "game of thrones", "breaking bad", "better call saul",
+            "stranger things", "the boys", "last of us", "mandalorian", "loki", "arcane",
+            "attack on titan", "shingeki", "jujutsu", "demon slayer", "re:zero", "naruto",
+            "one piece", "bleach", "death note", "futurama", "rick and morty", "simpsons",
+            "flex x cop", "squid game", "wednesday", "witcher", "vincenzo", "solo leveling",
+            "chainsaw man", "spy x family", "vinland saga", "gintama"
+        )
+        return tvShowNames.any { title.contains(it) }
+    }
+
     fun generateSeasonsAndEpisodes(streamData: StreamData): List<SeriesSeason> {
+        if (TMDBHelper.isJavOrAdultProvider(streamData.providerId, streamData.title)) {
+            return emptyList()
+        }
         val providerId = (streamData.providerId ?: "youtube").lowercase()
         val baseShowTitle = extractBaseShowTitle(streamData.title)
         val thumb = streamData.effectiveThumbnailUrl ?: "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg"
-        val isTorrent = streamData.isTorrent || providerId.contains("eztv") || providerId.contains("torrent") || providerId.contains("yts") || providerId.contains("unified") || providerId.contains("tv")
+        val isTorrent = streamData.isTorrent || providerId.contains("eztv") || providerId.contains("torrent") || providerId.contains("yts") || providerId.contains("unified")
         val isArchive = providerId == "archive_org" || streamData.availableStreamOptions.any { it.videoUrl?.contains("archive.org") == true }
 
-        // Archive.org handling:
+        // Archive.org handling: only if multiple episode streams exist
         if (isArchive) {
             if (streamData.availableStreamOptions.size > 1) {
                 val optionEpisodes = streamData.availableStreamOptions.mapIndexed { index, option ->
@@ -126,13 +161,17 @@ object SeriesDataHelper {
                 }
                 return listOf(SeriesSeason(1, "All Episodes (${optionEpisodes.size})", optionEpisodes))
             } else {
-                // Standalone Archive video -> no episode list
                 return emptyList()
             }
         }
 
-        // Return empty if not torrent or torrent-series
+        // Return empty for all non-torrent providers (YouTube, Dailymotion, adult tube sources, etc.)
         if (!isTorrent) {
+            return emptyList()
+        }
+
+        // Return empty for torrent movies (e.g. YTS movies or standalone films)
+        if (!isLikelyTvSeries(streamData)) {
             return emptyList()
         }
 
@@ -175,7 +214,7 @@ object SeriesDataHelper {
                 durationText = "29:03",
                 thumbnailUrl = thumb,
                 providerId = providerId,
-                viewsText = if (streamData.viewCount > 0) "${streamData.viewCount} views" else "1.4M views"
+                viewsText = if (streamData.viewCount > 0) "${streamData.viewCount} views" else ""
             )
         )
 
@@ -188,10 +227,10 @@ object SeriesDataHelper {
                         seasonNumber = 1,
                         episodeNumber = epNum,
                         title = video.title,
-                        durationText = if (video.formattedDuration.isNotEmpty()) video.formattedDuration else "25:15",
+                        durationText = if (video.formattedDuration.isNotEmpty()) video.formattedDuration else "",
                         thumbnailUrl = video.thumbnailUrl ?: thumb,
                         providerId = video.providerId ?: providerId,
-                        viewsText = if (video.formattedViews.isNotEmpty()) video.formattedViews else "850K views"
+                        viewsText = if (video.formattedViews.isNotEmpty()) video.formattedViews else ""
                     )
                 )
             }
@@ -204,10 +243,10 @@ object SeriesDataHelper {
                         seasonNumber = 1,
                         episodeNumber = epNum,
                         title = "Episode $epNum",
-                        durationText = "45m",
+                        durationText = "",
                         thumbnailUrl = thumb,
                         providerId = providerId,
-                        viewsText = "★ 8.${(5..9).random()} IMDb"
+                        viewsText = ""
                     )
                 )
             }
@@ -220,10 +259,10 @@ object SeriesDataHelper {
                 seasonNumber = 2,
                 episodeNumber = epNum,
                 title = "Episode $epNum",
-                durationText = "45m",
+                durationText = "",
                 thumbnailUrl = thumb,
                 providerId = providerId,
-                viewsText = "★ 8.${(5..9).random()} IMDb"
+                viewsText = ""
             )
         }
 

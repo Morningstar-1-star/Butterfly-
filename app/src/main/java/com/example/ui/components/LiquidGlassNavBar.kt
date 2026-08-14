@@ -77,7 +77,7 @@ fun LiquidGlassNavBar(
                 )
 
                 NavItem(
-                    label = "Library",
+                    label = "Subscriptions",
                     selectedIcon = Icons.Filled.Subscriptions,
                     unselectedIcon = Icons.Outlined.Subscriptions,
                     isSelected = (currentScreen == AppScreen.SUBSCRIPTIONS),

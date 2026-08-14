@@ -140,15 +140,15 @@ fun ExploreScreen(
             val ytItems = ytDeferred.await()
 
             rawCategories = listOf(
-                CuratedCategory("youtube", "YouTube Trending", "🔴", ytItems),
-                CuratedCategory("mystery", "Mystery Mindbenders", "🔍", mystery),
-                CuratedCategory("horror", "Horror Nights", "🍿", horror),
-                CuratedCategory("scifi", "Sci-Fi Dimensions", "✨", scifi),
-                CuratedCategory("fantasy", "Fantasy Worlds", "🔮", fantasy),
-                CuratedCategory("anime", "Anime", "🎌", anime),
-                CuratedCategory("kids", "Kids & Family", "🟢", kids),
-                CuratedCategory("docu", "Documentaries", "📜", docu),
-                CuratedCategory("adult", "Adult / Steamy & JAV (18+)", "💖", javInfoItems)
+                CuratedCategory("youtube", "YouTube Trending", "🔴", ytItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("mystery", "Mystery Mindbenders", "🔍", mystery.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("horror", "Horror Nights", "🍿", horror.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("scifi", "Sci-Fi Dimensions", "✨", scifi.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("fantasy", "Fantasy Worlds", "🔮", fantasy.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("anime", "Anime", "🎌", anime.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("kids", "Kids & Family", "🟢", kids.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("docu", "Documentaries", "📜", docu.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("adult", "Adult / Steamy & JAV (18+)", "💖", javInfoItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) })
             )
         }
     }
@@ -466,14 +466,7 @@ private fun ExploreMediaCard(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val posterRequest = remember(video.thumbnailUrl) {
-        if (!video.thumbnailUrl.isNullOrEmpty()) {
-            coil.request.ImageRequest.Builder(context)
-                .data(video.thumbnailUrl)
-                .crossfade(false)
-                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                .build()
-        } else null
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 100)
     }
 
     Card(

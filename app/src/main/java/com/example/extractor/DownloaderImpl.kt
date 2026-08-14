@@ -77,8 +77,8 @@ class DownloaderImpl private constructor(
 
         private fun createDefaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(4, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .build()
         }

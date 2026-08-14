@@ -27,6 +27,11 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.VideoItem
 
+import com.example.util.VideoCategory
+import com.example.util.VideoCategoryClassifier
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistDetailScreen(
@@ -42,6 +47,36 @@ fun PlaylistDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val topThumbnail = videos.firstOrNull()?.thumbnailUrl
+
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(VideoCategoryClassifier.CATEGORY_ALL) }
+
+    val categoryCounts = remember(videos) {
+        VideoCategoryClassifier.getAllCategoriesInList(videos)
+    }
+
+    val filteredVideos = remember(videos, searchQuery, selectedCategory) {
+        videos.filter { video ->
+            val matchesCategory = if (selectedCategory.id == VideoCategoryClassifier.CATEGORY_ALL.id) {
+                true
+            } else {
+                val videoCats = VideoCategoryClassifier.classify(video)
+                videoCats.any { it.id == selectedCategory.id }
+            }
+
+            val matchesQuery = if (searchQuery.isBlank()) {
+                true
+            } else {
+                val q = searchQuery.trim().lowercase()
+                video.title.lowercase().contains(q) ||
+                video.uploaderName.lowercase().contains(q) ||
+                video.tags.any { it.lowercase().contains(q) } ||
+                video.providerId?.lowercase()?.contains(q) == true
+            }
+
+            matchesCategory && matchesQuery
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -210,36 +245,101 @@ fun PlaylistDetailScreen(
                 }
             }
 
-            // TOOLBAR ROW (Sort)
+            // SEARCH BAR & CATEGORY TAG CHIPS
             item {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AssistChip(
-                        onClick = { },
-                        label = { Text("Sort", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                    // Search Input Field
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search title, channel, tag...", fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Sort,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear search",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        )
+                    )
+
+                    // Scrollable Category Chips Row
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(categoryCounts) { (category, count) ->
+                            val isSelected = selectedCategory.id == category.id
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedCategory = category },
+                                label = {
+                                    Text(
+                                        text = "${category.emoji} ${category.name} ($count)",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                ),
+                                shape = RoundedCornerShape(16.dp)
                             )
                         }
-                    )
-                    Text(
-                        text = "${videos.size} items",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    }
+
+                    // Item Count Banner
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Showing ${filteredVideos.size} of ${videos.size} videos",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (selectedCategory.id != VideoCategoryClassifier.CATEGORY_ALL.id || searchQuery.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    selectedCategory = VideoCategoryClassifier.CATEGORY_ALL
+                                    searchQuery = ""
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("Reset filters", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
 
             // VIDEO LIST ITEMS
-            if (videos.isEmpty()) {
+            if (filteredVideos.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -256,14 +356,14 @@ fun PlaylistDetailScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "No videos in this playlist yet",
+                                text = if (videos.isEmpty()) "No videos in this playlist yet" else "No matching videos found",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Save videos using the Bookmark / Save button while playing",
+                                text = if (videos.isEmpty()) "Save videos using the Bookmark / Save button while playing" else "Try clearing your search query or selecting a different category tag",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -271,7 +371,7 @@ fun PlaylistDetailScreen(
                     }
                 }
             } else {
-                itemsIndexed(videos) { index, video ->
+                itemsIndexed(filteredVideos) { index, video ->
                     PlaylistItemRow(
                         video = video,
                         index = index + 1,
@@ -362,6 +462,10 @@ private fun PlaylistItemRow(
         Column(
             modifier = Modifier.weight(1f)
         ) {
+            val detectedCategories = remember(video) {
+                VideoCategoryClassifier.classify(video)
+            }
+
             Text(
                 text = video.title,
                 fontSize = 14.sp,
@@ -370,14 +474,36 @@ private fun PlaylistItemRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = video.uploaderName,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = video.uploaderName,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                val primaryCategory = detectedCategories.firstOrNull()
+                if (primaryCategory != null && primaryCategory.id != VideoCategoryClassifier.CATEGORY_OTHER.id) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "${primaryCategory.emoji} ${primaryCategory.name}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
             if (video.formattedViews.isNotEmpty() || !video.uploadDate.isNullOrEmpty()) {
                 Text(
                     text = buildString {

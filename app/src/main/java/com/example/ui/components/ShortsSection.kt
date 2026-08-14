@@ -93,6 +93,11 @@ fun ShortCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageRequest = remember(short.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, short.thumbnailUrl, crossfadeMillis = 100)
+    }
+
     Card(
         modifier = modifier
             .width(160.dp)
@@ -102,9 +107,9 @@ fun ShortCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!short.thumbnailUrl.isNullOrEmpty()) {
+            if (imageRequest != null) {
                 AsyncImage(
-                    model = short.thumbnailUrl,
+                    model = imageRequest,
                     contentDescription = short.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

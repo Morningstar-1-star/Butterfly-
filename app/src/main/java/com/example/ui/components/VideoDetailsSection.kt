@@ -46,7 +46,8 @@ enum class MediaSubTab {
 
 @Composable
 fun VideoDetailsSection(
-    streamData: StreamData,
+    streamData: StreamData? = null,
+    previewItem: com.example.model.VideoItem? = null,
     selectedOption: PlayableStreamOption?,
     selectedCaption: CaptionOption?,
     onSelectOption: (PlayableStreamOption) -> Unit,
@@ -61,6 +62,13 @@ fun VideoDetailsSection(
     onSaveLongClick: () -> Unit = {},
     onShareClick: () -> Unit = {},
     onCommentsClick: () -> Unit = {},
+    onChannelClick: (String) -> Unit = {},
+    isSubscribed: Boolean = false,
+    onSubscribeClick: () -> Unit = {},
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
+    downloadProgress: Float = 0f,
+    onDownloadClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isDescriptionExpanded by remember { mutableStateOf(false) }
@@ -69,45 +77,71 @@ fun VideoDetailsSection(
     var selectedSubTab by remember { mutableStateOf(MediaSubTab.CAST_AND_CREW) }
     var zoomScreenshotUrl by remember { mutableStateOf<String?>(null) }
 
-    var mediaDetails by remember(streamData.videoId, streamData.title) {
+    val currentVideoId = streamData?.videoId ?: previewItem?.id ?: ""
+    val currentTitle = streamData?.title?.takeIf { it.isNotBlank() } ?: previewItem?.title?.takeIf { it.isNotBlank() } ?: "Loading video..."
+    val currentChannelName = streamData?.channelName?.takeIf { it.isNotBlank() } ?: previewItem?.uploaderName?.takeIf { it.isNotBlank() } ?: "Video Creator"
+    val currentChannelAvatarUrl = streamData?.channelAvatarUrl ?: previewItem?.uploaderAvatarUrl
+    val currentSubscriberCountText = streamData?.subscriberCountText
+    val currentViewCount = streamData?.viewCount ?: previewItem?.viewCount ?: 0L
+    val currentUploadDate = streamData?.uploadDate ?: previewItem?.uploadDate
+    val currentLikeCount = streamData?.likeCount ?: 0L
+    val currentDescription = streamData?.description
+    val currentProviderId = streamData?.providerId ?: previewItem?.providerId
+
+    var mediaDetails by remember(currentVideoId, currentTitle) {
         mutableStateOf<MediaDetailInfo?>(null)
     }
     var selectedCastMemberForSheet by remember { mutableStateOf<CastMember?>(null) }
 
-    val isTorrent = remember(streamData.isTorrent, streamData.providerId) {
-        val pid = (streamData.providerId ?: "").lowercase()
-        streamData.isTorrent || pid.contains("torrent") || pid.contains("eztv") || pid.contains("yts") || pid.contains("unified")
+    val isTorrent = remember(streamData?.isTorrent, currentProviderId, currentTitle) {
+        val pid = (currentProviderId ?: "").lowercase()
+        val isJav = TMDBHelper.isJavOrAdultProvider(currentProviderId, currentTitle)
+        !isJav && ((streamData?.isTorrent == true) || pid.contains("torrent") || pid.contains("eztv") || pid.contains("yts") || pid.contains("unified"))
     }
 
-    LaunchedEffect(streamData.videoId, streamData.title, isTorrent) {
-        if (isTorrent) {
-            mediaDetails = TMDBHelper.fetchMediaDetails(streamData.title, streamData.videoId)
+    var rydData by remember(currentVideoId) { mutableStateOf<com.example.util.RYDVoteData?>(null) }
+
+    LaunchedEffect(currentVideoId, currentTitle, isTorrent) {
+        if (isTorrent && currentTitle.isNotBlank()) {
+            mediaDetails = TMDBHelper.fetchMediaDetails(currentTitle, currentVideoId)
         } else {
             mediaDetails = null
         }
+        if (currentProviderId == "youtube" || currentVideoId.length == 11) {
+            rydData = com.example.util.ReturnYouTubeDislikeHelper.getVotes(currentVideoId)
+        }
     }
 
-    val formattedLikes = remember(streamData.likeCount, isLiked) {
-        val baseLikes = if (streamData.likeCount > 0) streamData.likeCount else 37000L
+    val formattedLikes = remember(currentLikeCount, isLiked, rydData) {
+        val baseLikes = if ((rydData?.likes ?: 0L) > 0) rydData!!.likes else if (currentLikeCount > 0) currentLikeCount else 37000L
         val total = if (isLiked) baseLikes + 1 else baseLikes
-        if (total >= 1000) "${total / 1000}K" else "$total"
+        if (total >= 1_000_000) String.format("%.1fM", total / 1_000_000.0)
+        else if (total >= 1000) "${total / 1000}K"
+        else "$total"
     }
-    val formattedDislikes = "5K"
+    val formattedDislikes = remember(rydData, isDisliked) {
+        if (rydData != null && rydData!!.dislikes >= 0) {
+            val baseDislikes = rydData!!.dislikes
+            val total = if (isDisliked) baseDislikes + 1 else baseDislikes
+            com.example.util.ReturnYouTubeDislikeHelper.formatNumber(total)
+        } else {
+            if (isDisliked) "1" else "Dislike"
+        }
+    }
 
-    // Accurate Release Date resolution (Issue 2)
-    val accurateDate = remember(streamData.uploadDate, mediaDetails) {
+    val accurateDate = remember(currentUploadDate, mediaDetails) {
         val tmdbDate = mediaDetails?.releaseDateFormatted
         if (!tmdbDate.isNullOrBlank()) {
             tmdbDate
         } else {
-            val parsed = TMDBHelper.formatDateToLong(streamData.uploadDate)
+            val parsed = TMDBHelper.formatDateToLong(currentUploadDate)
             if (parsed.isNotBlank()) parsed else "December 8, 2003"
         }
     }
 
-    val viewCountText = remember(streamData.viewCount) {
-        if (streamData.viewCount > 0) {
-            val count = streamData.viewCount
+    val viewCountText = remember(currentViewCount) {
+        if (currentViewCount > 0) {
+            val count = currentViewCount
             if (count >= 1_000_000) "${String.format("%.1f", count / 1_000_000.0)}M views"
             else if (count >= 1_000) "${count / 1_000}K views"
             else "$count views"
@@ -123,7 +157,7 @@ fun VideoDetailsSection(
     ) {
         // Video Title (1 line max under player)
         Text(
-            text = streamData.title,
+            text = currentTitle,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.titleMedium.copy(
@@ -146,19 +180,19 @@ fun VideoDetailsSection(
         Spacer(modifier = Modifier.height(14.dp))
 
         // Channel Info Row with Brand/Studio Logo support
-        val brandInfo = remember(streamData.channelName, streamData.channelAvatarUrl, streamData.title) {
-            com.example.util.ChannelLogoHelper.getBrandInfo(streamData.channelName, streamData.channelAvatarUrl, streamData.title)
+        val brandInfo = remember(currentChannelName, currentChannelAvatarUrl, currentTitle) {
+            com.example.util.ChannelLogoHelper.getBrandInfo(currentChannelName, currentChannelAvatarUrl, currentTitle)
         }
-        val displayChannelName = remember(streamData.channelName, brandInfo.brandName) {
-            if (streamData.channelName.isBlank() || streamData.channelName.lowercase().contains("tv network") || streamData.channelName == "T") {
+        val displayChannelName = remember(currentChannelName, brandInfo.brandName) {
+            if (currentChannelName.isBlank() || currentChannelName.lowercase().contains("tv network") || currentChannelName == "T") {
                 brandInfo.brandName
             } else {
-                streamData.channelName
+                currentChannelName
             }
         }
-        val displaySubCount = remember(streamData.subscriberCountText, brandInfo.subscriberCountText) {
-            if (!streamData.subscriberCountText.isNullOrEmpty() && streamData.subscriberCountText != "Subscribers") {
-                streamData.subscriberCountText
+        val displaySubCount = remember(currentSubscriberCountText, brandInfo.subscriberCountText) {
+            if (!currentSubscriberCountText.isNullOrEmpty() && currentSubscriberCountText != "Subscribers") {
+                currentSubscriberCountText
             } else {
                 brandInfo.subscriberCountText
             }
@@ -168,70 +202,82 @@ fun VideoDetailsSection(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val logoUrl = brandInfo.logoUrls.firstOrNull() ?: streamData.channelAvatarUrl
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(brandInfo.backgroundColor),
-                contentAlignment = Alignment.Center
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { if (displayChannelName.isNotBlank()) onChannelClick(displayChannelName) },
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (!logoUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = logoUrl,
-                        contentDescription = displayChannelName,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(4.dp)
-                    )
-                } else {
+                val logoUrl = brandInfo.logoUrls.firstOrNull() ?: currentChannelAvatarUrl
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(brandInfo.backgroundColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!logoUrl.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = logoUrl,
+                            contentDescription = displayChannelName,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(4.dp)
+                        )
+                    } else {
+                        Text(
+                            text = brandInfo.brandShortText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = brandInfo.textColor
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = displayChannelName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Verified",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                     Text(
-                        text = brandInfo.brandShortText,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = brandInfo.textColor
+                        text = displaySubCount,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = displayChannelName,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Verified",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-                Text(
-                    text = displaySubCount,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
 
             // Subscribe Button
             Button(
-                onClick = {},
+                onClick = onSubscribeClick,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onBackground,
-                    contentColor = MaterialTheme.colorScheme.background
+                    containerColor = if (isSubscribed) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onBackground,
+                    contentColor = if (isSubscribed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.background
                 ),
                 shape = RoundedCornerShape(24.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text("Subscribed", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(
+                    text = if (isSubscribed) "Subscribed" else "Subscribe",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
             }
         }
 
@@ -311,7 +357,13 @@ fun VideoDetailsSection(
                 label = if (isSaved) "Saved" else "Save",
                 onClick = onSaveClick
             )
-            ActionPill(icon = Icons.Outlined.Download, label = "Download")
+            ActionPill(
+                icon = if (isDownloaded) Icons.Filled.CheckCircle else if (isDownloading) Icons.Default.Downloading else Icons.Outlined.Download,
+                label = if (isDownloaded) "Downloaded" else if (isDownloading) "${(downloadProgress * 100).toInt()}%" else "Download",
+                iconTint = if (isDownloaded || isDownloading) MaterialTheme.colorScheme.primary else null,
+                containerColor = if (isDownloaded || isDownloading) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else null,
+                onClick = onDownloadClick
+            )
             ActionPill(icon = Icons.Outlined.VolunteerActivism, label = "Thanks")
         }
 
@@ -324,7 +376,11 @@ fun VideoDetailsSection(
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 OutlinedButton(
-                    onClick = { isQualityMenuExpanded = true },
+                    onClick = {
+                        if (!streamData?.availableStreamOptions.isNullOrEmpty()) {
+                            isQualityMenuExpanded = true
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp)
                 ) {
@@ -335,38 +391,40 @@ fun VideoDetailsSection(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = selectedOption?.qualityLabel ?: "1080p WEB-DL • VidSrc",
+                        text = selectedOption?.qualityLabel ?: if (streamData == null) "Loading stream..." else "1080p • Auto",
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                DropdownMenu(
-                    expanded = isQualityMenuExpanded,
-                    onDismissRequest = { isQualityMenuExpanded = false }
-                ) {
-                    streamData.availableStreamOptions.forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = option.qualityLabel,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (option == selectedOption) FontWeight.Bold else FontWeight.Normal
-                                )
-                            },
-                            onClick = {
-                                onSelectOption(option)
-                                isQualityMenuExpanded = false
-                            }
-                        )
+                if (!streamData?.availableStreamOptions.isNullOrEmpty()) {
+                    DropdownMenu(
+                        expanded = isQualityMenuExpanded,
+                        onDismissRequest = { isQualityMenuExpanded = false }
+                    ) {
+                        streamData!!.availableStreamOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = option.qualityLabel,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontWeight = if (option == selectedOption) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                onClick = {
+                                    onSelectOption(option)
+                                    isQualityMenuExpanded = false
+                                }
+                            )
+                        }
                     }
                 }
             }
 
-            if (streamData.captionOptions.isNotEmpty()) {
+            if (streamData?.captionOptions?.isNotEmpty() == true) {
                 Box(modifier = Modifier.weight(1f)) {
                     OutlinedButton(
                         onClick = { isCaptionMenuExpanded = true },
@@ -414,12 +472,12 @@ fun VideoDetailsSection(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 1. OVERVIEW & PLOT
+        // 1. UNIFIED "DESCRIPTION" CARD (Plot, Cast, Director, Box Office, Media for Torrents; Clean description for others)
         val plotText = if (isTorrent && mediaDetails != null && !mediaDetails?.plotOverview.isNullOrBlank()) {
             mediaDetails!!.plotOverview
         } else {
-            (streamData.description ?: "").ifBlank {
-                "Watch ${streamData.title} on ${(streamData.channelName ?: "").ifBlank { "Butterfly Player" }}."
+            (currentDescription ?: "").ifBlank {
+                "Watch $currentTitle on ${currentChannelName.ifBlank { "Butterfly Player" }}."
             }
         }
 
@@ -438,7 +496,7 @@ fun VideoDetailsSection(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Overview & Plot",
+                        text = "Description",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -455,7 +513,7 @@ fun VideoDetailsSection(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = streamData.title,
+                    text = currentTitle,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
@@ -472,337 +530,329 @@ fun VideoDetailsSection(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Expanded Section: Director, Writer, Studio/Collection, Ratings, Genres (for Torrent Media)
-                if (isDescriptionExpanded && isTorrent && mediaDetails != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (!mediaDetails?.director.isNullOrBlank() || !mediaDetails?.writer.isNullOrBlank()) {
-                        Text(
-                            text = "Director & Key Crew",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        if (!mediaDetails?.director.isNullOrBlank()) {
-                            Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                Text(
-                                    text = "Director: ",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = mediaDetails!!.director,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        if (!mediaDetails?.writer.isNullOrBlank()) {
-                            Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                Text(
-                                    text = "Writer: ",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = mediaDetails!!.writer,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        if (!mediaDetails?.studioOrCollection.isNullOrBlank()) {
-                            Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                Text(
-                                    text = "Studio / Collection: ",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = mediaDetails!!.studioOrCollection,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                    }
-
-                    // Badges row (Rating, Year, Genres)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (!mediaDetails?.ratingText.isNullOrBlank()) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF673AB7),
-                                contentColor = Color.White
-                            ) {
-                                Text(
-                                    text = mediaDetails!!.ratingText,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        if (accurateDate.isNotBlank()) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh
-                            ) {
-                                Text(
-                                    text = accurateDate,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        mediaDetails?.genres?.forEach { genre ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant
-                            ) {
-                                Text(
-                                    text = genre,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (isTorrent && mediaDetails != null) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 3. MEDIA SUB-TABS: CAST & CREW | SCREENSHOTS | TRAILERS & CLIPS
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MediaSubTabButton(
-                    label = "CAST & CREW",
-                    icon = Icons.Outlined.People,
-                    isSelected = selectedSubTab == MediaSubTab.CAST_AND_CREW,
-                    onClick = { selectedSubTab = MediaSubTab.CAST_AND_CREW }
-                )
-
-                MediaSubTabButton(
-                    label = "SCREENSHOTS",
-                    icon = Icons.Outlined.PhotoCamera,
-                    isSelected = selectedSubTab == MediaSubTab.SCREENSHOTS,
-                    onClick = { selectedSubTab = MediaSubTab.SCREENSHOTS }
-                )
-
-                MediaSubTabButton(
-                    label = "TRAILER & CLIPS",
-                    icon = Icons.Outlined.Movie,
-                    isSelected = selectedSubTab == MediaSubTab.TRAILERS_AND_CLIPS,
-                    onClick = { selectedSubTab = MediaSubTab.TRAILERS_AND_CLIPS }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // MEDIA SUB-TAB CONTENT RENDERER
-            when (selectedSubTab) {
-                MediaSubTab.CAST_AND_CREW -> {
+                // Detailed Metadata, Cast, Director, Box Office for Torrent Media
+                if (isTorrent && mediaDetails != null) {
                     val castList = mediaDetails?.cast ?: emptyList()
+                    val screenshots = mediaDetails?.screenshots ?: emptyList()
+                    val clips = mediaDetails?.clipsAndTrailers ?: emptyList()
+
+                    // Always show Cast Section in Description for Torrents if available
                     if (castList.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+                        Spacer(modifier = Modifier.height(10.dp))
+
                         CastSection(
                             castList = castList,
                             onCastClick = { member ->
                                 selectedCastMemberForSheet = member
                             }
                         )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No cast details available.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     }
-                }
 
-                MediaSubTab.SCREENSHOTS -> {
-                    val screenshots = mediaDetails?.screenshots ?: emptyList()
-                    if (screenshots.isNotEmpty()) {
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(screenshots, key = { it }) { imageUrl ->
-                                Card(
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .width(200.dp)
-                                        .height(115.dp)
-                                        .clickable { zoomScreenshotUrl = imageUrl },
-                                    colors = CardDefaults.cardColors(containerColor = Color.Black)
-                                ) {
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        AsyncImage(
-                                            model = imageUrl,
-                                            contentDescription = "Scene Screenshot",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomEnd)
-                                                .padding(6.dp)
-                                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                                .padding(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ZoomIn,
-                                                contentDescription = "Zoom",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
-                                    }
+                    // Expanded Details (Crew, Box Office, Financials, Media Gallery)
+                    if (isDescriptionExpanded) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Crew Details (Director, Writer, Studio)
+                        if (!mediaDetails?.director.isNullOrBlank() || !mediaDetails?.writer.isNullOrBlank() || !mediaDetails?.studioOrCollection.isNullOrBlank()) {
+                            Text(
+                                text = "Director & Key Crew",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            if (!mediaDetails?.director.isNullOrBlank()) {
+                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(
+                                        text = "Director: ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mediaDetails!!.director,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No screenshots found.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
 
-                MediaSubTab.TRAILERS_AND_CLIPS -> {
-                    val clips = mediaDetails?.clipsAndTrailers ?: emptyList()
-                    if (clips.isNotEmpty()) {
+                            if (!mediaDetails?.writer.isNullOrBlank()) {
+                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(
+                                        text = "Writer: ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mediaDetails!!.writer,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            if (!mediaDetails?.studioOrCollection.isNullOrBlank()) {
+                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(
+                                        text = "Studio / Network: ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mediaDetails!!.studioOrCollection,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
+                        // Box Office & Financials (if available)
+                        if (!mediaDetails?.budget.isNullOrBlank() || !mediaDetails?.boxOffice.isNullOrBlank() || !mediaDetails?.status.isNullOrBlank()) {
+                            Text(
+                                text = "Box Office & Details",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            if (!mediaDetails?.budget.isNullOrBlank()) {
+                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(
+                                        text = "Budget: ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mediaDetails!!.budget!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            if (!mediaDetails?.boxOffice.isNullOrBlank()) {
+                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(
+                                        text = "Box Office / Revenue: ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mediaDetails!!.boxOffice!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            if (!mediaDetails?.status.isNullOrBlank()) {
+                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(
+                                        text = "Status: ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mediaDetails!!.status!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
+                        // Badges row (Rating, Year, Genres)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            clips.forEach { clip ->
-                                Card(
+                            if (!mediaDetails?.ratingText.isNullOrBlank()) {
+                                Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .width(220.dp)
-                                        .clickable {
-                                            if (!clip.youtubeKey.isNullOrEmpty()) {
-                                                onTagClick?.invoke(clip.title)
-                                            }
-                                        },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                    )
+                                    color = Color(0xFF673AB7),
+                                    contentColor = Color.White
                                 ) {
-                                    Column {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(120.dp)
-                                                .background(Color.Black)
-                                        ) {
-                                            if (!clip.thumbnailUrl.isNullOrEmpty()) {
-                                                AsyncImage(
-                                                    model = clip.thumbnailUrl,
-                                                    contentDescription = clip.title,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .background(Color.Black.copy(alpha = 0.25f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlayCircleFilled,
-                                                    contentDescription = "Play Clip",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(36.dp)
-                                                )
-                                            }
+                                    Text(
+                                        text = mediaDetails!!.ratingText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
 
-                                            Surface(
-                                                color = Color.Black.copy(alpha = 0.8f),
-                                                shape = RoundedCornerShape(4.dp),
+                            if (accurateDate.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                ) {
+                                    Text(
+                                        text = accurateDate,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            mediaDetails?.genres?.forEach { genre ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = genre,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Screenshots Gallery inside Description
+                        if (screenshots.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "Screenshots & Gallery",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(screenshots, key = { it }) { imageUrl ->
+                                    Card(
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .width(180.dp)
+                                            .height(105.dp)
+                                            .clickable { zoomScreenshotUrl = imageUrl },
+                                        colors = CardDefaults.cardColors(containerColor = Color.Black)
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            AsyncImage(
+                                                model = imageUrl,
+                                                contentDescription = "Scene Screenshot",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                            Box(
                                                 modifier = Modifier
                                                     .align(Alignment.BottomEnd)
                                                     .padding(6.dp)
+                                                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                                    .padding(4.dp)
                                             ) {
-                                                Text(
-                                                    text = clip.durationText,
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                Icon(
+                                                    imageVector = Icons.Default.ZoomIn,
+                                                    contentDescription = "Zoom",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(14.dp)
                                                 )
                                             }
-                                        }
-
-                                        Column(modifier = Modifier.padding(10.dp)) {
-                                            Text(
-                                                text = clip.title,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = clip.clipType,
-                                                fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
                                         }
                                     }
                                 }
                             }
                         }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No trailer clips available.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        // Trailers & Clips inside Description
+                        if (clips.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "Trailers & Clips",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                clips.forEach { clip ->
+                                    Card(
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .width(200.dp)
+                                            .clickable {
+                                                if (!clip.youtubeKey.isNullOrEmpty()) {
+                                                    onTagClick?.invoke(clip.title)
+                                                }
+                                            },
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                        )
+                                    ) {
+                                        Column {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(110.dp)
+                                                    .background(Color.Black)
+                                            ) {
+                                                if (!clip.thumbnailUrl.isNullOrEmpty()) {
+                                                    AsyncImage(
+                                                        model = clip.thumbnailUrl,
+                                                        contentDescription = clip.title,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(Color.Black.copy(alpha = 0.25f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PlayCircleFilled,
+                                                        contentDescription = "Play Clip",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(32.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = clip.title,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(8.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -892,11 +942,13 @@ private fun MediaSubTabButton(
 private fun ActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    iconTint: Color? = null,
+    containerColor: Color? = null,
     onClick: () -> Unit = {}
 ) {
     Surface(
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        color = containerColor ?: MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
         tonalElevation = 2.dp,
         modifier = Modifier
             .height(38.dp)
@@ -909,7 +961,7 @@ private fun ActionPill(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = MaterialTheme.colorScheme.onSurface,
+                tint = iconTint ?: MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
@@ -917,7 +969,7 @@ private fun ActionPill(
                 text = label,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface
+                color = iconTint ?: MaterialTheme.colorScheme.onSurface
             )
         }
     }
