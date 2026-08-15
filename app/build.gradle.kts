@@ -32,17 +32,13 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      val keystorePath =
+        System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
-    }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
     }
   }
 
@@ -50,11 +46,17 @@ android {
     release {
       isCrunchPngs = false
       isMinifyEnabled = false
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+      proguardFiles(
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro"
+      )
+
       signingConfig = signingConfigs.getByName("release")
     }
+
     debug {
-      signingConfig = signingConfigs.getByName("debugConfig")
+      // Use Android's automatically generated debug keystore.
     }
   }
 
@@ -103,21 +105,17 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.coil.compose)
 
-  // Mozilla Rhino JavaScript engine
   implementation("org.mozilla:rhino:1.7.15")
 
-  // Media3 ExoPlayer
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.datasource.okhttp)
 
-  // NewPipeExtractor
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)
 
-  // youtubedl-android (yt-dlp)
   implementation(libs.youtubedl.android.library)
   implementation(libs.youtubedl.android.ffmpeg)
 
