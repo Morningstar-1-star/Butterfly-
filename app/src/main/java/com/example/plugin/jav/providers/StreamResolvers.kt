@@ -17,9 +17,6 @@ private val streamClient = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
-/**
- * Helper to verify stream url returns HTTP 200 or 206
- */
 private fun verifyStreamUrl(url: String, headers: Map<String, String> = emptyMap()): Boolean {
     return try {
         val reqBuilder = Request.Builder().url(url).head()
@@ -32,18 +29,16 @@ private fun verifyStreamUrl(url: String, headers: Map<String, String> = emptyMap
 }
 
 /**
- * JableTV / MissAV Downloader & Extractor Adapter
+ * MissAV Surrit HLS Stream Resolver
  */
-class JableMissAvResolver : StreamProvider {
-    override val id: String = "jable_missav"
-    override val name: String = "Jable & MissAV Resolver"
+class MissAvSurritStreamResolver : StreamProvider {
+    override val id: String = "missav_surrit"
+    override val name: String = "MissAV Surrit HLS"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().lowercase()
         val results = mutableListOf<JavStream>()
-        
-        // 1. MissAV Lookup
         try {
             val missAvUrl = "https://missav.ws/en/$cleanJavId"
             val req = Request.Builder().url(missAvUrl).header("User-Agent", "Mozilla/5.0").build()
@@ -74,8 +69,21 @@ class JableMissAvResolver : StreamProvider {
         } catch (e: Exception) {
             // Silently handled
         }
+        results
+    }
+}
 
-        // 2. JableTV Lookup
+/**
+ * JableTV Direct HLS Stream Resolver
+ */
+class JableTvStreamResolver : StreamProvider {
+    override val id: String = "jable_tv"
+    override val name: String = "JableTV Direct HLS"
+    override var isEnabled: Boolean = true
+
+    override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
+        val cleanJavId = javId.trim().lowercase()
+        val results = mutableListOf<JavStream>()
         try {
             val jableUrl = "https://jable.tv/videos/$cleanJavId/"
             val req = Request.Builder().url(jableUrl).header("User-Agent", "Mozilla/5.0").build()
@@ -107,17 +115,16 @@ class JableMissAvResolver : StreamProvider {
         } catch (e: Exception) {
             // Silently handled
         }
-
         results
     }
 }
 
 /**
- * JavPy Avgle API Resolver Adapter
+ * Avgle JAV Stream API Resolver
  */
-class JavPyResolver : StreamProvider {
-    override val id: String = "javpy"
-    override val name: String = "JavPy Resolver"
+class AvgleApiStreamResolver : StreamProvider {
+    override val id: String = "avgle_api"
+    override val name: String = "Avgle JAV Stream API"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
@@ -125,7 +132,7 @@ class JavPyResolver : StreamProvider {
         val results = mutableListOf<JavStream>()
         try {
             val url = "https://api.avgle.com/v1/jav/$cleanJavId/0"
-            val req = Request.Builder().url(url).header("User-Agent", "JavPy/1.0").build()
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
             val res = streamClient.newCall(req).execute()
             val jsonStr = res.body?.string() ?: ""
             if (jsonStr.isNotBlank()) {
@@ -140,7 +147,7 @@ class JavPyResolver : StreamProvider {
                         if (embeddedUrl.isNotBlank() && verifyStreamUrl(embeddedUrl)) {
                             results.add(
                                 JavStream(
-                                    id = "javpy_${cleanJavId}_$i",
+                                    id = "avgle_${cleanJavId}_$i",
                                     javId = cleanJavId,
                                     url = embeddedUrl,
                                     title = videoTitle.ifBlank { "$cleanJavId Stream" },
@@ -162,18 +169,17 @@ class JavPyResolver : StreamProvider {
 }
 
 /**
- * yt-dlp Direct Stream Resolver Adapter
+ * yt-dlp Native Extractor Resolver
  */
-class YtDlpStreamResolver : StreamProvider {
-    override val id: String = "ytdlp_resolver"
-    override val name: String = "yt-dlp Extractor"
+class YtDlpExtractorResolver : StreamProvider {
+    override val id: String = "ytdlp_extractor"
+    override val name: String = "yt-dlp Native Extractor"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().lowercase()
         val results = mutableListOf<JavStream>()
         try {
-            // Test yt-dlp on MissAV page for the target JAV ID
             val targetUrl = "https://missav.ws/en/$cleanJavId"
             if (com.example.extractor.YtDlpResolver.isYtDlpSupportedUrl(targetUrl)) {
                 val req = Request.Builder().url(targetUrl).header("User-Agent", "Mozilla/5.0").build()
@@ -207,11 +213,11 @@ class YtDlpStreamResolver : StreamProvider {
 }
 
 /**
- * MediaFusion JAV Stream Resolver
+ * MediaFusion Stremio Addon Resolver
  */
-class MediaFusionJavResolver : StreamProvider {
-    override val id: String = "mediafusion"
-    override val name: String = "MediaFusion Engine"
+class MediaFusionStremioResolver : StreamProvider {
+    override val id: String = "mediafusion_stremio"
+    override val name: String = "MediaFusion Stremio Addon"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
@@ -219,7 +225,7 @@ class MediaFusionJavResolver : StreamProvider {
         val streams = mutableListOf<JavStream>()
         try {
             val url = "https://mediafusion.elfhosted.com/stream/movie/$cleanJavId.json"
-            val req = Request.Builder().url(url).header("User-Agent", "MediaFusion/2.0").build()
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
             val res = streamClient.newCall(req).execute()
             val jsonStr = res.body?.string() ?: ""
             if (jsonStr.isNotBlank()) {
@@ -251,11 +257,11 @@ class MediaFusionJavResolver : StreamProvider {
 }
 
 /**
- * Comet JAV Stream Resolver
+ * Comet Stremio Addon Resolver
  */
-class CometJavResolver : StreamProvider {
-    override val id: String = "comet"
-    override val name: String = "Comet Resolver"
+class CometStremioResolver : StreamProvider {
+    override val id: String = "comet_stremio"
+    override val name: String = "Comet Stremio Addon"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
@@ -263,7 +269,7 @@ class CometJavResolver : StreamProvider {
         val streams = mutableListOf<JavStream>()
         try {
             val url = "https://comet.elfhosted.com/stream/movie/$cleanJavId.json"
-            val req = Request.Builder().url(url).header("User-Agent", "Comet/1.0").build()
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
             val res = streamClient.newCall(req).execute()
             val jsonStr = res.body?.string() ?: ""
             if (jsonStr.isNotBlank()) {
@@ -293,4 +299,3 @@ class CometJavResolver : StreamProvider {
         streams
     }
 }
-

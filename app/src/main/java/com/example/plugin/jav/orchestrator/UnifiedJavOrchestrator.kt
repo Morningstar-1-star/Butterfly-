@@ -2,37 +2,38 @@ package com.example.plugin.jav.orchestrator
 
 import com.example.plugin.jav.*
 import com.example.plugin.jav.providers.*
-import com.example.plugin.manager.StreamValidator
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.system.measureTimeMillis
 
 object UnifiedJavOrchestrator {
-    // Registered Providers
+    // Registered Providers (Honest Names based on actual network sources)
     val metadataProviders = mutableListOf<MetadataProvider>(
-        JavinizerGoProvider(),
-        AvmProvider(),
-        JavdexProvider(),
-        OpenAverProvider(),
-        GFriendsProvider(),
-        MdcxProvider(),
-        FssProvider()
+        JavLibraryBusMetadataProvider(),
+        Jav321MetadataProvider(),
+        JavDbMetadataProvider(),
+        JavMenuMetadataProvider(),
+        GFriendsAvatarProvider(),
+        AirAvBarcodeMetadataProvider(),
+        ArzonCatalogMetadataProvider()
     )
 
     val streamProviders = mutableListOf<StreamProvider>(
-        JableMissAvResolver(),
-        JavPyResolver(),
-        YtDlpStreamResolver(),
-        MediaFusionJavResolver(),
-        CometJavResolver()
+        MissAvSurritStreamResolver(),
+        JableTvStreamResolver(),
+        AvgleApiStreamResolver(),
+        YtDlpExtractorResolver(),
+        MediaFusionStremioResolver(),
+        CometStremioResolver()
     )
 
     val trailerProviders = mutableListOf<TrailerProvider>(
-        JavPreviewProvider()
+        DmmFreePvTrailerProvider()
     )
 
     val subtitleProviders = mutableListOf<SubtitleProvider>(
-        BazarrCatalogSubtitleProvider()
+        SubtitleCatProvider(),
+        OpenSubtitlesRestProvider()
     )
 
     private val metadataCache = ConcurrentHashMap<String, JavMetadata>()
@@ -80,39 +81,52 @@ object UnifiedJavOrchestrator {
         val jobs = activeProviders.map { provider ->
             async {
                 try {
-                    withTimeoutOrNull(provider.timeoutMs) {
+                    val meta = withTimeoutOrNull(provider.timeoutMs) {
                         provider.fetchMetadata(javId)
                     }
+                    if (meta != null) provider.id to meta else null
                 } catch (e: Exception) {
                     null
                 }
             }
         }
 
-        val results = jobs.awaitAll().filterNotNull()
-        if (results.isEmpty()) return@withContext null
+        val providerResults = jobs.awaitAll().filterNotNull()
+        if (providerResults.isEmpty()) return@withContext null
 
-        // Field-level merging using confidence scoring
         var bestTitle = javId
-        var bestCoverUrl = ""
-        var bestStudio = ""
-        var maxConfidence = 0
-        val providerScores = mutableMapOf<String, Int>()
+        var maxTitleScore = 0
 
-        for (res in results) {
-            if (res.title.isNotBlank() && res.title != javId) {
+        var bestCoverUrl = ""
+        var maxCoverScore = 0
+
+        var bestStudio = ""
+        var maxStudioScore = 0
+
+        var overallMaxConfidence = 0
+        val providerScores = mutableMapOf<String, Int>()
+        val allActors = mutableSetOf<String>()
+
+        for ((pId, res) in providerResults) {
+            val score = res.overallConfidenceScore
+            providerScores[pId] = score
+            if (score > overallMaxConfidence) {
+                overallMaxConfidence = score
+            }
+
+            if (res.title.isNotBlank() && res.title != javId && score > maxTitleScore) {
                 bestTitle = res.title
+                maxTitleScore = score
             }
-            if (res.coverUrl.isNotBlank() && bestCoverUrl.isBlank()) {
+            if (res.coverUrl.isNotBlank() && score > maxCoverScore) {
                 bestCoverUrl = res.coverUrl
+                maxCoverScore = score
             }
-            if (res.studio.isNotBlank() && bestStudio.isBlank()) {
+            if (res.studio.isNotBlank() && score > maxStudioScore) {
                 bestStudio = res.studio
+                maxStudioScore = score
             }
-            if (res.overallConfidenceScore > maxConfidence) {
-                maxConfidence = res.overallConfidenceScore
-            }
-            providerScores[res.javId] = res.overallConfidenceScore
+            allActors.addAll(res.actors)
         }
 
         val canonical = JavMetadata(
@@ -120,7 +134,8 @@ object UnifiedJavOrchestrator {
             title = bestTitle,
             coverUrl = bestCoverUrl,
             studio = bestStudio,
-            overallConfidenceScore = maxConfidence,
+            actors = allActors.toList(),
+            overallConfidenceScore = overallMaxConfidence,
             providerScores = providerScores
         )
 
@@ -149,10 +164,9 @@ object UnifiedJavOrchestrator {
 
         val rawStreams = jobs.awaitAll().flatten()
         
-        // Filter & Validate Streams
+        // Filter & Validate Streams (Only valid http/https URLs)
         val validatedStreams = rawStreams.filter { stream ->
-            if (stream.url.isBlank()) false
-            else true
+            stream.url.isNotBlank() && (stream.url.startsWith("http://") || stream.url.startsWith("https://"))
         }
 
         validatedStreams.distinctBy { it.url }

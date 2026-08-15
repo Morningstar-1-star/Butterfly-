@@ -18,11 +18,11 @@ private val sharedClient = OkHttpClient.Builder()
     .build()
 
 /**
- * Javinizer-Go Metadata Adapter (Scrapes JavLibrary & JavBus)
+ * JavLibrary & JavBus Web Metadata Scraper
  */
-class JavinizerGoProvider : MetadataProvider {
-    override val id: String = "javinizer_go"
-    override val name: String = "Javinizer-Go Engine"
+class JavLibraryBusMetadataProvider : MetadataProvider {
+    override val id: String = "javlibrary_javbus"
+    override val name: String = "JavLibrary & JavBus Scraper"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
@@ -32,7 +32,7 @@ class JavinizerGoProvider : MetadataProvider {
             val url = "https://www.javlibrary.com/en/vl_searchbyid.php?keyword=$cleanJavId"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JavinizerGo/1.2.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .build()
             val res = sharedClient.newCall(req).execute()
@@ -60,7 +60,7 @@ class JavinizerGoProvider : MetadataProvider {
                 )
             }
         } catch (e: Exception) {
-            // Fallback to JavBus below
+            // Fallback to JavBus
         }
 
         // Secondary: JavBus
@@ -90,7 +90,7 @@ class JavinizerGoProvider : MetadataProvider {
                 )
             }
         } catch (e: Exception) {
-            // Return null if real metadata fetch failed
+            // Silently handled
         }
 
         null
@@ -98,11 +98,11 @@ class JavinizerGoProvider : MetadataProvider {
 }
 
 /**
- * AVM (Adult Video Manager) Provider Adapter (Scrapes Jav321)
+ * Jav321 Form Search Metadata Provider
  */
-class AvmProvider : MetadataProvider {
-    override val id: String = "avm"
-    override val name: String = "AVM Database"
+class Jav321MetadataProvider : MetadataProvider {
+    override val id: String = "jav321_search"
+    override val name: String = "Jav321 Search Database"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
@@ -113,7 +113,7 @@ class AvmProvider : MetadataProvider {
             val req = Request.Builder()
                 .url(url)
                 .post(formBody)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AVM/2.4")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
             val res = sharedClient.newCall(req).execute()
             val html = res.body?.string() ?: ""
@@ -145,11 +145,11 @@ class AvmProvider : MetadataProvider {
 }
 
 /**
- * Javdex Metadata Adapter (Scrapes JavDB)
+ * JavDB Catalog Metadata Provider
  */
-class JavdexProvider : MetadataProvider {
-    override val id: String = "javdex"
-    override val name: String = "Javdex API"
+class JavDbMetadataProvider : MetadataProvider {
+    override val id: String = "javdb_catalog"
+    override val name: String = "JavDB Catalog"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
@@ -158,13 +158,12 @@ class JavdexProvider : MetadataProvider {
             val url = "https://javdb.com/search?q=$cleanJavId&f=all"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Javdex/1.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
             val res = sharedClient.newCall(req).execute()
             val html = res.body?.string() ?: ""
             if (html.isBlank()) return@withContext null
 
-            // Find detail link
             val linkMatch = Pattern.compile("href=\"(/v/[a-zA-Z0-9]+)\"").matcher(html)
             if (linkMatch.find()) {
                 val detailPath = linkMatch.group(1) ?: ""
@@ -196,11 +195,11 @@ class JavdexProvider : MetadataProvider {
 }
 
 /**
- * OpenAver Metadata Adapter (Scrapes JavMenu)
+ * JavMenu Search Engine Metadata Provider
  */
-class OpenAverProvider : MetadataProvider {
-    override val id: String = "openaver"
-    override val name: String = "OpenAver Core"
+class JavMenuMetadataProvider : MetadataProvider {
+    override val id: String = "javmenu_search"
+    override val name: String = "JavMenu Search Engine"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
@@ -209,7 +208,7 @@ class OpenAverProvider : MetadataProvider {
             val url = "https://javmenu.com/en/search?q=$cleanJavId"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OpenAver/1.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
             val res = sharedClient.newCall(req).execute()
             val html = res.body?.string() ?: ""
@@ -237,17 +236,16 @@ class OpenAverProvider : MetadataProvider {
 }
 
 /**
- * GFriends Actor & High-Res Artwork Metadata Adapter (Queries GFriends CDN & verifies via HTTP HEAD)
+ * GFriends GitHub CDN Avatar Provider
  */
-class GFriendsProvider : MetadataProvider {
-    override val id: String = "gfriends"
-    override val name: String = "GFriends Artwork Repository"
+class GFriendsAvatarProvider : MetadataProvider {
+    override val id: String = "gfriends_cdn"
+    override val name: String = "GFriends GitHub CDN"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
         try {
-            // First query AirAV / JavBus to get actor name
             val busUrl = "https://www.javbus.com/en/$cleanJavId"
             val req = Request.Builder().url(busUrl).header("User-Agent", "Mozilla/5.0").build()
             val res = sharedClient.newCall(req).execute()
@@ -279,11 +277,11 @@ class GFriendsProvider : MetadataProvider {
 }
 
 /**
- * MDCx (Movie Data Scraper) Provider Adapter (Queries AirAV API)
+ * AirAV Barcode API Metadata Provider
  */
-class MdcxProvider : MetadataProvider {
-    override val id: String = "mdcx"
-    override val name: String = "MDCx Scraper Engine"
+class AirAvBarcodeMetadataProvider : MetadataProvider {
+    override val id: String = "airav_barcode"
+    override val name: String = "AirAV Barcode API"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
@@ -292,7 +290,7 @@ class MdcxProvider : MetadataProvider {
             val url = "https://www.airav.wiki/api/video/barcode?barcode=$cleanJavId"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MDCx/3.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
             val res = sharedClient.newCall(req).execute()
             val jsonStr = res.body?.string() ?: ""
@@ -324,11 +322,11 @@ class MdcxProvider : MetadataProvider {
 }
 
 /**
- * FSS (Film Storage System) Provider Adapter (Scrapes Arzon)
+ * Arzon Adult Catalog Metadata Provider
  */
-class FssProvider : MetadataProvider {
-    override val id: String = "fss"
-    override val name: String = "FSS Catalog"
+class ArzonCatalogMetadataProvider : MetadataProvider {
+    override val id: String = "arzon_catalog"
+    override val name: String = "Arzon Adult Catalog"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
@@ -337,7 +335,7 @@ class FssProvider : MetadataProvider {
             val url = "https://www.arzon.jp/itemlist.html?q=$cleanJavId"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FSS/1.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .header("Cookie", "age_check=1")
                 .build()
             val res = sharedClient.newCall(req).execute()
@@ -364,4 +362,3 @@ class FssProvider : MetadataProvider {
         null
     }
 }
-

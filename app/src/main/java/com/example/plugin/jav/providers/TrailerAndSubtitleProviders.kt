@@ -29,11 +29,11 @@ private fun verifyUrl(url: String): Boolean {
 }
 
 /**
- * JAV-Preview Dedicated Trailer Provider (DMM / R18 Free Sample Video CDN)
+ * DMM FreePV CDN Sample Trailer Provider
  */
-class JavPreviewProvider : TrailerProvider {
-    override val id: String = "jav_preview"
-    override val name: String = "JAV-Preview Service"
+class DmmFreePvTrailerProvider : TrailerProvider {
+    override val id: String = "dmm_freepv"
+    override val name: String = "DMM FreePV CDN Sample"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchTrailers(javId: String): List<JavTrailer> = withContext(Dispatchers.IO) {
@@ -77,21 +77,20 @@ class JavPreviewProvider : TrailerProvider {
 }
 
 /**
- * Bazarr Provider Catalog Subtitle Adapter (SubtitleCat & OpenSubtitles)
+ * SubtitleCat Engine Subtitle Provider
  */
-class BazarrCatalogSubtitleProvider : SubtitleProvider {
-    override val id: String = "bazarr_catalog"
-    override val name: String = "Bazarr Subtitle Catalog"
+class SubtitleCatProvider : SubtitleProvider {
+    override val id: String = "subtitlecat"
+    override val name: String = "SubtitleCat Engine"
     override var isEnabled: Boolean = true
 
     override suspend fun searchSubtitles(javId: String, title: String): List<JavSubtitle> = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
         val results = mutableListOf<JavSubtitle>()
 
-        // 1. SubtitleCat Lookup
         try {
             val url = "https://www.subtitlecat.com/index.php?search=$cleanJavId"
-            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 BazarrCatalog/1.4").build()
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
             val res = trailerClient.newCall(req).execute()
             val html = res.body?.string() ?: ""
 
@@ -126,7 +125,22 @@ class BazarrCatalogSubtitleProvider : SubtitleProvider {
             // Silently handled
         }
 
-        // 2. OpenSubtitles API Lookup
+        results
+    }
+}
+
+/**
+ * OpenSubtitles REST API Provider
+ */
+class OpenSubtitlesRestProvider : SubtitleProvider {
+    override val id: String = "opensubtitles_rest"
+    override val name: String = "OpenSubtitles REST API"
+    override var isEnabled: Boolean = true
+
+    override suspend fun searchSubtitles(javId: String, title: String): List<JavSubtitle> = withContext(Dispatchers.IO) {
+        val cleanJavId = javId.trim().uppercase()
+        val results = mutableListOf<JavSubtitle>()
+
         try {
             val openSubsUrl = "https://rest.opensubtitles.org/search/query-$cleanJavId/sublanguageid-eng,jpn,zho"
             val req = Request.Builder()
@@ -167,4 +181,3 @@ class BazarrCatalogSubtitleProvider : SubtitleProvider {
         results
     }
 }
-
