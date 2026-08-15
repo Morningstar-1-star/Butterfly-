@@ -7,8 +7,14 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.system.measureTimeMillis
 
 object UnifiedJavOrchestrator {
-    // Registered Providers (Honest Names based on actual network sources)
+    // Registered Providers (Repository & Source Integrations)
     val metadataProviders = mutableListOf<MetadataProvider>(
+        JavinizerGoMetadataProvider(),
+        AvmMetadataProvider(),
+        JavdexMetadataProvider(),
+        OpenAverMetadataProvider(),
+        MdcxMetadataProvider(),
+        FssMetadataProvider(),
         JavLibraryBusMetadataProvider(),
         Jav321MetadataProvider(),
         JavDbMetadataProvider(),
@@ -19,6 +25,7 @@ object UnifiedJavOrchestrator {
     )
 
     val streamProviders = mutableListOf<StreamProvider>(
+        JavPyStreamResolver(),
         MissAvSurritStreamResolver(),
         JableTvStreamResolver(),
         AvgleApiStreamResolver(),

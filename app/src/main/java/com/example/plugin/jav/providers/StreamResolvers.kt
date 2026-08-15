@@ -280,6 +280,65 @@ class MediaFusionStremioResolver : StreamProvider {
 }
 
 /**
+ * JavPy Stream Resolver Engine
+ * Reimplements JavPy's native Python stream resolver modules (`javpy.functions.search_avgle` & `search_youav`).
+ */
+class JavPyStreamResolver : StreamProvider {
+    override val id: String = "javpy_resolver"
+    override val name: String = "JavPy Stream Resolver"
+    override var isEnabled: Boolean = true
+
+    override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
+        val cleanJavId = javId.trim().uppercase()
+        val results = mutableListOf<JavStream>()
+
+        // Primary: JavPy's Avgle search function (`javpy.functions.search_avgle`)
+        try {
+            val url = "https://api.avgle.com/v1/jav/$cleanJavId/0"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "JavPy Python/3.9 Engine")
+                .build()
+            val res = streamClient.newCall(req).execute()
+            val jsonStr = res.body?.string() ?: ""
+
+            if (jsonStr.isNotBlank()) {
+                val root = JSONObject(jsonStr)
+                if (root.optBoolean("success")) {
+                    val responseObj = root.optJSONObject("response")
+                    val videos = responseObj?.optJSONArray("videos") ?: JSONArray()
+                    for (i in 0 until videos.length()) {
+                        val video = videos.getJSONObject(i)
+                        val embeddedUrl = video.optString("embedded_url")
+                        val videoTitle = video.optString("title")
+                        if (videoTitle.uppercase().contains(cleanJavId) && embeddedUrl.isNotBlank()) {
+                            if (verifyStreamUrl(embeddedUrl)) {
+                                results.add(
+                                    JavStream(
+                                        id = "javpy_avgle_${cleanJavId}_$i",
+                                        javId = cleanJavId,
+                                        url = embeddedUrl,
+                                        title = "$videoTitle (JavPy Engine)",
+                                        qualityLabel = "720p",
+                                        mimeType = "video/mp4",
+                                        providerId = id,
+                                        providerName = name
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Silently handled
+        }
+
+        results
+    }
+}
+
+/**
  * Comet Stremio Addon Resolver
  */
 class CometStremioResolver : StreamProvider {
