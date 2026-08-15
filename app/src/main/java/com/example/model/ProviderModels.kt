@@ -1,6 +1,7 @@
 package com.example.model
 
 import com.example.plugin.sdk.model.ProviderType
+import com.example.plugin.jav.ProviderStatusState
 
 enum class AppScreen {
     HOME,
@@ -19,11 +20,16 @@ data class ProviderUiItem(
     val id: String,
     val name: String,
     val description: String = "",
+    val category: String = "",
     val isEnabled: Boolean = true,
     val isDefault: Boolean = false,
-    val providerType: ProviderType = ProviderType.OTHER
+    val providerType: ProviderType = ProviderType.OTHER,
+    val statusState: ProviderStatusState = ProviderStatusState.NO_RESULT,
+    val statusMessage: String = "",
+    val responseTimeMs: Long = 0L
 ) {
-    val isTorrent: Boolean get() = providerType == ProviderType.TORRENT
+    val isTorrent: Boolean
+        get() = providerType == ProviderType.TORRENT
 }
 
 data class UserPlaylist(
@@ -39,4 +45,3 @@ data class UserProfile(
     val avatarUrl: String? = null,
     val avatarPreset: String = "purple"
 )
-
