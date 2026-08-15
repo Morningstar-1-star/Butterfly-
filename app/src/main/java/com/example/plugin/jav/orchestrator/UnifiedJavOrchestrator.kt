@@ -212,13 +212,13 @@ object UnifiedJavOrchestrator {
                     val result = withTimeoutOrNull(provider.timeoutMs) {
                         provider.fetchMetadata(testJavId)
                     }
-                    if (result != null) {
+                    if (result != null && result.title.isNotBlank() && result.coverUrl.isNotBlank()) {
                         state = ProviderStatusState.SUCCESS
                         count = 1
                         msg = "Title: ${result.title.take(30)}"
                     } else {
                         state = ProviderStatusState.NO_RESULT
-                        msg = "No metadata returned"
+                        msg = "No valid metadata/cover"
                     }
                 } catch (e: TimeoutCancellationException) {
                     state = ProviderStatusState.TIMEOUT

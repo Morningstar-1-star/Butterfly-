@@ -9,7 +9,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -19,8 +18,18 @@ private val trailerClient = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
+private fun verifyUrl(url: String): Boolean {
+    return try {
+        val req = Request.Builder().url(url).head().header("User-Agent", "Mozilla/5.0").build()
+        val res = trailerClient.newCall(req).execute()
+        res.isSuccessful || res.code == 302 || res.code == 206
+    } catch (e: Exception) {
+        false
+    }
+}
+
 /**
- * JAV-Preview Dedicated Trailer Provider
+ * JAV-Preview Dedicated Trailer Provider (DMM / R18 Free Sample Video CDN)
  */
 class JavPreviewProvider : TrailerProvider {
     override val id: String = "jav_preview"
@@ -31,24 +40,34 @@ class JavPreviewProvider : TrailerProvider {
         val cleanJavId = javId.trim().uppercase()
         val results = mutableListOf<JavTrailer>()
 
-        // 1. DMM / R18 Sample Video Resolver
         try {
-            val formattedId = cleanJavId.lowercase().replace("-", "")
-            val sampleVideoUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/${formattedId.take(1)}/${formattedId.take(3)}/$formattedId/${formattedId}_mbf_w.mp4"
-            val thumbUrl = "https://images.dmm.co.jp/digital/video/$formattedId/${formattedId}ps.jpg"
-            
-            results.add(
-                JavTrailer(
-                    id = "preview_$cleanJavId",
-                    javId = cleanJavId,
-                    title = "$cleanJavId Official Sample Preview",
-                    videoUrl = sampleVideoUrl,
-                    thumbnailUrl = thumbUrl,
-                    durationSeconds = 120L,
-                    providerId = id,
-                    providerName = name
+            val f = cleanJavId.lowercase().replace("-", "").replace("_", "")
+            if (f.length >= 3) {
+                val candidateUrls = listOf(
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/${f.take(1)}/${f.take(3)}/$f/${f}_mbf_w.mp4",
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/${f.take(1)}/${f.take(3)}/$f/${f}_dmb_w.mp4",
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/${f.take(1)}/${f.take(3)}/$f/${f}_sm_w.mp4"
                 )
-            )
+                val thumbUrl = "https://images.dmm.co.jp/digital/video/$f/${f}ps.jpg"
+
+                for (vUrl in candidateUrls) {
+                    if (verifyUrl(vUrl)) {
+                        results.add(
+                            JavTrailer(
+                                id = "preview_$cleanJavId",
+                                javId = cleanJavId,
+                                title = "$cleanJavId Official DMM Preview",
+                                videoUrl = vUrl,
+                                thumbnailUrl = thumbUrl,
+                                durationSeconds = 120L,
+                                providerId = id,
+                                providerName = name
+                            )
+                        )
+                        break
+                    }
+                }
+            }
         } catch (e: Exception) {
             // Silently handled
         }
@@ -58,7 +77,7 @@ class JavPreviewProvider : TrailerProvider {
 }
 
 /**
- * Bazarr Provider Catalog Subtitle Adapter (SubtitleCat, OpenSubtitles, SubSource, SubDL)
+ * Bazarr Provider Catalog Subtitle Adapter (SubtitleCat & OpenSubtitles)
  */
 class BazarrCatalogSubtitleProvider : SubtitleProvider {
     override val id: String = "bazarr_catalog"
@@ -72,45 +91,80 @@ class BazarrCatalogSubtitleProvider : SubtitleProvider {
         // 1. SubtitleCat Lookup
         try {
             val url = "https://www.subtitlecat.com/index.php?search=$cleanJavId"
-            val req = Request.Builder().url(url).header("User-Agent", "BazarrCatalog/1.4").build()
+            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 BazarrCatalog/1.4").build()
             val res = trailerClient.newCall(req).execute()
             val html = res.body?.string() ?: ""
 
             val subMatch = Pattern.compile("href=\"(sub-.*?\\.html)\"").matcher(html)
             if (subMatch.find()) {
                 val subPage = subMatch.group(1) ?: ""
-                val subUrl = "https://www.subtitlecat.com/$subPage"
-                results.add(
-                    JavSubtitle(
-                        id = "subcat_$cleanJavId",
-                        javId = cleanJavId,
-                        language = "English",
-                        languageCode = "en",
-                        url = subUrl,
-                        format = "srt",
-                        providerId = id,
-                        matchScore = 95
-                    )
-                )
+                val subPageUrl = "https://www.subtitlecat.com/$subPage"
+                val pageReq = Request.Builder().url(subPageUrl).header("User-Agent", "Mozilla/5.0").build()
+                val pageRes = trailerClient.newCall(pageReq).execute()
+                val pageHtml = pageRes.body?.string() ?: ""
+
+                val downloadMatch = Pattern.compile("href=\"(download.php\\?.*?)\"").matcher(pageHtml)
+                if (downloadMatch.find()) {
+                    val directDownloadUrl = "https://www.subtitlecat.com/" + downloadMatch.group(1)
+                    if (verifyUrl(directDownloadUrl)) {
+                        results.add(
+                            JavSubtitle(
+                                id = "subcat_$cleanJavId",
+                                javId = cleanJavId,
+                                language = "English",
+                                languageCode = "en",
+                                url = directDownloadUrl,
+                                format = "srt",
+                                providerId = id,
+                                matchScore = 95
+                            )
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
             // Silently handled
         }
 
-        // 2. OpenSubtitles Fallback
-        results.add(
-            JavSubtitle(
-                id = "opensubs_$cleanJavId",
-                javId = cleanJavId,
-                language = "English (AI)",
-                languageCode = "en",
-                url = "https://dl.opensubtitles.org/en/download/sub/$cleanJavId",
-                format = "vtt",
-                providerId = id,
-                matchScore = 90
-            )
-        )
+        // 2. OpenSubtitles API Lookup
+        try {
+            val openSubsUrl = "https://rest.opensubtitles.org/search/query-$cleanJavId/sublanguageid-eng,jpn,zho"
+            val req = Request.Builder()
+                .url(openSubsUrl)
+                .header("User-Agent", "TemporaryUserAgent")
+                .build()
+            val res = trailerClient.newCall(req).execute()
+            val jsonStr = res.body?.string() ?: ""
+            if (jsonStr.isNotBlank() && jsonStr.startsWith("[")) {
+                val array = JSONArray(jsonStr)
+                for (i in 0 until array.length().coerceAtMost(5)) {
+                    val obj = array.getJSONObject(i)
+                    val downloadLink = obj.optString("SubDownloadLink")
+                    val langName = obj.optString("LanguageName", "English")
+                    val iso = obj.optString("ISO639", "en")
+                    val format = obj.optString("SubFormat", "srt")
+
+                    if (downloadLink.isNotBlank() && verifyUrl(downloadLink)) {
+                        results.add(
+                            JavSubtitle(
+                                id = "opensubs_${cleanJavId}_$i",
+                                javId = cleanJavId,
+                                language = langName,
+                                languageCode = iso,
+                                url = downloadLink,
+                                format = format,
+                                providerId = id,
+                                matchScore = 90
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Silently handled
+        }
 
         results
     }
 }
+
