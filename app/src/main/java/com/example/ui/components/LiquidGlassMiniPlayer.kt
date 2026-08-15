@@ -77,7 +77,7 @@ fun LiquidGlassMiniPlayer(
             .clip(RoundedCornerShape(12.dp))
             .clickable { onExpand() },
         shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF1E1E1E)
+        color = Color.Black
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Row(

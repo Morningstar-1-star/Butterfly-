@@ -21,9 +21,11 @@ object NotInterestedManager {
     }
 
     fun markNotInterested(context: Context, videoId: String, channelName: String? = null) {
+        val cleanVid = videoId.trim()
+        if (cleanVid.isEmpty()) return
         val prefs = getPrefs(context)
         val currentIds = getHiddenVideoIds(context).toMutableSet()
-        currentIds.add(videoId)
+        currentIds.add(cleanVid)
         val editor = prefs.edit().putStringSet(KEY_HIDDEN_IDS, currentIds)
 
         val cleanChannel = channelName?.trim()?.lowercase() ?: ""
@@ -36,9 +38,20 @@ object NotInterestedManager {
     }
 
     fun removeNotInterested(context: Context, videoId: String) {
+        val cleanVid = videoId.trim()
         val current = getHiddenVideoIds(context).toMutableSet()
-        current.remove(videoId)
+        current.remove(cleanVid)
         getPrefs(context).edit().putStringSet(KEY_HIDDEN_IDS, current).apply()
+    }
+
+    fun isVideoBlocked(context: Context, videoId: String, channelName: String? = null): Boolean {
+        val cleanVid = videoId.trim()
+        if (cleanVid.isEmpty()) return false
+        val hidden = getHiddenVideoIds(context)
+        if (hidden.contains(cleanVid)) return true
+        val cleanChannel = channelName?.trim()?.lowercase() ?: ""
+        if (cleanChannel.isNotEmpty() && getBlockedChannels(context).contains(cleanChannel)) return true
+        return false
     }
 
     fun setHiddenVideoIds(context: Context, ids: Set<String>) {
@@ -53,4 +66,5 @@ object NotInterestedManager {
         getPrefs(context).edit().remove(KEY_HIDDEN_IDS).remove(KEY_BLOCKED_CHANNELS).apply()
     }
 }
+
 

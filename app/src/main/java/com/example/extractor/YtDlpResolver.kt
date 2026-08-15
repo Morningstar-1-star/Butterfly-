@@ -13,6 +13,7 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 object YtDlpResolver {
 
@@ -26,11 +27,19 @@ object YtDlpResolver {
             synchronized(this) {
                 if (!isInitialized) {
                     try {
-                        YoutubeDL.getInstance().init(context.applicationContext)
+                        val appCtx = context.applicationContext
+                        YoutubeDL.getInstance().init(appCtx)
                         try {
-                            FFmpeg.getInstance().init(context.applicationContext)
+                            FFmpeg.getInstance().init(appCtx)
                         } catch (fe: Throwable) {
                             Log.w(TAG, "FFmpeg init warning: ${fe.message}")
+                        }
+                        // Check and update yt-dlp binary to latest release
+                        try {
+                            val status = YoutubeDL.getInstance().updateYoutubeDL(appCtx, YoutubeDL.UpdateChannel.STABLE)
+                            Log.d(TAG, "yt-dlp binary update status: $status")
+                        } catch (ue: Throwable) {
+                            Log.w(TAG, "yt-dlp update warning (will continue with bundled release): ${ue.message}")
                         }
                         isInitialized = true
                         Log.d(TAG, "YoutubeDL initialized successfully")
@@ -59,8 +68,8 @@ object YtDlpResolver {
         // Check video hosts supported by yt-dlp
         if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
             val u = trimmed.lowercase()
+            if (u.contains("eporner.com") || u.contains("archive.org")) return false
             return u.contains("dailymotion.com") || u.contains("dai.ly") ||
-                    u.contains("eporner.com") || u.contains("archive.org") ||
                     u.contains("vimeo.com") || u.contains("tiktok.com") ||
                     u.contains("twitter.com") || u.contains("x.com") ||
                     u.contains("pornhub.com") || u.contains("xhamster.com") || u.contains("redtube.com") || u.contains("xvideos.com") ||
@@ -88,6 +97,41 @@ object YtDlpResolver {
         }
 
         return trimmed
+    }
+
+    fun locateQuickJsRuntime(context: Context): String? {
+        try {
+            val candidates = listOf(
+                File(context.filesDir, "quickjs"),
+                File(context.filesDir, "qjs"),
+                File(context.cacheDir, "quickjs"),
+                File(context.cacheDir, "qjs"),
+                File(context.applicationInfo.nativeLibraryDir, "libquickjs.so"),
+                File(context.applicationInfo.nativeLibraryDir, "libqjs.so"),
+                File("/system/bin/quickjs"),
+                File("/system/bin/qjs"),
+                File("/system/xbin/quickjs"),
+                File("/data/local/tmp/quickjs"),
+                File("/data/local/tmp/qjs")
+            )
+
+            for (file in candidates) {
+                if (file.exists()) {
+                    if (!file.canExecute()) {
+                        try {
+                            file.setExecutable(true, false)
+                        } catch (_: Throwable) {}
+                    }
+                    if (file.canExecute() || file.name.endsWith(".so")) {
+                        Log.d(TAG, "Located usable QuickJS JS runtime at: ${file.absolutePath}")
+                        return file.absolutePath
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error locating QuickJS runtime: ${e.message}")
+        }
+        return null
     }
 
     sealed class ExtractionResult {
@@ -121,26 +165,49 @@ object YtDlpResolver {
         val fullUrl = normalizeUrl(urlOrId)
         val isYouTube = isYouTubeUrl(fullUrl)
 
-        Log.d(TAG, "Starting yt-dlp extraction for: $fullUrl (youtube=$isYouTube)")
+        Log.d(TAG, "Starting yt-dlp primary extraction for: $fullUrl (youtube=$isYouTube)")
 
         try {
             val request = YoutubeDLRequest(fullUrl)
 
-            // Prefer Android-compatible H.264 (avc1) + AAC (m4a/mp4a) or best progressive mp4
-            request.addOption("-f", "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[vcodec^=h264]+bestaudio[acodec^=aac]/best[vcodec^=avc1]/best[ext=mp4]/best")
+            // Format selection: Allow yt-dlp to choose best available direct streams
+            request.addOption("-f", "b/bestvideo+bestaudio/best")
+            request.addOption("--no-check-certificates")
+            request.addOption("--geo-bypass")
             request.addOption("--no-playlist")
-            request.addOption("--socket-timeout", "4")
-            if (isYouTube) {
-                request.addOption("--extractor-args", "youtube:player_client=ios,android_creator,tv")
+            request.addOption("--socket-timeout", "5")
+            request.addOption("--no-warnings")
+            request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+
+            // PO-Token mechanism integration if available (Do NOT hardcode old player_client versions)
+            val extractorArgs = mutableListOf<String>()
+            val poTokenProvider = YouTubeExtractorHelper.getPoTokenProvider()
+            val poToken = poTokenProvider?.getPoToken(null)
+            if (!poToken.isNullOrBlank() && isYouTube) {
+                Log.d(TAG, "Injecting available PO-Token into yt-dlp extractor args")
+                extractorArgs.add("po_token=web+$poToken")
             }
 
-            val videoInfo: VideoInfo = kotlinx.coroutines.withTimeoutOrNull(4500L) {
+            if (isYouTube && extractorArgs.isNotEmpty()) {
+                request.addOption("--extractor-args", "youtube:" + extractorArgs.joinToString(";"))
+            }
+
+            // Configure QuickJS Runtime for EJS / JS challenge solving
+            val quickJsPath = locateQuickJsRuntime(context)
+            if (quickJsPath != null) {
+                Log.d(TAG, "Configuring yt-dlp JS runtime: quickjs:$quickJsPath")
+                request.addOption("--js-runtimes", "quickjs:$quickJsPath")
+            } else {
+                Log.d(TAG, "QuickJS binary path not found, letting yt-dlp use default environment JS runtime")
+            }
+
+            // Execute yt-dlp with 6s timeout for fast pipeline rotation
+            val videoInfo: VideoInfo = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                 YoutubeDL.getInstance().getInfo(request)
-            } ?: throw YoutubeDLException("yt-dlp extraction timed out after 4.5s")
+            } ?: throw YoutubeDLException("yt-dlp extraction timed out after 6s")
 
             val title = videoInfo.title ?: "Extracted Video"
             val uploader = videoInfo.uploader ?: if (isYouTube) "YouTube Channel" else "Web Creator"
-            val duration = videoInfo.duration.toLong()
             val thumbnail = videoInfo.thumbnail
 
             // Extract HTTP headers
@@ -159,7 +226,8 @@ object YtDlpResolver {
                 // Find muxed formats (video + audio)
                 val muxedFormats = formats.filter {
                     !it.url.isNullOrEmpty() &&
-                            (it.vcodec != "none" && it.acodec != "none")
+                            (it.vcodec != "none" && it.vcodec != null && it.vcodec != "null") &&
+                            (it.acodec != "none" && it.acodec != null && it.acodec != "null")
                 }
 
                 for (fmt in muxedFormats) {
@@ -186,10 +254,10 @@ object YtDlpResolver {
                 }
 
                 // Build adaptive streams for all available resolutions (1080p, 1440p, 4K, 720p, etc.)
-                val videoFmts = formats.filter { !it.url.isNullOrEmpty() && it.vcodec != "none" && it.vcodec != null }
+                val videoFmts = formats.filter { !it.url.isNullOrEmpty() && it.vcodec != "none" && it.vcodec != null && it.vcodec != "null" }
                     .distinctBy { it.height }
                     .sortedByDescending { it.height }
-                val audioFmts = formats.filter { !it.url.isNullOrEmpty() && it.acodec != "none" && it.acodec != null }
+                val audioFmts = formats.filter { !it.url.isNullOrEmpty() && it.acodec != "none" && it.acodec != null && it.acodec != "null" }
                 val bestAudio = audioFmts.maxByOrNull { it.tbr } ?: audioFmts.firstOrNull()
 
                 for (vf in videoFmts) {
@@ -261,7 +329,7 @@ object YtDlpResolver {
                 providerId = if (isYouTube) "youtube" else "ytdlp"
             )
 
-            Log.d(TAG, "yt-dlp Extraction successful: title='$title', options=${options.size}, headers=${extractedHeaders.size}")
+            Log.d(TAG, "yt-dlp Primary Extraction SUCCESS: title='$title', options=${options.size}, headers=${extractedHeaders.size}")
 
             ExtractionResult.Success(
                 streamData = streamData,
@@ -272,7 +340,12 @@ object YtDlpResolver {
             val msg = e.localizedMessage ?: "yt-dlp extraction failed"
             Log.e(TAG, "YoutubeDLException: $msg", e)
 
+            val isIpOrBotGuardBlocked = msg.contains("Sign in to confirm you", ignoreCase = true) ||
+                    msg.contains("LOGIN_REQUIRED", ignoreCase = true) ||
+                    (msg.contains("Sign in", ignoreCase = true) && msg.contains("bot", ignoreCase = true))
+
             val errorType = when {
+                isIpOrBotGuardBlocked -> ExtractorErrorType.YOUTUBE_IP_BLOCKED
                 msg.contains("Geoblocking", ignoreCase = true) || msg.contains("region", ignoreCase = true) || msg.contains("not available in your country", ignoreCase = true) ->
                     ExtractorErrorType.GEO_RESTRICTED
                 msg.contains("Private video", ignoreCase = true) || msg.contains("Unavailable", ignoreCase = true) || msg.contains("Video unavailable", ignoreCase = true) || msg.contains("404", ignoreCase = true) ->
@@ -287,6 +360,7 @@ object YtDlpResolver {
             ExtractionResult.Error(
                 errorType = errorType,
                 message = when (errorType) {
+                    ExtractorErrorType.YOUTUBE_IP_BLOCKED -> "YouTube IP / BotGuard Blocked: Sign in to confirm you're not a bot."
                     ExtractorErrorType.GEO_RESTRICTED -> "This video is geo-restricted or unavailable in your region."
                     ExtractorErrorType.UNAVAILABLE -> "Video unavailable, private, or has been deleted."
                     ExtractorErrorType.AGE_RESTRICTED -> "This video is age-restricted or requires authentication."

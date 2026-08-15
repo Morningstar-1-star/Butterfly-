@@ -44,23 +44,32 @@ object SeriesDataHelper {
         }
     }
 
-    fun getSeriesPillText(title: String?, uploadDate: String? = null, providerId: String? = null): String? {
+    fun getSeriesPillText(title: String?, uploadDate: String? = null, providerId: String? = null, videoId: String? = null): String? {
         if (TMDBHelper.isJavOrAdultProvider(providerId, title)) {
             return null
         }
         val pid = (providerId ?: "").lowercase()
         val clean = (title ?: "").lowercase()
         val uploadClean = (uploadDate ?: "").lowercase()
+        val vid = (videoId ?: "").lowercase()
 
-        val isTorrentSeries = pid.contains("eztv") || pid.contains("torrent") || pid.contains("unified") || clean.contains("eztv") || clean.contains("s0") || clean.contains("s1") || clean.contains("season")
-        val isArchiveWithEp = pid.contains("archive") && (uploadClean.contains("ep") || clean.contains("episodes") || clean.contains("s0") || clean.contains("season"))
-
-        if (!isTorrentSeries && !isArchiveWithEp) {
+        // Explicit movie check: never show season/episode badge on movies
+        if (vid.startsWith("movie_") || pid == "yts" || pid == "tmdb_movies" || clean.contains("yify")) {
             return null
         }
 
-        if (uploadClean.contains("s") && uploadClean.contains("ep")) {
+        val hasSeasonOrEpisodePattern = clean.contains(Regex("""\bs\d{1,2}(e\d{1,2})?\b""")) ||
+                clean.contains(Regex("""\bseason\s*\d+\b""")) ||
+                clean.contains(Regex("""\bep(isode)?\s*\d+\b""")) ||
+                vid.startsWith("tv_") ||
+                pid.contains("eztv")
+
+        if (uploadClean.contains("s") && uploadClean.contains("ep") && !uploadClean.contains("movie")) {
             return uploadDate
+        }
+
+        if (!hasSeasonOrEpisodePattern && !pid.contains("eztv") && !pid.contains("jikan") && !pid.contains("nyaa")) {
+            return null
         }
 
         return when {
@@ -84,7 +93,9 @@ object SeriesDataHelper {
             clean.contains("s01") || clean.contains("season 1") || clean.contains("s1:") -> "S1 · 10 ep"
             clean.contains("s02") || clean.contains("season 2") -> "S2 · 12 ep"
             clean.contains("s03") || clean.contains("season 3") -> "S3 · 12 ep"
-            isTorrentSeries -> "S1 · 10 ep"
+            clean.contains("s04") || clean.contains("season 4") -> "S4 · 12 ep"
+            clean.contains("s05") || clean.contains("season 5") -> "S5 · 12 ep"
+            vid.startsWith("tv_") || pid.contains("eztv") -> "Series"
             else -> null
         }
     }

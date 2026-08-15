@@ -70,6 +70,8 @@ import androidx.compose.material3.Surface
 import com.example.model.VideoItem
 import kotlinx.coroutines.launch
 
+import com.example.ui.animation.bounceClick
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoCard(
@@ -92,10 +94,6 @@ fun VideoCard(
     val hideAllTags by videoTagPrefs.hideAllTags.collectAsState()
     val hiddenTags by videoTagPrefs.hiddenTags.collectAsState()
 
-    val seriesPillText = remember(video.title, video.uploadDate, video.id, video.providerId) {
-        com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate, video.providerId)
-    }
-
     val providerBadgeInfo = remember(video.providerId, video.title, video.uploaderName, video.uploadDate, video.id) {
         val pid = (video.providerId ?: "").lowercase()
         val titleLower = video.title.lowercase()
@@ -106,7 +104,7 @@ fun VideoCard(
             pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
             pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
             video.id.startsWith("tv_") || (pid.contains("eztv") && (titleLower.contains("s0") || titleLower.contains("season"))) -> "Series"
-            video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet", "watchmode") -> "Movie"
+            video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet") -> "Movie"
             pid == "archive_org" -> "Archive"
             pid == "youtube" -> "YouTube"
             pid == "dailymotion" -> "Dailymotion"
@@ -125,6 +123,14 @@ fun VideoCard(
         Pair(name, bgColor)
     }
 
+    val seriesPillText = remember(video.title, video.uploadDate, video.id, video.providerId, providerBadgeInfo.first) {
+        if (providerBadgeInfo.first == "Movie" || video.id.startsWith("movie_")) {
+            null
+        } else {
+            com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate, video.providerId, video.id)
+        }
+    }
+
     val thumbnailImageRequest = remember(video.thumbnailUrl) {
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 100)
     }
@@ -132,7 +138,7 @@ fun VideoCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .bounceClick(scaleDown = 0.97f) { onClick() },
         shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -168,9 +174,9 @@ fun VideoCard(
                     }
                 }
 
-                if (video.formattedDuration.isNotEmpty()) {
+                if (video.displayDuration.isNotEmpty()) {
                     Text(
-                        text = video.formattedDuration,
+                        text = video.displayDuration,
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -468,9 +474,9 @@ fun VideoCard(
                             if (onNotInterested != null) {
                                 onNotInterested.invoke(video)
                             } else {
-                                com.example.util.NotInterestedManager.markNotInterested(context, video.id)
+                                com.example.util.NotInterestedManager.markNotInterested(context, video.id, video.uploaderName)
                             }
-                            Toast.makeText(context, "Marked as Not Interested", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "We won't recommend this video again", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )

@@ -197,7 +197,7 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredList, key = { it.id }) { video ->
+                        items(filteredList.distinctBy { "${it.providerId}_${it.id}" }, key = { "${it.providerId}_${it.id}" }) { video ->
                             LibraryItemCard(
                                 video = video,
                                 onClick = { onSelectVideo(video) },
@@ -211,7 +211,7 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredList, key = { it.id }) { video ->
+                        items(filteredList.distinctBy { "${it.providerId}_${it.id}" }, key = { "${it.providerId}_${it.id}" }) { video ->
                             LibraryListItem(
                                 video = video,
                                 onClick = { onSelectVideo(video) },

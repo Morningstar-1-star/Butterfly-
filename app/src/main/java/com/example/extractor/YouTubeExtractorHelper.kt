@@ -209,7 +209,11 @@ object YouTubeExtractorHelper {
         logDebug("YouTubeExtractor", "[TRACE] BEFORE StreamInfo.getInfo for videoId: '$videoId', fullUrl: '$fullUrl'")
 
         return try {
-            val info = StreamInfo.getInfo(service, fullUrl)
+            val info = kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    StreamInfo.getInfo(service, fullUrl)
+                }
+            } ?: throw IOException("StreamInfo.getInfo timed out after 4s")
 
             val progressiveStreams = info.videoStreams ?: emptyList()
             val videoOnlyStreams = info.videoOnlyStreams ?: emptyList()
@@ -277,16 +281,12 @@ object YouTubeExtractorHelper {
             }
 
             if (options.isEmpty() && info.hlsUrl.isNullOrEmpty()) {
-                val embedUrl = "https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&playsinline=1&enablejsapi=1"
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "YouTube Web Stream (Fast Embed)",
-                        format = "embed",
-                        isMuxed = true,
-                        videoUrl = embedUrl,
-                        providerType = com.example.plugin.sdk.model.ProviderType.OTHER
-                    )
-                )
+                val fastRes = kotlinx.coroutines.runBlocking {
+                    YouTubeFastStreamResolver.resolveStream(videoId, context)
+                }
+                if (fastRes is ExtractionResult.Success) {
+                    return fastRes
+                }
             }
 
             val defaultSelectedOption = options.firstOrNull { it.qualityLabel.contains("1080p") }
@@ -344,57 +344,25 @@ object YouTubeExtractorHelper {
             ExtractionResult.Success(streamData)
 
         } catch (e: Throwable) {
-            logWarn("YouTubeExtractor", "NewPipe extraction hit exception for $fullUrl: ${e.message}. Launching fast fallback.")
+            logWarn("YouTubeExtractor", "NewPipe extraction hit exception for $fullUrl: ${e.message}. Launching yt-dlp resolver.")
             
-            // 1. Fast metadata recovery via official YouTube oEmbed API
-            var recoveredTitle = "YouTube Video"
-            var recoveredAuthor = "YouTube Creator"
-            var recoveredThumb = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            val fastRes = kotlinx.coroutines.runBlocking {
+                YouTubeFastStreamResolver.resolveStream(videoId, context)
+            }
+            if (fastRes is ExtractionResult.Success) {
+                return fastRes
+            }
 
-            try {
-                val oembedClient = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                val oembedReq = okhttp3.Request.Builder()
-                    .url("https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .build()
-                val oembedResp = oembedClient.newCall(oembedReq).execute()
-                if (oembedResp.isSuccessful) {
-                    val body = oembedResp.body?.string()
-                    if (!body.isNullOrEmpty()) {
-                        val obj = org.json.JSONObject(body)
-                        recoveredTitle = obj.optString("title", recoveredTitle)
-                        recoveredAuthor = obj.optString("author_name", recoveredAuthor)
-                        recoveredThumb = obj.optString("thumbnail_url", recoveredThumb)
-                    }
-                }
-            } catch (ignored: Throwable) {}
-
-            val embedUrl = "https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&playsinline=1&enablejsapi=1"
-            val fallbackEmbedOption = PlayableStreamOption(
-                qualityLabel = "YouTube Web Stream (Fast Embed)",
-                format = "embed",
-                isMuxed = true,
-                videoUrl = embedUrl,
-                providerType = com.example.plugin.sdk.model.ProviderType.OTHER
+            return ExtractionResult.Error(
+                ExtractorErrorDetails(
+                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                    message = "Unable to fetch direct YouTube media streams.",
+                    rawExceptionName = e.javaClass.simpleName,
+                    fullStackTrace = e.stackTraceToString(),
+                    urlOrId = fullUrl,
+                    technicalFixSuggestion = "Check internet connection or retry video playback."
+                )
             )
-
-            val fallbackStreamData = StreamData(
-                videoId = videoId,
-                videoUrl = embedUrl,
-                title = recoveredTitle,
-                channelName = recoveredAuthor,
-                thumbnailUrl = recoveredThumb,
-                availableStreamOptions = listOf(fallbackEmbedOption),
-                selectedStreamOption = fallbackEmbedOption,
-                providerId = "youtube",
-                embedUrl = embedUrl,
-                description = "Stream playing via YouTube Responsive Engine. (Bypassed bot check and login restriction)."
-            )
-
-            ExtractionResult.Success(fallbackStreamData)
         }
     }
 

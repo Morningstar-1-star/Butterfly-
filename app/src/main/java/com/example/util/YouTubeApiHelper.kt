@@ -450,11 +450,117 @@ object YouTubeApiHelper {
 
     private fun unescapeHtml(text: String): String {
         return text
+            .replace("<br>", "\n")
+            .replace("<br/>", "\n")
+            .replace("<br />", "\n")
             .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
             .replace("&apos;", "'")
+    }
+
+    fun fetchCommentsForVideo(videoId: String): List<com.example.model.VideoComment> {
+        val apiKey = getEffectiveApiKey()
+        if (apiKey.isNotEmpty() && !isQuotaExceeded()) {
+            try {
+                val url = "$BASE_URL/commentThreads?part=snippet&videoId=$videoId&order=relevance&maxResults=50&key=$apiKey"
+                val req = Request.Builder().url(url).build()
+                client.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string()
+                    if (resp.isSuccessful && body != null) {
+                        val json = JSONObject(body)
+                        val items = json.optJSONArray("items") ?: JSONArray()
+                        val result = mutableListOf<com.example.model.VideoComment>()
+                        for (i in 0 until items.length()) {
+                            val item = items.optJSONObject(i) ?: continue
+                            val topLevel = item.optJSONObject("snippet")?.optJSONObject("topLevelComment")?.optJSONObject("snippet") ?: continue
+                            val authorName = topLevel.optString("authorDisplayName", "User")
+                            val authorAvatarUrl = topLevel.optString("authorProfileImageUrl")
+                            val textDisplay = unescapeHtml(topLevel.optString("textDisplay", topLevel.optString("textOriginal", "")))
+                            val likeCount = topLevel.optInt("likeCount", 0)
+                            val publishedAt = topLevel.optString("publishedAt", "")
+                            val timeAgo = if (publishedAt.isNotEmpty()) publishedAt.take(10) else "Recently"
+                            val id = item.optString("id", "yt_comment_$i")
+                            result.add(
+                                com.example.model.VideoComment(
+                                    id = id,
+                                    authorName = authorName,
+                                    authorAvatarUrl = authorAvatarUrl.ifBlank { null },
+                                    commentText = textDisplay,
+                                    timeAgo = timeAgo,
+                                    likeCount = likeCount,
+                                    dislikeCount = 0
+                                )
+                            )
+                        }
+                        if (result.isNotEmpty()) return result
+                    } else {
+                        handleApiError(resp.code, body)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching YouTube comments via API: ${e.message}")
+            }
+        }
+
+        // Fallback: Public Invidious / Piped API
+        val publicEndpoints = listOf(
+            "https://invidious.nerdvpn.de/api/v1/comments/$videoId",
+            "https://yewtu.be/api/v1/comments/$videoId",
+            "https://inv.tux.pizza/api/v1/comments/$videoId",
+            "https://pipedapi.kavin.rocks/comments/$videoId"
+        )
+        for (ep in publicEndpoints) {
+            try {
+                val req = Request.Builder().url(ep).build()
+                client.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string()
+                    if (resp.isSuccessful && body != null) {
+                        val result = mutableListOf<com.example.model.VideoComment>()
+                        if (ep.contains("piped")) {
+                            val json = JSONObject(body)
+                            val comments = json.optJSONArray("comments") ?: JSONArray()
+                            for (i in 0 until comments.length()) {
+                                val c = comments.optJSONObject(i) ?: continue
+                                result.add(
+                                    com.example.model.VideoComment(
+                                        id = c.optString("commentId", "piped_$i"),
+                                        authorName = c.optString("author", "User"),
+                                        authorAvatarUrl = c.optString("thumbnail").ifBlank { null },
+                                        commentText = unescapeHtml(c.optString("commentText", "")),
+                                        timeAgo = c.optString("commentedTime", "Recently"),
+                                        likeCount = c.optInt("likeCount", 0),
+                                        dislikeCount = 0
+                                    )
+                                )
+                            }
+                        } else {
+                            val json = JSONObject(body)
+                            val comments = json.optJSONArray("comments") ?: JSONArray()
+                            for (i in 0 until comments.length()) {
+                                val c = comments.optJSONObject(i) ?: continue
+                                val thumbArray = c.optJSONArray("authorThumbnails")
+                                val avatar = thumbArray?.optJSONObject(thumbArray.length() - 1)?.optString("url")
+                                result.add(
+                                    com.example.model.VideoComment(
+                                        id = c.optString("commentId", "inv_$i"),
+                                        authorName = c.optString("author", "User"),
+                                        authorAvatarUrl = avatar,
+                                        commentText = unescapeHtml(c.optString("content", c.optString("contentHtml", ""))),
+                                        timeAgo = c.optString("publishedText", "Recently"),
+                                        likeCount = c.optInt("likeCount", 0),
+                                        dislikeCount = 0
+                                    )
+                                )
+                            }
+                        }
+                        if (result.isNotEmpty()) return result
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return emptyList()
     }
 }

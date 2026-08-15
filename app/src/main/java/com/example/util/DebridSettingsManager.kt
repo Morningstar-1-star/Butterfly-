@@ -6,26 +6,18 @@ import android.content.SharedPreferences
 object DebridSettingsManager {
 
     private const val PREFS_NAME = "debrid_settings"
-    private const val KEY_TORBOX_API_KEY = "torbox_api_key"
     private const val KEY_ORION_API_KEY = "orion_api_key"
     private const val KEY_COMET_ENDPOINT = "comet_endpoint"
     private const val KEY_MEDIAFUSION_ENDPOINT = "mediafusion_endpoint"
     private const val KEY_ZILEAN_ENDPOINT = "zilean_endpoint"
-    private const val KEY_JAVINFO_API_KEY = "javinfo_api_key"
     private const val KEY_DOUBLE_TAP_SEEK_SECS = "double_tap_seek_secs"
     private const val KEY_DAILYMOTION_LANG = "dailymotion_language"
     private const val KEY_ARCHIVE_FORMAT_PREF = "archive_format_pref"
+    private const val KEY_APIJAV_ENDPOINT = "apijav_endpoint"
+    private const val KEY_JAVINFO_ENDPOINT = "javinfo_endpoint"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    }
-
-    fun getTorBoxApiKey(context: Context): String {
-        return getPrefs(context).getString(KEY_TORBOX_API_KEY, "")?.trim() ?: ""
-    }
-
-    fun setTorBoxApiKey(context: Context, key: String) {
-        getPrefs(context).edit().putString(KEY_TORBOX_API_KEY, key.trim()).apply()
     }
 
     fun getOrionApiKey(context: Context): String {
@@ -61,15 +53,6 @@ object DebridSettingsManager {
 
     fun setZileanEndpoint(context: Context, url: String) {
         getPrefs(context).edit().putString(KEY_ZILEAN_ENDPOINT, url.trim()).apply()
-    }
-
-    fun getJavInfoApiKey(context: Context): String {
-        val stored = getPrefs(context).getString(KEY_JAVINFO_API_KEY, "")?.trim() ?: ""
-        return stored.ifBlank { "jvi_guxSYVMOELEfBGEDFlLPZeizhBbupsUsgggTgosYErOuEnLSXyVTWrUJwDFVmTaV" }
-    }
-
-    fun setJavInfoApiKey(context: Context, key: String) {
-        getPrefs(context).edit().putString(KEY_JAVINFO_API_KEY, key.trim()).apply()
     }
 
     fun getDoubleTapSeekSecs(context: Context): Int {
@@ -110,5 +93,21 @@ object DebridSettingsManager {
 
     fun setRememberDownloadQuality(context: Context, remember: Boolean) {
         getPrefs(context).edit().putBoolean("remember_download_quality", remember).apply()
+    }
+
+    fun getApijavEndpoint(context: Context): String {
+        return getPrefs(context).getString(KEY_APIJAV_ENDPOINT, "https://apijav.com") ?: "https://apijav.com"
+    }
+
+    fun setApijavEndpoint(context: Context, url: String) {
+        getPrefs(context).edit().putString(KEY_APIJAV_ENDPOINT, url.trim()).apply()
+    }
+
+    fun getJavInfoEndpoint(context: Context): String {
+        return getPrefs(context).getString(KEY_JAVINFO_ENDPOINT, "https://javinfo.com") ?: "https://javinfo.com"
+    }
+
+    fun setJavInfoEndpoint(context: Context, url: String) {
+        getPrefs(context).edit().putString(KEY_JAVINFO_ENDPOINT, url.trim()).apply()
     }
 }

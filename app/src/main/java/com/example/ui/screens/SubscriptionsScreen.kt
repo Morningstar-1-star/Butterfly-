@@ -76,7 +76,7 @@ fun SubscriptionsScreen(
         }
 
         val allPool = (trendingVideos + recommendedVideos + searchResults)
-            .distinctBy { it.id }
+            .distinctBy { "${it.providerId}_${it.id}" }
             .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
 
         val selectedChannel = subscribedChannels.find { it.id == selectedChannelId }
@@ -325,7 +325,7 @@ fun SubscriptionsScreen(
                             }
                         }
                     } else {
-                        items(feedVideos, key = { it.id }) { video ->
+                        items(feedVideos, key = { "${it.providerId}_${it.id}" }) { video ->
                             SubscriptionVideoCard(
                                 video = video,
                                 isSubscribed = viewModel.isSubscribed(video.uploaderName),
@@ -333,7 +333,8 @@ fun SubscriptionsScreen(
                                 onMoreClick = {
                                     selectedVideoForMenu = video
                                     showMenuBottomSheet = true
-                                }
+                                },
+                                onChannelClick = { ch -> viewModel.openChannel(ch) }
                             )
                         }
                     }
@@ -576,8 +577,17 @@ fun SubscriptionVideoCard(
     video: VideoItem,
     isSubscribed: Boolean,
     onClick: () -> Unit,
-    onMoreClick: () -> Unit
+    onMoreClick: () -> Unit,
+    onChannelClick: ((String) -> Unit)? = null
 ) {
+    val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl, video.title) {
+        ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl, video.title)
+    }
+
+    val targetChannelName = remember(video.uploaderName, brandInfo.brandName) {
+        if (video.uploaderName.isBlank() || video.uploaderName.lowercase().contains("tv network") || video.uploaderName == "T" || video.uploaderName == "Hollywood Cinema") brandInfo.brandName else video.uploaderName
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -612,8 +622,8 @@ fun SubscriptionVideoCard(
                 }
             }
 
-            // Duration badge in bottom right (e.g. "3:06", "44:04", "1:31:01")
-            val durationText = formatDuration(video.durationSeconds)
+            // Duration badge in bottom right
+            val durationText = if (video.displayDuration.isNotBlank()) video.displayDuration else formatDuration(video.durationSeconds)
             if (durationText.isNotBlank()) {
                 Box(
                     modifier = Modifier
@@ -640,23 +650,33 @@ fun SubscriptionVideoCard(
                 .padding(start = 12.dp, end = 6.dp, top = 10.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // Channel Avatar
-            val avatarColor = remember(video.uploaderName) {
-                ChannelLogoHelper.getBrandInfo(video.uploaderName, null, video.title).backgroundColor
-            }
+            // Channel Avatar / Logo
+            val firstLogo = brandInfo.logoUrls.firstOrNull()
             Box(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(avatarColor),
+                    .background(brandInfo.backgroundColor)
+                    .clickable(enabled = onChannelClick != null) { onChannelClick?.invoke(targetChannelName) },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = video.uploaderName.take(1).uppercase(),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
+                if (!firstLogo.isNullOrBlank()) {
+                    AsyncImage(
+                        model = firstLogo,
+                        contentDescription = targetChannelName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
+                    )
+                } else {
+                    Text(
+                        text = targetChannelName.take(1).uppercase(),
+                        color = brandInfo.textColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -675,26 +695,43 @@ fun SubscriptionVideoCard(
 
                 Spacer(modifier = Modifier.height(3.dp))
 
+                Text(
+                    text = targetChannelName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (onChannelClick != null) {
+                        Modifier.clickable { onChannelClick(targetChannelName) }
+                    } else Modifier
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
                 val metaText = buildString {
-                    append(video.uploaderName)
-                    if (video.viewCount != null && video.viewCount > 0) {
-                        append(" • ")
+                    if (video.formattedViews.isNotEmpty()) {
+                        append(video.formattedViews)
+                    } else if (video.viewCount != null && video.viewCount > 0) {
                         append(formatViews(video.viewCount))
                     }
                     if (!video.uploadDate.isNullOrBlank()) {
-                        append(" • ")
+                        if (isNotEmpty()) append(" • ")
                         append(video.uploadDate)
                     }
                 }
 
-                Text(
-                    text = metaText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (metaText.isNotEmpty()) {
+                    Text(
+                        text = metaText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             // 3-Dots Action Menu

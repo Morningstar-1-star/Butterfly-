@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -82,48 +83,16 @@ fun HomeScreen(
 
     val userProfile by viewModel.userProfile.collectAsState()
     val globalActiveStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
+    val isSearchExpandedState by viewModel.isSearchExpanded.collectAsState()
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val currentOccasion = remember { com.example.ui.components.OccasionDetector.getCurrentOccasion() }
-    val (currentSlotKey, greetingText) = remember {
-        val istCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata"))
-        val hour = istCal.get(java.util.Calendar.HOUR_OF_DAY)
-        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
-            timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
-        }.format(istCal.time)
-        val (slot, greeting) = when (hour) {
-            in 5..11 -> "morning" to "Good Morning"
-            in 12..16 -> "afternoon" to "Good Afternoon"
-            in 17..20 -> "evening" to "Good Evening"
-            else -> "night" to "Good Night"
-        }
-        val finalGreeting = if (currentOccasion != com.example.ui.components.OccasionTheme.DEFAULT && currentOccasion.greetingTitle.isNotBlank()) {
-            currentOccasion.greetingTitle
-        } else {
-            greeting
-        }
-        "${dateStr}_$slot" to finalGreeting
-    }
-
-    var showGreetingOnTitle by remember {
-        val prefs = context.getSharedPreferences("butterfly_greeting_prefs", android.content.Context.MODE_PRIVATE)
-        val lastSlot = prefs.getString("last_shown_greeting_slot", "")
-        val shouldShow = (lastSlot != currentSlotKey)
-        if (shouldShow) {
-            prefs.edit().putString("last_shown_greeting_slot", currentSlotKey).apply()
-        }
-        mutableStateOf(shouldShow)
-    }
-
-    LaunchedEffect(showGreetingOnTitle) {
-        if (showGreetingOnTitle) {
-            kotlinx.coroutines.delay(2700L)
-            showGreetingOnTitle = false
-        }
-    }
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isSearchExpandedState) {
+        isSearchExpanded = isSearchExpandedState
+    }
     var activeCategory by remember { mutableStateOf("All") }
     var isBarsVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
@@ -195,7 +164,7 @@ fun HomeScreen(
         if (bottomBarHeightPx > 0f) with(density) { bottomBarHeightPx.toDp() } else 80.dp
     }
 
-    val categories = listOf("All", "APIJAV", "Eporner", "Dailymotion", "YouTube", "Gaming", "Podcasts", "Music")
+    val categories = listOf("All", "YouTube", "Dailymotion", "Gaming", "Podcasts", "Music", "Trending", "News")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
 
     // StreamData extracted for player / mini player
@@ -242,6 +211,15 @@ fun HomeScreen(
             )
         }
         return
+    }
+
+    BackHandler(enabled = (currentScreen != AppScreen.HOME || isSearchExpanded)) {
+        if (isSearchExpanded) {
+            viewModel.clearSearch()
+            isSearchExpanded = false
+        } else {
+            viewModel.navigateToScreen(AppScreen.HOME)
+        }
     }
 
     if (showPoTokenDialog) {
@@ -385,27 +363,17 @@ fun HomeScreen(
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
                             val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
                                 rawFeed
-                                    .filterNot { item ->
-                                        val vid = item.id.trim()
-                                        val ch = item.uploaderName.trim().lowercase()
-                                        hiddenVideoIds.contains(vid) ||
-                                                notInterestedVideoIds.contains(vid) ||
-                                                (ch.isNotEmpty() && notInterestedChannels.contains(ch))
-                                    }
+                                    .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+                                    .distinctBy { "${it.providerId}_${it.id}" }
                             }
                             val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
                                 rawFeed
-                                    .filterNot { item ->
-                                        val vid = item.id.trim()
-                                        val ch = item.uploaderName.trim().lowercase()
-                                        hiddenVideoIds.contains(vid) ||
-                                                notInterestedVideoIds.contains(vid) ||
-                                                (ch.isNotEmpty() && notInterestedChannels.contains(ch))
-                                    }
+                                    .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+                                    .distinctBy { "${it.providerId}_${it.id}" }
                             }
 
                             LaunchedEffect(feedList) {
@@ -534,7 +502,7 @@ fun HomeScreen(
                                             }
                                         }
                                     } else {
-                                        items(feedList, key = { it.id }) { video ->
+                                        items(feedList, key = { "${it.providerId}_${it.id}" }) { video ->
                                             VideoCard(
                                                 video = video,
                                                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
@@ -560,6 +528,9 @@ fun HomeScreen(
                                                 },
                                                 onNotInterested = { v ->
                                                     viewModel.markNotInterested(v)
+                                                },
+                                                onChannelClick = { ch ->
+                                                    viewModel.openChannel(ch)
                                                 },
                                                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                                             )
@@ -603,41 +574,15 @@ fun HomeScreen(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             com.example.ui.components.ThemedButterflyLogo(
-                                size = 34.dp,
-                                occasion = currentOccasion
+                                size = 34.dp
                             )
                             Spacer(modifier = Modifier.width(9.dp))
-                            AnimatedContent(
-                                targetState = showGreetingOnTitle,
-                                transitionSpec = {
-                                    if (targetState) {
-                                        (slideInVertically(animationSpec = tween(400), initialOffsetY = { it / 2 }) + fadeIn(animationSpec = tween(400))) togetherWith
-                                                (slideOutVertically(animationSpec = tween(350), targetOffsetY = { -it / 2 }) + fadeOut(animationSpec = tween(350)))
-                                    } else {
-                                        (slideInVertically(animationSpec = tween(400), initialOffsetY = { -it / 2 }) + fadeIn(animationSpec = tween(400))) togetherWith
-                                                (slideOutVertically(animationSpec = tween(350), targetOffsetY = { it / 2 }) + fadeOut(animationSpec = tween(350)))
-                                    }
-                                },
-                                label = "TopBarTitleAnimation"
-                            ) { isGreeting ->
-                                if (isGreeting) {
-                                    Text(
-                                        text = greetingText,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 20.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                } else {
-                                    Text(
-                                        text = "Butterfly",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 22.sp,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    )
-                                }
-                            }
+                            Text(
+                                text = "Butterfly",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 22.sp,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
                         }
                     },
                     actions = {
@@ -872,7 +817,8 @@ fun SubscriptionsContent(
     videos: List<VideoItem>,
     watchProgressMap: Map<String, Float> = emptyMap(),
     onSelectVideo: (VideoItem) -> Unit,
-    onNotInterested: ((VideoItem) -> Unit)? = null
+    onNotInterested: ((VideoItem) -> Unit)? = null,
+    onChannelClick: ((String) -> Unit)? = null
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -933,6 +879,7 @@ fun SubscriptionsContent(
                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                 onClick = { onSelectVideo(video) },
                 onNotInterested = onNotInterested,
+                onChannelClick = onChannelClick,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
             )
         }

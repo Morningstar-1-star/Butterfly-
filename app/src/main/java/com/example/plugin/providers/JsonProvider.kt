@@ -9,13 +9,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class JsonProvider(
-    private val jsonUrl: String = "https://raw.githubusercontent.com/butterfly-app/sample-feed/main/feed.json",
+    private val jsonUrl: String = "",
     private val http: HttpBridge = HttpBridge()
 ) : ContentProviderApi {
 
     override val providerId: String = "json_provider"
 
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
+        if (jsonUrl.isBlank()) return@withContext PagedResult(emptyList())
         val resp = http.get(jsonUrl)
         if (resp.statusCode != 200) return@withContext PagedResult(emptyList())
 

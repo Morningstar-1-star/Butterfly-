@@ -43,6 +43,7 @@ import com.example.ui.components.TorrentArtworkOverlay
 import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoDetailsSection
 import com.example.ui.components.DownloadQualityBottomSheet
+import com.example.ui.components.LandscapeRelatedDrawer
 import com.example.ui.player.GlobalPlayerManager
 import com.example.ui.player.YouTubePlayerView
 import kotlinx.coroutines.delay
@@ -84,6 +85,7 @@ fun VideoPlayerScreen(
 
     val initialPositionMs = remember(activeVideoId) { activeVideoId?.let { watchPositionMsMap[it] } ?: 0L }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
@@ -217,6 +219,7 @@ fun VideoPlayerScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val activeVideoItem by viewModel.activeVideoItem.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
 
     val currentVideoItem = remember(currentStreamData, activeVideoId, activeVideoItem, trendingVideos, searchResults) {
         if (currentStreamData != null) {
@@ -259,20 +262,26 @@ fun VideoPlayerScreen(
         }
     }
 
-    val relatedContent = remember(currentStreamData, trendingVideos, activeVideoId) {
-        if (currentStreamData != null) {
+    val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
+    val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
+    val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
+
+    val relatedContent = remember(currentStreamData, trendingVideos, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+        val base = if (currentStreamData != null) {
             com.example.util.SeriesDataHelper.getRelatedContent(currentStreamData, trendingVideos)
         } else {
-            trendingVideos.filter { it.id != activeVideoId }.take(10)
+            trendingVideos.filter { it.id != activeVideoId }
         }
+        base.filterNot { viewModel.isBlockedVideo(it) }.take(10)
     }
 
-    val recommendedContent = remember(currentStreamData, trendingVideos, activeVideoId) {
-        if (currentStreamData != null) {
+    val recommendedContent = remember(currentStreamData, trendingVideos, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+        val base = if (currentStreamData != null) {
             com.example.util.SeriesDataHelper.getRecommendedContent(currentStreamData, trendingVideos)
         } else {
-            trendingVideos.filter { it.id != activeVideoId }.take(10)
+            trendingVideos.filter { it.id != activeVideoId }
         }
+        base.filterNot { viewModel.isBlockedVideo(it) }.take(10)
     }
 
     var fetchedComments by remember(currentStreamData?.videoId, activeVideoId) {
@@ -285,22 +294,55 @@ fun VideoPlayerScreen(
         mutableStateOf<com.example.util.TorrentReviewsResult?>(null)
     }
 
-    LaunchedEffect(currentStreamData?.videoId, activeVideoId, currentVideoItem?.title) {
+    LaunchedEffect(currentStreamData?.videoId, activeVideoId, currentVideoItem?.title, providerId) {
         val vid = activeVideoId ?: currentStreamData?.videoId ?: ""
         val titleToFetch = currentStreamData?.title ?: currentVideoItem?.title ?: vid
         if (vid.isNotBlank() || titleToFetch.isNotBlank()) {
             isCommentsLoading = true
-            val res = com.example.util.TorrentReviewFetcher.fetchReviewsForTorrent(
-                title = titleToFetch,
-                videoId = vid,
-                providerId = providerId
-            )
-            torrentReviewsResult = res
-            fetchedComments = res.reviews
+            val isYt = providerId == "youtube" || (vid.length == 11 && !vid.startsWith("movie_") && !vid.startsWith("tv_"))
+            var comments = emptyList<com.example.model.VideoComment>()
+            if (isYt && vid.isNotBlank()) {
+                comments = com.example.util.YouTubeApiHelper.fetchCommentsForVideo(vid)
+            }
+            if (comments.isNotEmpty()) {
+                fetchedComments = comments
+                torrentReviewsResult = com.example.util.TorrentReviewsResult(
+                    reviews = comments,
+                    totalCount = comments.size,
+                    averageRating = 0f,
+                    mediaTitle = titleToFetch
+                )
+            } else {
+                val res = com.example.util.TorrentReviewFetcher.fetchReviewsForTorrent(
+                    title = titleToFetch,
+                    videoId = vid,
+                    providerId = providerId
+                )
+                torrentReviewsResult = res
+                fetchedComments = res.reviews
+            }
             isCommentsLoading = false
         } else {
             fetchedComments = emptyList()
             isCommentsLoading = false
+        }
+    }
+
+    val reactionGroups by viewModel.reactionGroups.collectAsState()
+    val isLoadingReactions by viewModel.isLoadingReactions.collectAsState()
+
+    val showReactionsTab = remember(currentVideoItem, currentStreamData) {
+        com.example.util.ReactionHelper.isReactionEligible(currentVideoItem, currentStreamData)
+    }
+
+    LaunchedEffect(currentVideoItem?.title, currentStreamData?.title, showReactionsTab) {
+        if (showReactionsTab) {
+            val title = currentStreamData?.title ?: currentVideoItem?.title ?: ""
+            val uploader = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: ""
+            val isTorrent = currentStreamData?.isTorrent == true || isTorrentStream
+            if (title.isNotBlank()) {
+                viewModel.loadReactionsForCurrentVideo(title, uploader, isTorrent)
+            }
         }
     }
 
@@ -315,15 +357,48 @@ fun VideoPlayerScreen(
     val isSavedInWatchLater = currentVideoItem != null && watchLaterList.any { it.id == currentVideoItem.id }
 
     val listState = rememberLazyListState()
+    var showLandscapeRelatedDrawer by remember { mutableStateOf(false) }
+
+    val shouldLoadMorePlayerList = remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && lastVisible >= total - 3
+        }
+    }
+
+    LaunchedEffect(shouldLoadMorePlayerList.value) {
+        if (shouldLoadMorePlayerList.value && !isLoadingMore) {
+            viewModel.loadMoreContent()
+        }
+    }
 
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    val landscapeVideos = remember(relatedContent, recommendedContent, trendingVideos, activeVideoId) {
+        (relatedContent + recommendedContent + trendingVideos)
+            .distinctBy { it.id }
+            .filter { it.id != activeVideoId }
+    }
 
     if (isLandscape) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black),
+                .background(Color.Black)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { change, dragAmount ->
+                        if (dragAmount < -25f && !showLandscapeRelatedDrawer) {
+                            change.consume()
+                            showLandscapeRelatedDrawer = true
+                        } else if (dragAmount > 25f && showLandscapeRelatedDrawer) {
+                            change.consume()
+                            showLandscapeRelatedDrawer = false
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             YouTubePlayerView(
@@ -381,6 +456,60 @@ fun VideoPlayerScreen(
                 onSeekTo = { targetMs -> com.example.ui.player.GlobalPlayerManager.seekTo(targetMs) },
                 streamTitle = currentStreamData?.title
             )
+
+            // Landscape Floating Hint to open Related Videos if controls are showing
+            val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
+            AnimatedVisibility(
+                visible = areControlsVisible && !showLandscapeRelatedDrawer && landscapeVideos.isNotEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 60.dp)
+            ) {
+                Surface(
+                    onClick = {
+                        showLandscapeRelatedDrawer = true
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.75f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                    contentColor = Color.White
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Swipe up for related videos",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "More Videos",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            // Landscape Related Videos Drawer
+            LandscapeRelatedDrawer(
+                isVisible = showLandscapeRelatedDrawer,
+                videos = landscapeVideos,
+                currentVideoId = activeVideoId,
+                onVideoClick = { video ->
+                    viewModel.playVideo(video.id, video.providerId)
+                },
+                onDismiss = {
+                    showLandscapeRelatedDrawer = false
+                },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     } else {
         Scaffold(
@@ -423,7 +552,8 @@ fun VideoPlayerScreen(
                     failedSourceLogs = failedSourceLogs,
                     onProgressUpdate = { pos, dur ->
                         activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                    }
+                    },
+                    onBackClick = onBackClick
                 )
 
                 TorrentArtworkOverlay(
@@ -519,8 +649,20 @@ fun VideoPlayerScreen(
                             },
                             onSaveLongClick = { showSaveToPlaylistSheet = true },
                             onShareClick = {
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Video link copied to clipboard")
+                                val shareUrl = currentStreamData?.videoUrl?.takeIf { it.isNotBlank() }
+                                    ?: (if (!activeVideoId.isNullOrBlank() && activeVideoId!!.length == 11) "https://youtu.be/$activeVideoId" else "")
+                                try {
+                                    val sendIntent = android.content.Intent().apply {
+                                        action = android.content.Intent.ACTION_SEND
+                                        putExtra(android.content.Intent.EXTRA_TEXT, if (displayTitle.isNotBlank()) "$displayTitle\n$shareUrl" else shareUrl)
+                                        type = "text/plain"
+                                    }
+                                    val shareIntent = android.content.Intent.createChooser(sendIntent, "Share video via")
+                                    context.startActivity(shareIntent)
+                                } catch (e: Exception) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Video link copied to clipboard")
+                                    }
                                 }
                             },
                             onCommentsClick = { showCommentsSheet = true },
@@ -545,13 +687,14 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    // Interactive Player Tab Bar (Seasons & Episodes, Related, Recommended, Comments)
+                    // Interactive Player Tab Bar (Seasons & Episodes, Related, Recommended, Comments, Reactions)
                     item {
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             com.example.ui.components.PlayerTabBar(
                                 selectedTab = selectedPlayerTab,
                                 onTabSelected = { selectedPlayerTab = it },
                                 showSeasonsTab = isTvSeries,
+                                showReactionsTab = showReactionsTab,
                                 commentsCount = torrentReviewsResult?.totalCount ?: playerComments.size
                             )
                             Spacer(modifier = Modifier.height(12.dp))
@@ -601,7 +744,12 @@ fun VideoPlayerScreen(
                                             video = video,
                                             onClick = {
                                                 viewModel.playVideo(video.id, video.providerId)
-                                            }
+                                            },
+                                            onChannelClick = { channelName -> viewModel.openChannel(channelName) },
+                                            onNotInterested = { v -> viewModel.markNotInterested(v) },
+                                            onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                                            onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                            onDownload = { v -> viewModel.showDownloadSheet(v) }
                                         )
                                     }
                                 }
@@ -634,7 +782,12 @@ fun VideoPlayerScreen(
                                             video = video,
                                             onClick = {
                                                 viewModel.playVideo(video.id, video.providerId)
-                                            }
+                                            },
+                                            onChannelClick = { channelName -> viewModel.openChannel(channelName) },
+                                            onNotInterested = { v -> viewModel.markNotInterested(v) },
+                                            onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                                            onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                            onDownload = { v -> viewModel.showDownloadSheet(v) }
                                         )
                                     }
                                 }
@@ -655,6 +808,19 @@ fun VideoPlayerScreen(
                                 }
                             }
                         }
+                        com.example.ui.components.PlayerTab.REACTIONS -> {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp)) {
+                                    com.example.ui.components.ReactionsView(
+                                        reactionGroups = reactionGroups,
+                                        isLoading = isLoadingReactions,
+                                        onPlayVideo = { videoItem ->
+                                            viewModel.playVideo(videoItem.id, videoItem.providerId)
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         com.example.ui.components.PlayerTab.COMMENTS -> {
                             item {
                                 Box(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -665,11 +831,30 @@ fun VideoPlayerScreen(
                                                 snackbarHostState.showSnackbar("Comment posted!")
                                             }
                                         },
+                                        onSeekToTime = { seconds ->
+                                            com.example.ui.player.GlobalPlayerManager.seekTo(seconds * 1000L)
+                                        },
                                         isTorrent = isTorrentStream,
                                         isLoading = isCommentsLoading,
                                         totalReviewsCountText = torrentReviewsResult?.let { "${it.totalCount}" }
                                     )
                                 }
+                            }
+                        }
+                    }
+
+                    if (isLoadingMore) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
                             }
                         }
                     }
@@ -876,6 +1061,10 @@ fun VideoPlayerScreen(
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar("Comment posted!")
                         }
+                    },
+                    onSeekToTime = { seconds ->
+                        com.example.ui.player.GlobalPlayerManager.seekTo(seconds * 1000L)
+                        showCommentsSheet = false
                     },
                     isTorrent = isTorrentStream,
                     isLoading = isCommentsLoading,

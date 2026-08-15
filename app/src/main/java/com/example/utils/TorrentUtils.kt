@@ -114,15 +114,33 @@ object TorrentUtils {
         if (lower.contains("hdr")) tags.add("HDR")
         if (lower.contains("dv") || lower.contains("dovi")) tags.add("DV")
 
+        // Detect Language Tags (Indian & Regional Languages + Multi Audio / Dubbed)
+        val langTags = mutableListOf<String>()
+        if (lower.contains("hindi") || lower.contains("hin")) langTags.add("Hindi")
+        if (lower.contains("tamil") || lower.contains("tam")) langTags.add("Tamil")
+        if (lower.contains("malayalam") || lower.contains("mal")) langTags.add("Malayalam")
+        if (lower.contains("kannada") || lower.contains("kan")) langTags.add("Kannada")
+        if (lower.contains("telugu") || lower.contains("tel")) langTags.add("Telugu")
+        if (lower.contains("bengali") || lower.contains("ben")) langTags.add("Bengali")
+        if (lower.contains("punjabi") || lower.contains("pun")) langTags.add("Punjabi")
+        if (lower.contains("dual audio") || lower.contains("dual-audio")) langTags.add("Dual Audio")
+        else if (lower.contains("multi audio") || lower.contains("multi-audio") || lower.contains("multiaudio") || lower.contains("multi")) langTags.add("Multi")
+        else if (lower.contains("dubbed") || lower.contains("dub")) langTags.add("Dubbed")
+        else if (lower.contains("english") || lower.contains("eng")) {
+            if (langTags.isNotEmpty()) langTags.add("Eng")
+        }
+
         // Extract File Size if available
         val sizeRegex = Regex("""(\d+(?:\.\d+)?\s*(?:GB|MB))""", RegexOption.IGNORE_CASE)
         val sizeMatch = sizeRegex.find(rawLabel)?.value
 
         val qualityTag = if (tags.isNotEmpty()) "$quality ${tags.joinToString(" ")}" else quality
 
+        val langSuffix = if (langTags.isNotEmpty()) " [${langTags.distinct().joinToString(" + ")}]" else ""
+
         val mainLabel = when {
-            provider.isNotEmpty() -> "$qualityTag • $provider"
-            else -> qualityTag
+            provider.isNotEmpty() -> "$qualityTag • $provider$langSuffix"
+            else -> "$qualityTag$langSuffix"
         }
 
         return if (sizeMatch != null) "$mainLabel ($sizeMatch)" else mainLabel

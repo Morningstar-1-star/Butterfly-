@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
@@ -66,6 +67,7 @@ fun ErrorDiagnosticCard(
         ExtractorErrorType.NETWORK_ERROR -> "Network Connection Error"
         ExtractorErrorType.NO_PLAYABLE_STREAMS -> "No Direct Streams Found"
         ExtractorErrorType.UNAVAILABLE -> "Video Unavailable"
+        ExtractorErrorType.YOUTUBE_IP_BLOCKED -> "YouTube IP / BotGuard Blocked"
         ExtractorErrorType.UNKNOWN -> "Extractor Exception"
     }
 

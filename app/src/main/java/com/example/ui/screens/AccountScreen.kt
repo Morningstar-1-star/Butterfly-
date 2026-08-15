@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -83,7 +84,8 @@ fun AccountScreen(
             onRemoveFromHistory = { viewModel.removeFromWatchHistory(it) },
             onSaveToWatchLater = { viewModel.addToWatchLater(it) },
             onClearAll = { viewModel.clearWatchHistory() },
-            onBackClick = { isViewingHistoryDetail = false }
+            onBackClick = { isViewingHistoryDetail = false },
+            onChannelClick = { ch -> viewModel.openChannel(ch) }
         )
         return
     }
@@ -110,6 +112,10 @@ fun AccountScreen(
                 }
             },
             onRemoveVideo = { viewModel.removeFromWatchLater(it) },
+            onRemoveWatched = { viewModel.removeWatchedFromWatchLater() },
+            onRemoveUnavailable = { viewModel.removeUnavailableFromWatchLater() },
+            onClearAll = { viewModel.clearWatchLater() },
+            onSort = { viewModel.setWatchLaterOrder(it) },
             onBackClick = { isViewingWatchLaterDetail = false }
         )
         return
@@ -138,6 +144,10 @@ fun AccountScreen(
                 }
             },
             onRemoveVideo = { video -> viewModel.removeFromPlaylist(activePl.id, video) },
+            onRemoveWatched = { viewModel.removeWatchedFromPlaylist(activePl.id) },
+            onRemoveUnavailable = { viewModel.removeUnavailableFromPlaylist(activePl.id) },
+            onClearAll = { viewModel.clearPlaylist(activePl.id) },
+            onSort = { viewModel.reorderPlaylist(activePl.id, it) },
             onBackClick = { selectedPlaylist = null }
         )
         return
@@ -384,6 +394,7 @@ fun AccountScreen(
                         item {
                             WatchLaterPlaylistTile(
                                 itemCount = watchLaterList.size,
+                                latestVideo = watchLaterList.firstOrNull(),
                                 onClick = { isViewingWatchLaterDetail = true }
                             )
                         }
@@ -1021,51 +1032,92 @@ fun HistoryVideoCard(
 @Composable
 fun WatchLaterPlaylistTile(
     itemCount: Int,
+    latestVideo: VideoItem? = null,
     onClick: () -> Unit
 ) {
+    val thumbUrl = latestVideo?.thumbnailUrl
     Card(
         modifier = Modifier
             .width(160.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(10.dp)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(90.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF4A148C),
+                                Color(0xFF311B92)
+                            )
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.WatchLater,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(36.dp)
-                )
+                if (!thumbUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = thumbUrl,
+                        contentDescription = "Watch Later",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.65f)
+                                    )
+                                )
+                            )
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.WatchLater,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
 
                 Surface(
-                    color = Color.Black.copy(alpha = 0.75f),
-                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(6.dp)
                 ) {
-                    Text(
-                        text = "$itemCount",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WatchLater,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp)
+                        )
+                        Text(
+                            text = "$itemCount",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
@@ -1076,11 +1128,12 @@ fun WatchLaterPlaylistTile(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "Private • Playlist",
-                fontSize = 11.sp,
+                text = if (itemCount == 1) "1 video" else "$itemCount videos",
+                fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1092,19 +1145,21 @@ fun UserPlaylistTile(
     playlist: UserPlaylist,
     onClick: () -> Unit
 ) {
+    val count = playlist.videos.size
+    val thumbUrl = playlist.videos.firstOrNull()?.thumbnailUrl
     Card(
         modifier = Modifier
             .width(160.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(10.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -1114,16 +1169,28 @@ fun UserPlaylistTile(
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                if (playlist.videos.isNotEmpty() && !playlist.videos.first().thumbnailUrl.isNullOrEmpty()) {
+                if (!thumbUrl.isNullOrEmpty()) {
                     AsyncImage(
-                        model = playlist.videos.first().thumbnailUrl,
+                        model = thumbUrl,
                         contentDescription = playlist.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.65f)
+                                    )
+                                )
+                            )
+                    )
                 } else {
                     Icon(
-                        imageVector = Icons.Outlined.PlaylistPlay,
+                        imageVector = Icons.Default.PlaylistPlay,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.size(36.dp)
@@ -1131,19 +1198,30 @@ fun UserPlaylistTile(
                 }
 
                 Surface(
-                    color = Color.Black.copy(alpha = 0.75f),
-                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(6.dp)
                 ) {
-                    Text(
-                        text = "${playlist.videos.size}",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlaylistPlay,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = "$count",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
@@ -1158,8 +1236,8 @@ fun UserPlaylistTile(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "Private • Playlist",
-                fontSize = 11.sp,
+                text = if (count == 1) "1 video" else "$count videos",
+                fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1318,7 +1396,8 @@ fun HistoryDetailScreen(
     onRemoveFromHistory: (VideoItem) -> Unit,
     onSaveToWatchLater: (VideoItem) -> Unit,
     onClearAll: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onChannelClick: ((String) -> Unit)? = null
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
 
@@ -1368,7 +1447,8 @@ fun HistoryDetailScreen(
                                 video = video,
                                 onClick = { onPlayVideo(video) },
                                 watchProgressFraction = watchProgressMap[video.id] ?: 0.2f,
-                                onSaveToWatchLater = { onSaveToWatchLater(video) }
+                                onSaveToWatchLater = { onSaveToWatchLater(video) },
+                                onChannelClick = onChannelClick
                             )
                         }
                         IconButton(onClick = { onRemoveFromHistory(video) }) {

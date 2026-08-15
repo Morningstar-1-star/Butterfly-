@@ -42,11 +42,12 @@ fun MyApplicationTheme(
             onSecondary = onPrimaryColor,
             background = Color(0xFF000000), // Pure Pitch Black AMOLED
             onBackground = Color(0xFFF2F2F7),
-            surface = Color(0xFF121212),
+            surface = Color(0xFF000000), // Pure Pitch Black AMOLED
             onSurface = Color(0xFFF2F2F7),
-            surfaceVariant = Color(0xFF1C1C1E),
+            surfaceVariant = Color(0xFF0D0D0E), // Ultra Dark AMOLED Variant
             onSurfaceVariant = Color(0xFFC7C7CC),
-            outline = Color(0xFF333336),
+            surfaceTint = Color.Transparent, // Pure AMOLED - No Material 3 elevation tinting
+            outline = Color(0xFF222226),
             error = Color(0xFFFF453A),
             onError = Color.Black
         )

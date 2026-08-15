@@ -76,7 +76,7 @@ fun ShortsSection(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(shorts, key = { it.id + it.title }) { shortItem ->
+                items(shorts.distinctBy { "${it.providerId}_${it.id}" }, key = { "${it.providerId}_${it.id}" }) { shortItem ->
                     ShortCard(
                         short = shortItem,
                         onClick = { onSelectShort(shortItem) }

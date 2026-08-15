@@ -52,6 +52,170 @@ object ChannelLogoHelper {
 
         return when {
             // Major Movie / TV Studios
+            combined.contains("new line") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/New_Line_Cinema_logo.svg/200px-New_Line_Cinema_logo.svg.png"),
+                brandName = "New Line Cinema",
+                brandShortText = "NLC",
+                backgroundColor = Color(0xFF0F172A),
+                textColor = Color.White,
+                subscriberCountText = "19.4M subscribers"
+            )
+
+            combined.contains("lionsgate") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Lionsgate_logo.svg/200px-Lionsgate_logo.svg.png"),
+                brandName = "Lionsgate Films",
+                brandShortText = "LG",
+                backgroundColor = Color(0xFF1E1B18),
+                textColor = Color(0xFFFFC107),
+                subscriberCountText = "21.2M subscribers"
+            )
+
+            combined.contains("blumhouse") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Blumhouse_Productions_logo.svg/200px-Blumhouse_Productions_logo.svg.png"),
+                brandName = "Blumhouse Productions",
+                brandShortText = "BH",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.Red,
+                subscriberCountText = "14.8M subscribers"
+            )
+
+            combined.contains("legendary") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Legendary_Pictures_logo.svg/200px-Legendary_Pictures_logo.svg.png"),
+                brandName = "Legendary Entertainment",
+                brandShortText = "LEGENDARY",
+                backgroundColor = Color(0xFF111827),
+                textColor = Color.White,
+                subscriberCountText = "18.3M subscribers"
+            )
+
+            combined.contains("a24") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/A24_logo.svg/200px-A24_logo.svg.png"),
+                brandName = "A24",
+                brandShortText = "A24",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "12.6M subscribers"
+            )
+
+            combined.contains("metro-goldwyn-mayer") || combined.contains("mgm") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Metro-Goldwyn-Mayer_logo.svg/200px-Metro-Goldwyn-Mayer_logo.svg.png"),
+                brandName = "Metro-Goldwyn-Mayer",
+                brandShortText = "MGM",
+                backgroundColor = Color(0xFF261C14),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "24.1M subscribers"
+            )
+
+            combined.contains("universal") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Universal_Pictures_logo.svg/200px-Universal_Pictures_logo.svg.png"),
+                brandName = "Universal Pictures",
+                brandShortText = "UNIVERSAL",
+                backgroundColor = Color(0xFF001F3F),
+                textColor = Color.White,
+                subscriberCountText = "31.0M subscribers"
+            )
+
+            combined.contains("paramount") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Paramount_Pictures_logo.svg/200px-Paramount_Pictures_logo.svg.png"),
+                brandName = "Paramount Pictures",
+                brandShortText = "PARAMOUNT",
+                backgroundColor = Color(0xFF002B49),
+                textColor = Color.White,
+                subscriberCountText = "26.5M subscribers"
+            )
+
+            combined.contains("sony pictures") || combined.contains("columbia pictures") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Sony_Pictures_logo.svg/200px-Sony_Pictures_logo.svg.png"),
+                brandName = "Sony Pictures",
+                brandShortText = "SONY",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "29.8M subscribers"
+            )
+
+            combined.contains("20th century") || combined.contains("fox") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/20th_Century_Studios_logo.svg/200px-20th_Century_Studios_logo.svg.png"),
+                brandName = "20th Century Studios",
+                brandShortText = "20TH",
+                backgroundColor = Color(0xFF1E293B),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "22.0M subscribers"
+            )
+
+            // Anime Studios
+            combined.contains("production i.g") || combined.contains("ginga") || combined.contains("galactic heroes") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Production_I.G_logo.svg/200px-Production_I.G_logo.svg.png"),
+                brandName = "Production I.G",
+                brandShortText = "I.G",
+                backgroundColor = Color(0xFF0288D1),
+                textColor = Color.White,
+                subscriberCountText = "8.9M subscribers"
+            )
+
+            combined.contains("mappa") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/MAPPA_Logo.svg/200px-MAPPA_Logo.svg.png"),
+                brandName = "MAPPA",
+                brandShortText = "MAPPA",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "16.4M subscribers"
+            )
+
+            combined.contains("toei") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Toei_Animation_logo.svg/200px-Toei_Animation_logo.svg.png"),
+                brandName = "Toei Animation",
+                brandShortText = "TOEI",
+                backgroundColor = Color(0xFFD32F2F),
+                textColor = Color.White,
+                subscriberCountText = "27.5M subscribers"
+            )
+
+            combined.contains("pierrot") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Studio_Pierrot_logo.svg/200px-Studio_Pierrot_logo.svg.png"),
+                brandName = "Studio Pierrot",
+                brandShortText = "PIERROT",
+                backgroundColor = Color(0xFFED6C02),
+                textColor = Color.White,
+                subscriberCountText = "11.2M subscribers"
+            )
+
+            combined.contains("bones") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Studio_Bones_logo.svg/200px-Studio_Bones_logo.svg.png"),
+                brandName = "Bones",
+                brandShortText = "BONES",
+                backgroundColor = Color(0xFF1E1E1E),
+                textColor = Color.White,
+                subscriberCountText = "9.8M subscribers"
+            )
+
+            combined.contains("madhouse") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Madhouse_logo.svg/200px-Madhouse_logo.svg.png"),
+                brandName = "Madhouse",
+                brandShortText = "MAD",
+                backgroundColor = Color(0xFF9C27B0),
+                textColor = Color.White,
+                subscriberCountText = "12.1M subscribers"
+            )
+
+            combined.contains("ghibli") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/Studio_Ghibli_logo.svg/200px-Studio_Ghibli_logo.svg.png"),
+                brandName = "Studio Ghibli",
+                brandShortText = "GHIBLI",
+                backgroundColor = Color(0xFF0077B6),
+                textColor = Color.White,
+                subscriberCountText = "20.3M subscribers"
+            )
+
+            combined.contains("kyoto animation") || combined.contains("kyoani") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Kyoto_Animation_logo.svg/200px-Kyoto_Animation_logo.svg.png"),
+                brandName = "Kyoto Animation",
+                brandShortText = "KYOANI",
+                backgroundColor = Color(0xFFE91E63),
+                textColor = Color.White,
+                subscriberCountText = "14.0M subscribers"
+            )
+
+            // Major Movie / TV Studios
             combined.contains("house of the dragon") || combined.contains("game of thrones") || combined.contains("last of us") || combined.contains("hbo") || combined.contains("euphoria") || combined.contains("succession") || combined.contains("white lotus") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/200px-HBO_logo.svg.png",

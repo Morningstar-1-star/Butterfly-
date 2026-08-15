@@ -145,20 +145,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sourcePipelineEngine = com.example.plugin.manager.SourcePipelineEngine(context = application)
 
-    private val _torBoxApiKey = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getTorBoxApiKey(application)
-    )
-    val torBoxApiKey: StateFlow<String> = _torBoxApiKey.asStateFlow()
-
-    fun updateTorBoxApiKey(key: String) {
-        com.example.util.DebridSettingsManager.setTorBoxApiKey(getApplication(), key)
-        _torBoxApiKey.value = key.trim()
-    }
-
     private val _orionApiKey = MutableStateFlow(
         com.example.util.DebridSettingsManager.getOrionApiKey(application)
     )
     val orionApiKey: StateFlow<String> = _orionApiKey.asStateFlow()
+
+    private val _reactionGroups = MutableStateFlow<List<com.example.util.ReactionGroup>>(emptyList())
+    val reactionGroups: StateFlow<List<com.example.util.ReactionGroup>> = _reactionGroups.asStateFlow()
+
+    private val _isLoadingReactions = MutableStateFlow(false)
+    val isLoadingReactions: StateFlow<Boolean> = _isLoadingReactions.asStateFlow()
+
+    fun loadReactionsForCurrentVideo(title: String, uploaderName: String, isTorrent: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingReactions.value = true
+            try {
+                val groups = com.example.util.ReactionHelper.fetchReactions(title, uploaderName, isTorrent)
+                _reactionGroups.value = groups
+            } catch (e: Exception) {
+                _reactionGroups.value = emptyList()
+            } finally {
+                _isLoadingReactions.value = false
+            }
+        }
+    }
 
     fun updateOrionApiKey(key: String) {
         com.example.util.DebridSettingsManager.setOrionApiKey(getApplication(), key)
@@ -195,14 +205,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _zileanUrl.value = url.trim()
     }
 
-    private val _javInfoApiKey = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getJavInfoApiKey(application)
+    private val _apijavUrl = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getApijavEndpoint(getApplication())
     )
-    val javInfoApiKey: StateFlow<String> = _javInfoApiKey.asStateFlow()
+    val apijavUrl: StateFlow<String> = _apijavUrl.asStateFlow()
 
-    fun updateJavInfoApiKey(key: String) {
-        com.example.util.DebridSettingsManager.setJavInfoApiKey(getApplication(), key)
-        _javInfoApiKey.value = key.trim()
+    fun updateApijavUrl(url: String) {
+        com.example.util.DebridSettingsManager.setApijavEndpoint(getApplication(), url)
+        _apijavUrl.value = url.trim()
+    }
+
+    private val _javinfoUrl = MutableStateFlow(
+        com.example.util.DebridSettingsManager.getJavInfoEndpoint(getApplication())
+    )
+    val javinfoUrl: StateFlow<String> = _javinfoUrl.asStateFlow()
+
+    fun updateJavinfoUrl(url: String) {
+        com.example.util.DebridSettingsManager.setJavInfoEndpoint(getApplication(), url)
+        _javinfoUrl.value = url.trim()
     }
 
     private val _failedSourceLogs = MutableStateFlow<List<com.example.model.FailedSourceLog>>(emptyList())
@@ -277,15 +297,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (isAdultProviderId(_activeProviderId.value)) {
                 _activeProviderId.value = "all"
             }
-        } else {
-            if (_searchQuery.value.isNotBlank()) {
-                performSearch(_searchQuery.value)
-            }
         }
 
         refreshProvidersList()
-        loadTrending(forceRefresh = true)
-        updateRecommendedVideosAsync()
     }
 
     private val _themeMode = MutableStateFlow(ThemeMode.AMOLED_DARK)
@@ -334,6 +348,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableProviders = MutableStateFlow<List<ProviderUiItem>>(emptyList())
     val availableProviders: StateFlow<List<ProviderUiItem>> = _availableProviders.asStateFlow()
 
+    private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
+        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
+    )
+    val hiddenVideoIds: StateFlow<Set<String>> = _hiddenVideoIds.asStateFlow()
+
+    private val _notInterestedChannels = MutableStateFlow<Set<String>>(
+        com.example.util.NotInterestedManager.getBlockedChannels(application)
+    )
+    val notInterestedChannels: StateFlow<Set<String>> = _notInterestedChannels.asStateFlow()
+
+    private val _notInterestedVideoIds = MutableStateFlow<Set<String>>(
+        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
+    )
+    val notInterestedVideoIds: StateFlow<Set<String>> = _notInterestedVideoIds.asStateFlow()
+
+    fun isBlockedVideo(item: VideoItem): Boolean {
+        val vid = item.id.trim()
+        val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+        val embed = item.embedUrl ?: ""
+        val hidden = _hiddenVideoIds.value
+        val notInt = _notInterestedVideoIds.value
+        val blockedChans = _notInterestedChannels.value
+
+        if (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) return true
+        if (ch.isNotEmpty() && blockedChans.contains(ch)) return true
+        if (embed.isNotEmpty() && (hidden.any { it.isNotBlank() && embed.contains(it) } || notInt.any { it.isNotBlank() && embed.contains(it) })) return true
+        return false
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -341,7 +384,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val searchSuggestions: StateFlow<List<SearchSuggestionItem>> = _searchSuggestions.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<VideoItem>>(emptyList())
-    val searchResults: StateFlow<List<VideoItem>> = _searchResults.asStateFlow()
+    val searchResults: StateFlow<List<VideoItem>> = combine(
+        _searchResults,
+        _hiddenVideoIds,
+        _notInterestedVideoIds,
+        _notInterestedChannels,
+        _adultContentEnabled
+    ) { list, hidden, notInt, blockedChans, adultEnabled ->
+        list.filter { item ->
+            val vid = item.id.trim()
+            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
+                    (ch.isNotEmpty() && blockedChans.contains(ch))
+            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _searchFilter = MutableStateFlow(SearchFilterState())
     val searchFilter: StateFlow<SearchFilterState> = _searchFilter.asStateFlow()
@@ -358,7 +415,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
     private val _trendingVideos = MutableStateFlow<List<VideoItem>>(emptyList())
-    val trendingVideos: StateFlow<List<VideoItem>> = _trendingVideos.asStateFlow()
+    val trendingVideos: StateFlow<List<VideoItem>> = combine(
+        _trendingVideos,
+        _hiddenVideoIds,
+        _notInterestedVideoIds,
+        _notInterestedChannels,
+        _adultContentEnabled
+    ) { list, hidden, notInt, blockedChans, adultEnabled ->
+        list.filter { item ->
+            val vid = item.id.trim()
+            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
+                    (ch.isNotEmpty() && blockedChans.contains(ch))
+            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _isLoadingTrending = MutableStateFlow(true)
     val isLoadingTrending: StateFlow<Boolean> = _isLoadingTrending.asStateFlow()
@@ -414,19 +485,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val _playbackQueue = MutableStateFlow<List<VideoItem>>(emptyList())
-    val playbackQueue: StateFlow<List<VideoItem>> = combine(_playbackQueue, _adultContentEnabled) { list, adultEnabled ->
-        if (adultEnabled) list else list.filterNot { isAdultVideoItem(it) }
+    val playbackQueue: StateFlow<List<VideoItem>> = combine(
+        _playbackQueue,
+        _hiddenVideoIds,
+        _notInterestedVideoIds,
+        _notInterestedChannels,
+        _adultContentEnabled
+    ) { list, hidden, notInt, blockedChans, adultEnabled ->
+        list.filter { item ->
+            val vid = item.id.trim()
+            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
+                    (ch.isNotEmpty() && blockedChans.contains(ch))
+            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _watchLaterList = MutableStateFlow<List<VideoItem>>(emptyList())
-    val watchLaterList: StateFlow<List<VideoItem>> = combine(_watchLaterList, _adultContentEnabled) { list, adultEnabled ->
-        if (adultEnabled) list else list.filterNot { isAdultVideoItem(it) }
+    val watchLaterList: StateFlow<List<VideoItem>> = combine(
+        _watchLaterList,
+        _hiddenVideoIds,
+        _notInterestedVideoIds,
+        _notInterestedChannels,
+        _adultContentEnabled
+    ) { list, hidden, notInt, blockedChans, adultEnabled ->
+        list.filter { item ->
+            val vid = item.id.trim()
+            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
+                    (ch.isNotEmpty() && blockedChans.contains(ch))
+            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Watch History, Watch Progress (YouTube-style red bar), Likes & Dislikes Pattern Understanding
     private val _watchHistory = MutableStateFlow<List<VideoItem>>(emptyList())
-    val watchHistory: StateFlow<List<VideoItem>> = combine(_watchHistory, _adultContentEnabled) { list, adultEnabled ->
-        if (adultEnabled) list else list.filterNot { isAdultVideoItem(it) }
+    val watchHistory: StateFlow<List<VideoItem>> = combine(
+        _watchHistory,
+        _hiddenVideoIds,
+        _notInterestedVideoIds,
+        _notInterestedChannels,
+        _adultContentEnabled
+    ) { list, hidden, notInt, blockedChans, adultEnabled ->
+        list.filter { item ->
+            val vid = item.id.trim()
+            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
+                    (ch.isNotEmpty() && blockedChans.contains(ch))
+            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _likedVideoIds = MutableStateFlow<Set<String>>(emptySet())
@@ -435,38 +542,90 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _dislikedVideoIds = MutableStateFlow<Set<String>>(emptySet())
     val dislikedVideoIds: StateFlow<Set<String>> = _dislikedVideoIds.asStateFlow()
 
-    private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
-        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
-    )
-    val hiddenVideoIds: StateFlow<Set<String>> = _hiddenVideoIds.asStateFlow()
-
     fun markNotInterested(video: VideoItem) {
-        val channel = video.uploaderName.trim()
-        com.example.util.NotInterestedManager.markNotInterested(getApplication(), video.id, channel)
-        val updatedIds = _hiddenVideoIds.value + video.id
+        markNotInterested(video.id, video.uploaderName)
+    }
+
+    fun markNotInterested(videoId: String, channelName: String? = null) {
+        val cleanVid = videoId.trim()
+        if (cleanVid.isEmpty()) return
+        val cleanChannel = channelName?.trim() ?: ""
+
+        // 1. Permanently persist in NotInterestedManager (SharedPreferences)
+        com.example.util.NotInterestedManager.markNotInterested(getApplication(), cleanVid, cleanChannel)
+
+        // 2. Update reactive StateFlow sets
+        val updatedIds = _hiddenVideoIds.value + cleanVid
         _hiddenVideoIds.value = updatedIds
-        _notInterestedVideoIds.value = _notInterestedVideoIds.value + video.id
-        if (channel.isNotBlank()) {
-            _notInterestedChannels.value = _notInterestedChannels.value + channel.lowercase()
+        _notInterestedVideoIds.value = _notInterestedVideoIds.value + cleanVid
+        if (cleanChannel.isNotBlank()) {
+            _notInterestedChannels.value = _notInterestedChannels.value + cleanChannel.lowercase()
         }
 
-        fun isBlocked(item: VideoItem): Boolean {
-            val vid = item.id.trim()
-            val ch = item.uploaderName.trim().lowercase()
-            return _hiddenVideoIds.value.contains(vid) ||
-                    _notInterestedVideoIds.value.contains(vid) ||
-                    (ch.isNotEmpty() && _notInterestedChannels.value.contains(ch))
+        // 3. Purge immediately from all in-memory lists
+        _trendingVideos.value = _trendingVideos.value.filterNot { isBlockedVideo(it) }
+        _searchResults.value = _searchResults.value.filterNot { isBlockedVideo(it) }
+        _recommendedVideos.value = _recommendedVideos.value.filterNot { isBlockedVideo(it) }
+        _playbackQueue.value = _playbackQueue.value.filterNot { isBlockedVideo(it) }
+        _watchLaterList.value = _watchLaterList.value.filterNot { isBlockedVideo(it) }
+        _watchHistory.value = _watchHistory.value.filterNot { isBlockedVideo(it) }
+
+        // 4. Remove from Room DB bookmarks & history asynchronously
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                userDataDao.deleteBookmark(cleanVid)
+                userDataDao.deleteWatchHistory(cleanVid)
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error deleting bookmark/history for not-interested item", e)
+            }
         }
 
-        _trendingVideos.value = _trendingVideos.value.filterNot { isBlocked(it) }
-        _searchResults.value = _searchResults.value.filterNot { isBlocked(it) }
-        _recommendedVideos.value = _recommendedVideos.value.filterNot { isBlocked(it) }
+        // 5. If currently playing this video, close or advance player
+        if (_activeVideoId.value == cleanVid) {
+            playNextInQueue()
+        }
+
+        // 6. Update recommendations engine
         updateRecommendedVideosAsync()
+    }
+
+    fun removeNotInterested(videoId: String) {
+        val cleanVid = videoId.trim()
+        if (cleanVid.isEmpty()) return
+        com.example.util.NotInterestedManager.removeNotInterested(getApplication(), cleanVid)
+        _hiddenVideoIds.value = _hiddenVideoIds.value - cleanVid
+        _notInterestedVideoIds.value = _notInterestedVideoIds.value - cleanVid
+        updateRecommendedVideosAsync()
+    }
+
+    fun setNotInterestedData(hiddenIds: Set<String>, blockedChannels: Set<String>) {
+        _hiddenVideoIds.value = hiddenIds
+        _notInterestedVideoIds.value = hiddenIds
+        _notInterestedChannels.value = blockedChannels
+        _trendingVideos.value = _trendingVideos.value.filterNot { isBlockedVideo(it) }
+        _searchResults.value = _searchResults.value.filterNot { isBlockedVideo(it) }
+        _recommendedVideos.value = _recommendedVideos.value.filterNot { isBlockedVideo(it) }
+        _playbackQueue.value = _playbackQueue.value.filterNot { isBlockedVideo(it) }
+        _watchLaterList.value = _watchLaterList.value.filterNot { isBlockedVideo(it) }
+        _watchHistory.value = _watchHistory.value.filterNot { isBlockedVideo(it) }
+        updateRecommendedVideosAsync()
+    }
+
+    private val _isSearchExpanded = MutableStateFlow(false)
+    val isSearchExpanded: StateFlow<Boolean> = _isSearchExpanded.asStateFlow()
+
+    fun setSearchExpanded(expanded: Boolean) {
+        _isSearchExpanded.value = expanded
+        if (!expanded) {
+            _searchQuery.value = ""
+            _searchResults.value = emptyList()
+        }
     }
 
     fun clearSearch() {
         _searchQuery.value = ""
         _searchResults.value = emptyList()
+        _isSearchExpanded.value = false
     }
 
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
@@ -476,7 +635,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
 
     private val _recommendedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
-    val recommendedVideos: StateFlow<List<VideoItem>> = _recommendedVideos.asStateFlow()
+    val recommendedVideos: StateFlow<List<VideoItem>> = combine(
+        _recommendedVideos,
+        _hiddenVideoIds,
+        _notInterestedVideoIds,
+        _notInterestedChannels,
+        _adultContentEnabled
+    ) { list, hidden, notInt, blockedChans, adultEnabled ->
+        list.filter { item ->
+            val vid = item.id.trim()
+            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
+            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
+                    (ch.isNotEmpty() && blockedChans.contains(ch))
+            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun updateRecommendedVideosAsync() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -587,12 +760,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _dislikedVideoIds.value = ids
     }
 
-    fun setNotInterestedData(videoIds: Set<String>, channels: Set<String>) {
-        _notInterestedVideoIds.value = videoIds
-        _hiddenVideoIds.value = videoIds
-        _notInterestedChannels.value = channels
-    }
-
     fun setWatchProgressMap(map: Map<String, Float>) {
         _watchProgressMap.value = map
     }
@@ -623,23 +790,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _userPlaylists.value = playlists
     }
 
-    private val _notInterestedChannels = MutableStateFlow<Set<String>>(
-        com.example.util.NotInterestedManager.getBlockedChannels(application)
-    )
-    val notInterestedChannels: StateFlow<Set<String>> = _notInterestedChannels.asStateFlow()
-
-    private val _notInterestedVideoIds = MutableStateFlow<Set<String>>(
-        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
-    )
-    val notInterestedVideoIds: StateFlow<Set<String>> = _notInterestedVideoIds.asStateFlow()
-
     /**
      * Smart Circadian & Persona Recommendation Engine Pipeline:
      * Ranks videos using multi-signal taste vectors, completion ratios,
      * channel affinity, time-of-day circadian learning, and channel diversity caps.
      */
     fun getRecommendedVideos(): List<VideoItem> {
-        val allAvailable = (_trendingVideos.value + _searchResults.value).distinctBy { (it.providerId ?: "") + "_" + it.id }
+        val allAvailable = (_trendingVideos.value + _searchResults.value)
+            .distinctBy { (it.providerId ?: "") + "_" + it.id }
+            .filterNot { isBlockedVideo(it) }
         if (allAvailable.isEmpty()) return emptyList()
 
         val historyEntities = _watchHistory.value.map { video ->
@@ -679,7 +838,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             watchHistory = historyEntities,
             likedVideoIds = _likedVideoIds.value,
             dislikedVideoIds = _dislikedVideoIds.value
-        )
+        ).filterNot { isBlockedVideo(it) }
 
         return ranked.take(20)
     }
@@ -724,6 +883,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _watchLaterList.value = _watchLaterList.value.filter { it.id != video.id }
         viewModelScope.launch(Dispatchers.IO) {
             userDataDao.deleteBookmark(video.id)
+        }
+    }
+
+    fun removeWatchedFromWatchLater() {
+        val historyIds = _watchHistory.value.map { it.id }.toSet()
+        val progressMap = _watchProgressMap.value
+        val toRemove = _watchLaterList.value.filter { video ->
+            val prog = progressMap[video.id] ?: 0f
+            prog >= 0.85f || historyIds.contains(video.id)
+        }
+        if (toRemove.isNotEmpty()) {
+            val toRemoveIds = toRemove.map { it.id }.toSet()
+            _watchLaterList.value = _watchLaterList.value.filterNot { toRemoveIds.contains(it.id) }
+            viewModelScope.launch(Dispatchers.IO) {
+                toRemove.forEach { userDataDao.deleteBookmark(it.id) }
+            }
+        }
+    }
+
+    fun removeUnavailableFromWatchLater() {
+        val toRemove = _watchLaterList.value.filter { video ->
+            video.id.isBlank() || video.title.isNullOrBlank() || isBlockedVideo(video)
+        }
+        if (toRemove.isNotEmpty()) {
+            val toRemoveIds = toRemove.map { it.id }.toSet()
+            _watchLaterList.value = _watchLaterList.value.filterNot { toRemoveIds.contains(it.id) }
+            viewModelScope.launch(Dispatchers.IO) {
+                toRemove.forEach { userDataDao.deleteBookmark(it.id) }
+            }
+        }
+    }
+
+    fun clearWatchLater() {
+        _watchLaterList.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) {
+            userDataDao.clearBookmarks()
+        }
+    }
+
+    fun setWatchLaterOrder(reorderedList: List<VideoItem>) {
+        _watchLaterList.value = reorderedList
+    }
+
+    fun removeWatchedFromPlaylist(playlistId: String) {
+        val historyIds = _watchHistory.value.map { it.id }.toSet()
+        val progressMap = _watchProgressMap.value
+        _userPlaylists.value = _userPlaylists.value.map { pl ->
+            if (pl.id == playlistId) {
+                val updatedVideos = pl.videos.filterNot { video ->
+                    val prog = progressMap[video.id] ?: 0f
+                    prog >= 0.85f || historyIds.contains(video.id)
+                }
+                val updated = pl.copy(videos = updatedVideos)
+                viewModelScope.launch(Dispatchers.IO) {
+                    userDataDao.insertOrUpdatePlaylist(
+                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                    )
+                }
+                updated
+            } else pl
+        }
+    }
+
+    fun removeUnavailableFromPlaylist(playlistId: String) {
+        _userPlaylists.value = _userPlaylists.value.map { pl ->
+            if (pl.id == playlistId) {
+                val updatedVideos = pl.videos.filterNot { video ->
+                    video.id.isBlank() || video.title.isNullOrBlank() || isBlockedVideo(video)
+                }
+                val updated = pl.copy(videos = updatedVideos)
+                viewModelScope.launch(Dispatchers.IO) {
+                    userDataDao.insertOrUpdatePlaylist(
+                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                    )
+                }
+                updated
+            } else pl
+        }
+    }
+
+    fun clearPlaylist(playlistId: String) {
+        _userPlaylists.value = _userPlaylists.value.map { pl ->
+            if (pl.id == playlistId) {
+                val updated = pl.copy(videos = emptyList())
+                viewModelScope.launch(Dispatchers.IO) {
+                    userDataDao.insertOrUpdatePlaylist(
+                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = "[]")
+                    )
+                }
+                updated
+            } else pl
+        }
+    }
+
+    fun reorderPlaylist(playlistId: String, newVideos: List<VideoItem>) {
+        _userPlaylists.value = _userPlaylists.value.map { pl ->
+            if (pl.id == playlistId) {
+                val updated = pl.copy(videos = newVideos)
+                viewModelScope.launch(Dispatchers.IO) {
+                    userDataDao.insertOrUpdatePlaylist(
+                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                    )
+                }
+                updated
+            } else pl
         }
     }
 
@@ -985,7 +1249,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             } else {
                 try {
-                    val result = YouTubeExtractorHelper.fetchStreamData(videoId)
+                    val result = com.example.extractor.YouTubeFastStreamResolver.resolveStream(videoId, getApplication())
                     if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
                         val opts = result.streamData.availableStreamOptions
                         val cleanQ = qualityLabel.replace("p", "").trim()
@@ -1237,6 +1501,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_enabledProviderIds.value.contains(providerId)) {
             _enabledProviderIds.value = _enabledProviderIds.value + providerId
         }
+        if (isAdultProviderId(providerId) && !_adultContentEnabled.value) {
+            setAdultContentEnabled(true)
+        }
         _searchResults.value = emptyList()
         _searchQuery.value = ""
         refreshProvidersList()
@@ -1250,6 +1517,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             current.remove(providerId)
         } else {
             current.add(providerId)
+            if (isAdultProviderId(providerId) && !_adultContentEnabled.value) {
+                setAdultContentEnabled(true)
+            }
         }
         _enabledProviderIds.value = current
         refreshProvidersList()
@@ -1276,11 +1546,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         allNative.forEach { provider ->
             val id = provider.providerId
             if (id in subTorrentProviderIds) return@forEach
-            if (!_adultContentEnabled.value && isAdultProviderId(id)) return@forEach
 
             val name = getReadableProviderName(id)
             val desc = if (id == "unified_torrents") {
                 "Aggregated torrent indexers (YTS, EZTV, Torrentio, TMDB, Nyaa & Torrent API)"
+            } else if (isAdultProviderId(id)) {
+                "Adult & Asian cinema provider ($id)"
             } else {
                 "Streaming provider ($id)"
             }
@@ -1310,15 +1581,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "bilibili" -> "Bilibili"
             "jikan_anime" -> "Anime (Jikan)"
             "dailymotion" -> "Dailymotion"
-            "javinfo" -> "JavInfo API"
-            "apijav_server" -> "APIJAV Server"
-            "apijav_hentai" -> "APIJAV Hentai"
-            "apijav_porn" -> "APIJAV Porn"
-            "eporner" -> "Eporner"
+            "javinfo" -> "JavInfo API (18+)"
+            "apijav" -> "APIJAV Network (18+)"
+            "apijav_server" -> "APIJAV Server (18+)"
+            "apijav_hentai" -> "APIJAV Hentai (18+)"
+            "apijav_porn" -> "APIJAV Porn (18+)"
+            "eporner" -> "Eporner HD (18+)"
             "peertube" -> "PeerTube"
             "vimeo" -> "Vimeo"
             "archive_org" -> "Archive.org"
-            "watchmode" -> "WatchMode Cinema & TV"
             "ted" -> "TED Talks"
             "nasa" -> "NASA TV"
             "direct_mp4" -> "Direct MP4 Stream"
@@ -1372,6 +1643,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openChannel(channelName: String) {
         val trimmed = channelName.trim()
         if (trimmed.isBlank()) return
+        _isSearchExpanded.value = true
         updateSearchQuery(trimmed)
         performSearch(trimmed)
         if (_currentScreen.value == AppScreen.PLAYER) {
@@ -1420,7 +1692,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                             durationSeconds = item.durationSeconds,
                                             uploadDate = item.uploadDate,
                                             thumbnailUrl = item.thumbnailUrl,
-                                            providerId = provider.providerId
+                                            providerId = provider.providerId,
+                                            description = item.description
                                         )
                                     }
                                 } ?: emptyList()
@@ -1448,7 +1721,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     durationSeconds = item.durationSeconds,
                                     uploadDate = item.uploadDate,
                                     thumbnailUrl = item.thumbnailUrl,
-                                    providerId = provider.providerId
+                                    providerId = provider.providerId,
+                                    description = item.description
                                 )
                             }
                         } ?: emptyList()
@@ -1513,7 +1787,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                             durationSeconds = item.durationSeconds,
                                             uploadDate = item.uploadDate,
                                             thumbnailUrl = item.thumbnailUrl,
-                                            providerId = provider.providerId
+                                            providerId = provider.providerId,
+                                            description = item.description
                                         )
                                     }
                                 } ?: emptyList()
@@ -1543,7 +1818,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     durationSeconds = item.durationSeconds,
                                     uploadDate = item.uploadDate,
                                     thumbnailUrl = item.thumbnailUrl,
-                                    providerId = provider.providerId
+                                    providerId = provider.providerId,
+                                    description = item.description
                                 )
                             }
                         } ?: emptyList()
@@ -1603,7 +1879,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                                 durationSeconds = item.durationSeconds,
                                                 uploadDate = item.uploadDate,
                                                 thumbnailUrl = item.thumbnailUrl,
-                                                providerId = provider.providerId
+                                                providerId = provider.providerId,
+                                                description = item.description
                                             )
                                         }
                                     } ?: emptyList()
@@ -1630,7 +1907,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                         durationSeconds = item.durationSeconds,
                                         uploadDate = item.uploadDate,
                                         thumbnailUrl = item.thumbnailUrl,
-                                        providerId = provider.providerId
+                                        providerId = provider.providerId,
+                                        description = item.description
                                     )
                                 }
                             } ?: emptyList()
@@ -1669,7 +1947,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                                 durationSeconds = item.durationSeconds,
                                                 uploadDate = item.uploadDate,
                                                 thumbnailUrl = item.thumbnailUrl,
-                                                providerId = provider.providerId
+                                                providerId = provider.providerId,
+                                                description = item.description
                                             )
                                         }
                                     } ?: emptyList()
@@ -1696,7 +1975,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                         durationSeconds = item.durationSeconds,
                                         uploadDate = item.uploadDate,
                                         thumbnailUrl = item.thumbnailUrl,
-                                        providerId = provider.providerId
+                                        providerId = provider.providerId,
+                                        description = item.description
                                     )
                                 }
                             } ?: emptyList()
@@ -1823,7 +2103,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val apiKey = com.example.util.DebridSettingsManager.getTorBoxApiKey(getApplication())
                 val allProviders = pluginManager.getAllAvailableProviders()
                 val enabledProvidersList = if (_enabledProviderIds.value.contains("all") || _enabledProviderIds.value.isEmpty()) {
                     allProviders
@@ -1834,7 +2113,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val pipelineResult = sourcePipelineEngine.discoverAndRankStreams(
                     idOrUrl = cleanIdOrUrl,
                     providers = enabledProvidersList,
-                    torBoxApiKey = apiKey,
                     targetProviderId = targetProviderId
                 )
 
@@ -1901,7 +2179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     startServerAutoScanner(streamData.availableStreamOptions)
                 } else {
                     if (targetProviderId == "youtube" || cleanIdOrUrl.contains("youtube.com", ignoreCase = true) || cleanIdOrUrl.contains("youtu.be", ignoreCase = true) || cleanIdOrUrl.length == 11) {
-                        val result = YouTubeExtractorHelper.fetchStreamData(cleanIdOrUrl)
+                        val result = com.example.extractor.YouTubeFastStreamResolver.resolveStream(cleanIdOrUrl, getApplication())
                         _extractionResult.value = result
                         if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
                             _selectedStreamOption.value = result.streamData.selectedStreamOption
@@ -1909,12 +2187,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             startServerAutoScanner(result.streamData.availableStreamOptions)
                         }
                     } else {
-                        // General Web Fallback Stream for external links & provider content
                         val isWebUrl = cleanIdOrUrl.startsWith("http://") || cleanIdOrUrl.startsWith("https://")
-                        val fallbackUrl = if (isWebUrl) cleanIdOrUrl else "https://www.youtube-nocookie.com/embed/$cleanIdOrUrl?autoplay=1&playsinline=1"
+                        val fallbackUrl = cleanIdOrUrl
                         val fallbackOption = PlayableStreamOption(
-                            qualityLabel = "Web Player Stream",
-                            format = "embed",
+                            qualityLabel = "Auto Quality",
+                            format = "mp4",
                             isMuxed = true,
                             videoUrl = fallbackUrl,
                             providerType = com.example.plugin.sdk.model.ProviderType.OTHER
@@ -1928,44 +2205,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             availableStreamOptions = listOf(fallbackOption),
                             selectedStreamOption = fallbackOption,
                             providerId = targetProviderId ?: "web",
-                            embedUrl = fallbackUrl,
-                            description = "Playing via Responsive Universal Player."
+                            description = "Direct stream video playback."
                         )
                         _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(fallbackData)
                         _selectedStreamOption.value = fallbackOption
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MainViewModel", "playVideo caught exception: ${e.localizedMessage}. Using safe fallback stream.", e)
-                val isYouTube = cleanIdOrUrl.length == 11 || cleanIdOrUrl.contains("youtube.com") || cleanIdOrUrl.contains("youtu.be")
-                val fallbackUrl = if (isYouTube) "https://www.youtube-nocookie.com/embed/$cleanIdOrUrl?autoplay=1&playsinline=1" else cleanIdOrUrl
-                val fallbackOption = PlayableStreamOption(
-                    qualityLabel = "Web Player Stream",
-                    format = "embed",
-                    isMuxed = true,
-                    videoUrl = fallbackUrl,
-                    providerType = com.example.plugin.sdk.model.ProviderType.OTHER
+                Log.e("MainViewModel", "playVideo caught exception: ${e.localizedMessage}", e)
+                _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Error(
+                    ExtractorErrorDetails(
+                        errorType = ExtractorErrorType.UNKNOWN,
+                        message = "Playback error: ${e.localizedMessage}",
+                        rawExceptionName = e.javaClass.name,
+                        fullStackTrace = e.stackTraceToString(),
+                        urlOrId = cleanIdOrUrl
+                    )
                 )
-                val fallbackData = StreamData(
-                    videoId = cleanIdOrUrl,
-                    videoUrl = fallbackUrl,
-                    title = initialVideoItem.title ?: "Streaming Video",
-                    channelName = initialVideoItem.uploaderName ?: "Video Creator",
-                    thumbnailUrl = initialVideoItem.thumbnailUrl,
-                    availableStreamOptions = listOf(fallbackOption),
-                    selectedStreamOption = fallbackOption,
-                    providerId = targetProviderId ?: "web",
-                    embedUrl = fallbackUrl
-                )
-                _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(fallbackData)
-                _selectedStreamOption.value = fallbackOption
             } finally {
                 _isExtracting.value = false
             }
         }
     }
-
-    private val torrentResolver = com.example.plugin.manager.TorrentResolver(application)
 
     init {
         // Wire GlobalPlayerManager error listener for automatic fallback
@@ -1981,17 +2242,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             for (option in options) {
                 val url = option.videoUrl ?: option.audioUrl ?: ""
                 if (url.isBlank()) continue
-
-                if (url.startsWith("magnet:") || option.format.equals("torrent", ignoreCase = true)) {
-                    val resolved = torrentResolver.resolveTorrent(url, apiKey = _torBoxApiKey.value)
-                    if (resolved != null) {
-                        selected = option.copy(videoUrl = resolved.playableUrl, format = if (resolved.isHls) "hls" else "mp4")
-                        break
-                    }
-                } else {
-                    selected = option
-                    break
-                }
+                selected = option
+                break
             }
             _selectedStreamOption.value = selected ?: options.firstOrNull()
         }
@@ -2006,19 +2258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (currentIndex >= 0 && currentIndex + 1 < options.size) {
                 val nextOption = options[currentIndex + 1]
                 Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto falling back to option ${currentIndex + 1}: '${nextOption.qualityLabel}'")
-                viewModelScope.launch(Dispatchers.IO) {
-                    val url = nextOption.videoUrl ?: ""
-                    if (url.startsWith("magnet:") || nextOption.format.equals("torrent", ignoreCase = true)) {
-                        val resolved = torrentResolver.resolveTorrent(url, apiKey = _torBoxApiKey.value)
-                        if (resolved != null) {
-                            _selectedStreamOption.value = nextOption.copy(videoUrl = resolved.playableUrl, format = if (resolved.isHls) "hls" else "mp4")
-                        } else {
-                            tryNextFallbackStream() // Recursively try next if resolution fails
-                        }
-                    } else {
-                        _selectedStreamOption.value = nextOption
-                    }
-                }
+                _selectedStreamOption.value = nextOption
             }
         }
     }

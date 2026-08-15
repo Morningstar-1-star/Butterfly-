@@ -26,7 +26,6 @@ data class PipelineValidationResult(
 class SourcePipelineEngine(
     private val healthMonitor: ProviderHealthMonitor = ProviderHealthMonitor(),
     private val streamValidator: StreamValidator = StreamValidator(),
-    private val torrentResolver: TorrentResolver = TorrentResolver(),
     private val context: Context? = null
 ) {
     private val intelligenceEngine: SourceIntelligenceEngine? by lazy {
@@ -57,7 +56,6 @@ class SourcePipelineEngine(
     suspend fun discoverAndRankStreams(
         idOrUrl: String,
         providers: List<ContentProviderApi>,
-        torBoxApiKey: String? = null,
         targetProviderId: String? = null
     ): PipelineValidationResult = coroutineScope {
         // 1. CANONICAL MEDIA IDENTITY RESOLUTION
@@ -178,15 +176,6 @@ class SourcePipelineEngine(
             var finalUrl = rawUrl
             var isResolvedDebrid = false
             var format = stream.format
-
-            if (infoHash != null) {
-                val resolvedTor = torrentResolver.resolveTorrent(rawUrl, title, torBoxApiKey)
-                if (resolvedTor != null) {
-                    finalUrl = resolvedTor.playableUrl
-                    isResolvedDebrid = true
-                    format = if (resolvedTor.isHls) "hls" else "mp4"
-                }
-            }
 
             val decisionType = PlaybackDecisionResolver.determineSourceType(finalUrl, format)
 

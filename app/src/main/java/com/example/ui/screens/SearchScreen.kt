@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -68,6 +69,7 @@ fun SearchScreen(
     val availableProviders by viewModel.availableProviders.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
     val focusManager = LocalFocusManager.current
@@ -452,6 +454,7 @@ fun SearchScreen(
             val baseResults = searchResults
                 .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                 .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+                .distinctBy { "${it.providerId}_${it.id}" }
             val filteredResults = remember(baseResults, searchFilter, watchedVideoIds) {
                 searchFilter.applyTo(baseResults, watchedVideoIds)
             }
@@ -507,16 +510,32 @@ fun SearchScreen(
                 }
             } else {
                 // SEARCH RESULTS VIEW
+                val searchListState = rememberLazyListState()
+                val shouldLoadMoreSearch = remember {
+                    derivedStateOf {
+                        val layoutInfo = searchListState.layoutInfo
+                        val total = layoutInfo.totalItemsCount
+                        val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        total > 0 && lastVisible >= total - 3
+                    }
+                }
+                LaunchedEffect(shouldLoadMoreSearch.value) {
+                    if (shouldLoadMoreSearch.value && !isSearching && !isLoadingMore) {
+                        viewModel.loadMoreContent()
+                    }
+                }
+
                 LazyColumn(
+                    state = searchListState,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 16.dp, end = 16.dp),
+                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 0.dp, end = 0.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -539,8 +558,28 @@ fun SearchScreen(
                     items(filteredResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
                         VideoCard(
                             video = video,
-                            onClick = { onSelectVideo(video) }
+                            onClick = { onSelectVideo(video) },
+                            onNotInterested = { v -> viewModel.markNotInterested(v) },
+                            onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                            onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                            onDownload = { v -> viewModel.showDownloadSheet(v) },
+                            onChannelClick = { ch -> viewModel.openChannel(ch) }
                         )
+                    }
+                    if (isLoadingMore) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }

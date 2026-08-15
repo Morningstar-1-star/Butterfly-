@@ -485,9 +485,9 @@ fun SettingsScreen(
                                     coroutineScope.launch {
                                         viewModel.clearHistory()
                                         com.example.util.NotInterestedManager.clearAll(context)
-                                        viewModel.setNotInterestedData(emptySet(), emptySet())
-                                        viewModel.setLikedVideoIds(emptySet())
-                                        viewModel.setDislikedVideoIds(emptySet())
+                                        viewModel.setNotInterestedData(emptySet<String>(), emptySet<String>())
+                                        viewModel.setLikedVideoIds(emptySet<String>())
+                                        viewModel.setDislikedVideoIds(emptySet<String>())
                                         viewModel.clearRecentSearches()
                                         showClearDialog = false
                                         Toast.makeText(context, "Personalization data cleared", Toast.LENGTH_SHORT).show()
@@ -1288,12 +1288,6 @@ fun SettingsScreen(
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-                    val torBoxKey by viewModel.torBoxApiKey.collectAsState()
-                    var keyInput by remember(torBoxKey) { mutableStateOf(torBoxKey) }
-
-                    val javInfoKey by viewModel.javInfoApiKey.collectAsState()
-                    var javInfoInput by remember(javInfoKey) { mutableStateOf(javInfoKey) }
-
                     val orionKey by viewModel.orionApiKey.collectAsState()
                     var orionInput by remember(orionKey) { mutableStateOf(orionKey) }
 
@@ -1306,56 +1300,13 @@ fun SettingsScreen(
                     val zileanUrl by viewModel.zileanUrl.collectAsState()
                     var zileanInput by remember(zileanUrl) { mutableStateOf(zileanUrl) }
 
-                    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column {
-                            Text(
-                                text = "TorBox Debrid API Key",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Required to stream cached torrent magnets directly via Debrid",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            OutlinedTextField(
-                                value = keyInput,
-                                onValueChange = {
-                                    keyInput = it
-                                    viewModel.updateTorBoxApiKey(it)
-                                },
-                                placeholder = { Text("Enter TorBox API Key...") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        }
+                    val apijavUrl by viewModel.apijavUrl.collectAsState()
+                    var apijavInput by remember(apijavUrl) { mutableStateOf(apijavUrl) }
 
-                        Column {
-                            Text(
-                                text = "JavInfo API Key",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Required for JavInfo API lookups & magnet link extraction",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            OutlinedTextField(
-                                value = javInfoInput,
-                                onValueChange = {
-                                    javInfoInput = it
-                                    viewModel.updateJavInfoApiKey(it)
-                                },
-                                placeholder = { Text("Enter JavInfo API Key...") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        }
+                    val javinfoUrl by viewModel.javinfoUrl.collectAsState()
+                    var javinfoInput by remember(javinfoUrl) { mutableStateOf(javinfoUrl) }
+
+                    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
 
                         Column {
                             Text(
@@ -1436,6 +1387,56 @@ fun SettingsScreen(
                                     viewModel.updateZileanUrl(it)
                                 },
                                 placeholder = { Text("https://zilean.elfhosted.com") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "APIJAV Server Endpoint",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "REST endpoint for apiJAV WordPress video streams",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = apijavInput,
+                                onValueChange = {
+                                    apijavInput = it
+                                    viewModel.updateApijavUrl(it)
+                                },
+                                placeholder = { Text("https://apijav.com") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "JavInfo API Endpoint",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Metadata & stream index for Asian Cinema & JAV codes",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = javinfoInput,
+                                onValueChange = {
+                                    javinfoInput = it
+                                    viewModel.updateJavinfoUrl(it)
+                                },
+                                placeholder = { Text("https://javinfo.dev") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 shape = RoundedCornerShape(10.dp)

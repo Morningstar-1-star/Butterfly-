@@ -21,6 +21,7 @@ import com.example.model.ProviderUiItem
 import com.example.plugin.manager.ExtensionStatus
 import com.example.plugin.manager.Repository
 import com.example.ui.MainViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,6 +110,19 @@ fun ProvidersScreen(
                 },
                 actions = {
                     var showDevPanelInScreen by remember { mutableStateOf(false) }
+                    var showTestProvidersDialog by remember { mutableStateOf(false) }
+
+                    IconButton(onClick = { showTestProvidersDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Dns,
+                            contentDescription = "Test All Providers Diagnostic",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (showTestProvidersDialog) {
+                        TestProvidersDialog(onDismiss = { showTestProvidersDialog = false })
+                    }
 
                     IconButton(onClick = { showDevPanelInScreen = true }) {
                         Icon(
@@ -482,4 +496,126 @@ private fun ExtensionCard(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TestProvidersDialog(onDismiss: () -> Unit) {
+    var isTesting by remember { mutableStateOf(false) }
+    var testJavId by remember { mutableStateOf("IPX-123") }
+    val diagnostics = remember { mutableStateListOf<com.example.plugin.jav.ProviderDiagnosticResult>() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        isTesting = true
+        diagnostics.clear()
+        val results = com.example.plugin.jav.orchestrator.UnifiedJavOrchestrator.runDiagnostics(testJavId)
+        diagnostics.addAll(results)
+        isTesting = false
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Unified Provider Diagnostic", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 450.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = testJavId,
+                        onValueChange = { testJavId = it },
+                        label = { Text("Test JAV ID") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isTesting = true
+                                diagnostics.clear()
+                                val results = com.example.plugin.jav.orchestrator.UnifiedJavOrchestrator.runDiagnostics(testJavId)
+                                diagnostics.addAll(results)
+                                isTesting = false
+                            }
+                        },
+                        enabled = !isTesting
+                    ) {
+                        Text(if (isTesting) "Testing..." else "Run Test")
+                    }
+                }
+
+                if (isTesting && diagnostics.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(diagnostics) { diag ->
+                            val statusColor = when (diag.status) {
+                                com.example.plugin.jav.ProviderStatusState.SUCCESS -> Color(0xFF4CAF50)
+                                com.example.plugin.jav.ProviderStatusState.TIMEOUT -> Color(0xFFFF9800)
+                                com.example.plugin.jav.ProviderStatusState.NO_RESULT -> Color.Gray
+                                com.example.plugin.jav.ProviderStatusState.BLOCKED,
+                                com.example.plugin.jav.ProviderStatusState.ERROR -> Color(0xFFF44336)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(diag.providerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(
+                                            "[${diag.capability}] ${diag.detailMessage} (${diag.responseTimeMs}ms)",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Surface(
+                                        color = statusColor,
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text(
+                                            text = diag.status.name,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }

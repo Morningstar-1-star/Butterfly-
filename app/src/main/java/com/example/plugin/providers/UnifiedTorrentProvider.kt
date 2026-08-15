@@ -37,7 +37,6 @@ class UnifiedTorrentProvider(
             ZileanProvider(http),
             VidSrcProvider(http),
             OrionProvider(http),
-            TorBoxProvider(http),
             EasyDebridProvider(http),
             JackettProwlarrProvider(http),
             TorrentApiMultiProvider(http),

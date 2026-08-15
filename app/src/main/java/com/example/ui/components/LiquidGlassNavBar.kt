@@ -36,10 +36,10 @@ fun LiquidGlassNavBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface),
+            .background(Color.Black),
         shape = androidx.compose.ui.graphics.RectangleShape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        tonalElevation = 6.dp
+        color = Color.Black,
+        tonalElevation = 0.dp
     ) {
         Column(
             modifier = Modifier
@@ -111,10 +111,10 @@ private fun NavItem(
     val isPressed = interactionSource.collectIsPressedAsState().value
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else if (isSelected) 1.05f else 1.0f,
+        targetValue = if (isPressed) 0.88f else if (isSelected) 1.08f else 1.0f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
         ),
         label = "nav_scale"
     )

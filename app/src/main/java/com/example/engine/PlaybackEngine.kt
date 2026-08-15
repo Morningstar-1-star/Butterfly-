@@ -40,7 +40,6 @@ class PlaybackEngine(
     suspend fun discoverAndPrepareStreams(
         idOrUrl: String,
         providers: List<ContentProviderApi>,
-        torBoxApiKey: String? = null,
         targetProviderId: String? = null
     ): PipelineValidationResult = withContext(Dispatchers.IO) {
         _isResolvingStreams.value = true
@@ -49,7 +48,6 @@ class PlaybackEngine(
         val result = sourcePipelineEngine.discoverAndRankStreams(
             idOrUrl = idOrUrl,
             providers = providers,
-            torBoxApiKey = torBoxApiKey,
             targetProviderId = targetProviderId
         )
 

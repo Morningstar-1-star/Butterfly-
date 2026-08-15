@@ -15,7 +15,7 @@ import androidx.media3.ui.PlayerView
 @Composable
 fun PersistentPlayerHost(
     modifier: Modifier = Modifier,
-    useController: Boolean = true,
+    useController: Boolean = false,
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
     onFullscreenClick: (() -> Unit)? = null
 ) {

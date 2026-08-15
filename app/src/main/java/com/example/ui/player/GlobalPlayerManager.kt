@@ -33,10 +33,11 @@ object GlobalPlayerManager {
     private var progressTrackerJob: Job? = null
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val _activeStreamData = MutableStateFlow<StreamData?>(null)
@@ -68,6 +69,9 @@ object GlobalPlayerManager {
 
     private val _firstFrameRendered = MutableStateFlow(false)
     val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
+
+    private val _audioTracks = MutableStateFlow<List<com.example.model.AudioTrackOption>>(emptyList())
+    val audioTracks: StateFlow<List<com.example.model.AudioTrackOption>> = _audioTracks.asStateFlow()
 
     private val _areControlsVisible = MutableStateFlow(true)
     val areControlsVisible: StateFlow<Boolean> = _areControlsVisible.asStateFlow()
@@ -149,7 +153,7 @@ object GlobalPlayerManager {
             val player = getExoPlayer(context)
             val pv = androidx.media3.ui.PlayerView(context.applicationContext).apply {
                 this.player = player
-                useController = true
+                useController = false
                 controllerShowTimeoutMs = 2800
                 setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                 setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS)
@@ -171,10 +175,10 @@ object GlobalPlayerManager {
         return if (existing == null) {
             val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    15_000, // minBufferMs
+                    2_500,  // minBufferMs (2.5s for fast start)
                     50_000, // maxBufferMs
-                    1_500,  // bufferForPlaybackMs (1.5s for ultra-fast start)
-                    3_000   // bufferForPlaybackAfterRebufferMs
+                    800,    // bufferForPlaybackMs (0.8s for instant playback startup)
+                    1_500   // bufferForPlaybackAfterRebufferMs (1.5s)
                 )
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
@@ -203,6 +207,10 @@ object GlobalPlayerManager {
                         _isPlaying.value = false
                         _playbackEnded.value = true
                     }
+                }
+
+                override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                    updateAudioTracks(tracks)
                 }
 
                 override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
@@ -246,6 +254,86 @@ object GlobalPlayerManager {
         }
     }
 
+    private fun updateAudioTracks(tracks: androidx.media3.common.Tracks) {
+        val list = mutableListOf<com.example.model.AudioTrackOption>()
+        var groupIdx = 0
+        for (group in tracks.groups) {
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val rawLang = format.language ?: ""
+                    val displayLang = when (rawLang.lowercase()) {
+                        "jpn", "ja", "japanese" -> "Japanese (日本語)"
+                        "eng", "en", "english" -> "English"
+                        "hin", "hi", "hindi" -> "Hindi (हिंदी)"
+                        "spa", "es", "spanish" -> "Spanish (Español)"
+                        "fre", "fra", "fr", "french" -> "French (Français)"
+                        "ger", "deu", "de", "german" -> "German (Deutsch)"
+                        "chi", "zho", "zh", "chinese" -> "Chinese (中文)"
+                        "kor", "ko", "korean" -> "Korean (한국어)"
+                        "por", "pt", "portuguese" -> "Portuguese"
+                        "rus", "ru", "russian" -> "Russian"
+                        "" -> "Track ${list.size + 1}"
+                        else -> rawLang.replaceFirstChar { it.uppercase() }
+                    }
+                    val label = if (!format.label.isNullOrBlank()) {
+                        "${format.label} ($displayLang)"
+                    } else {
+                        displayLang
+                    }
+                    val channels = if (format.channelCount > 0) {
+                        if (format.channelCount == 2) "Stereo"
+                        else if (format.channelCount == 6) "5.1 Surround"
+                        else "${format.channelCount} Ch"
+                    } else ""
+
+                    val isSelected = group.isTrackSelected(i)
+                    list.add(
+                        com.example.model.AudioTrackOption(
+                            groupIndex = groupIdx,
+                            trackIndex = i,
+                            label = label,
+                            languageCode = rawLang.ifBlank { "default" },
+                            displayLanguage = displayLang,
+                            isSelected = isSelected,
+                            channelInfo = channels,
+                            trackGroup = group
+                        )
+                    )
+                }
+            }
+            groupIdx++
+        }
+        _audioTracks.value = list
+    }
+
+    fun selectAudioTrack(option: com.example.model.AudioTrackOption) {
+        exoPlayerInstance?.let { player ->
+            val override = androidx.media3.common.TrackSelectionOverride(
+                option.trackGroup.mediaTrackGroup,
+                option.trackIndex
+            )
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(override)
+                .build()
+            updateAudioTracks(player.currentTracks)
+        }
+    }
+
+    fun setPreferredAudioLanguage(languageCode: String) {
+        exoPlayerInstance?.let { player ->
+            val builder = player.trackSelectionParameters.buildUpon()
+            if (languageCode == "auto" || languageCode.isBlank()) {
+                builder.setPreferredAudioLanguage(null)
+            } else {
+                builder.setPreferredAudioLanguage(languageCode)
+            }
+            player.trackSelectionParameters = builder.build()
+            updateAudioTracks(player.currentTracks)
+        }
+    }
+
     private fun startProgressTracker() {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
@@ -285,51 +373,16 @@ object GlobalPlayerManager {
         val isEmbed = sourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
         val isMagnet = sourceType == com.example.model.PlaybackSourceType.MAGNET
 
-        if (isMagnet) {
-            _isEmbedOrWebPage.value = false
-            _playerError.value = "Resolving torrent stream via Debrid engine..."
-            scope.launch(Dispatchers.IO) {
-                val resolver = com.example.plugin.manager.TorrentResolver(context)
-                val title = streamData?.title ?: streamOption?.qualityLabel ?: "Stream"
-                val resolved = resolver.resolveTorrent(rawUrl, title)
-                if (resolved != null && resolved.playableUrl.isNotBlank()) {
-                    scope.launch(Dispatchers.Main) {
-                        _playerError.value = null
-                        val resolvedOption = streamOption?.copy(
-                            videoUrl = resolved.playableUrl,
-                            format = if (resolved.isHls) "hls" else "mp4"
-                        ) ?: PlayableStreamOption(
-                            qualityLabel = title,
-                            format = if (resolved.isHls) "hls" else "mp4",
-                            isMuxed = true,
-                            videoUrl = resolved.playableUrl,
-                            audioUrl = null
-                        )
-                        prepareAndPlay(
-                            context = context,
-                            streamData = streamData ?: _activeStreamData.value,
-                            streamOption = resolvedOption,
-                            hlsUrl = resolved.playableUrl,
-                            captionOption = captionOption,
-                            embedUrl = null,
-                            initialPos = initialPos
-                        )
-                    }
-                } else {
-                    scope.launch(Dispatchers.Main) {
-                        _playerError.value = "Torrent magnet requires a Debrid service. Please configure TorBox API Key in Settings."
-                        if (!embedUrl.isNullOrEmpty()) {
-                            _isEmbedOrWebPage.value = true
-                        }
-                    }
-                }
-            }
-            return
+        // Resolve playable URL: for magnets, pipe via TorrentStreamEngine local HTTP streaming server
+        val effectivePlayableUrl = if (isMagnet || rawUrl.startsWith("magnet:") || streamOption?.format.equals("torrent", ignoreCase = true)) {
+            com.example.torrent.TorrentStreamEngine.getStreamUrl(context, rawUrl, streamData?.title)
+        } else {
+            rawUrl
         }
 
         _isEmbedOrWebPage.value = isEmbed
 
-        val mediaKey = "${rawUrl}_${captionOption?.languageCode}"
+        val mediaKey = "${effectivePlayableUrl}_${captionOption?.languageCode}"
         if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
             // Already loaded and playing this media, ensure playing
             player.playWhenReady = true
@@ -383,6 +436,7 @@ object GlobalPlayerManager {
                         }
                         lowerTarget.contains("archive.org") -> {
                             defaultHeaders["Referer"] = "https://archive.org/"
+                            defaultHeaders["Accept"] = "*/*"
                         }
                         lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
                             defaultHeaders["Referer"] = "https://www.pornhub.com/"

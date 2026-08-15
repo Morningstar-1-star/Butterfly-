@@ -112,6 +112,9 @@ interface UserDataDao {
     @Query("DELETE FROM watch_later_bookmarks WHERE videoId = :videoId")
     suspend fun deleteBookmark(videoId: String)
 
+    @Query("DELETE FROM watch_later_bookmarks")
+    suspend fun clearBookmarks()
+
     @Query("SELECT * FROM liked_videos ORDER BY timestamp DESC")
     fun getLikedVideosFlow(): Flow<List<LikedVideoEntity>>
 

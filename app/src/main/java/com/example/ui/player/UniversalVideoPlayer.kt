@@ -108,6 +108,13 @@ fun UniversalVideoPlayer(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showSpeedSubMenu by remember { mutableStateOf(false) }
     var showQualitySubMenu by remember { mutableStateOf(false) }
+    var showAudioTrackSubMenu by remember { mutableStateOf(false) }
+    var showAnime4kSubMenu by remember { mutableStateOf(false) }
+
+    val anime4kManager = remember(context) { com.example.util.Anime4KManager.getInstance(context) }
+    val anime4kMode by anime4kManager.currentMode.collectAsState()
+    val audioTracks by GlobalPlayerManager.audioTracks.collectAsState()
+    val preferredAudioLang by anime4kManager.preferredAudioLang.collectAsState()
     val speedOptions = remember { listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f) }
     var customPlayerSpeedInput by remember { mutableStateOf("") }
     var isMusicTrackDetected by remember { mutableStateOf(false) }
@@ -201,6 +208,26 @@ fun UniversalVideoPlayer(
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
+    val currentPlayerActivity = remember(context) { context.findActivity() }
+    DisposableEffect(isLandscape, currentPlayerActivity) {
+        val window = currentPlayerActivity?.window
+        if (window != null && isLandscape) {
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+            controller.hide(WindowInsetsCompat.Type.navigationBars())
+            controller.hide(WindowInsetsCompat.Type.captionBar())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            onDispose {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+        } else {
+            onDispose {}
+        }
+    }
+
     val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
 
     val playerContainerModifier = if (isLandscape) {
@@ -251,7 +278,9 @@ fun UniversalVideoPlayer(
                             val dy = dragAmount.y
                             val absDx = kotlin.math.abs(dx)
                             val absDy = kotlin.math.abs(dy)
-                            if (absDy > absDx) {
+                            if (dy > 35f && dy > absDx * 1.5f && onBackClick != null) {
+                                onBackClick.invoke()
+                            } else if (absDy > absDx) {
                                 if (change.position.x < size.width / 2) {
                                     // Left side = Brightness
                                     val delta = -dy / size.height
@@ -298,7 +327,7 @@ fun UniversalVideoPlayer(
     ) {
         if (isEmbedOrWebPage && !rawVideoUrl.isNullOrEmpty()) {
             val embedContext = LocalContext.current
-            val srcUrl = remember(rawVideoUrl, isMagnetLink) {
+            val srcUrl = remember(rawVideoUrl) {
                 var cleanUrl = (rawVideoUrl ?: "")
                     .replace("&#038;", "&")
                     .replace("&amp;", "&")
@@ -306,16 +335,10 @@ fun UniversalVideoPlayer(
                     .replace("&quot;", "")
                     .trim()
 
-                if (isMagnetLink) {
-                    val fullMagnet = com.example.utils.TorrentUtils.formatMagnetUrl(cleanUrl)
-                    val encodedMagnet = try { URLEncoder.encode(fullMagnet, "UTF-8") } catch (e: Exception) { fullMagnet }
-                    "https://webtor.io/show?magnet=$encodedMagnet"
-                } else {
-                    if (!cleanUrl.contains("autoplay")) {
-                        cleanUrl += if (cleanUrl.contains("?")) "&autoplay=1" else "?autoplay=1"
-                    }
-                    cleanUrl
+                if (!cleanUrl.contains("autoplay")) {
+                    cleanUrl += if (cleanUrl.contains("?")) "&autoplay=1" else "?autoplay=1"
                 }
+                cleanUrl
             }
 
             androidx.compose.runtime.LaunchedEffect(srcUrl) {
@@ -512,12 +535,7 @@ fun UniversalVideoPlayer(
                         }
                     }
 
-                    if (isMagnetLink) {
-                        val htmlContent = buildWebTorHtml(rawVideoUrl ?: "")
-                        webView.loadDataWithBaseURL("https://webtor.io", htmlContent, "text/html", "UTF-8", null)
-                    } else {
-                        webView.loadUrl(srcUrl)
-                    }
+                    webView.loadUrl(srcUrl)
                 }
             }
 
@@ -581,7 +599,7 @@ fun UniversalVideoPlayer(
             val currentPlayerContext = LocalContext.current
             Box(modifier = Modifier.fillMaxSize()) {
                 PersistentPlayerHost(
-                    useController = true,
+                    useController = false,
                     resizeMode = resizeModeState,
                     onFullscreenClick = {
                         toggleFullscreen(currentPlayerContext)
@@ -606,11 +624,19 @@ fun UniversalVideoPlayer(
                                 )
                             )
                         )
-                        .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 16.dp)
+                        .padding(start = 10.dp, end = 12.dp, top = 8.dp, bottom = 16.dp)
                 ) {
-                    val currentDisplayTitle = activeStreamData?.title?.takeIf { it.isNotBlank() }
-                        ?: streamOption?.qualityLabel?.takeIf { it.isNotBlank() && !it.contains("http") }
-                        ?: "Playing Video"
+                    val rawTitle = activeStreamData?.title?.takeIf { it.isNotBlank() }
+                    val currentDisplayTitle = if (!rawTitle.isNullOrBlank()) {
+                        rawTitle
+                    } else {
+                        val qLabel = streamOption?.qualityLabel
+                        if (!qLabel.isNullOrBlank() && !qLabel.contains("http") && qLabel != "Direct Video Stream") {
+                            qLabel
+                        } else {
+                            "Playing Video"
+                        }
+                    }
                     val currentUploader = activeStreamData?.channelName?.takeIf { it.isNotBlank() }
 
                     Row(
@@ -618,36 +644,94 @@ fun UniversalVideoPlayer(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Title + Channel Name Display
-                        Column(
+                        // Left-side minimize button + Title & Uploader info
+                        Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(end = 8.dp)
+                                .padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = currentDisplayTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
-                            if (!currentUploader.isNullOrBlank()) {
+                            IconButton(
+                                onClick = {
+                                    if (onBackClick != null) {
+                                        onBackClick.invoke()
+                                    } else {
+                                        (currentPlayerContext as? androidx.activity.ComponentActivity)?.onBackPressedDispatcher?.onBackPressed()
+                                            ?: (currentPlayerContext as? Activity)?.finish()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Minimize Player",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Text(
-                                    text = currentUploader,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.8f),
+                                    text = currentDisplayTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
+                                if (!currentUploader.isNullOrBlank()) {
+                                    Text(
+                                        text = currentUploader,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
 
-                        // Right-side actions (Speed, Settings, Fullscreen)
+                        // Right-side actions (Anime4K Badge, Speed, Settings, Fullscreen)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (anime4kMode.isEnabled) {
+                                Surface(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        showAnime4kSubMenu = true
+                                        showSettingsSheet = true
+                                    },
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = "Anime4K Active",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            text = anime4kMode.badgeLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    }
+                                }
+                            }
                             // Quick Playback Speed Button / Badge
                             Surface(
                                 onClick = {
@@ -718,6 +802,190 @@ fun UniversalVideoPlayer(
                         }
                     }
                 }
+
+                // Bottom YouTube-Style Bar (Seekbar + Live/Elapsed Duration Below + Quick Controls)
+                AnimatedVisibility(
+                    visible = areControlsVisible,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.60f),
+                                    Color.Black.copy(alpha = 0.92f)
+                                )
+                            )
+                        )
+                        .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val currentPosMs by GlobalPlayerManager.currentPositionMs.collectAsState()
+                        val totalDurMs by GlobalPlayerManager.durationMs.collectAsState()
+                        val bufferedPosMs by GlobalPlayerManager.bufferedPositionMs.collectAsState()
+                        val isCurrentlyPlaying by GlobalPlayerManager.isPlaying.collectAsState()
+
+                        // 1. YouTube Precise Seekbar
+                        YouTubePreciseSeekBar(
+                            currentPositionMs = currentPosMs,
+                            durationMs = totalDurMs,
+                            bufferedPositionMs = bufferedPosMs,
+                            onSeekStarted = { GlobalPlayerManager.showControls() },
+                            onSeekScrubbing = { /* Scrubbing */ },
+                            onSeekFinished = { targetMs ->
+                                GlobalPlayerManager.seekTo(targetMs)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // 2. Duration text below Seekbar + Controls
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Left: Current time & Total duration (just like YouTube)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val isLive = totalDurMs <= 0L && (activeStreamData?.hlsUrl != null || activeStreamData?.videoUrl?.contains("m3u8") == true)
+                                if (isLive) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFE50914), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "LIVE",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = "${formatVideoTimestamp(currentPosMs)} / ${formatVideoTimestamp(totalDurMs)}",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                    )
+                                }
+
+                                // Quick Quality Chip
+                                val qLabel = streamOption?.qualityLabel?.takeIf { it.isNotBlank() && it != "Direct Video Stream" } ?: "Auto"
+                                Surface(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        showQualitySubMenu = true
+                                        showSettingsSheet = true
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color.White.copy(alpha = 0.15f),
+                                    contentColor = Color.White
+                                ) {
+                                    Text(
+                                        text = qLabel,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            // Right: Play/Pause, Fullscreen
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        if (isCurrentlyPlaying) {
+                                            GlobalPlayerManager.pause()
+                                        } else {
+                                            GlobalPlayerManager.play()
+                                        }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isCurrentlyPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isCurrentlyPlaying) "Pause" else "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        toggleFullscreen(currentPlayerContext)
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                        contentDescription = "Toggle Fullscreen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // YouTube Style Bottom Mini Progress Bar (Visible when controls are hidden/collapsed)
+        val currentPosMsForMini by GlobalPlayerManager.currentPositionMs.collectAsState()
+        val totalDurMsForMini by GlobalPlayerManager.durationMs.collectAsState()
+        val bufferedPosMsForMini by GlobalPlayerManager.bufferedPositionMs.collectAsState()
+
+        AnimatedVisibility(
+            visible = !areControlsVisible && totalDurMsForMini > 0L,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .height(3.dp)
+        ) {
+            val safeDuration = totalDurMsForMini.coerceAtLeast(1L).toFloat()
+            val progressFraction = (currentPosMsForMini.toFloat() / safeDuration).coerceIn(0f, 1f)
+            val bufferFraction = (bufferedPosMsForMini.toFloat() / safeDuration).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.20f))
+            ) {
+                // White Buffer Progress Bar (shows how much video is loaded)
+                if (bufferFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = bufferFraction)
+                            .background(Color.White.copy(alpha = 0.60f))
+                    )
+                }
+                // Red Play Progress Bar (current video position)
+                if (progressFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = progressFraction)
+                            .background(Color(0xFFFF0033))
+                    )
+                }
             }
         }
 
@@ -728,6 +996,8 @@ fun UniversalVideoPlayer(
                     showSettingsSheet = false
                     showSpeedSubMenu = false
                     showQualitySubMenu = false
+                    showAudioTrackSubMenu = false
+                    showAnime4kSubMenu = false
                 },
                 containerColor = Color(0xFF1E1E1E),
                 contentColor = Color.White
@@ -746,16 +1016,20 @@ fun UniversalVideoPlayer(
                             text = when {
                                 showQualitySubMenu -> "Video Quality"
                                 showSpeedSubMenu -> "Playback Speed"
+                                showAudioTrackSubMenu -> "Audio Track & Language"
+                                showAnime4kSubMenu -> "Anime 4K Upscaling (bloc97)"
                                 else -> "Settings"
                             },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        if (showSpeedSubMenu || showQualitySubMenu) {
+                        if (showSpeedSubMenu || showQualitySubMenu || showAudioTrackSubMenu || showAnime4kSubMenu) {
                             TextButton(onClick = {
                                 showSpeedSubMenu = false
                                 showQualitySubMenu = false
+                                showAudioTrackSubMenu = false
+                                showAnime4kSubMenu = false
                             }) {
                                 Text("Back", color = MaterialTheme.colorScheme.primary)
                             }
@@ -921,6 +1195,237 @@ fun UniversalVideoPlayer(
                                 }
                             }
                         }
+                    } else if (showAudioTrackSubMenu) {
+                        // Audio Track & Language Submenu
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Detected Audio Streams & Dubs",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray
+                            )
+
+                            if (audioTracks.isNotEmpty()) {
+                                audioTracks.forEach { trackOpt ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                GlobalPlayerManager.selectAudioTrack(trackOpt)
+                                                Toast.makeText(context, "Audio set to: ${trackOpt.label}", Toast.LENGTH_SHORT).show()
+                                                showAudioTrackSubMenu = false
+                                                showSettingsSheet = false
+                                            }
+                                            .padding(vertical = 12.dp, horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = trackOpt.label,
+                                                fontWeight = if (trackOpt.isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (trackOpt.isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                            )
+                                            if (trackOpt.channelInfo.isNotBlank()) {
+                                                Text(
+                                                    text = trackOpt.channelInfo,
+                                                    fontSize = 11.sp,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                        }
+                                        if (trackOpt.isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Standard Dual-Audio / Primary Audio Track",
+                                        fontSize = 13.sp,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                            Text(
+                                text = "Force Preferred Audio Language",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray
+                            )
+
+                            val langOptions = listOf(
+                                "auto" to "Auto (Media Default)",
+                                "jpn" to "Japanese (日本語 - Orig / Dub)",
+                                "eng" to "English (English Dub)",
+                                "hin" to "Hindi (हिंदी)",
+                                "spa" to "Spanish (Español)",
+                                "fre" to "French (Français)",
+                                "ger" to "German (Deutsch)",
+                                "chi" to "Chinese (中文)",
+                                "kor" to "Korean (한국어)"
+                            )
+
+                            langOptions.forEach { (code, label) ->
+                                val isSel = (preferredAudioLang == code)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            anime4kManager.setPreferredAudioLang(code)
+                                            GlobalPlayerManager.setPreferredAudioLanguage(code)
+                                            Toast.makeText(context, "Preferred audio language: $label", Toast.LENGTH_SHORT).show()
+                                            showAudioTrackSubMenu = false
+                                            showSettingsSheet = false
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSel) MaterialTheme.colorScheme.primary else Color.White
+                                    )
+                                    if (isSel) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (showAnime4kSubMenu) {
+                        // Anime4K Upscaling Submenu
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = "Anime4K Upscaling Engine (bloc97/Anime4K)",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Real-time edge reconstruction, line sharpening & 4K super-resolution upscaling.",
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Select Processing Power & Mode",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray
+                            )
+
+                            com.example.util.Anime4KPowerMode.values().forEach { mode ->
+                                val isSelected = (anime4kMode == mode)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)
+                                        .clickable {
+                                            anime4kManager.setMode(mode)
+                                            Toast.makeText(
+                                                context,
+                                                "Anime4K mode: ${mode.title}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            showAnime4kSubMenu = false
+                                            showSettingsSheet = false
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = mode.title,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
+                                                fontSize = 14.sp
+                                            )
+                                            if (mode.badgeLabel.isNotBlank()) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                                                ) {
+                                                    Text(
+                                                        text = mode.badgeLabel,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isSelected) Color.Black else Color.White,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = mode.description,
+                                            fontSize = 11.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         // Main Settings Items
                         // 0. Quality Selector
@@ -955,6 +1460,8 @@ fun UniversalVideoPlayer(
                                 fontWeight = FontWeight.Bold
                             )
                         }
+
+                        // 1. Playback Speed
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -983,6 +1490,82 @@ fun UniversalVideoPlayer(
                                 text = if (playbackSpeed == 1.0f) "Normal" else "${playbackSpeed}x",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 2. Audio Track & Language Selection
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showAudioTrackSubMenu = true }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Language,
+                                    contentDescription = "Audio Track & Language",
+                                    tint = Color.White
+                                )
+                                Text(
+                                    text = "Audio Track & Language",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            val activeTrackLabel = audioTracks.find { it.isSelected }?.displayLanguage
+                                ?: when (preferredAudioLang) {
+                                    "jpn" -> "Japanese"
+                                    "eng" -> "English"
+                                    "hin" -> "Hindi"
+                                    "spa" -> "Spanish"
+                                    "fre" -> "French"
+                                    "ger" -> "German"
+                                    else -> "Auto"
+                                }
+                            Text(
+                                text = activeTrackLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 3. Anime 4K Upscaling (bloc97)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showAnime4kSubMenu = true }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Anime 4K Upscaling",
+                                    tint = if (anime4kMode.isEnabled) MaterialTheme.colorScheme.primary else Color.White
+                                )
+                                Text(
+                                    text = "Anime 4K Upscaling (bloc97)",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = if (anime4kMode.isEnabled) anime4kMode.badgeLabel else "Off",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (anime4kMode.isEnabled) MaterialTheme.colorScheme.primary else Color.LightGray,
                                 fontWeight = FontWeight.Bold
                             )
                         }

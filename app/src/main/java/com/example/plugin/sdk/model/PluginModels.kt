@@ -103,7 +103,8 @@ data class PluginVideoItem(
     val durationSeconds: Long = -1,
     val uploadDate: String? = null,
     val thumbnailUrl: String? = null,
-    val providerId: String
+    val providerId: String,
+    val description: String? = null
 )
 
 @JsonClass(generateAdapter = true)

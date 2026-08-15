@@ -68,6 +68,9 @@ fun ExploreScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     val savedList by viewModel.watchLaterList.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+    val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
+    val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
+    val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
     var heroItems by remember { mutableStateOf<List<FeaturedMedia>>(emptyList()) }
@@ -86,9 +89,14 @@ fun ExploreScreen(
         )
     }
 
-    val categories = remember(rawCategories, adultContentEnabled) {
-        if (adultContentEnabled) rawCategories
-        else rawCategories.filter { it.id != "adult" }
+    val categories = remember(rawCategories, adultContentEnabled, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+        val base = if (adultContentEnabled) rawCategories else rawCategories.filter { it.id != "adult" }
+        base.map { cat ->
+            cat.copy(items = cat.items.filterNot { viewModel.isBlockedVideo(it) })
+        }
+    }
+    val filteredHeroItems = remember(heroItems, hiddenVideoIds, notInterestedVideoIds) {
+        heroItems.filterNot { hiddenVideoIds.contains(it.id) || notInterestedVideoIds.contains(it.id) }
     }
     var activeHeroIndex by remember { mutableStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -104,7 +112,7 @@ fun ExploreScreen(
             val docuDeferred = async { TMDBHelper.fetchExploreCategoryMovies(99, "Documentary") }
             val aniListDeferred = async { TMDBHelper.fetchAniListTrendingAnime() }
             val jikanDeferred = async { TMDBHelper.fetchJikanTopAnime() }
-            val javInfoDeferred = async { TMDBHelper.fetchJavInfoAdultVideos() }
+            val javInfoDeferred = async { if (adultContentEnabled) TMDBHelper.fetchJavInfoAdultVideos() else emptyList() }
             val ytDeferred = async {
                 try {
                     com.example.plugin.providers.YouTubeProvider().home().items.map { item ->
@@ -174,7 +182,7 @@ fun ExploreScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        val currentHero = heroItems.getOrNull(activeHeroIndex.coerceIn(0, (heroItems.size - 1).coerceAtLeast(0)))
+        val currentHero = filteredHeroItems.getOrNull(activeHeroIndex.coerceIn(0, (filteredHeroItems.size - 1).coerceAtLeast(0)))
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -350,7 +358,7 @@ fun ExploreScreen(
 
                                     // Pagination dots
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        heroItems.indices.forEach { index ->
+                                        filteredHeroItems.indices.forEach { index ->
                                             Box(
                                                 modifier = Modifier
                                                     .size(if (index == activeHeroIndex) 10.dp else 8.dp)
@@ -420,7 +428,7 @@ fun ExploreScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                items(category.items, key = { it.id }) { video ->
+                                items(category.items.distinctBy { "${it.providerId}_${it.id}" }, key = { "${it.providerId}_${it.id}" }) { video ->
                                     val isSaved = savedList.any { it.id == video.id }
                                     ExploreMediaCard(
                                         video = video,

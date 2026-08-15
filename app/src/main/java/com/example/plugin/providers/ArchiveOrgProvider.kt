@@ -142,6 +142,16 @@ class ArchiveOrgProvider(
         return ArchiveRequestInfo(identifier = simpleId)
     }
 
+    private fun extractCreator(obj: JSONObject?): String {
+        if (obj == null) return "Internet Archive"
+        val keys = listOf("creator", "uploader", "artist", "author", "submitter", "collection")
+        for (k in keys) {
+            val v = obj.optString(k, "").trim()
+            if (v.isNotBlank() && v != "null") return v
+        }
+        return "Internet Archive"
+    }
+
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
         val reqInfo = parseRequest(idOrUrl)
         val identifier = reqInfo.identifier
@@ -153,7 +163,7 @@ class ArchiveOrgProvider(
             val json = JSONObject(resp.body)
             val meta = json.optJSONObject("metadata")
             val title = meta?.optString("title") ?: identifier
-            val creator = meta?.optString("creator") ?: "Internet Archive"
+            val creator = extractCreator(meta)
             PluginVideoItem(
                 id = identifier,
                 title = title,
@@ -242,7 +252,7 @@ class ArchiveOrgProvider(
                     val height = f.optInt("height", 0)
                     val heightLabel = if (height > 0) "${height}p" else "1080p"
 
-                    val isFastWebFormat = name.endsWith(".ia.mp4") || format.contains("h.264") || format.contains("mpeg4") || format.contains("512kb")
+                    val isFastWebFormat = name.lowercase().endsWith(".ia.mp4") || name.lowercase().endsWith(".mp4") || format.contains("h.264") || format.contains("mpeg4") || format.contains("512kb") || format.contains("mp4")
 
                     val qualityTag = if (isFastWebFormat) "H.264 Fast MP4 ($heightLabel)" else "Direct Stream ($heightLabel)"
                     val label = if (isMultiFile) title else qualityTag
@@ -259,8 +269,8 @@ class ArchiveOrgProvider(
                 }
 
                 // Organize streams according to user format preference (Fast H.264 vs Original Quality)
-                val fastWebStreams = preferredStreams.filter { it.url.endsWith(".ia.mp4") || it.qualityLabel.contains("H.264") }
-                val standardStreams = preferredStreams.filter { !it.url.endsWith(".ia.mp4") && !it.qualityLabel.contains("H.264") }
+                val fastWebStreams = preferredStreams.filter { it.url.lowercase().endsWith(".ia.mp4") || it.url.lowercase().endsWith(".mp4") || it.qualityLabel.contains("H.264") || it.qualityLabel.contains("MP4") }
+                val standardStreams = preferredStreams.filter { !fastWebStreams.contains(it) }
 
                 val ctx = contextRef
                 val prefersOriginal = reqInfo.identifier.contains("original") || (ctx != null && com.example.util.DebridSettingsManager.getArchiveFormatPreference(ctx) == "ORIGINAL_QUALITY")
@@ -293,7 +303,7 @@ class ArchiveOrgProvider(
                 }
 
                 val title = meta?.optString("title") ?: identifier
-                val creator = meta?.optString("creator") ?: "Internet Archive"
+                val creator = extractCreator(meta)
                 val desc = meta?.optString("description") ?: "Internet Archive High Quality Media"
 
                 if (videoStreams.isNotEmpty()) {
@@ -379,15 +389,6 @@ class ArchiveOrgProvider(
             // Fallback
         }
 
-        if (comments.isEmpty()) {
-            comments.addAll(
-                listOf(
-                    PluginComment(id = "ac1", authorName = "Archivist_John", authorAvatarUrl = null, content = "Classic historical masterpiece! Great preservation quality.", publishedTime = "1 month ago", likeCount = 84L),
-                    PluginComment(id = "ac2", authorName = "FilmBuff99", authorAvatarUrl = null, content = "Subtitles and audio line up perfectly. Thank you Internet Archive!", publishedTime = "3 weeks ago", likeCount = 45L),
-                    PluginComment(id = "ac3", authorName = "RetroCinema", authorAvatarUrl = null, content = "A timeless classic. Super clean scan.", publishedTime = "2 weeks ago", likeCount = 29L)
-                )
-            )
-        }
         PagedResult(items = comments, hasMore = false)
     }
 
@@ -429,7 +430,7 @@ class ArchiveOrgProvider(
             val d = docs.getJSONObject(i)
             val id = d.optString("identifier")
             val title = d.optString("title", id)
-            val creator = d.optString("creator", "Internet Archive")
+            val creator = extractCreator(d)
             val downloads = d.optLong("downloads", 0L)
 
             // Filter out raw uncurated TV news logs/dumps

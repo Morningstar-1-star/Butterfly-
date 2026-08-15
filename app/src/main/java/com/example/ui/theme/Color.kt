@@ -2,9 +2,9 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val DarkBackground = Color(0xFF1C1B1F)
-val DarkSurface = Color(0xFF2B2930)
-val DarkSurfaceVariant = Color(0xFF25232A)
+val DarkBackground = Color(0xFF000000)
+val DarkSurface = Color(0xFF000000)
+val DarkSurfaceVariant = Color(0xFF0D0D0E)
 val DarkPrimary = Color(0xFFD0BCFF)
 val DarkOnPrimary = Color(0xFF381E72)
 val DarkSecondary = Color(0xFFCCC2DC)
