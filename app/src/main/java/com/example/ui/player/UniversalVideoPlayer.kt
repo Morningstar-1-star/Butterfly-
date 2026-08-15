@@ -99,7 +99,7 @@ fun UniversalVideoPlayer(
     }
 
     val isMagnetLink = playbackSourceType == com.example.model.PlaybackSourceType.MAGNET
-    val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
+    val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW && !isMagnetLink
 
     // Playback Speed & Scaling Controls
     val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
@@ -728,6 +728,47 @@ fun UniversalVideoPlayer(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (isMagnetLink) {
+                                IconButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawVideoUrl))
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "No external torrent app found", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.OpenInNew,
+                                        contentDescription = "Open in Torrent App",
+                                        tint = Color.Cyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Magnet Link", rawVideoUrl)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Magnet URL copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy Magnet",
+                                        tint = Color.Yellow,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                             if (anime4kMode.isEnabled) {
                                 Surface(
                                     onClick = {

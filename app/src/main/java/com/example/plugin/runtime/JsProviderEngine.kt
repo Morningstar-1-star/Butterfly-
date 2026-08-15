@@ -241,9 +241,14 @@ class JsProviderEngine(
 
                         var result = fn(ButterflyContext, $argsSerialized);
                         if (result && typeof result.then === 'function') {
-                            var syncRes = null;
-                            result.then(function(res) { syncRes = res; }).catch(function(err) { syncRes = { __error: String(err) }; });
-                            return JSON.stringify(syncRes);
+                            var syncRes = undefined;
+                            var done = false;
+                            result.then(function(res) { syncRes = res; done = true; }).catch(function(err) { syncRes = { __error: String(err) }; done = true; });
+                            var start = java.lang.System.currentTimeMillis();
+                            while (!done && (java.lang.System.currentTimeMillis() - start < 10000)) {
+                                java.lang.Thread.sleep(10);
+                            }
+                            return JSON.stringify(syncRes !== undefined ? syncRes : null);
                         }
                         return JSON.stringify(result);
                     } catch(e) {

@@ -109,18 +109,16 @@ fun HomeScreen(
         }
     }
 
-    val shouldLoadMore = remember {
-        derivedStateOf {
+    LaunchedEffect(feedListState) {
+        androidx.compose.runtime.snapshotFlow {
             val layoutInfo = feedListState.layoutInfo
             val total = layoutInfo.totalItemsCount
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             total > 0 && lastVisible >= total - 3
-        }
-    }
-
-    LaunchedEffect(shouldLoadMore.value) {
-        if (shouldLoadMore.value && !isLoadingTrending && !isSearching && !isLoadingMore) {
-            viewModel.loadMoreContent()
+        }.collect { isNearBottom ->
+            if (isNearBottom && !isLoadingTrending && !isSearching && !isLoadingMore) {
+                viewModel.loadMoreContent()
+            }
         }
     }
 

@@ -515,8 +515,14 @@ object GlobalPlayerManager {
                         builder.setMimeType(MimeTypes.APPLICATION_M3U8)
                     } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
                         builder.setMimeType(MimeTypes.APPLICATION_MPD)
-                    } else if (lowerFormat == "mp4" || lowerUrl.contains(".mp4")) {
-                        builder.setMimeType(MimeTypes.APPLICATION_MP4)
+                    } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
+                        builder.setMimeType(MimeTypes.VIDEO_WEBM)
+                    } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
+                        builder.setMimeType(MimeTypes.AUDIO_WEBM)
+                    } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a")) {
+                        builder.setMimeType(MimeTypes.AUDIO_MP4)
+                    } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerFormat == "mp4") {
+                        builder.setMimeType(MimeTypes.VIDEO_MP4)
                     }
 
                     if (subtitles.isNotEmpty()) {

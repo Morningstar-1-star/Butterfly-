@@ -688,11 +688,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var lastRecordedProgressTime = 0L
+
     fun recordWatchProgress(videoId: String, currentPositionMs: Long, totalDurationMs: Long) {
         if (totalDurationMs <= 0) return
+        val now = System.currentTimeMillis()
+        if (now - lastRecordedProgressTime < 1500L) return
+        lastRecordedProgressTime = now
+
         val fraction = (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-        _watchProgressMap.value = _watchProgressMap.value + (videoId to fraction)
-        _watchPositionMsMap.value = _watchPositionMsMap.value + (videoId to currentPositionMs)
+        val currentFraction = _watchProgressMap.value[videoId] ?: -1f
+        if (kotlin.math.abs(fraction - currentFraction) >= 0.01f) {
+            _watchProgressMap.value = _watchProgressMap.value + (videoId to fraction)
+            _watchPositionMsMap.value = _watchPositionMsMap.value + (videoId to currentPositionMs)
+        }
     }
 
     fun recordVideoView(video: VideoItem) {

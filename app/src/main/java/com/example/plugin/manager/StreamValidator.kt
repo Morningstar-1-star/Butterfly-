@@ -115,7 +115,10 @@ class StreamValidator {
             if (cleanUrl.contains("eporner.com", ignoreCase = true) || 
                 cleanUrl.contains("dailymotion.com", ignoreCase = true) ||
                 cleanUrl.contains("phncdn.com", ignoreCase = true) ||
-                cleanUrl.contains("pornhub", ignoreCase = true)
+                cleanUrl.contains("pornhub", ignoreCase = true) ||
+                cleanUrl.contains("googlevideo.com", ignoreCase = true) ||
+                cleanUrl.contains("youtube.com", ignoreCase = true) ||
+                cleanUrl.contains("youtu.be", ignoreCase = true)
             ) {
                 return@withContext StreamValidationResult(
                     isValid = true,

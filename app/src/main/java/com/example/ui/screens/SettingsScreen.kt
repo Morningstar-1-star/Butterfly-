@@ -59,9 +59,16 @@ fun SettingsScreen(
     var isGesturesExpanded by remember { mutableStateOf(false) }
     var isShortsExpanded by remember { mutableStateOf(false) }
     var isSourcesExpanded by remember { mutableStateOf(false) }
+    var isCloudFoldersExpanded by remember { mutableStateOf(false) }
+
+    // Cloud Folders & Channels State
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var telegramChannels by remember { mutableStateOf(com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)) }
+    var megaFolders by remember { mutableStateOf(com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)) }
+    var newTelegramInput by remember { mutableStateOf("") }
+    var newMegaInput by remember { mutableStateOf("") }
 
     // Video Tag Preferences State
-    val context = androidx.compose.ui.platform.LocalContext.current
     val tagPrefs = remember { com.example.util.VideoTagPreferences.getInstance(context) }
     val hideAllTags by tagPrefs.hideAllTags.collectAsState()
     val hiddenTags by tagPrefs.hiddenTags.collectAsState()
@@ -263,6 +270,195 @@ fun SettingsScreen(
                         checked = adultContentEnabled,
                         onCheckedChange = { viewModel.setAdultContentEnabled(it) }
                     )
+                }
+            }
+
+            // 1.5. TELEGRAM CHANNELS & MEGA FOLDERS
+            item {
+                ExpandableSettingsCard(
+                    title = "Telegram Channels & Mega Folders",
+                    icon = Icons.Outlined.Cloud,
+                    isExpanded = isCloudFoldersExpanded,
+                    onToggleExpand = { isCloudFoldersExpanded = !isCloudFoldersExpanded },
+                    badgeText = "${telegramChannels.size} Channels, ${megaFolders.size} Folders"
+                ) {
+                    Text(
+                        text = "Telegram Public Channels",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Add multiple public channels or usernames to stream videos from them",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newTelegramInput,
+                            onValueChange = { newTelegramInput = it },
+                            placeholder = { Text("e.g. movies or t.me/s/channel") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        Button(
+                            onClick = {
+                                if (newTelegramInput.isNotBlank()) {
+                                    com.example.util.CloudFoldersSettingsManager.addTelegramChannelUrl(context, newTelegramInput)
+                                    telegramChannels = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)
+                                    newTelegramInput = ""
+                                    Toast.makeText(context, "Telegram channel added", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    telegramChannels.forEach { channelUrl ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = channelUrl,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                IconButton(
+                                    onClick = {
+                                        com.example.util.CloudFoldersSettingsManager.removeTelegramChannelUrl(context, channelUrl)
+                                        telegramChannels = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)
+                                        Toast.makeText(context, "Channel removed", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Mega Folder Links",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Add multiple Mega folder links to stream videos inside the app",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newMegaInput,
+                            onValueChange = { newMegaInput = it },
+                            placeholder = { Text("https://mega.nz/folder/...") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        Button(
+                            onClick = {
+                                if (newMegaInput.isNotBlank()) {
+                                    com.example.util.CloudFoldersSettingsManager.addMegaFolderUrl(context, newMegaInput)
+                                    megaFolders = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)
+                                    newMegaInput = ""
+                                    Toast.makeText(context, "Mega folder added", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    megaFolders.forEach { folderUrl ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = folderUrl,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                IconButton(
+                                    onClick = {
+                                        com.example.util.CloudFoldersSettingsManager.removeMegaFolderUrl(context, folderUrl)
+                                        megaFolders = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)
+                                        Toast.makeText(context, "Mega folder removed", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1249,40 +1445,116 @@ fun SettingsScreen(
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-                    Text(
-                        text = "Enabled Media Extensions",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Provider Sources & Plugins (${availableProviders.filter { it.id != "all" }.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Toggle providers & run live diagnostic health checks",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
-                    availableProviders.filter { it.id != "all" }.forEach { provider ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        var isTestingInSettings by remember { mutableStateOf(false) }
+                        val scope = rememberCoroutineScope()
+
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    isTestingInSettings = true
+                                    viewModel.runAllDiagnostics("IPX-800")
+                                    isTestingInSettings = false
+                                }
+                            },
+                            enabled = !isTestingInSettings,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = provider.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = provider.description,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                            Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (isTestingInSettings) "Testing..." else "Test All",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val providerCategories = remember(availableProviders) {
+                        availableProviders.filter { it.id != "all" }.groupBy { it.category }
+                    }
+
+                    providerCategories.forEach { (categoryName, categoryProviders) ->
+                        Text(
+                            text = categoryName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+                        )
+
+                        categoryProviders.forEach { provider ->
+                            val statusColor = when (provider.statusState) {
+                                com.example.plugin.jav.ProviderStatusState.SUCCESS -> Color(0xFF4CAF50)
+                                com.example.plugin.jav.ProviderStatusState.TIMEOUT -> Color(0xFFFF9800)
+                                com.example.plugin.jav.ProviderStatusState.NO_RESULT -> Color.Gray
+                                com.example.plugin.jav.ProviderStatusState.BLOCKED,
+                                com.example.plugin.jav.ProviderStatusState.ERROR -> Color(0xFFF44336)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = provider.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            color = statusColor.copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (provider.isEnabled) provider.statusMessage else "Disabled",
+                                                color = statusColor,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = provider.description,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Switch(
+                                    checked = enabledProviders.contains(provider.id),
+                                    onCheckedChange = { viewModel.toggleProviderEnabled(provider.id) }
                                 )
                             }
-                            Switch(
-                                checked = enabledProviders.contains(provider.id),
-                                onCheckedChange = { viewModel.toggleProviderEnabled(provider.id) }
-                            )
                         }
                     }
 

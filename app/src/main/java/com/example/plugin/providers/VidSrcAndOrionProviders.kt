@@ -138,7 +138,8 @@ class OrionProvider(
 
             try {
                 val response = http.get(streamUrl)
-                if (response.statusCode == 200 && response.body.isNotBlank()) {
+                val bodyTrimmed = response.body.trim()
+                if (response.statusCode == 200 && bodyTrimmed.startsWith("{")) {
                     val json = JSONObject(response.body)
                     val streamArr = json.optJSONArray("streams") ?: JSONArray()
                     for (i in 0 until streamArr.length()) {
@@ -170,6 +171,8 @@ class OrionProvider(
                             )
                         }
                     }
+                } else {
+                    Log.w("OrionProvider", "Orion indexer returned non-JSON or HTML response (status: ${response.statusCode}), ensure API key / endpoint is configured.")
                 }
             } catch (e: Exception) {
                 Log.e("OrionProvider", "Network error calling Orion indexer: ${e.message}")

@@ -34,13 +34,7 @@ object YtDlpResolver {
                         } catch (fe: Throwable) {
                             Log.w(TAG, "FFmpeg init warning: ${fe.message}")
                         }
-                        // Check and update yt-dlp binary to latest release
-                        try {
-                            val status = YoutubeDL.getInstance().updateYoutubeDL(appCtx, YoutubeDL.UpdateChannel.STABLE)
-                            Log.d(TAG, "yt-dlp binary update status: $status")
-                        } catch (ue: Throwable) {
-                            Log.w(TAG, "yt-dlp update warning (will continue with bundled release): ${ue.message}")
-                        }
+                        // Use bundled release without blocking network update on init
                         isInitialized = true
                         Log.d(TAG, "YoutubeDL initialized successfully")
                     } catch (e: Throwable) {

@@ -75,34 +75,12 @@ object YouTubeFastStreamResolver {
         val targetCtx = context ?: com.example.plugin.providers.ArchiveOrgProvider.contextRef ?: com.example.MainApplication.appContext
         val fullWatchUrl = "https://www.youtube.com/watch?v=$videoId"
 
-        // 1. PRIMARY EXTRACTION PIPELINE: yt-dlp with JS Runtime & PO-Token
-        try {
-            if (YtDlpResolver.isYtDlpSupportedUrl(fullWatchUrl)) {
-                Log.d(TAG, "Executing primary yt-dlp extraction for $fullWatchUrl")
-                val ytDlpRes = withTimeoutOrNull(5500L) {
-                    YtDlpResolver.extractStreamInfo(targetCtx, fullWatchUrl)
-                }
-                if (ytDlpRes is YtDlpResolver.ExtractionResult.Success && ytDlpRes.streamData.availableStreamOptions.isNotEmpty()) {
-                    val validOptions = ytDlpRes.streamData.availableStreamOptions.filter { it.videoUrl?.startsWith("http") == true }
-                    if (validOptions.isNotEmpty()) {
-                        val elapsed = System.currentTimeMillis() - startTime
-                        Log.d(TAG, "Primary yt-dlp extraction SUCCESS for $videoId in ${elapsed}ms (${validOptions.size} streams)")
-                        return@withContext YouTubeExtractorHelper.ExtractionResult.Success(ytDlpRes.streamData)
-                    }
-                } else if (ytDlpRes is YtDlpResolver.ExtractionResult.Error) {
-                    Log.w(TAG, "Primary yt-dlp extraction returned error: ${ytDlpRes.message}, invoking secondary race...")
-                }
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Primary yt-dlp extraction exception: ${t.message}, proceeding to fallback race")
-        }
+        // 1. PRIMARY ULTRA-FAST CONCURRENT RESOLUTION PIPELINE (100-300ms)
+        // Race Innertube profiles and direct proxies concurrently with instant channel completion
+        val fastWinner = coroutineScope {
+            val channel = Channel<StreamData>(capacity = 16)
 
-        // 2. SECONDARY CONCURRENT FALLBACK PIPELINE
-        // Race secondary resolvers concurrently with strict per-task timeouts and instant cancellation
-        val winner = coroutineScope {
-            val channel = Channel<StreamData>(capacity = 8)
-
-            // Task 1: Secondary Innertube Race
+            // Task 1: Direct Innertube Client Profiles Race
             val innertubeJob = launch {
                 try {
                     val fallback = withTimeoutOrNull(3000L) { raceAllResolvers(videoId, context) }
@@ -142,8 +120,8 @@ object YouTubeFastStreamResolver {
                 } catch (_: Throwable) {}
             }
 
-            // Wait for the first winning result (max 3.5 seconds timeout)
-            val res = withTimeoutOrNull(3500L) {
+            // Wait for the first winning result (max 3.0 seconds timeout)
+            val res = withTimeoutOrNull(3000L) {
                 try {
                     channel.receive()
                 } catch (_: Throwable) {
@@ -159,10 +137,32 @@ object YouTubeFastStreamResolver {
             res
         }
 
-        if (winner != null && winner.availableStreamOptions.isNotEmpty()) {
+        if (fastWinner != null && fastWinner.availableStreamOptions.isNotEmpty()) {
             val elapsed = System.currentTimeMillis() - startTime
-            Log.d(TAG, "YouTube direct stream extraction SUCCESS for $videoId in ${elapsed}ms")
-            return@withContext YouTubeExtractorHelper.ExtractionResult.Success(winner)
+            Log.d(TAG, "Ultra-fast direct YouTube extraction SUCCESS for $videoId in ${elapsed}ms (${fastWinner.availableStreamOptions.size} options)")
+            return@withContext YouTubeExtractorHelper.ExtractionResult.Success(fastWinner)
+        }
+
+        // 2. SECONDARY FALLBACK PIPELINE: yt-dlp binary extraction if direct race failed
+        try {
+            if (YtDlpResolver.isYtDlpSupportedUrl(fullWatchUrl)) {
+                Log.d(TAG, "Fast race failed, executing secondary yt-dlp extraction for $fullWatchUrl")
+                val ytDlpRes = withTimeoutOrNull(5500L) {
+                    YtDlpResolver.extractStreamInfo(targetCtx, fullWatchUrl)
+                }
+                if (ytDlpRes is YtDlpResolver.ExtractionResult.Success && ytDlpRes.streamData.availableStreamOptions.isNotEmpty()) {
+                    val validOptions = ytDlpRes.streamData.availableStreamOptions.filter { it.videoUrl?.startsWith("http") == true }
+                    if (validOptions.isNotEmpty()) {
+                        val elapsed = System.currentTimeMillis() - startTime
+                        Log.d(TAG, "Fallback yt-dlp extraction SUCCESS for $videoId in ${elapsed}ms (${validOptions.size} streams)")
+                        return@withContext YouTubeExtractorHelper.ExtractionResult.Success(ytDlpRes.streamData)
+                    }
+                } else if (ytDlpRes is YtDlpResolver.ExtractionResult.Error) {
+                    Log.w(TAG, "Fallback yt-dlp extraction returned error: ${ytDlpRes.message}")
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Fallback yt-dlp extraction exception: ${t.message}")
         }
 
         val totalElapsed = System.currentTimeMillis() - startTime
