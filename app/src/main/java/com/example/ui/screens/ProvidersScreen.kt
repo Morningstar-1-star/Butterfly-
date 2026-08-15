@@ -371,8 +371,29 @@ private fun ProviderCard(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val statusColor = when (provider.statusState) {
+                        com.example.plugin.jav.ProviderStatusState.SUCCESS -> Color(0xFF4CAF50)
+                        com.example.plugin.jav.ProviderStatusState.TIMEOUT -> Color(0xFFFF9800)
+                        com.example.plugin.jav.ProviderStatusState.NO_RESULT -> Color.Gray
+                        com.example.plugin.jav.ProviderStatusState.BLOCKED,
+                        com.example.plugin.jav.ProviderStatusState.ERROR -> Color(0xFFF44336)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Surface(
+                        color = statusColor.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = if (provider.isEnabled) provider.statusMessage else "Disabled",
+                            color = statusColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                     if (isActive) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         SuggestionChip(
                             onClick = {},
                             label = { Text("Default", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
@@ -393,11 +414,20 @@ private fun ProviderCard(
                     )
                 }
 
-                Text(
-                    text = "ID: ${provider.id}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Category: ${provider.category}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = " • ID: ${provider.id}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             Switch(

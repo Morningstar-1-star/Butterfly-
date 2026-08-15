@@ -76,20 +76,43 @@ object GlobalPlayerManager {
     private val _areControlsVisible = MutableStateFlow(true)
     val areControlsVisible: StateFlow<Boolean> = _areControlsVisible.asStateFlow()
 
-    fun setControlsVisibility(visible: Boolean) {
-        _areControlsVisible.value = visible
+    private var autoHideControlsJob: Job? = null
+
+    fun scheduleControlsAutoHide(delayMs: Long = 2700L) {
+        autoHideControlsJob?.cancel()
+        autoHideControlsJob = scope.launch {
+            delay(delayMs)
+            _areControlsVisible.value = false
+        }
     }
 
-    fun showControls() {
+    fun setControlsVisibility(visible: Boolean) {
+        _areControlsVisible.value = visible
+        if (visible) {
+            scheduleControlsAutoHide()
+        } else {
+            autoHideControlsJob?.cancel()
+        }
+    }
+
+    fun showControls(autoHideDelayMs: Long = 2700L) {
         _areControlsVisible.value = true
+        scheduleControlsAutoHide(autoHideDelayMs)
     }
 
     fun hideControls() {
+        autoHideControlsJob?.cancel()
         _areControlsVisible.value = false
     }
 
-    fun toggleControlsVisibility() {
-        _areControlsVisible.value = !_areControlsVisible.value
+    fun toggleControlsVisibility(autoHideDelayMs: Long = 2700L) {
+        val next = !_areControlsVisible.value
+        _areControlsVisible.value = next
+        if (next) {
+            scheduleControlsAutoHide(autoHideDelayMs)
+        } else {
+            autoHideControlsJob?.cancel()
+        }
     }
 
     private val _playbackEnded = MutableStateFlow(false)

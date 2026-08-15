@@ -82,6 +82,8 @@ fun UniversalVideoPlayer(
     failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     onBackClick: (() -> Unit)? = null,
+    onNextClick: (() -> Unit)? = null,
+    onPreviousClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -228,6 +230,21 @@ fun UniversalVideoPlayer(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            currentPlayerActivity?.let { act ->
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                val window = act.window
+                val lp = window.attributes
+                lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                window.attributes = lp
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+        }
+    }
+
     val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
 
     val playerContainerModifier = if (isLandscape) {
@@ -251,25 +268,34 @@ fun UniversalVideoPlayer(
                         }
                     },
                     onDoubleTap = { offset ->
-                        val halfWidth = size.width / 2
+                        val totalWidth = size.width
+                        val left30Boundary = totalWidth * 0.30f
+                        val right30Boundary = totalWidth * 0.70f
                         val seekMs = seekSecs * 1000L
-                        if (offset.x < halfWidth) {
+
+                        if (offset.x < left30Boundary) {
                             gestureNoticeText = "◄◄ ${seekSecs}s Rewind"
+                            gestureNoticeIcon = Icons.Default.FastRewind
                             if (!isEmbedOrWebPage) {
                                 GlobalPlayerManager.seekTo(exoPlayer.currentPosition - seekMs)
                                 GlobalPlayerManager.showControls()
                             }
-                        } else {
+                        } else if (offset.x > right30Boundary) {
                             gestureNoticeText = "${seekSecs}s Forward ►►"
+                            gestureNoticeIcon = Icons.Default.FastForward
                             if (!isEmbedOrWebPage) {
                                 GlobalPlayerManager.seekTo(exoPlayer.currentPosition + seekMs)
                                 GlobalPlayerManager.showControls()
+                            }
+                        } else {
+                            if (!isEmbedOrWebPage) {
+                                GlobalPlayerManager.toggleControlsVisibility()
                             }
                         }
                     }
                 )
             }
-            .pointerInput(isEmbedOrWebPage) {
+            .pointerInput(isEmbedOrWebPage, isLandscape) {
                 detectDragGestures(
                     onDrag = { change, dragAmount ->
                         change.consume()
@@ -278,13 +304,14 @@ fun UniversalVideoPlayer(
                             val dy = dragAmount.y
                             val absDx = kotlin.math.abs(dx)
                             val absDy = kotlin.math.abs(dy)
-                            if (dy > 35f && dy > absDx * 1.5f && onBackClick != null) {
+                            if (dy > 35f && dy > absDx * 1.5f && !isLandscape && onBackClick != null) {
                                 onBackClick.invoke()
-                            } else if (absDy > absDx) {
-                                if (change.position.x < size.width / 2) {
+                            } else if (absDy > absDx && isLandscape) {
+                                // Volume & Brightness swipe strictly in landscape mode
+                                if (change.position.x < size.width * 0.45f) {
                                     // Left side = Brightness
                                     val delta = -dy / size.height
-                                    brightnessLevel = (brightnessLevel + delta).coerceIn(0.1f, 1.0f)
+                                    brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
                                     val activity = context as? Activity
                                         ?: (context as? ContextWrapper)?.baseContext as? Activity
                                     activity?.let { act ->
@@ -294,7 +321,7 @@ fun UniversalVideoPlayer(
                                     }
                                     gestureNoticeText = "Brightness ${(brightnessLevel * 100).toInt()}%"
                                     gestureNoticeIcon = Icons.Default.BrightnessMedium
-                                } else {
+                                } else if (change.position.x > size.width * 0.55f) {
                                     // Right side = Volume
                                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                                     if (audioManager != null) {
@@ -799,6 +826,88 @@ fun UniversalVideoPlayer(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
+                        }
+                    }
+                }
+
+                // YouTube-Style Center Controls (Previous, Play/Pause, Next)
+                AnimatedVisibility(
+                    visible = areControlsVisible,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(36.dp)
+                    ) {
+                        // Previous Video / Rewind Button
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                if (onPreviousClick != null) {
+                                    onPreviousClick.invoke()
+                                } else {
+                                    val curMs = GlobalPlayerManager.currentPositionMs.value
+                                    GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
+                                }
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Previous Video",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Center Big Play/Pause Button
+                        val isCurrentlyPlayingCenter by GlobalPlayerManager.isPlaying.collectAsState()
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                if (isCurrentlyPlayingCenter) {
+                                    GlobalPlayerManager.pause()
+                                } else {
+                                    GlobalPlayerManager.play()
+                                }
+                            },
+                            modifier = Modifier
+                                .size(68.dp)
+                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (isCurrentlyPlayingCenter) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isCurrentlyPlayingCenter) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(42.dp)
+                            )
+                        }
+
+                        // Next Video / Forward Button
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                if (onNextClick != null) {
+                                    onNextClick.invoke()
+                                } else {
+                                    val curMs = GlobalPlayerManager.currentPositionMs.value
+                                    GlobalPlayerManager.seekTo(curMs + 10000L)
+                                }
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Next Video",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
                     }
                 }
@@ -1811,12 +1920,14 @@ private fun toggleFullscreen(context: Context) {
     val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
 
     if (isLandscape) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         controller.show(WindowInsetsCompat.Type.systemBars())
+        activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
     } else {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
     }
 }
 

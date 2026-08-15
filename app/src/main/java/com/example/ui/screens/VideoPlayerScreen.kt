@@ -137,6 +137,12 @@ fun VideoPlayerScreen(
         } else null
     }
 
+    val previousEpisode = remember(allEpisodes, currentEpisodeIndex) {
+        if (currentEpisodeIndex > 0 && currentEpisodeIndex < allEpisodes.size) {
+            allEpisodes[currentEpisodeIndex - 1]
+        } else null
+    }
+
     var autoPlayCountdown by remember { mutableIntStateOf(5) }
     var isUpNextActive by remember { mutableStateOf(false) }
 
@@ -417,6 +423,29 @@ fun VideoPlayerScreen(
                     activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
                 },
                 onBackClick = onBackClick,
+                onNextClick = {
+                    if (nextEpisode != null) {
+                        playTargetEpisode(nextEpisode)
+                    } else if (landscapeVideos.isNotEmpty()) {
+                        val nextVid = landscapeVideos.first()
+                        viewModel.playVideo(nextVid.id, nextVid.providerId)
+                    } else {
+                        val curMs = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value
+                        com.example.ui.player.GlobalPlayerManager.seekTo(curMs + 10000L)
+                    }
+                },
+                onPreviousClick = {
+                    if (previousEpisode != null) {
+                        playTargetEpisode(previousEpisode)
+                    } else {
+                        val curMs = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value
+                        if (curMs > 5000L) {
+                            com.example.ui.player.GlobalPlayerManager.seekTo(0L)
+                        } else {
+                            com.example.ui.player.GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -456,46 +485,6 @@ fun VideoPlayerScreen(
                 onSeekTo = { targetMs -> com.example.ui.player.GlobalPlayerManager.seekTo(targetMs) },
                 streamTitle = currentStreamData?.title
             )
-
-            // Landscape Floating Hint to open Related Videos if controls are showing
-            val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
-            AnimatedVisibility(
-                visible = areControlsVisible && !showLandscapeRelatedDrawer && landscapeVideos.isNotEmpty(),
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 60.dp)
-            ) {
-                Surface(
-                    onClick = {
-                        showLandscapeRelatedDrawer = true
-                    },
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
-                    contentColor = Color.White
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowUp,
-                            contentDescription = "Swipe up for related videos",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "More Videos",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
 
             // Landscape Related Videos Drawer
             LandscapeRelatedDrawer(
@@ -553,7 +542,30 @@ fun VideoPlayerScreen(
                     onProgressUpdate = { pos, dur ->
                         activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
                     },
-                    onBackClick = onBackClick
+                    onBackClick = onBackClick,
+                    onNextClick = {
+                        if (nextEpisode != null) {
+                            playTargetEpisode(nextEpisode)
+                        } else if (landscapeVideos.isNotEmpty()) {
+                            val nextVid = landscapeVideos.first()
+                            viewModel.playVideo(nextVid.id, nextVid.providerId)
+                        } else {
+                            val curMs = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value
+                            com.example.ui.player.GlobalPlayerManager.seekTo(curMs + 10000L)
+                        }
+                    },
+                    onPreviousClick = {
+                        if (previousEpisode != null) {
+                            playTargetEpisode(previousEpisode)
+                        } else {
+                            val curMs = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value
+                            if (curMs > 5000L) {
+                                com.example.ui.player.GlobalPlayerManager.seekTo(0L)
+                            } else {
+                                com.example.ui.player.GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
+                            }
+                        }
+                    }
                 )
 
                 TorrentArtworkOverlay(

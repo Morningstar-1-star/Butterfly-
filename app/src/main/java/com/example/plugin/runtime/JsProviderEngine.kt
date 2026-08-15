@@ -18,7 +18,7 @@ import java.io.File
 
 class NativeHttpHelper(private val httpBridge: HttpBridge) {
     fun get(url: String, headersJson: String?): String {
-        return runBlocking {
+        return runBlocking(Dispatchers.IO) {
             try {
                 val headerMap = if (!headersJson.isNullOrEmpty()) {
                     val json = JSONObject(headersJson)
@@ -42,7 +42,7 @@ class NativeHttpHelper(private val httpBridge: HttpBridge) {
     }
 
     fun post(url: String, body: String, contentType: String?, headersJson: String?): String {
-        return runBlocking {
+        return runBlocking(Dispatchers.IO) {
             try {
                 val headerMap = if (!headersJson.isNullOrEmpty()) {
                     val json = JSONObject(headersJson)

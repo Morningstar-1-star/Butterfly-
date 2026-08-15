@@ -28,6 +28,9 @@ import com.example.plugin.manager.Repository
 import com.example.plugin.manager.RepositoryManager
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.PluginStreamInfo
+import com.example.plugin.jav.orchestrator.UnifiedJavOrchestrator
+import com.example.plugin.jav.ProviderStatusState
+import com.example.plugin.jav.ProviderDiagnosticResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
@@ -73,6 +76,22 @@ enum class AppAccentColor(val label: String, val color: Color) {
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val DIVERSE_TOPICS = listOf(
+        "trending videos 2026",
+        "popular movies 2026",
+        "top music hits",
+        "4k nature landscape",
+        "gaming highlights",
+        "science technology documentary",
+        "official movie trailers",
+        "tech news reviews",
+        "viral video clips",
+        "popular anime episodes",
+        "eztv torrent releases",
+        "internet archive movies",
+        "classic comedy shows"
+    )
 
     private val userDataDao = AppDatabase.getInstance(application).userDataDao()
 
@@ -339,14 +358,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _enabledProviderIds = MutableStateFlow<Set<String>>(
         setOf(
             "all", "unified_torrents", "youtube", "jikan_anime",
-            "dailymotion", "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner", "pornhub", "redtube", "xhamster",
-            "peertube", "vimeo", "archive_org", "ted", "nasa", "direct_mp4", "direct_hls", "rss_video", "json"
+            "dailymotion", "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
+            "archive_org", "mega", "telegram", "direct_mp4", "direct_hls", "rss_video", "json",
+            "javinizer_go", "avm_engine", "javdex", "openaver", "mdcx", "fss", "javlibrary", "jav321", "javdb", "javbus", "javmenu", "airav", "arzon", "gfriends",
+            "javpy_resolver", "missav_surrit", "jable_tv", "avgle_api", "jav_trailers", "supjav", "javcl", "jav18", "hanime_tv", "iwara",
+            "orion", "comet", "mediafusion", "zilean"
         )
     )
     val enabledProviderIds: StateFlow<Set<String>> = _enabledProviderIds.asStateFlow()
 
     private val _availableProviders = MutableStateFlow<List<ProviderUiItem>>(emptyList())
     val availableProviders: StateFlow<List<ProviderUiItem>> = _availableProviders.asStateFlow()
+
+    private val _providerDiagnosticsMap = MutableStateFlow<Map<String, ProviderDiagnosticResult>>(emptyMap())
+    val providerDiagnosticsMap: StateFlow<Map<String, ProviderDiagnosticResult>> = _providerDiagnosticsMap.asStateFlow()
+
+    fun runAllDiagnostics(testJavId: String = "IPX-800") {
+        viewModelScope.launch(Dispatchers.IO) {
+            val results = UnifiedJavOrchestrator.runDiagnostics(testJavId)
+            val map = results.associateBy { it.providerId }
+            _providerDiagnosticsMap.value = map
+            refreshProvidersList()
+        }
+    }
+
+    private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
+
+    private val _watchPositionMsMap = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
 
     private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
         com.example.util.NotInterestedManager.getHiddenVideoIds(application)
@@ -374,6 +414,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) return true
         if (ch.isNotEmpty() && blockedChans.contains(ch)) return true
         if (embed.isNotEmpty() && (hidden.any { it.isNotBlank() && embed.contains(it) } || notInt.any { it.isNotBlank() && embed.contains(it) })) return true
+
+        // Filter out videos where watched fraction >= 85%
+        val watchedFraction = _watchProgressMap.value[vid] ?: 0f
+        if (watchedFraction >= 0.85f) return true
+
         return false
     }
 
@@ -392,11 +437,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _adultContentEnabled
     ) { list, hidden, notInt, blockedChans, adultEnabled ->
         list.filter { item ->
-            val vid = item.id.trim()
-            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
-            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
-                    (ch.isNotEmpty() && blockedChans.contains(ch))
-            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+            !isBlockedVideo(item) && (adultEnabled || !isAdultVideoItem(item))
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -423,11 +464,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _adultContentEnabled
     ) { list, hidden, notInt, blockedChans, adultEnabled ->
         list.filter { item ->
-            val vid = item.id.trim()
-            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
-            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
-                    (ch.isNotEmpty() && blockedChans.contains(ch))
-            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+            !isBlockedVideo(item) && (adultEnabled || !isAdultVideoItem(item))
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -628,12 +665,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isSearchExpanded.value = false
     }
 
-    private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
-    val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
-
-    private val _watchPositionMsMap = MutableStateFlow<Map<String, Long>>(emptyMap())
-    val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
-
     private val _recommendedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
     val recommendedVideos: StateFlow<List<VideoItem>> = combine(
         _recommendedVideos,
@@ -643,11 +674,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _adultContentEnabled
     ) { list, hidden, notInt, blockedChans, adultEnabled ->
         list.filter { item ->
-            val vid = item.id.trim()
-            val ch = item.uploaderName?.trim()?.lowercase() ?: ""
-            val isBlocked = (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) ||
-                    (ch.isNotEmpty() && blockedChans.contains(ch))
-            !isBlocked && (adultEnabled || !isAdultVideoItem(item))
+            !isBlockedVideo(item) && (adultEnabled || !isAdultVideoItem(item))
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -1512,16 +1539,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleProviderEnabled(providerId: String) {
         val current = _enabledProviderIds.value.toMutableSet()
-        if (current.contains(providerId)) {
-            if (providerId == _activeProviderId.value) return
-            current.remove(providerId)
-        } else {
+        val newState = !current.contains(providerId)
+        if (newState) {
             current.add(providerId)
             if (isAdultProviderId(providerId) && !_adultContentEnabled.value) {
                 setAdultContentEnabled(true)
             }
+        } else {
+            if (providerId == _activeProviderId.value) return
+            current.remove(providerId)
         }
         _enabledProviderIds.value = current
+        UnifiedJavOrchestrator.setProviderEnabled(providerId, newState)
         refreshProvidersList()
     }
 
@@ -1529,48 +1558,174 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val allNative = pluginManager.getAllAvailableProviders()
         val activeId = _activeProviderId.value
         val enabledSet = _enabledProviderIds.value
+        val diagMap = _providerDiagnosticsMap.value
 
         val uiList = mutableListOf<ProviderUiItem>()
 
-        // Prepend All-In-One Feed (Mix)
+        // 1. All-In-One Feed
         uiList.add(
             ProviderUiItem(
                 id = "all",
                 name = "All Sources",
-                description = "Aggregated feed from all providers",
+                description = "Aggregated feed combining all enabled content providers",
+                category = "Aggregator",
                 isEnabled = enabledSet.contains("all"),
-                isDefault = (activeId == "all")
+                isDefault = (activeId == "all"),
+                statusState = ProviderStatusState.SUCCESS,
+                statusMessage = "Ready"
             )
         )
 
+        // 2. Native Content Providers
         allNative.forEach { provider ->
             val id = provider.providerId
             if (id in subTorrentProviderIds) return@forEach
 
             val name = getReadableProviderName(id)
-            val desc = if (id == "unified_torrents") {
-                "Aggregated torrent indexers (YTS, EZTV, Torrentio, TMDB, Nyaa & Torrent API)"
-            } else if (isAdultProviderId(id)) {
-                "Adult & Asian cinema provider ($id)"
-            } else {
-                "Streaming provider ($id)"
-            }
+            val desc = getProviderRoleDescription(id)
+            val category = getProviderCategoryName(id)
+            val diag = diagMap[id]
 
             val isTorrent = provider.capabilities.supportsTorrent || provider.capabilities.providerType == com.example.plugin.sdk.model.ProviderType.TORRENT
             val pType = if (isTorrent) com.example.plugin.sdk.model.ProviderType.TORRENT else provider.capabilities.providerType
+
+            val isEnabled = enabledSet.contains(id)
+            val stState = diag?.status ?: if (isEnabled) ProviderStatusState.SUCCESS else ProviderStatusState.NO_RESULT
+            val stMsg = diag?.let { "${it.status.name} (${it.responseTimeMs}ms)" } ?: if (isEnabled) "Ready / Active" else "Disabled"
 
             uiList.add(
                 ProviderUiItem(
                     id = id,
                     name = name,
                     description = desc,
-                    isEnabled = enabledSet.contains(id),
+                    category = category,
+                    isEnabled = isEnabled,
                     isDefault = (id == activeId),
-                    providerType = pType
+                    providerType = pType,
+                    statusState = stState,
+                    statusMessage = stMsg,
+                    responseTimeMs = diag?.responseTimeMs ?: 0L
                 )
             )
         }
+
+        // 3. Orchestrator Metadata Scrapers (Javinizer-Go, AVM, Javdex, OpenAver, MDCx, FSS, etc.)
+        UnifiedJavOrchestrator.metadataProviders.forEach { meta ->
+            val id = meta.id
+            if (uiList.none { it.id == id }) {
+                val diag = diagMap[id]
+                val isEnabled = enabledSet.contains(id) && meta.isEnabled
+                val stState = diag?.status ?: if (isEnabled) ProviderStatusState.SUCCESS else ProviderStatusState.NO_RESULT
+                val stMsg = diag?.let { "${it.status.name} (${it.responseTimeMs}ms)" } ?: if (isEnabled) "Ready / Active" else "Disabled"
+
+                uiList.add(
+                    ProviderUiItem(
+                        id = id,
+                        name = getReadableProviderName(id).ifBlank { meta.name },
+                        description = getProviderRoleDescription(id),
+                        category = "Repository Catalog Scraper",
+                        isEnabled = isEnabled,
+                        isDefault = (id == activeId),
+                        statusState = stState,
+                        statusMessage = stMsg,
+                        responseTimeMs = diag?.responseTimeMs ?: 0L
+                    )
+                )
+            }
+        }
+
+        // 4. Orchestrator Stream Resolvers (JavPy, MissAV, Jable.tv, Avgle, etc.)
+        UnifiedJavOrchestrator.streamProviders.forEach { stream ->
+            val id = stream.id
+            if (uiList.none { it.id == id }) {
+                val diag = diagMap[id]
+                val isEnabled = enabledSet.contains(id) && stream.isEnabled
+                val stState = diag?.status ?: if (isEnabled) ProviderStatusState.SUCCESS else ProviderStatusState.NO_RESULT
+                val stMsg = diag?.let { "${it.status.name} (${it.responseTimeMs}ms)" } ?: if (isEnabled) "Ready / Active" else "Disabled"
+
+                uiList.add(
+                    ProviderUiItem(
+                        id = id,
+                        name = getReadableProviderName(id).ifBlank { stream.name },
+                        description = getProviderRoleDescription(id),
+                        category = "Stream Resolver Engine",
+                        isEnabled = isEnabled,
+                        isDefault = (id == activeId),
+                        statusState = stState,
+                        statusMessage = stMsg,
+                        responseTimeMs = diag?.responseTimeMs ?: 0L
+                    )
+                )
+            }
+        }
+
         _availableProviders.value = uiList
+    }
+
+    private fun getProviderRoleDescription(id: String): String {
+        return when (id) {
+            "all" -> "Aggregated feed combining all enabled content providers"
+            "unified_torrents" -> "Multi-indexer torrent aggregator (YTS, EZTV, Torrentio, TMDB, Nyaa & Torrent API)"
+            "youtube" -> "YouTube fast stream resolution, video search & channel metadata"
+            "jikan_anime" -> "MyAnimeList & Jikan API for anime catalog search, episode guides & artwork"
+            "dailymotion" -> "Dailymotion video discovery & embedded player stream resolver"
+            "eporner" -> "Full HD adult video search & direct MP4 video stream provider"
+            "apijav_server" -> "apiJAV WordPress REST API video server endpoint"
+            "apijav_hentai" -> "apiJAV dedicated anime & hentai stream category provider"
+            "apijav_porn" -> "apiJAV main adult movie & scenes stream provider"
+            "javinfo" -> "Asian Cinema & JAV video code metadata & stream indexer"
+            "archive_org" -> "Internet Archive public domain movies, documentaries & video library"
+            "mega" -> "Mega.nz direct cloud storage video link stream resolver"
+            "telegram" -> "Telegram public channel direct video stream resolver"
+            "direct_mp4" -> "Direct .mp4 video URL player engine"
+            "direct_hls" -> "Direct .m3u8 HTTP Live Streaming player engine"
+            "rss_video" -> "Custom XML/RSS video feed parser"
+            "json" -> "Custom JSON playlist & feed engine"
+
+            "javinizer_go" -> "Go-based multi-source metadata fetcher querying R18 & MGStage catalog APIs"
+            "avm_engine" -> "Native adult scraper for FC2 Club and DMM CID adult database entries"
+            "javdex" -> "JavDB metadata indexer bypass with over18 session headers & cover art extractor"
+            "openaver" -> "Go adult content search engine pipeline for JavMenu & JavBooks API endpoints"
+            "mdcx" -> "Python metadata scraper module using AirAV barcode API & MGStage age-gate bypass"
+            "fss" -> "Arzon adult catalog parser & DMM metadata aggregator"
+            "javlibrary" -> "Core JAV catalog indexer for release dates, studios, actresses, and tags"
+            "jav321" -> "Japanese video code search scraper for studio & release metadata"
+            "javdb" -> "Community database indexer for JAV metadata, ratings, and cover art"
+            "javbus" -> "JAV catalog scraper & magnet link aggregator"
+            "javmenu" -> "Online JAV catalog & video page metadata scraper"
+            "airav" -> "Barcode & video code metadata API resolver"
+            "arzon" -> "Arzon adult DVD store detail page parser"
+            "gfriends" -> "Actresses high-res avatar artwork provider"
+
+            "javpy_resolver" -> "Python JavPy native stream resolver querying Avgle JAV API streams"
+            "missav_surrit" -> "Surrit HLS video stream extractor for MissAV video player"
+            "jable_tv" -> "Direct HLS .m3u8 video stream parser for Jable.tv"
+            "avgle_api" -> "Direct REST API resolver for Avgle embedded video streams"
+            "jav_trailers" -> "Official DMM PV preview trailer stream fetcher"
+            "supjav" -> "Supjav streaming video embed parser"
+            "javcl" -> "JavCL video embed link resolver"
+            "jav18" -> "Jav18 video stream link extractor"
+            "hanime_tv" -> "Anime & Hentai video stream resolver"
+            "iwara" -> "Iwara 3D animation video stream parser"
+
+            "orion" -> "Orion Stremio API - Torrent & Debrid hash indexer"
+            "comet" -> "Comet Stremio - Fast Stremio add-on stream indexer"
+            "mediafusion" -> "MediaFusion Stremio - Multi-source Stremio add-on indexer"
+            "zilean" -> "Zilean DMM Indexer - DMM torrent indexer for Debrid playback"
+            else -> "Media & Data Provider ($id)"
+        }
+    }
+
+    private fun getProviderCategoryName(id: String): String {
+        return when (id) {
+            "all" -> "Aggregator"
+            "youtube", "jikan_anime", "dailymotion", "archive_org", "mega", "telegram", "direct_mp4", "direct_hls", "rss_video", "json" -> "Media Content Feeds"
+            "eporner", "apijav_server", "apijav_hentai", "apijav_porn", "javinfo" -> "Adult Media Feeds"
+            "javinizer_go", "avm_engine", "javdex", "openaver", "mdcx", "fss", "javlibrary", "jav321", "javdb", "javbus", "javmenu", "airav", "arzon", "gfriends" -> "Repository Catalog Scrapers"
+            "javpy_resolver", "missav_surrit", "jable_tv", "avgle_api", "jav_trailers", "supjav", "javcl", "jav18", "hanime_tv", "iwara" -> "Stream Resolver Engines"
+            "orion", "comet", "mediafusion", "zilean", "unified_torrents" -> "Debrid & Indexers"
+            else -> "Plugins & Extensions"
+        }
     }
 
     private fun getReadableProviderName(id: String): String {
@@ -1579,14 +1734,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "unified_torrents" -> "Torrents (All Indexers)"
             "youtube" -> "YouTube"
             "bilibili" -> "Bilibili"
-            "jikan_anime" -> "Anime (Jikan)"
+            "jikan_anime" -> "Anime (Jikan / MAL)"
             "dailymotion" -> "Dailymotion"
-            "javinfo" -> "JavInfo API (18+)"
-            "apijav" -> "APIJAV Network (18+)"
-            "apijav_server" -> "APIJAV Server (18+)"
-            "apijav_hentai" -> "APIJAV Hentai (18+)"
-            "apijav_porn" -> "APIJAV Porn (18+)"
-            "eporner" -> "Eporner HD (18+)"
+            "javinfo" -> "JavInfo API"
+            "apijav" -> "APIJAV Network"
+            "apijav_server" -> "APIJAV Server"
+            "apijav_hentai" -> "APIJAV Hentai"
+            "apijav_porn" -> "APIJAV Porn"
+            "eporner" -> "Eporner HD"
             "peertube" -> "PeerTube"
             "vimeo" -> "Vimeo"
             "archive_org" -> "Archive.org"
@@ -1596,7 +1751,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "direct_hls" -> "Direct HLS Stream"
             "rss_video" -> "RSS Video Feed"
             "json" -> "Custom JSON Feed"
-            else -> id.replaceFirstChar { it.uppercase() }
+
+            "javinizer_go" -> "Javinizer-Go"
+            "avm_engine" -> "Adult Video Manager (AVM)"
+            "javdex" -> "Javdex"
+            "openaver" -> "OpenAver"
+            "mdcx" -> "MDCx Engine"
+            "fss" -> "Film Scraper System (FSS)"
+            "javlibrary" -> "JavLibrary"
+            "jav321" -> "Jav321"
+            "javdb" -> "JavDB"
+            "javbus" -> "JavBus"
+            "javmenu" -> "JavMenu"
+            "airav" -> "AirAV API"
+            "arzon" -> "Arzon Catalog"
+            "gfriends" -> "GFriends Avatars"
+
+            "javpy_resolver" -> "JavPy Stream Resolver"
+            "missav_surrit" -> "MissAV / Surrit"
+            "jable_tv" -> "Jable.tv"
+            "avgle_api" -> "Avgle API"
+            "jav_trailers" -> "DMM Free PV Trailers"
+            "supjav" -> "Supjav"
+            "javcl" -> "JavCL"
+            "jav18" -> "Jav18"
+            "hanime_tv" -> "Hanime.tv"
+            "iwara" -> "Iwara 3D"
+
+            "orion" -> "Orion Stremio"
+            "comet" -> "Comet Stremio"
+            "mediafusion" -> "MediaFusion Stremio"
+            "zilean" -> "Zilean DMM Indexer"
+            else -> id.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
         }
     }
 
@@ -1663,8 +1849,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         Log.d("MainViewModel", "Search query: '$q' on active provider: ${_activeProviderId.value}")
 
+        _isSearching.value = true
         viewModelScope.launch(Dispatchers.IO) {
-            _isSearching.value = true
             _feedError.value = null
             try {
                 val activeId = _activeProviderId.value
@@ -1754,8 +1940,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadTrending(forceRefresh: Boolean = false) {
         currentTrendingPage = 1
+        _isLoadingTrending.value = true
         viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingTrending.value = true
             _feedError.value = null
             if (forceRefresh) {
                 _searchResults.value = emptyList()
@@ -1845,9 +2031,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadMoreContent() {
         if (_isLoadingMore.value || _isLoadingTrending.value || _isSearching.value) return
+        _isLoadingMore.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingMore.value = true
             try {
                 val q = _searchQuery.value
                 val isSearchMode = _searchResults.value.isNotEmpty() || q.isNotBlank()
@@ -1986,7 +2172,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     val filtered = if (_adultContentEnabled.value) newItems else newItems.filterNot { isAdultVideoItem(it) }
                     val currentList = _trendingVideos.value
-                    val combined = (currentList + filtered).distinctBy { it.id }
+                    var combined = (currentList + filtered).distinctBy { it.id }
+
+                    // If provider didn't return any new unique items for page > 1, query diverse topics so infinite scroll continues
+                    if (combined.size <= currentList.size) {
+                        val topicIndex = (currentTrendingPage - 1) % DIVERSE_TOPICS.size
+                        val fallbackTopic = DIVERSE_TOPICS[topicIndex]
+                        try {
+                            when (val res = YouTubeExtractorHelper.searchVideos(fallbackTopic)) {
+                                is com.example.model.FeedResult.Success -> {
+                                    val fallbackItems = res.items.map { it.copy(providerId = activeId.ifBlank { "youtube" }) }
+                                    val filteredFallback = if (_adultContentEnabled.value) fallbackItems else fallbackItems.filterNot { isAdultVideoItem(it) }
+                                    combined = (currentList + filteredFallback).distinctBy { it.id }
+                                }
+                                else -> {}
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MainViewModel", "Error fetching fallback topic for pagination", e)
+                        }
+                    }
+
                     _trendingVideos.value = combined
                 }
             } catch (e: Exception) {

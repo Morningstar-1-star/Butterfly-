@@ -170,15 +170,13 @@ object YouTubeExtractorHelper {
         data class Error(val errorDetails: ExtractorErrorDetails) : ExtractionResult()
     }
 
-    fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult {
+    suspend fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         // Fast Path: Ultra-fast Innertube and multi-source parallel resolution (100-400ms)
         try {
-            val fastResult = kotlinx.coroutines.runBlocking {
-                YouTubeFastStreamResolver.resolveStream(urlOrId, context)
-            }
+            val fastResult = YouTubeFastStreamResolver.resolveStream(urlOrId, context)
             if (fastResult is ExtractionResult.Success && fastResult.streamData.availableStreamOptions.isNotEmpty()) {
                 logDebug("YouTubeExtractor", "FastStreamResolver SUCCESS for $urlOrId with ${fastResult.streamData.availableStreamOptions.size} options")
-                return fastResult
+                return@withContext fastResult
             }
         } catch (t: Throwable) {
             logWarn("YouTubeExtractor", "FastStreamResolver error: ${t.message}")
@@ -190,7 +188,7 @@ object YouTubeExtractorHelper {
         val videoId = when (val parsed = parseYouTubeInput(urlOrId)) {
             is UrlParseResult.ValidVideoId -> parsed.videoId
             is UrlParseResult.InvalidUrl -> {
-                return ExtractionResult.Error(
+                return@withContext ExtractionResult.Error(
                     ExtractorErrorDetails(
                         errorType = ExtractorErrorType.UNAVAILABLE,
                         message = "Invalid YouTube URL",
@@ -208,11 +206,9 @@ object YouTubeExtractorHelper {
 
         logDebug("YouTubeExtractor", "[TRACE] BEFORE StreamInfo.getInfo for videoId: '$videoId', fullUrl: '$fullUrl'")
 
-        return try {
-            val info = kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                    StreamInfo.getInfo(service, fullUrl)
-                }
+        try {
+            val info = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                StreamInfo.getInfo(service, fullUrl)
             } ?: throw IOException("StreamInfo.getInfo timed out after 4s")
 
             val progressiveStreams = info.videoStreams ?: emptyList()
@@ -281,11 +277,9 @@ object YouTubeExtractorHelper {
             }
 
             if (options.isEmpty() && info.hlsUrl.isNullOrEmpty()) {
-                val fastRes = kotlinx.coroutines.runBlocking {
-                    YouTubeFastStreamResolver.resolveStream(videoId, context)
-                }
+                val fastRes = YouTubeFastStreamResolver.resolveStream(videoId, context)
                 if (fastRes is ExtractionResult.Success) {
-                    return fastRes
+                    return@withContext fastRes
                 }
             }
 
@@ -346,14 +340,12 @@ object YouTubeExtractorHelper {
         } catch (e: Throwable) {
             logWarn("YouTubeExtractor", "NewPipe extraction hit exception for $fullUrl: ${e.message}. Launching yt-dlp resolver.")
             
-            val fastRes = kotlinx.coroutines.runBlocking {
-                YouTubeFastStreamResolver.resolveStream(videoId, context)
-            }
+            val fastRes = YouTubeFastStreamResolver.resolveStream(videoId, context)
             if (fastRes is ExtractionResult.Success) {
-                return fastRes
+                return@withContext fastRes
             }
 
-            return ExtractionResult.Error(
+            return@withContext ExtractionResult.Error(
                 ExtractorErrorDetails(
                     errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
                     message = "Unable to fetch direct YouTube media streams.",
@@ -366,7 +358,7 @@ object YouTubeExtractorHelper {
         }
     }
 
-    fun searchVideos(query: String): FeedResult {
+    suspend fun searchVideos(query: String): FeedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val apiSearch = com.example.util.YouTubeApiHelper.search(query, 25)
         if (apiSearch != null && apiSearch.videoItems.isNotEmpty()) {
             val items = apiSearch.videoItems.map { item ->
@@ -382,11 +374,11 @@ object YouTubeExtractorHelper {
                     thumbnailUrl = item.thumbnailUrl
                 )
             }
-            return FeedResult.Success(items)
+            return@withContext FeedResult.Success(items)
         }
 
         ensureInitialized()
-        return try {
+        try {
             val service = getYouTubeService()
             val searchExtractor = service.getSearchExtractor(
                 query,
@@ -430,7 +422,7 @@ object YouTubeExtractorHelper {
         }
     }
 
-    fun fetchTrendingVideos(): FeedResult {
+    suspend fun fetchTrendingVideos(): FeedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val apiPopular = com.example.util.YouTubeApiHelper.fetchPopularVideos(25)
         if (!apiPopular.isNullOrEmpty()) {
             val items = apiPopular.map { item ->
@@ -446,11 +438,11 @@ object YouTubeExtractorHelper {
                     thumbnailUrl = item.thumbnailUrl
                 )
             }
-            return FeedResult.Success(items)
+            return@withContext FeedResult.Success(items)
         }
 
         ensureInitialized()
-        return try {
+        try {
             searchVideos("trending videos")
         } catch (e: Exception) {
             logError("YouTubeExtractor", "Exception in fetchTrendingVideos", e)
