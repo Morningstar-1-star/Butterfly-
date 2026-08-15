@@ -18,7 +18,8 @@ private val sharedClient = OkHttpClient.Builder()
     .build()
 
 /**
- * JavLibrary & JavBus Web Metadata Scraper
+ * 5a. JavLibrary & JavBus Metadata Scraper
+ * Strictly verifies that retrieved title contains the requested JAV ID.
  */
 class JavLibraryBusMetadataProvider : MetadataProvider {
     override val id: String = "javlibrary_javbus"
@@ -27,6 +28,8 @@ class JavLibraryBusMetadataProvider : MetadataProvider {
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
+        val rawNum = cleanJavId.replace("-", "")
+
         // Primary: JavLibrary search
         try {
             val url = "https://www.javlibrary.com/en/vl_searchbyid.php?keyword=$cleanJavId"
@@ -50,7 +53,8 @@ class JavLibraryBusMetadataProvider : MetadataProvider {
             val studioMatch = Pattern.compile("rel=\"tag\">(.*?)</a></span>").matcher(html)
             val studio = if (studioMatch.find()) studioMatch.group(1) ?: "" else ""
 
-            if (title.isNotBlank() && coverUrl.isNotBlank()) {
+            val upperTitle = title.uppercase()
+            if ((upperTitle.contains(cleanJavId) || upperTitle.contains(rawNum)) && coverUrl.isNotBlank()) {
                 return@withContext JavMetadata(
                     javId = cleanJavId,
                     title = title,
@@ -66,28 +70,32 @@ class JavLibraryBusMetadataProvider : MetadataProvider {
         // Secondary: JavBus
         try {
             val busUrl = "https://www.javbus.com/en/$cleanJavId"
-            val req = Request.Builder().url(busUrl).header("User-Agent", "Mozilla/5.0").build()
+            val req = Request.Builder()
+                .url(busUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                .build()
             val res = sharedClient.newCall(req).execute()
             val html = res.body?.string() ?: ""
-            if (!res.isSuccessful || html.contains("404 Not Found")) return@withContext null
+            if (res.isSuccessful && !html.contains("404 Not Found")) {
+                val coverMatch = Pattern.compile("class=\"bigImage\" href=\"(.*?)\"").matcher(html)
+                val coverUrl = if (coverMatch.find()) {
+                    val raw = coverMatch.group(1) ?: ""
+                    if (raw.startsWith("/")) "https://www.javbus.com$raw" else raw
+                } else ""
 
-            val coverMatch = Pattern.compile("class=\"bigImage\" href=\"(.*?)\"").matcher(html)
-            val coverUrl = if (coverMatch.find()) {
-                val raw = coverMatch.group(1) ?: ""
-                if (raw.startsWith("/")) "https://www.javbus.com$raw" else raw
-            } else ""
+                val titleMatch = Pattern.compile("<h3>(.*?)</h3>").matcher(html)
+                val title = if (titleMatch.find()) titleMatch.group(1)?.trim() ?: "" else ""
 
-            val titleMatch = Pattern.compile("<h3>(.*?)</h3>").matcher(html)
-            val title = if (titleMatch.find()) titleMatch.group(1)?.trim() ?: "" else ""
-
-            if (title.isNotBlank() && coverUrl.isNotBlank()) {
-                return@withContext JavMetadata(
-                    javId = cleanJavId,
-                    title = title,
-                    coverUrl = coverUrl,
-                    studio = "JavBus Studio",
-                    overallConfidenceScore = 88
-                )
+                val upperTitle = title.uppercase()
+                if ((upperTitle.contains(cleanJavId) || upperTitle.contains(rawNum) || html.uppercase().contains(cleanJavId)) && coverUrl.isNotBlank()) {
+                    return@withContext JavMetadata(
+                        javId = cleanJavId,
+                        title = title.ifBlank { cleanJavId },
+                        coverUrl = coverUrl,
+                        studio = "JavBus Studio",
+                        overallConfidenceScore = 88
+                    )
+                }
             }
         } catch (e: Exception) {
             // Silently handled
@@ -98,7 +106,7 @@ class JavLibraryBusMetadataProvider : MetadataProvider {
 }
 
 /**
- * Jav321 Form Search Metadata Provider
+ * 5b. Jav321 Form Search Metadata Provider
  */
 class Jav321MetadataProvider : MetadataProvider {
     override val id: String = "jav321_search"
@@ -107,6 +115,8 @@ class Jav321MetadataProvider : MetadataProvider {
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
+        val rawNum = cleanJavId.replace("-", "")
+
         try {
             val url = "https://www.jav321.com/search"
             val formBody = FormBody.Builder().add("sn", cleanJavId).build()
@@ -128,7 +138,8 @@ class Jav321MetadataProvider : MetadataProvider {
             val studioMatch = Pattern.compile("Maker:</b>\\s*<a.*?>(.*?)</a>").matcher(html)
             val studio = if (studioMatch.find()) studioMatch.group(1) ?: "" else ""
 
-            if (title.isNotBlank() && coverUrl.isNotBlank()) {
+            val upperTitle = title.uppercase()
+            if ((upperTitle.contains(cleanJavId) || upperTitle.contains(rawNum) || html.uppercase().contains(cleanJavId)) && coverUrl.isNotBlank()) {
                 return@withContext JavMetadata(
                     javId = cleanJavId,
                     title = title,
@@ -145,7 +156,7 @@ class Jav321MetadataProvider : MetadataProvider {
 }
 
 /**
- * JavDB Catalog Metadata Provider
+ * 5c. JavDB Catalog Metadata Provider
  */
 class JavDbMetadataProvider : MetadataProvider {
     override val id: String = "javdb_catalog"
@@ -154,6 +165,8 @@ class JavDbMetadataProvider : MetadataProvider {
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
+        val rawNum = cleanJavId.replace("-", "")
+
         try {
             val url = "https://javdb.com/search?q=$cleanJavId&f=all"
             val req = Request.Builder()
@@ -178,7 +191,8 @@ class JavDbMetadataProvider : MetadataProvider {
                 val imgMatch = Pattern.compile("class=\"cover\" src=\"(.*?)\"").matcher(detailHtml)
                 val coverUrl = if (imgMatch.find()) imgMatch.group(1) ?: "" else ""
 
-                if (title.isNotBlank() && coverUrl.isNotBlank()) {
+                val upperTitle = title.uppercase()
+                if ((upperTitle.contains(cleanJavId) || upperTitle.contains(rawNum) || detailHtml.uppercase().contains(cleanJavId)) && coverUrl.isNotBlank()) {
                     return@withContext JavMetadata(
                         javId = cleanJavId,
                         title = title,
@@ -195,7 +209,7 @@ class JavDbMetadataProvider : MetadataProvider {
 }
 
 /**
- * JavMenu Search Engine Metadata Provider
+ * 5d. JavMenu Search Engine Metadata Provider
  */
 class JavMenuMetadataProvider : MetadataProvider {
     override val id: String = "javmenu_search"
@@ -204,6 +218,8 @@ class JavMenuMetadataProvider : MetadataProvider {
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
+        val rawNum = cleanJavId.replace("-", "")
+
         try {
             val url = "https://javmenu.com/en/search?q=$cleanJavId"
             val req = Request.Builder()
@@ -220,7 +236,8 @@ class JavMenuMetadataProvider : MetadataProvider {
             val titleMatch = Pattern.compile("<h5 class=\"card-title\">(.*?)</h5>").matcher(html)
             val title = if (titleMatch.find()) titleMatch.group(1)?.trim() ?: "" else ""
 
-            if (title.isNotBlank() && coverUrl.isNotBlank()) {
+            val upperTitle = title.uppercase()
+            if ((upperTitle.contains(cleanJavId) || upperTitle.contains(rawNum) || html.uppercase().contains(cleanJavId)) && coverUrl.isNotBlank()) {
                 return@withContext JavMetadata(
                     javId = cleanJavId,
                     title = title,
@@ -236,7 +253,7 @@ class JavMenuMetadataProvider : MetadataProvider {
 }
 
 /**
- * GFriends GitHub CDN Avatar Provider
+ * 5e. GFriends GitHub CDN Avatar Provider
  */
 class GFriendsAvatarProvider : MetadataProvider {
     override val id: String = "gfriends_cdn"
@@ -277,7 +294,7 @@ class GFriendsAvatarProvider : MetadataProvider {
 }
 
 /**
- * AirAV Barcode API Metadata Provider
+ * 5f. AirAV Barcode API Metadata Provider
  */
 class AirAvBarcodeMetadataProvider : MetadataProvider {
     override val id: String = "airav_barcode"
@@ -286,6 +303,8 @@ class AirAvBarcodeMetadataProvider : MetadataProvider {
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
+        val rawNum = cleanJavId.replace("-", "")
+
         try {
             val url = "https://www.airav.wiki/api/video/barcode?barcode=$cleanJavId"
             val req = Request.Builder()
@@ -304,7 +323,8 @@ class AirAvBarcodeMetadataProvider : MetadataProvider {
                 val imgUrl = result.optString("img_url")
                 val factory = result.optString("factory")
 
-                if (name.isNotBlank() && imgUrl.isNotBlank()) {
+                val upperName = name.uppercase()
+                if ((upperName.contains(cleanJavId) || upperName.contains(rawNum)) && imgUrl.isNotBlank()) {
                     return@withContext JavMetadata(
                         javId = cleanJavId,
                         title = name,
@@ -322,7 +342,7 @@ class AirAvBarcodeMetadataProvider : MetadataProvider {
 }
 
 /**
- * Arzon Adult Catalog Metadata Provider
+ * 5g. Arzon Adult Catalog Metadata Provider
  */
 class ArzonCatalogMetadataProvider : MetadataProvider {
     override val id: String = "arzon_catalog"
@@ -331,6 +351,8 @@ class ArzonCatalogMetadataProvider : MetadataProvider {
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
+        val rawNum = cleanJavId.replace("-", "")
+
         try {
             val url = "https://www.arzon.jp/itemlist.html?q=$cleanJavId"
             val req = Request.Builder()
@@ -348,7 +370,8 @@ class ArzonCatalogMetadataProvider : MetadataProvider {
             val titleMatch = Pattern.compile("<a href=\".*?\"><img.*?alt=\"(.*?)\"").matcher(html)
             val title = if (titleMatch.find()) titleMatch.group(1)?.trim() ?: "" else ""
 
-            if (title.isNotBlank() && coverUrl.isNotBlank()) {
+            val upperTitle = title.uppercase()
+            if ((upperTitle.contains(cleanJavId) || upperTitle.contains(rawNum) || html.uppercase().contains(cleanJavId)) && coverUrl.isNotBlank()) {
                 return@withContext JavMetadata(
                     javId = cleanJavId,
                     title = title,

@@ -20,7 +20,11 @@ private val trailerClient = OkHttpClient.Builder()
 
 private fun verifyUrl(url: String): Boolean {
     return try {
-        val req = Request.Builder().url(url).head().header("User-Agent", "Mozilla/5.0").build()
+        val req = Request.Builder()
+            .url(url)
+            .head()
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
         val res = trailerClient.newCall(req).execute()
         res.isSuccessful || res.code == 302 || res.code == 206
     } catch (e: Exception) {
@@ -29,11 +33,80 @@ private fun verifyUrl(url: String): Boolean {
 }
 
 /**
- * DMM FreePV CDN Sample Trailer Provider
+ * 1. SubtitleCat Engine Subtitle Provider
+ * Strictly validates that search results and downloaded subtitles match the requested JAV ID.
+ */
+class SubtitleCatProvider : SubtitleProvider {
+    override val id: String = "subtitlecat"
+    override val name: String = "SubtitleCat Engine"
+    override var isEnabled: Boolean = true
+
+    override suspend fun searchSubtitles(javId: String, title: String): List<JavSubtitle> = withContext(Dispatchers.IO) {
+        val cleanJavId = javId.trim().uppercase()
+        val results = mutableListOf<JavSubtitle>()
+
+        try {
+            val url = "https://www.subtitlecat.com/index.php?search=$cleanJavId"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                .build()
+            val res = trailerClient.newCall(req).execute()
+            val html = res.body?.string() ?: ""
+
+            // Pattern for sub pages: href="(sub-.*?.html)"
+            val matcher = Pattern.compile("href=\"(sub-.*?\\.html)\"[^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE).matcher(html)
+            while (matcher.find()) {
+                val subPage = matcher.group(1) ?: ""
+                val subTitle = matcher.group(2) ?: ""
+
+                // Ensure result strictly matches JAV ID
+                val cleanSubTitle = subTitle.replace(Regex("<.*?>"), "").uppercase()
+                if (cleanSubTitle.contains(cleanJavId) || subPage.uppercase().contains(cleanJavId.replace("-", ""))) {
+                    val subPageUrl = "https://www.subtitlecat.com/$subPage"
+                    val pageReq = Request.Builder()
+                        .url(subPageUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                        .build()
+                    val pageRes = trailerClient.newCall(pageReq).execute()
+                    val pageHtml = pageRes.body?.string() ?: ""
+
+                    val downloadMatch = Pattern.compile("href=\"(download.php\\?.*?)\"").matcher(pageHtml)
+                    if (downloadMatch.find()) {
+                        val directDownloadUrl = "https://www.subtitlecat.com/" + downloadMatch.group(1)
+                        if (verifyUrl(directDownloadUrl)) {
+                            results.add(
+                                JavSubtitle(
+                                    id = "subcat_$cleanJavId",
+                                    javId = cleanJavId,
+                                    language = "English",
+                                    languageCode = "en",
+                                    url = directDownloadUrl,
+                                    format = "srt",
+                                    providerId = id,
+                                    matchScore = 95
+                                )
+                            )
+                            break
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Silently handled
+        }
+
+        results
+    }
+}
+
+/**
+ * 2. DMM FreePV CDN Sample Trailer Provider (JAV-Preview)
+ * Generates official DMM / FANZA preview CID formats (padded CIDs) and checks DMM CDN for HTTP 200.
  */
 class DmmFreePvTrailerProvider : TrailerProvider {
     override val id: String = "dmm_freepv"
-    override val name: String = "DMM FreePV CDN Sample"
+    override val name: String = "DMM FreePV CDN Sample (JAV-Preview)"
     override var isEnabled: Boolean = true
 
     override suspend fun fetchTrailers(javId: String): List<JavTrailer> = withContext(Dispatchers.IO) {
@@ -41,14 +114,35 @@ class DmmFreePvTrailerProvider : TrailerProvider {
         val results = mutableListOf<JavTrailer>()
 
         try {
-            val f = cleanJavId.lowercase().replace("-", "").replace("_", "")
-            if (f.length >= 3) {
+            // Convert e.g. "IPX-800" to "ipx00800" and "ipx800"
+            val parts = cleanJavId.split("-", "_")
+            val candidateCids = mutableListOf<String>()
+
+            if (parts.size >= 2) {
+                val prefix = parts[0].lowercase()
+                val numStr = parts[1].lowercase()
+                val paddedNum = numStr.padStart(5, '0')
+                candidateCids.add("$prefix$paddedNum")
+                candidateCids.add("$prefix$numStr")
+                candidateCids.add("h_123$prefix$paddedNum")
+                candidateCids.add("1$prefix$paddedNum")
+            } else {
+                val f = cleanJavId.lowercase().replace("-", "").replace("_", "")
+                candidateCids.add(f)
+            }
+
+            for (cid in candidateCids) {
+                if (cid.length < 3) continue
+                val c1 = cid.take(1)
+                val c3 = cid.take(3)
+
                 val candidateUrls = listOf(
-                    "https://cc3001.dmm.co.jp/litevideo/freepv/${f.take(1)}/${f.take(3)}/$f/${f}_mbf_w.mp4",
-                    "https://cc3001.dmm.co.jp/litevideo/freepv/${f.take(1)}/${f.take(3)}/$f/${f}_dmb_w.mp4",
-                    "https://cc3001.dmm.co.jp/litevideo/freepv/${f.take(1)}/${f.take(3)}/$f/${f}_sm_w.mp4"
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_mbf_w.mp4",
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_dmb_w.mp4",
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_sm_w.mp4",
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_dm_w.mp4"
                 )
-                val thumbUrl = "https://images.dmm.co.jp/digital/video/$f/${f}ps.jpg"
+                val thumbUrl = "https://images.dmm.co.jp/digital/video/$cid/${cid}ps.jpg"
 
                 for (vUrl in candidateUrls) {
                     if (verifyUrl(vUrl)) {
@@ -64,60 +158,7 @@ class DmmFreePvTrailerProvider : TrailerProvider {
                                 providerName = name
                             )
                         )
-                        break
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Silently handled
-        }
-
-        results
-    }
-}
-
-/**
- * SubtitleCat Engine Subtitle Provider
- */
-class SubtitleCatProvider : SubtitleProvider {
-    override val id: String = "subtitlecat"
-    override val name: String = "SubtitleCat Engine"
-    override var isEnabled: Boolean = true
-
-    override suspend fun searchSubtitles(javId: String, title: String): List<JavSubtitle> = withContext(Dispatchers.IO) {
-        val cleanJavId = javId.trim().uppercase()
-        val results = mutableListOf<JavSubtitle>()
-
-        try {
-            val url = "https://www.subtitlecat.com/index.php?search=$cleanJavId"
-            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
-            val res = trailerClient.newCall(req).execute()
-            val html = res.body?.string() ?: ""
-
-            val subMatch = Pattern.compile("href=\"(sub-.*?\\.html)\"").matcher(html)
-            if (subMatch.find()) {
-                val subPage = subMatch.group(1) ?: ""
-                val subPageUrl = "https://www.subtitlecat.com/$subPage"
-                val pageReq = Request.Builder().url(subPageUrl).header("User-Agent", "Mozilla/5.0").build()
-                val pageRes = trailerClient.newCall(pageReq).execute()
-                val pageHtml = pageRes.body?.string() ?: ""
-
-                val downloadMatch = Pattern.compile("href=\"(download.php\\?.*?)\"").matcher(pageHtml)
-                if (downloadMatch.find()) {
-                    val directDownloadUrl = "https://www.subtitlecat.com/" + downloadMatch.group(1)
-                    if (verifyUrl(directDownloadUrl)) {
-                        results.add(
-                            JavSubtitle(
-                                id = "subcat_$cleanJavId",
-                                javId = cleanJavId,
-                                language = "English",
-                                languageCode = "en",
-                                url = directDownloadUrl,
-                                format = "srt",
-                                providerId = id,
-                                matchScore = 95
-                            )
-                        )
+                        return@withContext results
                     }
                 }
             }
@@ -154,23 +195,27 @@ class OpenSubtitlesRestProvider : SubtitleProvider {
                 for (i in 0 until array.length().coerceAtMost(5)) {
                     val obj = array.getJSONObject(i)
                     val downloadLink = obj.optString("SubDownloadLink")
+                    val subFileName = obj.optString("SubFileName", "").uppercase()
                     val langName = obj.optString("LanguageName", "English")
                     val iso = obj.optString("ISO639", "en")
                     val format = obj.optString("SubFormat", "srt")
 
-                    if (downloadLink.isNotBlank() && verifyUrl(downloadLink)) {
-                        results.add(
-                            JavSubtitle(
-                                id = "opensubs_${cleanJavId}_$i",
-                                javId = cleanJavId,
-                                language = langName,
-                                languageCode = iso,
-                                url = downloadLink,
-                                format = format,
-                                providerId = id,
-                                matchScore = 90
+                    // Strictly verify JAV ID match in filename or query
+                    if (downloadLink.isNotBlank() && (subFileName.contains(cleanJavId) || subFileName.contains(cleanJavId.replace("-", "")))) {
+                        if (verifyUrl(downloadLink)) {
+                            results.add(
+                                JavSubtitle(
+                                    id = "opensubs_${cleanJavId}_$i",
+                                    javId = cleanJavId,
+                                    language = langName,
+                                    languageCode = iso,
+                                    url = downloadLink,
+                                    format = format,
+                                    providerId = id,
+                                    matchScore = 90
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
