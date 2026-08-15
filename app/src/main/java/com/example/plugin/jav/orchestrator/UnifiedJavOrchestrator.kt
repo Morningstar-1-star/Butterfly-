@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.system.measureTimeMillis
 
 object UnifiedJavOrchestrator {
+
     // Registered Providers (Repository & Source Integrations)
     val metadataProviders = mutableListOf<MetadataProvider>(
         JavinizerGoMetadataProvider(),
@@ -47,22 +48,51 @@ object UnifiedJavOrchestrator {
     private val streamCache = ConcurrentHashMap<String, List<JavStream>>()
 
     /**
+     * Enables or disables a registered provider by ID.
+     */
+    fun setProviderEnabled(providerId: String, enabled: Boolean): Boolean {
+        val provider = (
+            metadataProviders +
+            streamProviders +
+            trailerProviders +
+            subtitleProviders
+        ).firstOrNull { it.id == providerId }
+
+        if (provider == null) return false
+
+        provider.isEnabled = enabled
+
+        // Clear cached results so the next resolution respects the new state.
+        metadataCache.clear()
+        streamCache.clear()
+
+        return true
+    }
+
+    /**
      * Executes unified resolution pipeline for a JAV ID
      */
-    suspend fun resolveJav(javId: String, title: String = ""): JavUnifiedResult = withContext(Dispatchers.IO) {
+    suspend fun resolveJav(
+        javId: String,
+        title: String = ""
+    ): JavUnifiedResult = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
 
-        // 1. Metadata Aggregation
-        val metadataDeferred = async { aggregateMetadata(cleanJavId) }
+        val metadataDeferred = async {
+            aggregateMetadata(cleanJavId)
+        }
 
-        // 2. Stream Resolution
-        val streamsDeferred = async { resolveStreams(cleanJavId, title) }
+        val streamsDeferred = async {
+            resolveStreams(cleanJavId, title)
+        }
 
-        // 3. Trailer Resolution
-        val trailersDeferred = async { resolveTrailers(cleanJavId) }
+        val trailersDeferred = async {
+            resolveTrailers(cleanJavId)
+        }
 
-        // 4. Subtitle Resolution
-        val subtitlesDeferred = async { resolveSubtitles(cleanJavId, title) }
+        val subtitlesDeferred = async {
+            resolveSubtitles(cleanJavId, title)
+        }
 
         JavUnifiedResult(
             javId = cleanJavId,
@@ -75,15 +105,21 @@ object UnifiedJavOrchestrator {
     }
 
     /**
-     * Aggregates metadata across all enabled metadata providers with confidence scoring
+     * Aggregates metadata across all enabled metadata providers.
      */
-    suspend fun aggregateMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
+    suspend fun aggregateMetadata(
+        javId: String
+    ): JavMetadata? = withContext(Dispatchers.IO) {
+
         if (metadataCache.containsKey(javId)) {
             return@withContext metadataCache[javId]
         }
 
         val activeProviders = metadataProviders.filter { it.isEnabled }
-        if (activeProviders.isEmpty()) return@withContext null
+
+        if (activeProviders.isEmpty()) {
+            return@withContext null
+        }
 
         val jobs = activeProviders.map { provider ->
             async {
@@ -91,7 +127,12 @@ object UnifiedJavOrchestrator {
                     val meta = withTimeoutOrNull(provider.timeoutMs) {
                         provider.fetchMetadata(javId)
                     }
-                    if (meta != null) provider.id to meta else null
+
+                    if (meta != null) {
+                        provider.id to meta
+                    } else {
+                        null
+                    }
                 } catch (e: Exception) {
                     null
                 }
@@ -99,7 +140,10 @@ object UnifiedJavOrchestrator {
         }
 
         val providerResults = jobs.awaitAll().filterNotNull()
-        if (providerResults.isEmpty()) return@withContext null
+
+        if (providerResults.isEmpty()) {
+            return@withContext null
+        }
 
         var bestTitle = javId
         var maxTitleScore = 0
@@ -111,29 +155,45 @@ object UnifiedJavOrchestrator {
         var maxStudioScore = 0
 
         var overallMaxConfidence = 0
+
         val providerScores = mutableMapOf<String, Int>()
         val allActors = mutableSetOf<String>()
 
-        for ((pId, res) in providerResults) {
-            val score = res.overallConfidenceScore
-            providerScores[pId] = score
+        for ((providerId, result) in providerResults) {
+            val score = result.overallConfidenceScore
+
+            providerScores[providerId] = score
+
             if (score > overallMaxConfidence) {
                 overallMaxConfidence = score
             }
 
-            if (res.title.isNotBlank() && res.title != javId && score > maxTitleScore) {
-                bestTitle = res.title
+            if (
+                result.title.isNotBlank() &&
+                result.title != javId &&
+                score > maxTitleScore
+            ) {
+                bestTitle = result.title
                 maxTitleScore = score
             }
-            if (res.coverUrl.isNotBlank() && score > maxCoverScore) {
-                bestCoverUrl = res.coverUrl
+
+            if (
+                result.coverUrl.isNotBlank() &&
+                score > maxCoverScore
+            ) {
+                bestCoverUrl = result.coverUrl
                 maxCoverScore = score
             }
-            if (res.studio.isNotBlank() && score > maxStudioScore) {
-                bestStudio = res.studio
+
+            if (
+                result.studio.isNotBlank() &&
+                score > maxStudioScore
+            ) {
+                bestStudio = result.studio
                 maxStudioScore = score
             }
-            allActors.addAll(res.actors)
+
+            allActors.addAll(result.actors)
         }
 
         val canonical = JavMetadata(
@@ -147,15 +207,23 @@ object UnifiedJavOrchestrator {
         )
 
         metadataCache[javId] = canonical
+
         canonical
     }
 
     /**
-     * Resolves playable streams across stream providers
+     * Resolves playable streams across stream providers.
      */
-    suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
+    suspend fun resolveStreams(
+        javId: String,
+        title: String
+    ): List<JavStream> = withContext(Dispatchers.IO) {
+
         val activeProviders = streamProviders.filter { it.isEnabled }
-        if (activeProviders.isEmpty()) return@withContext emptyList()
+
+        if (activeProviders.isEmpty()) {
+            return@withContext emptyList()
+        }
 
         val jobs = activeProviders.map { provider ->
             async {
@@ -170,20 +238,27 @@ object UnifiedJavOrchestrator {
         }
 
         val rawStreams = jobs.awaitAll().flatten()
-        
-        // Filter & Validate Streams (Only valid http/https URLs)
+
         val validatedStreams = rawStreams.filter { stream ->
-            stream.url.isNotBlank() && (stream.url.startsWith("http://") || stream.url.startsWith("https://"))
+            stream.url.isNotBlank() &&
+                (
+                    stream.url.startsWith("http://") ||
+                    stream.url.startsWith("https://")
+                )
         }
 
         validatedStreams.distinctBy { it.url }
     }
 
     /**
-     * Resolves preview trailers
+     * Resolves preview trailers.
      */
-    suspend fun resolveTrailers(javId: String): List<JavTrailer> = withContext(Dispatchers.IO) {
+    suspend fun resolveTrailers(
+        javId: String
+    ): List<JavTrailer> = withContext(Dispatchers.IO) {
+
         val activeProviders = trailerProviders.filter { it.isEnabled }
+
         val jobs = activeProviders.map { provider ->
             async {
                 try {
@@ -195,14 +270,22 @@ object UnifiedJavOrchestrator {
                 }
             }
         }
-        jobs.awaitAll().flatten().distinctBy { it.videoUrl }
+
+        jobs.awaitAll()
+            .flatten()
+            .distinctBy { it.videoUrl }
     }
 
     /**
-     * Resolves subtitles
+     * Resolves subtitles.
      */
-    suspend fun resolveSubtitles(javId: String, title: String): List<JavSubtitle> = withContext(Dispatchers.IO) {
+    suspend fun resolveSubtitles(
+        javId: String,
+        title: String
+    ): List<JavSubtitle> = withContext(Dispatchers.IO) {
+
         val activeProviders = subtitleProviders.filter { it.isEnabled }
+
         val jobs = activeProviders.map { provider ->
             async {
                 try {
@@ -214,41 +297,58 @@ object UnifiedJavOrchestrator {
                 }
             }
         }
-        jobs.awaitAll().flatten().distinctBy { it.url }
+
+        jobs.awaitAll()
+            .flatten()
+            .distinctBy { it.url }
     }
 
     /**
-     * Diagnostic testing engine for all providers
+     * Diagnostic testing engine for all providers.
      */
-    suspend fun runDiagnostics(testJavId: String = "IPX-123"): List<ProviderDiagnosticResult> = withContext(Dispatchers.IO) {
+    suspend fun runDiagnostics(
+        testJavId: String = "IPX-123"
+    ): List<ProviderDiagnosticResult> = withContext(Dispatchers.IO) {
+
         val reports = mutableListOf<ProviderDiagnosticResult>()
 
         // 1. Test Metadata Providers
         for (provider in metadataProviders) {
+
             var state = ProviderStatusState.NO_RESULT
             var count = 0
-            var msg = ""
+            var message = ""
+
             val time = measureTimeMillis {
+
                 try {
                     val result = withTimeoutOrNull(provider.timeoutMs) {
                         provider.fetchMetadata(testJavId)
                     }
-                    if (result != null && result.title.isNotBlank() && result.coverUrl.isNotBlank()) {
+
+                    if (
+                        result != null &&
+                        result.title.isNotBlank() &&
+                        result.coverUrl.isNotBlank()
+                    ) {
                         state = ProviderStatusState.SUCCESS
                         count = 1
-                        msg = "Title: ${result.title.take(30)}"
+                        message = "Title: ${result.title.take(30)}"
                     } else {
                         state = ProviderStatusState.NO_RESULT
-                        msg = "No valid metadata/cover"
+                        message = "No valid metadata/cover"
                     }
+
                 } catch (e: TimeoutCancellationException) {
                     state = ProviderStatusState.TIMEOUT
-                    msg = "Timeout exceeded ${provider.timeoutMs}ms"
+                    message = "Timeout exceeded ${provider.timeoutMs}ms"
+
                 } catch (e: Exception) {
                     state = ProviderStatusState.ERROR
-                    msg = e.message ?: "Error"
+                    message = e.message ?: "Error"
                 }
             }
+
             reports.add(
                 ProviderDiagnosticResult(
                     providerId = provider.id,
@@ -256,7 +356,7 @@ object UnifiedJavOrchestrator {
                     capability = ProviderCapabilityType.METADATA,
                     status = state,
                     responseTimeMs = time,
-                    detailMessage = msg,
+                    detailMessage = message,
                     itemFoundCount = count
                 )
             )
@@ -264,30 +364,37 @@ object UnifiedJavOrchestrator {
 
         // 2. Test Stream Providers
         for (provider in streamProviders) {
+
             var state = ProviderStatusState.NO_RESULT
             var count = 0
-            var msg = ""
+            var message = ""
+
             val time = measureTimeMillis {
+
                 try {
                     val streams = withTimeoutOrNull(provider.timeoutMs) {
                         provider.resolveStreams(testJavId, testJavId)
                     } ?: emptyList()
+
                     if (streams.isNotEmpty()) {
                         state = ProviderStatusState.SUCCESS
                         count = streams.size
-                        msg = "Found ${streams.size} streams"
+                        message = "Found ${streams.size} streams"
                     } else {
                         state = ProviderStatusState.NO_RESULT
-                        msg = "No streams resolved"
+                        message = "No streams resolved"
                     }
+
                 } catch (e: TimeoutCancellationException) {
                     state = ProviderStatusState.TIMEOUT
-                    msg = "Timeout exceeded"
+                    message = "Timeout exceeded"
+
                 } catch (e: Exception) {
                     state = ProviderStatusState.ERROR
-                    msg = e.message ?: "Error"
+                    message = e.message ?: "Error"
                 }
             }
+
             reports.add(
                 ProviderDiagnosticResult(
                     providerId = provider.id,
@@ -295,7 +402,7 @@ object UnifiedJavOrchestrator {
                     capability = ProviderCapabilityType.STREAM,
                     status = state,
                     responseTimeMs = time,
-                    detailMessage = msg,
+                    detailMessage = message,
                     itemFoundCount = count
                 )
             )
@@ -303,27 +410,33 @@ object UnifiedJavOrchestrator {
 
         // 3. Test Trailer Providers
         for (provider in trailerProviders) {
+
             var state = ProviderStatusState.NO_RESULT
             var count = 0
-            var msg = ""
+            var message = ""
+
             val time = measureTimeMillis {
+
                 try {
                     val trailers = withTimeoutOrNull(provider.timeoutMs) {
                         provider.fetchTrailers(testJavId)
                     } ?: emptyList()
+
                     if (trailers.isNotEmpty()) {
                         state = ProviderStatusState.SUCCESS
                         count = trailers.size
-                        msg = "Found ${trailers.size} trailers"
+                        message = "Found ${trailers.size} trailers"
                     } else {
                         state = ProviderStatusState.NO_RESULT
-                        msg = "No trailers found"
+                        message = "No trailers found"
                     }
+
                 } catch (e: Exception) {
                     state = ProviderStatusState.ERROR
-                    msg = e.message ?: "Error"
+                    message = e.message ?: "Error"
                 }
             }
+
             reports.add(
                 ProviderDiagnosticResult(
                     providerId = provider.id,
@@ -331,7 +444,7 @@ object UnifiedJavOrchestrator {
                     capability = ProviderCapabilityType.TRAILER,
                     status = state,
                     responseTimeMs = time,
-                    detailMessage = msg,
+                    detailMessage = message,
                     itemFoundCount = count
                 )
             )
@@ -339,27 +452,33 @@ object UnifiedJavOrchestrator {
 
         // 4. Test Subtitle Providers
         for (provider in subtitleProviders) {
+
             var state = ProviderStatusState.NO_RESULT
             var count = 0
-            var msg = ""
+            var message = ""
+
             val time = measureTimeMillis {
+
                 try {
-                    val subs = withTimeoutOrNull(provider.timeoutMs) {
+                    val subtitles = withTimeoutOrNull(provider.timeoutMs) {
                         provider.searchSubtitles(testJavId, testJavId)
                     } ?: emptyList()
-                    if (subs.isNotEmpty()) {
+
+                    if (subtitles.isNotEmpty()) {
                         state = ProviderStatusState.SUCCESS
-                        count = subs.size
-                        msg = "Found ${subs.size} subtitles"
+                        count = subtitles.size
+                        message = "Found ${subtitles.size} subtitles"
                     } else {
                         state = ProviderStatusState.NO_RESULT
-                        msg = "No subtitles found"
+                        message = "No subtitles found"
                     }
+
                 } catch (e: Exception) {
                     state = ProviderStatusState.ERROR
-                    msg = e.message ?: "Error"
+                    message = e.message ?: "Error"
                 }
             }
+
             reports.add(
                 ProviderDiagnosticResult(
                     providerId = provider.id,
@@ -367,7 +486,7 @@ object UnifiedJavOrchestrator {
                     capability = ProviderCapabilityType.SUBTITLE,
                     status = state,
                     responseTimeMs = time,
-                    detailMessage = msg,
+                    detailMessage = message,
                     itemFoundCount = count
                 )
             )
