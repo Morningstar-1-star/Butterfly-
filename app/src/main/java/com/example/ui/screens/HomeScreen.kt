@@ -673,26 +673,11 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     item {
-                        val isExploreSelected = currentScreen == AppScreen.EXPLORE
-                        Surface(
-                            onClick = { viewModel.navigateToScreen(AppScreen.EXPLORE) },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isExploreSelected) selectedChipBg else unselectedChipBg,
-                            contentColor = if (isExploreSelected) selectedChipFg else unselectedChipFg,
-                            modifier = Modifier.size(width = 44.dp, height = 36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Explore,
-                                    contentDescription = "Explore",
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    item {
-                        com.example.ui.components.AllSourcesDropdownMenu(viewModel = viewModel)
+                        com.example.ui.components.AllSourcesDropdownMenu(
+                            viewModel = viewModel,
+                            backgroundColor = unselectedChipBg,
+                            contentColor = unselectedChipFg
+                        )
                     }
 
                     items(smartTagsList) { tag ->

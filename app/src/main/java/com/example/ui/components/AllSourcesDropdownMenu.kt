@@ -6,8 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,16 +30,15 @@ import com.example.ui.MainViewModel
 @Composable
 fun AllSourcesDropdownMenu(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
     val availableProviders by viewModel.availableProviders.collectAsState()
     val activeProviderId by viewModel.activeProviderId.collectAsState()
 
     var showMenu by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-
-    val activeItem = availableProviders.find { it.id == activeProviderId }
-    val activeName = activeItem?.name ?: if (activeProviderId == "all") "All Sources" else activeProviderId
 
     val filteredProviders = remember(availableProviders, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -54,36 +53,19 @@ fun AllSourcesDropdownMenu(
     }
 
     Box(modifier = modifier) {
-        // Trigger Chip
+        // Trigger Chip - now an Icon like the old Explorer button
         Surface(
             onClick = { showMenu = true },
             shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.height(36.dp)
+            color = backgroundColor,
+            contentColor = contentColor,
+            modifier = Modifier.size(width = 44.dp, height = 36.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
+            Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = Icons.Default.Source,
-                    contentDescription = "Source Selector",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = activeName,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    imageVector = Icons.Outlined.Source,
+                    contentDescription = "Select Source",
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -133,13 +115,15 @@ fun AllSourcesDropdownMenu(
 
             Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-            // Scrollable List of All Available Sources
-            LazyColumn(
+            // Scrollable List of All Available Sources (Using Column with verticalScroll to avoid LazyColumn in DropdownMenu crash)
+            val scrollState = rememberScrollState()
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 320.dp)
+                    .verticalScroll(scrollState)
             ) {
-                items(filteredProviders) { provider ->
+                filteredProviders.forEach { provider ->
                     val isSelected = provider.id == activeProviderId
                     DropdownMenuItem(
                         text = {
