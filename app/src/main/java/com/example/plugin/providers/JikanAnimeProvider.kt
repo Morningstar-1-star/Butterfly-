@@ -256,7 +256,7 @@ class JikanAnimeProvider(
             val images = anime.optJSONObject("images")?.optJSONObject("jpg")
             val poster = images?.optString("large_image_url") ?: images?.optString("image_url")
 
-            val epText = if (episodes > 0) "S1 • $episodes ep" else "S1 • 24 ep"
+            val epText = if (episodes > 0) "S1 • $episodes ep" else "Anime Series"
             val scoreVal = if (score > 0) String.format("%.1f", score) else "8.4"
             val metadataStr = "★ $scoreVal • 2026 • $epText"
 

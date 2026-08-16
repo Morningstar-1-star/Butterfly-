@@ -198,7 +198,7 @@ class EpornerProvider(
                 val body = pageResp.body
 
                 // Find MP4 download links or video source tags
-                val mp4Regex = Regex("""href="([^"]+dload[^"]+\.mp4)"""", RegexOption.IGNORE_CASE)
+                val mp4Regex = Regex("""href=["']([^"']+dload[^"']+\.mp4)["']""", RegexOption.IGNORE_CASE)
                 val matches = mp4Regex.findAll(body)
                 for (match in matches) {
                     var streamUrl = match.groupValues[1]
@@ -224,6 +224,26 @@ class EpornerProvider(
                         )
                     }
                 }
+
+                // Also check direct <source src="..." or <video src="..."
+                val srcRegex = Regex("""<(?:source|video)[^>]+src=["']([^"']+\.mp4(?:\?[^"']*)?)["']""", RegexOption.IGNORE_CASE)
+                srcRegex.findAll(body).forEach { sMatch ->
+                    var sUrl = sMatch.groupValues[1]
+                    if (sUrl.startsWith("//")) sUrl = "https:$sUrl"
+                    else if (sUrl.startsWith("/")) sUrl = "https://www.eporner.com$sUrl"
+
+                    if (videoStreams.none { it.url == sUrl }) {
+                        videoStreams.add(
+                            0,
+                            PluginVideoStream(
+                                url = sUrl,
+                                qualityLabel = "Direct MP4 Stream (HD)",
+                                format = "mp4",
+                                isMuxed = true
+                            )
+                        )
+                    }
+                }
             }
         } catch (_: Exception) {}
 
@@ -239,6 +259,12 @@ class EpornerProvider(
             )
         }
 
+        val epornerHeaders = mapOf(
+            "Referer" to "https://www.eporner.com/",
+            "Origin" to "https://www.eporner.com",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+
         PluginStreamInfo(
             id = videoId,
             url = "https://www.eporner.com/video-$videoId/",
@@ -246,6 +272,7 @@ class EpornerProvider(
             channelName = uploader,
             description = description,
             thumbnailUrl = thumbUrl,
+            httpHeaders = epornerHeaders,
             videoStreams = videoStreams
         )
     }

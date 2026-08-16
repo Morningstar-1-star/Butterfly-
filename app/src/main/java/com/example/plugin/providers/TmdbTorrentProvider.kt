@@ -75,12 +75,20 @@ class TmdbTorrentProvider(
                 val poster = json.optString("poster_path")
                 val backdrop = json.optString("backdrop_path")
                 val date = json.optString("release_date").ifEmpty { json.optString("first_air_date") }
+                val runtimeMins = if (isTv) {
+                    val runtimes = json.optJSONArray("episode_run_time")
+                    if (runtimes != null && runtimes.length() > 0) runtimes.optInt(0, 0) else json.optInt("runtime", 0)
+                } else {
+                    json.optInt("runtime", 0)
+                }
+                val durationSec = if (runtimeMins > 0) runtimeMins * 60L else 0L
                 
                 return@withContext PluginVideoItem(
                     id = if (isTv) "tv_$cleanId" else cleanId,
                     title = title,
                     uploaderName = if (isTv) "TV Series (TMDB)" else "Movie (TMDB)",
                     uploadDate = date,
+                    durationSeconds = durationSec,
                     thumbnailUrl = if (poster.isNotEmpty()) "$IMAGE_BASE_URL$poster" else if (backdrop.isNotEmpty()) "$IMAGE_BASE_URL$backdrop" else null,
                     providerId = providerId
                 )

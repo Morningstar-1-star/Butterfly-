@@ -86,6 +86,85 @@ data class OfflineDownloadEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "search_history")
+data class SearchHistoryEntity(
+    @PrimaryKey val query: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "cached_video_metadata")
+data class VideoMetadataCacheEntity(
+    @PrimaryKey val videoId: String,
+    val title: String,
+    val channelName: String,
+    val thumbnailUrl: String? = null,
+    val description: String? = null,
+    val duration: String = "",
+    val streamDataJson: String? = null,
+    val providerId: String? = null,
+    val timestamp: Long = System.currentTimeMillis(),
+    val ttlMs: Long = 86_400_000L // Default 24 hours
+)
+
+@Entity(tableName = "preloaded_videos")
+data class PreloadedVideoCacheEntity(
+    @PrimaryKey val videoId: String,
+    val streamUrl: String,
+    val hlsUrl: String? = null,
+    val qualityLabel: String = "Auto",
+    val cachedHeadersJson: String? = null,
+    val localCachePath: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface SearchHistoryDao {
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
+    fun getSearchHistoryFlow(): Flow<List<SearchHistoryEntity>>
+
+    @Query("SELECT query FROM search_history ORDER BY timestamp DESC LIMIT 20")
+    suspend fun getRecentQueriesList(): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSearchQuery(item: SearchHistoryEntity)
+
+    @Query("DELETE FROM search_history WHERE query = :query")
+    suspend fun deleteSearchQuery(query: String)
+
+    @Query("DELETE FROM search_history")
+    suspend fun clearSearchHistory()
+}
+
+@Dao
+interface VideoCacheDao {
+    @Query("SELECT * FROM cached_video_metadata WHERE videoId = :videoId LIMIT 1")
+    suspend fun getVideoMetadata(videoId: String): VideoMetadataCacheEntity?
+
+    @Query("SELECT * FROM cached_video_metadata ORDER BY timestamp DESC LIMIT 50")
+    fun getAllCachedMetadataFlow(): Flow<List<VideoMetadataCacheEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVideoMetadata(item: VideoMetadataCacheEntity)
+
+    @Query("DELETE FROM cached_video_metadata WHERE videoId = :videoId")
+    suspend fun deleteVideoMetadata(videoId: String)
+
+    @Query("DELETE FROM cached_video_metadata")
+    suspend fun clearAllMetadata()
+
+    @Query("SELECT * FROM preloaded_videos WHERE videoId = :videoId LIMIT 1")
+    suspend fun getPreloadedVideo(videoId: String): PreloadedVideoCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPreloadedVideo(item: PreloadedVideoCacheEntity)
+
+    @Query("DELETE FROM preloaded_videos WHERE videoId = :videoId")
+    suspend fun deletePreloadedVideo(videoId: String)
+
+    @Query("DELETE FROM preloaded_videos")
+    suspend fun clearAllPreloads()
+}
+
 @Dao
 interface UserDataDao {
     @Query("SELECT * FROM watch_history ORDER BY timestamp DESC")

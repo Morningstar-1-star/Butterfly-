@@ -65,6 +65,15 @@ import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import java.net.URLEncoder
 
+enum class PlayerGestureState {
+    IDLE,
+    BRIGHTNESS,
+    VOLUME,
+    SEEK,
+    DOUBLE_TAP_LEFT,
+    DOUBLE_TAP_RIGHT
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -150,6 +159,14 @@ fun UniversalVideoPlayer(
     var gestureNoticeIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
     var seekNoticeText by remember { mutableStateOf<String?>(null) }
 
+    var accumulatedDx by remember { mutableFloatStateOf(0f) }
+    var accumulatedDy by remember { mutableFloatStateOf(0f) }
+    var dragStartPosMs by remember { mutableLongStateOf(0L) }
+    var initialBrightness by remember { mutableFloatStateOf(0.7f) }
+    var initialVolume by remember { mutableFloatStateOf(0.7f) }
+    var isDraggingHorizontally by remember { mutableStateOf(false) }
+    var isDraggingVertically by remember { mutableStateOf(false) }
+
     val curPos by GlobalPlayerManager.currentPositionMs.collectAsState()
     val durMs by GlobalPlayerManager.durationMs.collectAsState()
 
@@ -157,6 +174,14 @@ fun UniversalVideoPlayer(
         if (seekNoticeText != null) {
             delay(1200)
             seekNoticeText = null
+        }
+    }
+
+    LaunchedEffect(gestureNoticeText) {
+        if (gestureNoticeText != null) {
+            delay(1200)
+            gestureNoticeText = null
+            gestureNoticeIcon = null
         }
     }
 
@@ -297,21 +322,56 @@ fun UniversalVideoPlayer(
             }
             .pointerInput(isEmbedOrWebPage, isLandscape) {
                 detectDragGestures(
+                    onDragStart = {
+                        accumulatedDx = 0f
+                        accumulatedDy = 0f
+                        dragStartPosMs = GlobalPlayerManager.currentPositionMs.value
+                        initialBrightness = brightnessLevel
+                        initialVolume = volumeLevel
+                        isDraggingHorizontally = false
+                        isDraggingVertically = false
+                    },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         if (!isEmbedOrWebPage) {
-                            val dx = dragAmount.x
-                            val dy = dragAmount.y
-                            val absDx = kotlin.math.abs(dx)
-                            val absDy = kotlin.math.abs(dy)
-                            if (dy > 35f && dy > absDx * 1.5f && !isLandscape && onBackClick != null) {
+                            accumulatedDx += dragAmount.x
+                            accumulatedDy += dragAmount.y
+                            val absDx = kotlin.math.abs(accumulatedDx)
+                            val absDy = kotlin.math.abs(accumulatedDy)
+
+                            // Swipe down to dismiss in portrait
+                            if (dragAmount.y > 35f && dragAmount.y > kotlin.math.abs(dragAmount.x) * 1.5f && !isLandscape && onBackClick != null && !isDraggingHorizontally) {
                                 onBackClick.invoke()
-                            } else if (absDy > absDx && isLandscape) {
-                                // Volume & Brightness swipe strictly in landscape mode
-                                if (change.position.x < size.width * 0.45f) {
+                                return@detectDragGestures
+                            }
+
+                            if (!isDraggingHorizontally && !isDraggingVertically) {
+                                if (absDx > 12f && absDx > absDy) {
+                                    isDraggingHorizontally = true
+                                } else if (absDy > 12f && absDy > absDx) {
+                                    isDraggingVertically = true
+                                }
+                            }
+
+                            if (isDraggingHorizontally) {
+                                val totalWidth = size.width.toFloat().coerceAtLeast(100f)
+                                val durationMs = GlobalPlayerManager.durationMs.value.coerceAtLeast(1L)
+                                val maxSweepSecs = (durationMs / 1000L * 0.20f).coerceIn(30f, 180f)
+                                val deltaSecs = ((accumulatedDx / totalWidth) * maxSweepSecs).toLong()
+                                val targetPos = (dragStartPosMs + (deltaSecs * 1000L)).coerceIn(0L, durationMs)
+
+                                GlobalPlayerManager.seekTo(targetPos)
+                                val sign = if (deltaSecs >= 0) "+" else ""
+                                gestureNoticeText = "$sign${deltaSecs}s (${formatVideoTimestamp(targetPos)} / ${formatVideoTimestamp(durationMs)})"
+                                gestureNoticeIcon = if (deltaSecs >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
+                            } else if (isDraggingVertically) {
+                                val totalHeight = size.height.toFloat().coerceAtLeast(100f)
+                                val isLeftHalf = change.position.x < size.width * 0.5f
+
+                                if (isLeftHalf) {
                                     // Left side = Brightness
-                                    val delta = -dy / size.height
-                                    brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
+                                    val delta = -accumulatedDy / totalHeight
+                                    brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
                                     val activity = context as? Activity
                                         ?: (context as? ContextWrapper)?.baseContext as? Activity
                                     activity?.let { act ->
@@ -321,32 +381,29 @@ fun UniversalVideoPlayer(
                                     }
                                     gestureNoticeText = "Brightness ${(brightnessLevel * 100).toInt()}%"
                                     gestureNoticeIcon = Icons.Default.BrightnessMedium
-                                } else if (change.position.x > size.width * 0.55f) {
+                                } else {
                                     // Right side = Volume
                                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                                     if (audioManager != null) {
                                         val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-                                        val delta = -dy / size.height
-                                        volumeLevel = (volumeLevel + delta).coerceIn(0f, 1f)
+                                        val delta = -accumulatedDy / totalHeight
+                                        volumeLevel = (initialVolume + delta).coerceIn(0f, 1f)
                                         val targetVol = (volumeLevel * maxVol).toInt()
                                         audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
                                         gestureNoticeText = "Volume ${(volumeLevel * 100).toInt()}%"
                                         gestureNoticeIcon = if (targetVol == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
                                     }
                                 }
-                            } else if (absDx > absDy) {
-                                // Horizontal = Smooth Seek
-                                val seekDeltaSecs = (dx / size.width) * 60f
-                                val targetPos = (exoPlayer.currentPosition + (seekDeltaSecs * 1000).toLong()).coerceIn(0L, exoPlayer.duration.coerceAtLeast(1L))
-                                GlobalPlayerManager.seekTo(targetPos)
-                                val sign = if (seekDeltaSecs >= 0) "+" else ""
-                                gestureNoticeText = "Seek ${sign}${seekDeltaSecs.toInt()}s"
-                                gestureNoticeIcon = Icons.Default.FastForward
                             }
                         }
                     },
                     onDragEnd = {
-                        // Gesture finished
+                        isDraggingHorizontally = false
+                        isDraggingVertically = false
+                    },
+                    onDragCancel = {
+                        isDraggingHorizontally = false
+                        isDraggingVertically = false
                     }
                 )
             },
@@ -497,6 +554,24 @@ fun UniversalVideoPlayer(
                                         var vids = document.querySelectorAll('video');
                                         vids.forEach(function(v) {
                                             try {
+                                                if (!v.__bridgeAttached) {
+                                                    v.__bridgeAttached = true;
+                                                    v.addEventListener('timeupdate', function() {
+                                                        if (window.AndroidPlayerBridge) {
+                                                            window.AndroidPlayerBridge.onTimeUpdate(v.currentTime || 0, v.duration || 0, !v.paused);
+                                                        }
+                                                    });
+                                                    v.addEventListener('play', function() {
+                                                        if (window.AndroidPlayerBridge) {
+                                                            window.AndroidPlayerBridge.onPlayingStateChange(true);
+                                                        }
+                                                    });
+                                                    v.addEventListener('pause', function() {
+                                                        if (window.AndroidPlayerBridge) {
+                                                            window.AndroidPlayerBridge.onPlayingStateChange(false);
+                                                        }
+                                                    });
+                                                }
                                                 v.muted = false;
                                                 var p = v.play();
                                                 if (p !== undefined) {
@@ -565,74 +640,18 @@ fun UniversalVideoPlayer(
                     webView.loadUrl(srcUrl)
                 }
             }
+        }
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                PersistentPlayerHost(
-                    useController = false,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                if (isMagnetLink) {
-                    // Magnet Action Overlay Chips at top right
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawVideoUrl))
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "No external torrent app found", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInNew,
-                                contentDescription = "Open in Torrent App",
-                                tint = Color.Cyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Magnet Link", rawVideoUrl)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Magnet URL copied to clipboard", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy Magnet",
-                                tint = Color.Yellow,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            val currentPlayerContext = LocalContext.current
-            Box(modifier = Modifier.fillMaxSize()) {
-                PersistentPlayerHost(
-                    useController = false,
-                    resizeMode = resizeModeState,
-                    onFullscreenClick = {
-                        toggleFullscreen(currentPlayerContext)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+        val currentPlayerContext = LocalContext.current
+        Box(modifier = Modifier.fillMaxSize()) {
+            PersistentPlayerHost(
+                useController = false,
+                resizeMode = resizeModeState,
+                onFullscreenClick = {
+                    toggleFullscreen(currentPlayerContext)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
                 // Top Header (Title + Actions Toolbar)
                 AnimatedVisibility(
@@ -910,10 +929,28 @@ fun UniversalVideoPlayer(
                         IconButton(
                             onClick = {
                                 GlobalPlayerManager.showControls()
-                                if (isCurrentlyPlayingCenter) {
-                                    GlobalPlayerManager.pause()
+                                if (isEmbedOrWebPage) {
+                                    if (isCurrentlyPlayingCenter) {
+                                        GlobalPlayerManager.pause()
+                                        try {
+                                            GlobalPlayerManager.getOrCreateWebView(context).evaluateJavascript(
+                                                "(function() { var vids = document.getElementsByTagName('video'); for (var i = 0; i < vids.length; i++) { vids[i].pause(); } })();", null
+                                            )
+                                        } catch (e: Exception) {}
+                                    } else {
+                                        GlobalPlayerManager.play()
+                                        try {
+                                            GlobalPlayerManager.getOrCreateWebView(context).evaluateJavascript(
+                                                "(function() { var vids = document.getElementsByTagName('video'); for (var i = 0; i < vids.length; i++) { vids[i].play(); } })();", null
+                                            )
+                                        } catch (e: Exception) {}
+                                    }
                                 } else {
-                                    GlobalPlayerManager.play()
+                                    if (isCurrentlyPlayingCenter) {
+                                        GlobalPlayerManager.pause()
+                                    } else {
+                                        GlobalPlayerManager.play()
+                                    }
                                 }
                             },
                             modifier = Modifier
@@ -981,17 +1018,33 @@ fun UniversalVideoPlayer(
                         val isCurrentlyPlaying by GlobalPlayerManager.isPlaying.collectAsState()
 
                         // 1. YouTube Precise Seekbar
-                        YouTubePreciseSeekBar(
-                            currentPositionMs = currentPosMs,
-                            durationMs = totalDurMs,
-                            bufferedPositionMs = bufferedPosMs,
-                            onSeekStarted = { GlobalPlayerManager.showControls() },
-                            onSeekScrubbing = { /* Scrubbing */ },
-                            onSeekFinished = { targetMs ->
-                                GlobalPlayerManager.seekTo(targetMs)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        if (!isEmbedOrWebPage) {
+                            YouTubePreciseSeekBar(
+                                currentPositionMs = currentPosMs,
+                                durationMs = totalDurMs,
+                                bufferedPositionMs = bufferedPosMs,
+                                onSeekStarted = { GlobalPlayerManager.showControls() },
+                                onSeekScrubbing = { /* Scrubbing */ },
+                                onSeekFinished = { targetMs ->
+                                    GlobalPlayerManager.seekTo(targetMs)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "Web Embed Streaming Mode • Tap stream to toggle controls",
+                                    color = Color.LightGray.copy(alpha = 0.8f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
 
                         // 2. Duration text below Seekbar + Controls
                         Row(
@@ -1020,6 +1073,13 @@ fun UniversalVideoPlayer(
                                             fontWeight = FontWeight.Black
                                         )
                                     }
+                                } else if (isEmbedOrWebPage) {
+                                    Text(
+                                        text = "Web Stream Mode",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 } else {
                                     Text(
                                         text = "${formatVideoTimestamp(currentPosMs)} / ${formatVideoTimestamp(totalDurMs)}",
@@ -1094,7 +1154,6 @@ fun UniversalVideoPlayer(
                     }
                 }
             }
-        }
 
         // YouTube Style Bottom Mini Progress Bar (Visible when controls are hidden/collapsed)
         val currentPosMsForMini by GlobalPlayerManager.currentPositionMs.collectAsState()

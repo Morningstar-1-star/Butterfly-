@@ -259,8 +259,11 @@ fun PlaylistDetailScreen(
                 ) {
                     // Ambient Backdrop Glow
                     if (!topThumbnail.isNullOrEmpty()) {
+                        val ambientRequest = remember(topThumbnail) {
+                            com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, topThumbnail, preferCompact = true)
+                        }
                         AsyncImage(
-                            model = topThumbnail,
+                            model = ambientRequest ?: topThumbnail,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
@@ -735,6 +738,11 @@ private fun PlaylistItemContent(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbRequest = remember(video.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, preferCompact = true)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -751,9 +759,9 @@ private fun PlaylistItemContent(
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            if (!video.thumbnailUrl.isNullOrEmpty()) {
+            if (thumbRequest != null) {
                 AsyncImage(
-                    model = video.thumbnailUrl,
+                    model = thumbRequest,
                     contentDescription = video.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

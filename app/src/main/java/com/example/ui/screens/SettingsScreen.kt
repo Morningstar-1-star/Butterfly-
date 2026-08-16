@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppScreen
+import com.example.model.ProviderUiItem
 import com.example.ui.MainViewModel
 import kotlinx.coroutines.launch
 
@@ -282,18 +283,37 @@ fun SettingsScreen(
                     onToggleExpand = { isCloudFoldersExpanded = !isCloudFoldersExpanded },
                     badgeText = "${telegramChannels.size} Channels, ${megaFolders.size} Folders"
                 ) {
-                    Text(
-                        text = "Telegram Public Channels",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Add multiple public channels or usernames to stream videos from them",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // --- TELEGRAM SECTION ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Telegram Public Channels",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Add single or multiple channels/handles (separated by spaces or newlines)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (telegramChannels.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    com.example.util.CloudFoldersSettingsManager.clearAllTelegramChannels(context)
+                                    telegramChannels = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)
+                                    Toast.makeText(context, "All Telegram channels deleted", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Clear All", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
@@ -304,18 +324,23 @@ fun SettingsScreen(
                         OutlinedTextField(
                             value = newTelegramInput,
                             onValueChange = { newTelegramInput = it },
-                            placeholder = { Text("e.g. movies or t.me/s/channel") },
+                            placeholder = { Text("e.g. @channel or t.me/s/channel") },
                             modifier = Modifier.weight(1f),
-                            singleLine = true,
+                            singleLine = false,
+                            maxLines = 3,
                             shape = RoundedCornerShape(10.dp)
                         )
                         Button(
                             onClick = {
                                 if (newTelegramInput.isNotBlank()) {
-                                    com.example.util.CloudFoldersSettingsManager.addTelegramChannelUrl(context, newTelegramInput)
+                                    val added = com.example.util.CloudFoldersSettingsManager.addMultipleTelegramChannelUrls(context, newTelegramInput)
                                     telegramChannels = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)
                                     newTelegramInput = ""
-                                    Toast.makeText(context, "Telegram channel added", Toast.LENGTH_SHORT).show()
+                                    if (added > 0) {
+                                        Toast.makeText(context, "Added $added channel(s)", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Channel already exists or invalid", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             },
                             shape = RoundedCornerShape(10.dp)
@@ -328,42 +353,59 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    telegramChannels.forEach { channelUrl ->
+                    if (telegramChannels.isEmpty()) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                         ) {
-                            Row(
+                            Text(
+                                text = "No Telegram channels added yet. Enter @channel or public channel links above to stream videos.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    } else {
+                        telegramChannels.forEach { channelUrl ->
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             ) {
-                                Text(
-                                    text = channelUrl,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                IconButton(
-                                    onClick = {
-                                        com.example.util.CloudFoldersSettingsManager.removeTelegramChannelUrl(context, channelUrl)
-                                        telegramChannels = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)
-                                        Toast.makeText(context, "Channel removed", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier.size(32.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
+                                    Text(
+                                        text = channelUrl,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+                                    IconButton(
+                                        onClick = {
+                                            com.example.util.CloudFoldersSettingsManager.removeTelegramChannelUrl(context, channelUrl)
+                                            telegramChannels = com.example.util.CloudFoldersSettingsManager.getTelegramChannelUrls(context)
+                                            Toast.makeText(context, "Channel permanently removed", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Remove",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -373,18 +415,37 @@ fun SettingsScreen(
                     HorizontalDivider()
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(
-                        text = "Mega Folder Links",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Add multiple Mega folder links to stream videos inside the app",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // --- MEGA FOLDERS SECTION ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Mega Folder Links",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Add single or multiple Mega folder links (separated by spaces or newlines)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (megaFolders.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    com.example.util.CloudFoldersSettingsManager.clearAllMegaFolders(context)
+                                    megaFolders = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)
+                                    Toast.makeText(context, "All Mega folders deleted", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Clear All", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
@@ -397,16 +458,21 @@ fun SettingsScreen(
                             onValueChange = { newMegaInput = it },
                             placeholder = { Text("https://mega.nz/folder/...") },
                             modifier = Modifier.weight(1f),
-                            singleLine = true,
+                            singleLine = false,
+                            maxLines = 3,
                             shape = RoundedCornerShape(10.dp)
                         )
                         Button(
                             onClick = {
                                 if (newMegaInput.isNotBlank()) {
-                                    com.example.util.CloudFoldersSettingsManager.addMegaFolderUrl(context, newMegaInput)
+                                    val added = com.example.util.CloudFoldersSettingsManager.addMultipleMegaFolderUrls(context, newMegaInput)
                                     megaFolders = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)
                                     newMegaInput = ""
-                                    Toast.makeText(context, "Mega folder added", Toast.LENGTH_SHORT).show()
+                                    if (added > 0) {
+                                        Toast.makeText(context, "Added $added Mega folder(s)", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Folder already added or invalid", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             },
                             shape = RoundedCornerShape(10.dp)
@@ -419,42 +485,59 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    megaFolders.forEach { folderUrl ->
+                    if (megaFolders.isEmpty()) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                         ) {
-                            Row(
+                            Text(
+                                text = "No Mega folders added yet. Paste https://mega.nz/folder/... links above to stream videos inside the app.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    } else {
+                        megaFolders.forEach { folderUrl ->
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             ) {
-                                Text(
-                                    text = folderUrl,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                IconButton(
-                                    onClick = {
-                                        com.example.util.CloudFoldersSettingsManager.removeMegaFolderUrl(context, folderUrl)
-                                        megaFolders = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)
-                                        Toast.makeText(context, "Mega folder removed", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier.size(32.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
+                                    Text(
+                                        text = folderUrl,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+                                    IconButton(
+                                        onClick = {
+                                            com.example.util.CloudFoldersSettingsManager.removeMegaFolderUrl(context, folderUrl)
+                                            megaFolders = com.example.util.CloudFoldersSettingsManager.getMegaFolderUrls(context)
+                                            Toast.makeText(context, "Mega folder permanently removed", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Remove",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1492,10 +1575,11 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     val providerCategories = remember(availableProviders) {
-                        availableProviders.filter { it.id != "all" }.groupBy { it.category }
+                        val providersList: List<ProviderUiItem> = availableProviders
+                        providersList.filter { it.id != "all" }.groupBy { it.category }
                     }
 
-                    providerCategories.forEach { (categoryName, categoryProviders) ->
+                    for ((categoryName, categoryProviders) in providerCategories) {
                         Text(
                             text = categoryName,
                             style = MaterialTheme.typography.labelSmall,
@@ -1504,7 +1588,7 @@ fun SettingsScreen(
                             modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
                         )
 
-                        categoryProviders.forEach { provider ->
+                        for (provider in categoryProviders) {
                             val statusColor = when (provider.statusState) {
                                 com.example.plugin.jav.ProviderStatusState.SUCCESS -> Color(0xFF4CAF50)
                                 com.example.plugin.jav.ProviderStatusState.TIMEOUT -> Color(0xFFFF9800)

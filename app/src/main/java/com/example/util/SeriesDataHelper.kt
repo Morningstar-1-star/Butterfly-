@@ -164,7 +164,7 @@ object SeriesDataHelper {
                         seasonNumber = 1,
                         episodeNumber = epNum,
                         title = cleanTitle,
-                        durationText = "24m",
+                        durationText = "",
                         thumbnailUrl = thumb,
                         providerId = providerId,
                         viewsText = "Direct MP4"
@@ -196,7 +196,7 @@ object SeriesDataHelper {
                     seasonNumber = 1,
                     episodeNumber = epNum,
                     title = cleanTitle,
-                    durationText = "24m",
+                    durationText = "",
                     thumbnailUrl = thumb,
                     providerId = providerId,
                     viewsText = "Direct Stream"
@@ -222,7 +222,7 @@ object SeriesDataHelper {
                 seasonNumber = 1,
                 episodeNumber = 1,
                 title = streamData.title,
-                durationText = "29:03",
+                durationText = "",
                 thumbnailUrl = thumb,
                 providerId = providerId,
                 viewsText = if (streamData.viewCount > 0) "${streamData.viewCount} views" else ""

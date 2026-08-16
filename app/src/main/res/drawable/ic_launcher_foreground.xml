@@ -1,63 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Outer sleek geometric shield background glow -->
-    <path android:pathData="M54,26 L78,38 L78,66 L54,82 L30,66 L30,38 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="30"
-                android:startY="26"
-                android:endX="78"
-                android:endY="82"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#2AE91E63" />
-                <item android:offset="1.0" android:color="#2A9C27B0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Outer shield border -->
-    <path
-        android:pathData="M54,26 L78,38 L78,66 L54,82 L30,66 L30,38 Z"
-        android:strokeWidth="2.5"
-        android:fillColor="#00000000">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="30"
-                android:startY="26"
-                android:endX="78"
-                android:endY="82"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FF2196F3" />
-                <item android:offset="0.5" android:color="#FFE91E63" />
-                <item android:offset="1.0" android:color="#FF9C27B0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Glowing Play Triangle -->
-    <path android:pathData="M46,40 L68,54 L46,68 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="46"
-                android:startY="40"
-                android:endX="68"
-                android:endY="68"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFF3D00" />
-                <item android:offset="0.5" android:color="#FFE91E63" />
-                <item android:offset="1.0" android:color="#FFD500F9" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Top-left play shine overlay -->
-    <path
-        android:pathData="M46,40 L68,54 L46,54 Z"
-        android:fillColor="#30FFFFFF" />
+    <group
+        android:scaleX="4.2"
+        android:scaleY="4.2"
+        android:translateX="20.4"
+        android:translateY="20.4">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M3.468,1.948 C5.303,3.325 7.276,6.118 8,7.616 C8.725,6.118 10.698,3.325 12.532,1.948 C13.855,0.955 16,0.186 16,2.632 C16,3.121 15.72,6.737 15.556,7.324 C14.984,9.364 12.903,9.885 11.052,9.57 C14.288,10.121 15.112,11.945 13.333,13.77 C9.957,17.234 8.481,12.9 8.103,11.79 C8.033,11.586 8,11.49 8,11.572 C8,11.491 7.967,11.586 7.898,11.79 C7.519,12.9 6.043,17.234 2.667,13.77 C0.889,11.945 1.713,10.12 4.948,9.57 C3.097,9.885 1.016,9.365 0.444,7.324 C0.28,6.737 0,3.12 0,2.632 C0,0.186 2.145,0.955 3.468,1.948 Z" />
+    </group>
 </vector>

@@ -26,23 +26,45 @@ class MainApplication : Application() {
         super.onCreate()
         appContext = this
 
-        // Configure high-performance Coil ImageLoader for 120 FPS smooth scrolling
+        // Configure ultra high-performance Coil ImageLoader with parallel OkHttp throughput
+        val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
+            .dispatcher(okhttp3.Dispatcher().apply {
+                maxRequests = 128
+                maxRequestsPerHost = 32
+            })
+            .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                    .build()
+                chain.proceed(request)
+            }
+            .build()
+
         val imageLoader = ImageLoader.Builder(this)
+            .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.35)
+                    .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(100L * 1024L * 1024L) // 100 MB
+                    .directory(cacheDir.resolve("image_cache_v2"))
+                    .maxSizeBytes(500L * 1024L * 1024L) // 500 MB dedicated disk cache
                     .build()
             }
-            .respectCacheHeaders(false)
+            .respectCacheHeaders(false) // Cache regardless of server max-age headers
+            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565) // 50% RAM savings, 2x faster decode
+            .allowHardware(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+            .allowRgb565(true)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
-            .crossfade(150)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .crossfade(80)
             .build()
         Coil.setImageLoader(imageLoader)
 
@@ -50,10 +72,16 @@ class MainApplication : Application() {
         applicationScope.launch {
             try {
                 Log.d("MainApplication", "Pre-warming YtDlpResolver...")
-                YtDlpResolver.init(this@MainApplication)
+                YtDlpResolver.prewarm(this@MainApplication)
                 Log.d("MainApplication", "YtDlpResolver pre-warmed successfully")
             } catch (e: Throwable) {
                 Log.e("MainApplication", "Error pre-warming YtDlpResolver", e)
+            }
+            try {
+                com.example.torrent.MegaStreamServer.start(this@MainApplication)
+                com.example.torrent.TorrentStreamEngine.ensureServerStarted(this@MainApplication)
+            } catch (e: Throwable) {
+                Log.e("MainApplication", "Error starting stream servers", e)
             }
         }
     }

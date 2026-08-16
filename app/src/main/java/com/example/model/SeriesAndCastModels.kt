@@ -23,10 +23,10 @@ data class EpisodeItem(
     val seasonNumber: Int,
     val episodeNumber: Int,
     val title: String,
-    val durationText: String = "24:00",
+    val durationText: String = "",
     val thumbnailUrl: String? = null,
     val providerId: String? = null,
-    val viewsText: String = "1.2M views"
+    val viewsText: String = ""
 )
 
 data class SeriesSeason(
@@ -60,7 +60,7 @@ data class VideoTrailerClip(
     val youtubeKey: String? = null,
     val embedUrl: String? = null,
     val thumbnailUrl: String? = null,
-    val durationText: String = "02:15",
+    val durationText: String = "",
     val clipType: String = "Trailer"
 )
 

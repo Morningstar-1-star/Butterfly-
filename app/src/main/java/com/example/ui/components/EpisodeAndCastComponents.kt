@@ -48,6 +48,7 @@ fun CastSection(
     modifier: Modifier = Modifier
 ) {
     if (castList.isEmpty()) return
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -76,9 +77,12 @@ fun CastSection(
                         .clickable { onCastClick?.invoke(member) }
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
+                    val avatarRequest = remember(member.avatarUrl) {
+                        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, member.avatarUrl, preferCompact = true)
+                    }
                     if (!member.avatarUrl.isNullOrEmpty()) {
                         AsyncImage(
-                            model = member.avatarUrl,
+                            model = avatarRequest ?: member.avatarUrl,
                             contentDescription = member.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
@@ -248,6 +252,7 @@ fun SeasonsAndEpisodesView(
     onEpisodeClick: (EpisodeItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var selectedSeasonIndex by remember { mutableIntStateOf(0) }
     val currentSeason = seasons.getOrNull(selectedSeasonIndex) ?: seasons.firstOrNull()
 
@@ -313,9 +318,12 @@ fun SeasonsAndEpisodesView(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Color.DarkGray)
                             ) {
+                                val epThumbRequest = remember(episode.thumbnailUrl) {
+                                    com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, episode.thumbnailUrl, preferCompact = true)
+                                }
                                 if (!episode.thumbnailUrl.isNullOrEmpty()) {
                                     AsyncImage(
-                                        model = episode.thumbnailUrl,
+                                        model = epThumbRequest ?: episode.thumbnailUrl,
                                         contentDescription = episode.title,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
@@ -1202,6 +1210,7 @@ fun CastFilmographySheet(
     onDismiss: () -> Unit,
     onSelectFilmographyItem: (com.example.model.CastFilmographyItem) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var filmography by remember { mutableStateOf<List<com.example.model.CastFilmographyItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -1353,9 +1362,12 @@ fun CastFilmographySheet(
                                         .height(180.dp)
                                         .background(Color.DarkGray)
                                 ) {
+                                    val posterReq = remember(item.posterUrl) {
+                                        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, item.posterUrl, preferCompact = true)
+                                    }
                                     if (!item.posterUrl.isNullOrEmpty()) {
                                         AsyncImage(
-                                            model = item.posterUrl,
+                                            model = posterReq ?: item.posterUrl,
                                             contentDescription = item.title,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()

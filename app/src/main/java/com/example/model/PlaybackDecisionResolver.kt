@@ -9,7 +9,7 @@ enum class PlaybackSourceType {
 object PlaybackDecisionResolver {
 
     fun determineSourceType(rawUrl: String?, format: String? = null): PlaybackSourceType {
-        if (rawUrl.isNullOrEmpty()) return PlaybackSourceType.EMBED_WEBVIEW
+        if (rawUrl.isNullOrEmpty()) return PlaybackSourceType.DIRECT_STREAM
 
         val urlLower = rawUrl.lowercase().trim()
         val fmtLower = format?.lowercase()?.trim() ?: ""

@@ -65,6 +65,7 @@ fun ExploreScreen(
     topPadding: Dp = 108.dp,
     bottomPadding: Dp = 160.dp
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val userProfile by viewModel.userProfile.collectAsState()
     val savedList by viewModel.watchLaterList.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
@@ -158,6 +159,8 @@ fun ExploreScreen(
                 CuratedCategory("docu", "Documentaries", "📜", docu.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("adult", "Adult / Steamy & JAV (18+)", "💖", javInfoItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) })
             )
+            val allCategoryItems = rawCategories.flatMap { it.items }
+            com.example.util.ThumbnailOptimizer.preloadThumbnails(context, allCategoryItems, maxCount = 48)
         }
     }
 
@@ -243,8 +246,11 @@ fun ExploreScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
+                            val heroThumbRequest = remember(currentHero.backdropUrl) {
+                                com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, currentHero.backdropUrl)
+                            }
                             AsyncImage(
-                                model = currentHero.backdropUrl,
+                                model = heroThumbRequest ?: currentHero.backdropUrl,
                                 contentDescription = currentHero.title,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop

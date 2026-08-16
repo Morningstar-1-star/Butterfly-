@@ -271,23 +271,29 @@ fun VideoPlayerScreen(
     val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
     val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
     val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
+    val playerRecommendations by viewModel.playerRecommendations.collectAsState()
+    val isLoadingPlayerRecs by viewModel.isLoadingPlayerRecs.collectAsState()
 
-    val relatedContent = remember(currentStreamData, trendingVideos, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+    val relatedContent = remember(currentStreamData, trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
         val base = if (currentStreamData != null) {
             com.example.util.SeriesDataHelper.getRelatedContent(currentStreamData, trendingVideos)
         } else {
             trendingVideos.filter { it.id != activeVideoId }
         }
-        base.filterNot { viewModel.isBlockedVideo(it) }.take(10)
+        (base + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
+            .distinctBy { it.id }
+            .filterNot { viewModel.isBlockedVideo(it) }
     }
 
-    val recommendedContent = remember(currentStreamData, trendingVideos, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+    val recommendedContent = remember(currentStreamData, trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
         val base = if (currentStreamData != null) {
             com.example.util.SeriesDataHelper.getRecommendedContent(currentStreamData, trendingVideos)
         } else {
             trendingVideos.filter { it.id != activeVideoId }
         }
-        base.filterNot { viewModel.isBlockedVideo(it) }.take(10)
+        (base + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
+            .distinctBy { it.id }
+            .filterNot { viewModel.isBlockedVideo(it) }
     }
 
     var fetchedComments by remember(currentStreamData?.videoId, activeVideoId) {
@@ -374,8 +380,13 @@ fun VideoPlayerScreen(
         }
     }
 
+    LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
+        viewModel.loadMorePlayerRecommendations(currentStreamData)
+    }
+
     LaunchedEffect(shouldLoadMorePlayerList.value) {
-        if (shouldLoadMorePlayerList.value && !isLoadingMore) {
+        if (shouldLoadMorePlayerList.value && !isLoadingMore && !isLoadingPlayerRecs) {
+            viewModel.loadMorePlayerRecommendations(currentStreamData)
             viewModel.loadMoreContent()
         }
     }
@@ -750,7 +761,7 @@ fun VideoPlayerScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(bottom = 12.dp)
+                                            .padding(bottom = 0.dp)
                                     ) {
                                         VideoCard(
                                             video = video,
@@ -788,7 +799,7 @@ fun VideoPlayerScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(bottom = 12.dp)
+                                            .padding(bottom = 0.dp)
                                     ) {
                                         VideoCard(
                                             video = video,
@@ -855,7 +866,7 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    if (isLoadingMore) {
+                    if (isLoadingMore || isLoadingPlayerRecs) {
                         item {
                             Box(
                                 modifier = Modifier

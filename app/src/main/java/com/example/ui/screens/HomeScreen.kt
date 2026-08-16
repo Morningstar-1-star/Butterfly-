@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -122,13 +123,25 @@ fun HomeScreen(
         }
     }
 
-    val nestedScrollConnection = remember {
+    var headerHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var chipsHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var scrollOffsetPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+
+    val maxScrollOffsetPx = (headerHeightPx + chipsHeightPx).coerceAtLeast(1f)
+
+    val nestedScrollConnection = remember(maxScrollOffsetPx, isSearchExpanded) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (isSearchExpanded) return Offset.Zero
                 val delta = available.y
-                if (delta < -14f && isBarsVisible && !isSearchExpanded && feedListState.firstVisibleItemIndex > 0) {
+                val previousOffset = scrollOffsetPx
+                val newOffset = (previousOffset + delta).coerceIn(-maxScrollOffsetPx, 0f)
+                scrollOffsetPx = newOffset
+
+                if (delta < -10f && isBarsVisible && feedListState.firstVisibleItemIndex > 0) {
                     isBarsVisible = false
-                } else if (delta > 14f && !isBarsVisible) {
+                } else if (delta > 10f && !isBarsVisible) {
                     isBarsVisible = true
                 }
                 return Offset.Zero
@@ -136,27 +149,43 @@ fun HomeScreen(
         }
     }
 
-    var topBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    LaunchedEffect(feedListState.firstVisibleItemIndex, feedListState.firstVisibleItemScrollOffset) {
+        if (feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset == 0) {
+            scrollOffsetPx = 0f
+            isBarsVisible = true
+        }
+    }
 
-    val shouldShowTopBar = (isBarsVisible || isSearchExpanded) && (currentScreen != AppScreen.ACCOUNT)
-    val shouldShowBottomBar = isBarsVisible || isSearchExpanded
+    LaunchedEffect(currentScreen, isSearchExpanded) {
+        scrollOffsetPx = 0f
+        isBarsVisible = true
+    }
 
-    val animatedTopBarOffsetPx by animateFloatAsState(
-        targetValue = if (shouldShowTopBar) 0f else -topBarHeightPx.coerceAtLeast(1f),
-        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
-        label = "top_bar_translation"
+    val animatedScrollOffsetPx by animateFloatAsState(
+        targetValue = scrollOffsetPx,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "scroll_offset_spring"
     )
 
     val animatedBottomBarOffsetPx by animateFloatAsState(
-        targetValue = if (shouldShowBottomBar) 0f else bottomBarHeightPx.coerceAtLeast(1f),
-        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+        targetValue = if (isBarsVisible || isSearchExpanded) 0f else bottomBarHeightPx.coerceAtLeast(1f),
+        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
         label = "bottom_bar_translation"
     )
 
     val density = LocalDensity.current
-    val topBarPaddingDp = remember(topBarHeightPx, density) {
-        if (topBarHeightPx > 0f) with(density) { topBarHeightPx.toDp() } else 108.dp
+    val headerHeightDp = remember(headerHeightPx, density) {
+        if (headerHeightPx > 0f) with(density) { headerHeightPx.toDp() } else 56.dp
+    }
+    val topBarPaddingDp = remember(headerHeightPx, chipsHeightPx, density) {
+        if (headerHeightPx > 0f || chipsHeightPx > 0f) {
+            with(density) { (headerHeightPx + chipsHeightPx).toDp() }
+        } else {
+            104.dp
+        }
     }
     val bottomBarPaddingDp = remember(bottomBarHeightPx, density) {
         if (bottomBarHeightPx > 0f) with(density) { bottomBarHeightPx.toDp() } else 80.dp
@@ -227,24 +256,6 @@ fun HomeScreen(
                 activeVideoId?.let { id -> viewModel.playVideo(id) }
             }
         )
-    }
-
-    if (currentScreen == AppScreen.PLAYER) {
-        VideoPlayerScreen(
-            viewModel = viewModel,
-            onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
-            modifier = modifier
-        )
-        return
-    }
-
-    if (currentScreen == AppScreen.SETTINGS) {
-        SettingsScreen(
-            viewModel = viewModel,
-            onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
-            modifier = modifier
-        )
-        return
     }
 
     Box(
@@ -530,7 +541,7 @@ fun HomeScreen(
                                                 onChannelClick = { ch ->
                                                     viewModel.openChannel(ch)
                                                 },
-                                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                                                modifier = Modifier.fillMaxWidth()
                                             )
                                         }
 
@@ -555,30 +566,53 @@ fun HomeScreen(
             }
         }
 
-        // LAYER 2: TOP BAR OVERLAY
+        // LAYER 2: YOUTUBE-STYLE COLLAPSIBLE TOP BAR OVERLAY
         if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) {
-            Column(
+            // Status bar solid background shield
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .onSizeChanged { topBarHeightPx = it.height.toFloat() }
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(MaterialTheme.colorScheme.background)
+                    .zIndex(10f)
+            )
+
+            // Header Bar (TopAppBar with Logo & Actions) - Collapses first as user scrolls down
+            val headerTranslationY = animatedScrollOffsetPx.coerceIn(-headerHeightPx, 0f)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .zIndex(9f)
                     .graphicsLayer {
-                        translationY = animatedTopBarOffsetPx
+                        translationY = headerTranslationY
                     }
                     .background(MaterialTheme.colorScheme.background)
                     .statusBarsPadding()
+                    .onSizeChanged { headerHeightPx = it.height.toFloat() }
             ) {
                 TopAppBar(
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                     title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    viewModel.navigateToScreen(AppScreen.SETTINGS)
+                                }
+                                .padding(vertical = 4.dp, horizontal = 2.dp)
+                        ) {
                             com.example.ui.components.ThemedButterflyLogo(
-                                size = 34.dp
+                                size = 32.dp
                             )
-                            Spacer(modifier = Modifier.width(9.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Butterfly",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                letterSpacing = (-0.2).sp,
                                 color = MaterialTheme.colorScheme.onBackground
                             )
                         }
@@ -601,27 +635,42 @@ fun HomeScreen(
                         containerColor = Color.Transparent
                     )
                 )
+            }
 
-                // Smart Contextual Tags & Category Filter Chips
-                val activeContextTitle = globalActiveStreamData?.title 
-                    ?: currentStreamData?.title 
-                    ?: trendingVideos.firstOrNull()?.title 
-                    ?: searchQuery
+            // Tags Bar (Smart contextual category chips) - Smoothly moves up & hides right after Header
+            val activeContextTitle = globalActiveStreamData?.title 
+                ?: currentStreamData?.title 
+                ?: trendingVideos.firstOrNull()?.title 
+                ?: searchQuery
 
-                val smartTagsList = remember(activeContextTitle, searchQuery) {
-                    buildSmartTags(activeContextTitle, searchQuery)
-                }
+            val smartTagsList = remember(activeContextTitle, searchQuery) {
+                buildSmartTags(activeContextTitle, searchQuery)
+            }
 
-                val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme() || MaterialTheme.colorScheme.background.run { (red * 0.299 + green * 0.587 + blue * 0.114) < 0.5 }
-                val selectedChipBg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
-                val selectedChipFg = if (isDarkTheme) Color(0xFF0F0F0F) else Color.White
-                val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
-                val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
+            val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme() || MaterialTheme.colorScheme.background.run { (red * 0.299 + green * 0.587 + blue * 0.114) < 0.5 }
+            val selectedChipBg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
+            val selectedChipFg = if (isDarkTheme) Color(0xFF0F0F0F) else Color.White
+            val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
+            val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
 
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(top = headerHeightDp)
+                    .zIndex(8f)
+                    .graphicsLayer {
+                        translationY = animatedScrollOffsetPx
+                    }
+                    .background(MaterialTheme.colorScheme.background)
+                    .onSizeChanged { chipsHeightPx = it.height.toFloat() }
+            ) {
                 LazyRow(
                     contentPadding = PaddingValues(start = 12.dp, top = 6.dp, end = 12.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     item {
                         val isExploreSelected = currentScreen == AppScreen.EXPLORE
@@ -640,6 +689,10 @@ fun HomeScreen(
                                 )
                             }
                         }
+                    }
+
+                    item {
+                        com.example.ui.components.AllSourcesDropdownMenu(viewModel = viewModel)
                     }
 
                     items(smartTagsList) { tag ->
@@ -748,6 +801,55 @@ fun HomeScreen(
                     )
                 },
                 onDismissRequest = { viewModel.dismissDownloadSheet() }
+            )
+        }
+
+        // FULLSCREEN OVERLAY: SETTINGS SCREEN WITH SPRING ANIMATION
+        AnimatedVisibility(
+            visible = (currentScreen == AppScreen.SETTINGS),
+            enter = slideInVertically(
+                initialOffsetY = { it / 3 },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(animationSpec = tween(200)),
+            exit = slideOutVertically(
+                targetOffsetY = { it / 3 },
+                animationSpec = tween(180, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(180)),
+            modifier = Modifier.fillMaxSize().zIndex(90f)
+        ) {
+            SettingsScreen(
+                viewModel = viewModel,
+                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SPRING EXPAND & COLLAPSE
+        AnimatedVisibility(
+            visible = (currentScreen == AppScreen.PLAYER),
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(animationSpec = tween(150)),
+            exit = slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ) + fadeOut(animationSpec = tween(150)),
+            modifier = Modifier.fillMaxSize().zIndex(100f)
+        ) {
+            VideoPlayerScreen(
+                viewModel = viewModel,
+                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
@@ -878,7 +980,7 @@ fun SubscriptionsContent(
                 onClick = { onSelectVideo(video) },
                 onNotInterested = onNotInterested,
                 onChannelClick = onChannelClick,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

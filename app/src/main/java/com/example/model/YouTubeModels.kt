@@ -51,35 +51,7 @@ data class VideoItem(
     val displayDuration: String
         get() {
             if (durationSeconds > 0) return formattedDuration
-            val idHash = kotlin.math.abs(id.hashCode())
-            val isMovie = id.startsWith("movie_") || id.contains("tmdb_movie") || providerId == "yts" || providerId == "tmdb" || providerId == "tmdb_movies"
-            val isAnime = id.contains("anime") || providerId == "jikan_anime" || providerId == "nyaa"
-            val isTv = id.startsWith("tv_") || providerId == "eztv"
-            
-            return when {
-                isMovie -> {
-                    val totalMins = 92 + (idHash % 55)
-                    val hours = totalMins / 60
-                    val mins = totalMins % 60
-                    val secs = (idHash * 13) % 60
-                    String.format("%d:%02d:%02d", hours, mins, secs)
-                }
-                isAnime -> {
-                    val mins = 23 + (idHash % 4)
-                    val secs = (idHash * 7) % 60
-                    String.format("%02d:%02d", mins, secs)
-                }
-                isTv -> {
-                    val mins = 42 + (idHash % 16)
-                    val secs = (idHash * 11) % 60
-                    String.format("%02d:%02d", mins, secs)
-                }
-                else -> {
-                    val totalMins = 8 + (idHash % 28)
-                    val secs = (idHash * 17) % 60
-                    String.format("%02d:%02d", totalMins, secs)
-                }
-            }
+            return ""
         }
 
     val formattedViews: String

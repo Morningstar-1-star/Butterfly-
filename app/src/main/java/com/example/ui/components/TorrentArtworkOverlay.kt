@@ -107,16 +107,6 @@ fun TorrentArtworkOverlay(
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(42.dp)
                 )
-                if (!statusMessage.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = statusMessage,
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center
-                    )
-                }
             }
         }
     }

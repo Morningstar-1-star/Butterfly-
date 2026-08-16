@@ -70,12 +70,16 @@ class MainActivity : ComponentActivity() {
     private fun setupCoilCache() {
         try {
             val okHttpClient = okhttp3.OkHttpClient.Builder()
-                .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
-                .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                .dispatcher(okhttp3.Dispatcher().apply {
+                    maxRequests = 128
+                    maxRequestsPerHost = 32
+                })
+                .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
                 .addInterceptor { chain ->
                     val request = chain.request().newBuilder()
-                        .header("Cache-Control", "public, max-age=604800, max-stale=2419200")
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                         .build()
                     chain.proceed(request)
                 }
@@ -95,12 +99,14 @@ class MainActivity : ComponentActivity() {
                         .maxSizeBytes(500L * 1024 * 1024) // 500MB dedicated disk cache
                         .build()
                 }
+                .respectCacheHeaders(false)
                 .bitmapConfig(android.graphics.Bitmap.Config.RGB_565) // 50% RAM savings, 2x faster decode on low-end devices
                 .allowHardware(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+                .allowRgb565(true)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .networkCachePolicy(CachePolicy.ENABLED)
-                .crossfade(120)
+                .crossfade(80)
                 .build()
             Coil.setImageLoader(imageLoader)
         } catch (e: Exception) {

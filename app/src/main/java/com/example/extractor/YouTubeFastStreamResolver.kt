@@ -75,8 +75,30 @@ object YouTubeFastStreamResolver {
         val targetCtx = context ?: com.example.plugin.providers.ArchiveOrgProvider.contextRef ?: com.example.MainApplication.appContext
         val fullWatchUrl = "https://www.youtube.com/watch?v=$videoId"
 
-        // 1. PRIMARY ULTRA-FAST CONCURRENT RESOLUTION PIPELINE (100-300ms)
-        // Race Innertube profiles and direct proxies concurrently with instant channel completion
+        // 1. PRIMARY HIGH-RELIABILITY PIPELINE: On-device yt-dlp extraction with signature/n-parameter decryption
+        try {
+            if (YtDlpResolver.isYtDlpSupportedUrl(fullWatchUrl)) {
+                Log.d(TAG, "Attempting primary high-reliability yt-dlp extraction for $fullWatchUrl")
+                val ytDlpRes = withTimeoutOrNull(45000L) {
+                    YtDlpResolver.extractStreamInfo(targetCtx, fullWatchUrl)
+                }
+                if (ytDlpRes is YtDlpResolver.ExtractionResult.Success && ytDlpRes.streamData.availableStreamOptions.isNotEmpty()) {
+                    val validOptions = ytDlpRes.streamData.availableStreamOptions.filter { it.videoUrl?.startsWith("http") == true }
+                    if (validOptions.isNotEmpty()) {
+                        val elapsed = System.currentTimeMillis() - startTime
+                        Log.d(TAG, "Primary yt-dlp extraction SUCCESS for $videoId in ${elapsed}ms (${validOptions.size} streams)")
+                        return@withContext YouTubeExtractorHelper.ExtractionResult.Success(ytDlpRes.streamData)
+                    }
+                } else if (ytDlpRes is YtDlpResolver.ExtractionResult.Error) {
+                    Log.w(TAG, "Primary yt-dlp extraction returned error: ${ytDlpRes.message}")
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Primary yt-dlp extraction exception: ${t.message}")
+        }
+
+        // 2. SECONDARY BACKUP PIPELINE: Race Innertube profiles and direct proxies concurrently
+        Log.d(TAG, "Primary yt-dlp extraction failed or was bypassed, falling back to secondary fast concurrent racing...")
         val fastWinner = coroutineScope {
             val channel = Channel<StreamData>(capacity = 16)
 
@@ -139,30 +161,8 @@ object YouTubeFastStreamResolver {
 
         if (fastWinner != null && fastWinner.availableStreamOptions.isNotEmpty()) {
             val elapsed = System.currentTimeMillis() - startTime
-            Log.d(TAG, "Ultra-fast direct YouTube extraction SUCCESS for $videoId in ${elapsed}ms (${fastWinner.availableStreamOptions.size} options)")
+            Log.d(TAG, "Fallback ultra-fast direct YouTube extraction SUCCESS for $videoId in ${elapsed}ms (${fastWinner.availableStreamOptions.size} options)")
             return@withContext YouTubeExtractorHelper.ExtractionResult.Success(fastWinner)
-        }
-
-        // 2. SECONDARY FALLBACK PIPELINE: yt-dlp binary extraction if direct race failed
-        try {
-            if (YtDlpResolver.isYtDlpSupportedUrl(fullWatchUrl)) {
-                Log.d(TAG, "Fast race failed, executing secondary yt-dlp extraction for $fullWatchUrl")
-                val ytDlpRes = withTimeoutOrNull(5500L) {
-                    YtDlpResolver.extractStreamInfo(targetCtx, fullWatchUrl)
-                }
-                if (ytDlpRes is YtDlpResolver.ExtractionResult.Success && ytDlpRes.streamData.availableStreamOptions.isNotEmpty()) {
-                    val validOptions = ytDlpRes.streamData.availableStreamOptions.filter { it.videoUrl?.startsWith("http") == true }
-                    if (validOptions.isNotEmpty()) {
-                        val elapsed = System.currentTimeMillis() - startTime
-                        Log.d(TAG, "Fallback yt-dlp extraction SUCCESS for $videoId in ${elapsed}ms (${validOptions.size} streams)")
-                        return@withContext YouTubeExtractorHelper.ExtractionResult.Success(ytDlpRes.streamData)
-                    }
-                } else if (ytDlpRes is YtDlpResolver.ExtractionResult.Error) {
-                    Log.w(TAG, "Fallback yt-dlp extraction returned error: ${ytDlpRes.message}")
-                }
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Fallback yt-dlp extraction exception: ${t.message}")
         }
 
         val totalElapsed = System.currentTimeMillis() - startTime

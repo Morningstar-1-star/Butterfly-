@@ -423,7 +423,7 @@ object TMDBHelper {
                         title = "$canonicalTitle - Official Teaser Trailer",
                         youtubeKey = null,
                         thumbnailUrl = thumb,
-                        durationText = "02:15",
+                        durationText = "",
                         clipType = "Official Trailer"
                     )
                 )
@@ -667,7 +667,7 @@ object TMDBHelper {
                                         val epName = epObj.optString("name", "Episode $epNum")
                                         val stillPath = epObj.optString("still_path")
                                         val voteAvg = epObj.optDouble("vote_average", 8.0)
-                                        val runtime = epObj.optInt("runtime", 45)
+                                        val runtime = epObj.optInt("runtime", 0)
 
                                         val epThumb = if (stillPath.isNotBlank() && stillPath != "null") {
                                             "https://image.tmdb.org/t/p/w500$stillPath"
@@ -681,7 +681,7 @@ object TMDBHelper {
                                                 seasonNumber = seasonNum,
                                                 episodeNumber = epNum,
                                                 title = epName.ifBlank { "Episode $epNum" },
-                                                durationText = "${if (runtime > 0) runtime else 45}m",
+                                                durationText = if (runtime > 0) "${runtime}m" else "",
                                                 thumbnailUrl = epThumb,
                                                 providerId = providerId,
                                                 viewsText = "★ ${String.format("%.1f", voteAvg)} IMDb"
@@ -725,7 +725,7 @@ object TMDBHelper {
                             val sNum = epObj.optInt("season", 1)
                             val eNum = epObj.optInt("number", idx + 1)
                             val name = epObj.optString("name", "Episode $eNum")
-                            val runtime = epObj.optInt("runtime", 45)
+                            val runtime = epObj.optInt("runtime", 0)
                             val imageObj = epObj.optJSONObject("image")
                             val epThumb = imageObj?.optString("medium") ?: fallbackThumb
                             val ratingObj = epObj.optJSONObject("rating")
@@ -736,7 +736,7 @@ object TMDBHelper {
                                 seasonNumber = sNum,
                                 episodeNumber = eNum,
                                 title = name,
-                                durationText = "${if (runtime > 0) runtime else 45}m",
+                                durationText = if (runtime > 0) "${runtime}m" else "",
                                 thumbnailUrl = epThumb,
                                 providerId = providerId,
                                 viewsText = "★ ${String.format("%.1f", ratingVal)} IMDb"

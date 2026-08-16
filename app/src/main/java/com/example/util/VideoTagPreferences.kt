@@ -70,6 +70,7 @@ class VideoTagPreferences private constructor(context: Context) {
     private fun normalizeTag(tag: String): String {
         return when (tag.lowercase().trim()) {
             "youtube" -> "YouTube"
+            "adultswim" -> "Adult Swim"
             "dailymotion" -> "Dailymotion"
             "anime" -> "Anime"
             "series" -> "Series"

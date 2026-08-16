@@ -12,6 +12,7 @@ import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -45,6 +46,20 @@ object YtDlpResolver {
         }
     }
 
+    fun prewarm(context: Context) {
+        init(context)
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                Log.d(TAG, "Pre-warming yt-dlp execution engine, QuickJS, and extractor threads...")
+                locateQuickJsRuntime(context)
+                YouTubeExtractorHelper.ensureInitialized()
+                Log.d(TAG, "yt-dlp engine fully primed at app launch (0 cold-start delay)")
+            } catch (e: Throwable) {
+                Log.w(TAG, "Pre-warm exception: ${e.message}")
+            }
+        }
+    }
+
     fun isYouTubeUrl(url: String): Boolean {
         val u = url.lowercase().trim()
         return u.contains("youtube.com") || u.contains("youtu.be") || u.contains("youtube-nocookie.com")
@@ -63,11 +78,11 @@ object YtDlpResolver {
         if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
             val u = trimmed.lowercase()
             if (u.contains("eporner.com") || u.contains("archive.org")) return false
-            return u.contains("dailymotion.com") || u.contains("dai.ly") ||
+            return u.contains("adultswim.com") || u.contains("dailymotion.com") || u.contains("dai.ly") ||
                     u.contains("vimeo.com") || u.contains("tiktok.com") ||
                     u.contains("twitter.com") || u.contains("x.com") ||
                     u.contains("pornhub.com") || u.contains("xhamster.com") || u.contains("redtube.com") || u.contains("xvideos.com") ||
-                    u.contains("peer.tube") || u.contains("nicovideo.jp") || u.contains("twitch.tv")
+                    u.contains("peer.tube") || u.contains("nicovideo.jp") || u.contains("twitch.tv") || true
         }
 
         return false
@@ -141,6 +156,15 @@ object YtDlpResolver {
         ) : ExtractionResult()
     }
 
+    @Volatile
+    private var customProxyUrl: String? = null
+
+    fun setProxy(proxyUrl: String?) {
+        this.customProxyUrl = proxyUrl
+    }
+
+    fun getProxy(): String? = customProxyUrl ?: System.getProperty("yt_dlp_proxy") ?: System.getProperty("adultswim_proxy")
+
     suspend fun extractStreamInfo(
         context: Context,
         urlOrId: String
@@ -158,8 +182,10 @@ object YtDlpResolver {
 
         val fullUrl = normalizeUrl(urlOrId)
         val isYouTube = isYouTubeUrl(fullUrl)
+        val isAdultSwim = fullUrl.contains("adultswim.com", ignoreCase = true)
+        val isHotstar = fullUrl.contains("hotstar.com", ignoreCase = true)
 
-        Log.d(TAG, "Starting yt-dlp primary extraction for: $fullUrl (youtube=$isYouTube)")
+        Log.d(TAG, "Starting yt-dlp primary extraction for: $fullUrl (youtube=$isYouTube, adultswim=$isAdultSwim, hotstar=$isHotstar)")
 
         try {
             val request = YoutubeDLRequest(fullUrl)
@@ -168,10 +194,42 @@ object YtDlpResolver {
             request.addOption("-f", "b/bestvideo+bestaudio/best")
             request.addOption("--no-check-certificates")
             request.addOption("--geo-bypass")
+            request.addOption("--geo-bypass-country", "IN")
+            request.addOption("--geo-bypass-headers")
             request.addOption("--no-playlist")
-            request.addOption("--socket-timeout", "5")
+            request.addOption("--socket-timeout", "8")
             request.addOption("--no-warnings")
             request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+
+            val activeProxy = getProxy()
+            if (!activeProxy.isNullOrBlank()) {
+                Log.d(TAG, "Routing yt-dlp request through proxy: $activeProxy")
+                request.addOption("--proxy", activeProxy)
+            } else if (isAdultSwim) {
+                request.addOption("--add-header", "Referer:https://www.adultswim.com/")
+                request.addOption("--add-header", "Origin:https://www.adultswim.com")
+            } else if (isHotstar) {
+                request.addOption("--add-header", "Referer:https://www.hotstar.com/")
+                request.addOption("--add-header", "Origin:https://www.hotstar.com")
+            } else if (fullUrl.contains("vimeo.com", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://vimeo.com/")
+                request.addOption("--add-header", "Origin:https://vimeo.com")
+            } else if (fullUrl.contains("tiktok.com", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://www.tiktok.com/")
+                request.addOption("--geo-bypass")
+                request.addOption("--geo-bypass-country", "US")
+            } else if (fullUrl.contains("twitch.tv", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://www.twitch.tv/")
+                request.addOption("--add-header", "Origin:https://www.twitch.tv")
+            } else if (fullUrl.contains("bilibili.com", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://www.bilibili.com/")
+            } else if (fullUrl.contains("instagram.com", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://www.instagram.com/")
+            } else if (fullUrl.contains("vk.com", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://vk.com/")
+            } else if (fullUrl.contains("rutube.ru", ignoreCase = true)) {
+                request.addOption("--add-header", "Referer:https://rutube.ru/")
+            }
 
             // PO-Token mechanism integration if available (Do NOT hardcode old player_client versions)
             val extractorArgs = mutableListOf<String>()
@@ -195,10 +253,10 @@ object YtDlpResolver {
                 Log.d(TAG, "QuickJS binary path not found, letting yt-dlp use default environment JS runtime")
             }
 
-            // Execute yt-dlp with 6s timeout for fast pipeline rotation
-            val videoInfo: VideoInfo = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+            // Execute yt-dlp with 45s timeout for high-reliability on-device extraction
+            val videoInfo: VideoInfo = kotlinx.coroutines.withTimeoutOrNull(45000L) {
                 YoutubeDL.getInstance().getInfo(request)
-            } ?: throw YoutubeDLException("yt-dlp extraction timed out after 6s")
+            } ?: throw YoutubeDLException("yt-dlp extraction timed out after 45s")
 
             val title = videoInfo.title ?: "Extracted Video"
             val uploader = videoInfo.uploader ?: if (isYouTube) "YouTube Channel" else "Web Creator"

@@ -243,6 +243,11 @@ private fun LibraryItemCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbRequest = remember(video.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -260,9 +265,9 @@ private fun LibraryItemCard(
                     .height(200.dp)
                     .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
             ) {
-                if (!video.thumbnailUrl.isNullOrEmpty()) {
+                if (thumbRequest != null) {
                     AsyncImage(
-                        model = video.thumbnailUrl,
+                        model = thumbRequest,
                         contentDescription = video.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -350,6 +355,11 @@ private fun LibraryListItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbRequest = remember(video.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, preferCompact = true)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -368,9 +378,9 @@ private fun LibraryListItem(
                     .size(width = 90.dp, height = 60.dp)
                     .clip(RoundedCornerShape(10.dp))
             ) {
-                if (!video.thumbnailUrl.isNullOrEmpty()) {
+                if (thumbRequest != null) {
                     AsyncImage(
-                        model = video.thumbnailUrl,
+                        model = thumbRequest,
                         contentDescription = video.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

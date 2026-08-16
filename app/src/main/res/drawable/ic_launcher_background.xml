@@ -8,30 +8,13 @@
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="0"
+                android:startX="54"
                 android:startY="0"
-                android:endX="108"
+                android:endX="54"
                 android:endY="108"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#1F0D2B" />
-                <item android:offset="0.5" android:color="#12081B" />
-                <item android:offset="1.0" android:color="#07030C" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <path
-        android:pathData="M54,18 A36,36 0 1,0 54,90 A36,36 0 1,0 54,18 Z"
-        android:strokeWidth="1.5"
-        android:fillColor="#00000000">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="18"
-                android:startY="18"
-                android:endX="90"
-                android:endY="90"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#80E91E63" />
-                <item android:offset="1.0" android:color="#809C27B0" />
+                <item android:offset="0.0" android:color="#3DA3FF" />
+                <item android:offset="1.0" android:color="#0066FF" />
             </gradient>
         </aapt:attr>
     </path>

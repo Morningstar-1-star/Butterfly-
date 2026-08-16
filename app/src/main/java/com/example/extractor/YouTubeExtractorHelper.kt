@@ -171,6 +171,21 @@ object YouTubeExtractorHelper {
     }
 
     suspend fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        // Adult Swim / Hotstar / External Extractor Path: Use YtDlpResolver with geo-bypass & proxy routing
+        if (urlOrId.contains("adultswim.com", ignoreCase = true) || urlOrId.contains("hotstar.com", ignoreCase = true) || urlOrId.contains("dailymotion.com") || urlOrId.contains("vimeo.com")) {
+            val ctx = context ?: try { com.example.MainApplication.appContext } catch (_: Throwable) { null }
+            if (ctx != null) {
+                when (val ytRes = YtDlpResolver.extractStreamInfo(ctx, urlOrId)) {
+                    is YtDlpResolver.ExtractionResult.Success -> {
+                        return@withContext ExtractionResult.Success(ytRes.streamData)
+                    }
+                    is YtDlpResolver.ExtractionResult.Error -> {
+                        logWarn("YouTubeExtractor", "External extractor (yt-dlp) failed for $urlOrId: ${ytRes.message}")
+                    }
+                }
+            }
+        }
+
         // Fast Path: Ultra-fast Innertube and multi-source parallel resolution (100-400ms)
         try {
             val fastResult = YouTubeFastStreamResolver.resolveStream(urlOrId, context)

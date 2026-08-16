@@ -107,6 +107,8 @@ fun VideoCard(
             video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet") -> "Movie"
             pid == "archive_org" -> "Archive"
             pid == "youtube" -> "YouTube"
+            pid == "adultswim" -> "Adult Swim"
+            pid == "hotstar" -> "Hotstar"
             pid == "dailymotion" -> "Dailymotion"
             pid == "vimeo" -> "Vimeo"
             else -> "Video"
@@ -118,6 +120,8 @@ fun VideoCard(
             "Anime" -> Color(0xFF9C27B0)
             "18+" -> Color(0xFFC2185B)
             "YouTube" -> Color(0xFFFF0000)
+            "Hotstar" -> Color(0xFF002244)
+            "Adult Swim" -> Color(0xFF1E88E5)
             else -> Color(0xFF1976D2)
         }
         Pair(name, bgColor)
@@ -162,7 +166,7 @@ fun VideoCard(
                     )
                 } else {
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(

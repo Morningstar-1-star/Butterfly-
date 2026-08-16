@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -18,7 +17,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -27,6 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppScreen
 
+/**
+ * YouTube-style clean and minimalist bottom navigation bar.
+ * Replaces bulky pill indicators with seamless Filled / Outlined icon morphing,
+ * responsive spring touch interaction, and theme-adaptive colors.
+ */
 @Composable
 fun LiquidGlassNavBar(
     currentScreen: AppScreen,
@@ -34,11 +37,8 @@ fun LiquidGlassNavBar(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(Color.Black),
-        shape = androidx.compose.ui.graphics.RectangleShape,
-        color = Color.Black,
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp
     ) {
         Column(
@@ -47,14 +47,13 @@ fun LiquidGlassNavBar(
                 .navigationBarsPadding()
         ) {
             HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
-                thickness = 1.dp
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f),
+                thickness = 0.5.dp
             )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 4.dp),
+                    .height(48.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
@@ -108,63 +107,52 @@ private fun NavItem(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed = interactionSource.collectIsPressedAsState().value
+    val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.88f else if (isSelected) 1.08f else 1.0f,
+        targetValue = if (isPressed) 0.85f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
+            stiffness = Spring.StiffnessMedium
         ),
-        label = "nav_scale"
+        label = "nav_item_scale"
     )
 
-    val yellowAccent = Color(0xFFFFD600)
+    val activeColor = MaterialTheme.colorScheme.onBackground
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
 
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
-            .padding(vertical = 2.dp),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 36.dp, height = 26.dp)
-                        .background(yellowAccent, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = selectedIcon,
-                        contentDescription = label,
-                        tint = Color.Black,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            } else {
-                Icon(
-                    imageVector = unselectedIcon,
-                    contentDescription = label,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(22.dp)
-                )
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
+        ) {
+            Icon(
+                imageVector = if (isSelected) selectedIcon else unselectedIcon,
+                contentDescription = label,
+                tint = if (isSelected) activeColor else inactiveColor,
+                modifier = Modifier.size(24.dp)
+            )
+
             Spacer(modifier = Modifier.height(2.dp))
+
             Text(
                 text = label,
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                color = if (isSelected) yellowAccent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                fontSize = 10.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) activeColor else inactiveColor,
+                maxLines = 1
             )
         }
     }

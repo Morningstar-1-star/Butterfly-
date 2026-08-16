@@ -86,7 +86,12 @@ data class SearchFilterState(
             filtered = filtered.filter { item ->
                 val pId = (item.providerId ?: "").lowercase()
                 val targetId = sourceProviderId.lowercase()
-                pId == targetId || (targetId == "torrent" && (pId.contains("torrent") || pId.contains("yts") || pId.contains("eztv")))
+                pId == targetId ||
+                pId.contains(targetId) ||
+                targetId.contains(pId) ||
+                ((targetId == "torrent" || targetId == "unified_torrents" || targetId == "torrents") &&
+                    (pId.contains("torrent") || pId.contains("yts") || pId.contains("eztv") || pId.contains("comet") || pId.contains("torrentio"))) ||
+                (targetId.startsWith("apijav") && pId.startsWith("apijav"))
             }
         }
 

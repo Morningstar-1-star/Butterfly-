@@ -907,6 +907,11 @@ fun HistoryVideoCard(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbRequest = remember(video.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, preferCompact = true)
+    }
+
     Column(
         modifier = Modifier
             .width(160.dp)
@@ -920,7 +925,7 @@ fun HistoryVideoCard(
                 .background(Color.Black)
         ) {
             AsyncImage(
-                model = video.thumbnailUrl,
+                model = thumbRequest ?: video.thumbnailUrl,
                 contentDescription = video.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

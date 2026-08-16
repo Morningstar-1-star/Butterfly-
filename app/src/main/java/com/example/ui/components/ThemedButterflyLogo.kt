@@ -1,55 +1,68 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.R
 
 /**
- * Clean, lightweight Canvas-rendered Butterfly Logo.
+ * Official Butterfly app logo using the Android VectorDrawable path.
+ * Dynamically adopts the user's chosen secondaryAccentColor (yellow, monochrome, cyan, purple, etc.)
  */
 @Composable
 fun ThemedButterflyLogo(
     modifier: Modifier = Modifier,
-    size: Dp = 34.dp
+    size: Dp = 32.dp,
+    useTransparentBg: Boolean = false,
+    solidColor: Color? = null
 ) {
-    val backgroundBrush = Brush.linearGradient(
-        listOf(Color(0xFF8E24AA), Color(0xFFE91E63))
-    )
+    val activeAccentColor = solidColor ?: MaterialTheme.colorScheme.primary
 
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(backgroundBrush),
-        contentAlignment = Alignment.Center
-    ) {
-        val innerSize = size * 0.62f
-        Canvas(modifier = Modifier.size(innerSize)) {
-            val w = this.size.width
-            val h = this.size.height
+    if (useTransparentBg) {
+        Box(
+            modifier = modifier.size(size),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_butterfly_silhouette),
+                contentDescription = "Butterfly Logo",
+                colorFilter = ColorFilter.tint(activeAccentColor),
+                modifier = Modifier.size(size * 0.85f)
+            )
+        }
+    } else {
+        // High contrast inner butterfly silhouette
+        val innerButterflyColor = if (activeAccentColor == Color.White) {
+            Color.Black
+        } else {
+            Color.White
+        }
 
-            // Original Butterfly Logo
-            val wingColor = Color.White
-            drawCircle(color = wingColor, radius = w * 0.28f, center = Offset(w * 0.30f, h * 0.35f))
-            drawCircle(color = wingColor, radius = w * 0.28f, center = Offset(w * 0.70f, h * 0.35f))
-            drawCircle(color = wingColor.copy(alpha = 0.85f), radius = w * 0.20f, center = Offset(w * 0.36f, h * 0.68f))
-            drawCircle(color = wingColor.copy(alpha = 0.85f), radius = w * 0.20f, center = Offset(w * 0.64f, h * 0.68f))
-
-            drawLine(color = Color(0xFF4A148C), start = Offset(w * 0.5f, h * 0.20f), end = Offset(w * 0.5f, h * 0.82f), strokeWidth = w * 0.08f)
-            drawLine(color = Color(0xFF4A148C), start = Offset(w * 0.5f, h * 0.22f), end = Offset(w * 0.30f, h * 0.10f), strokeWidth = w * 0.05f)
-            drawLine(color = Color(0xFF4A148C), start = Offset(w * 0.5f, h * 0.22f), end = Offset(w * 0.70f, h * 0.10f), strokeWidth = w * 0.05f)
+        Box(
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(activeAccentColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_butterfly_silhouette),
+                contentDescription = "Butterfly Logo",
+                colorFilter = ColorFilter.tint(innerButterflyColor),
+                modifier = Modifier.size(size * 0.65f)
+            )
         }
     }
 }
-

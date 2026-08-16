@@ -200,6 +200,8 @@ class ArchiveOrgProvider(
                 val json = JSONObject(resp.body)
                 val meta = json.optJSONObject("metadata")
                 val filesArr = json.optJSONArray("files") ?: JSONArray()
+                val server = json.optString("server").ifBlank { json.optJSONArray("workable_servers")?.optString(0) ?: "" }
+                val dir = json.optString("dir")
 
                 // Collect video entries and subtitle entries
                 val allVideoFiles = mutableListOf<JSONObject>()
@@ -219,7 +221,7 @@ class ArchiveOrgProvider(
                             allVideoFiles.add(f)
                         } else if (format.contains("vtt") || name.endsWith(".vtt") || name.endsWith(".srt")) {
                             val encodedName = java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20")
-                            val fileUrl = "https://archive.org/download/$identifier/$encodedName"
+                            val fileUrl = if (server.isNotBlank() && dir.isNotBlank()) "https://$server$dir/$encodedName" else "https://archive.org/download/$identifier/$encodedName"
                             subtitles.add(
                                 PluginSubtitle(
                                     url = fileUrl,
@@ -248,7 +250,7 @@ class ArchiveOrgProvider(
                             .replace("%20", " ")
                     }
                     val encodedName = java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20")
-                    val fileUrl = "https://archive.org/download/$identifier/$encodedName"
+                    val fileUrl = if (server.isNotBlank() && dir.isNotBlank()) "https://$server$dir/$encodedName" else "https://archive.org/download/$identifier/$encodedName"
                     val height = f.optInt("height", 0)
                     val heightLabel = if (height > 0) "${height}p" else "1080p"
 

@@ -588,11 +588,16 @@ fun SubscriptionVideoCard(
         if (video.uploaderName.isBlank() || video.uploaderName.lowercase().contains("tv network") || video.uploaderName == "T" || video.uploaderName == "Hollywood Cinema") brandInfo.brandName else video.uploaderName
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbRequest = remember(video.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(bottom = 18.dp)
+            .padding(bottom = 0.dp)
     ) {
         // Thumbnail with Duration Overlay
         Box(
@@ -601,9 +606,9 @@ fun SubscriptionVideoCard(
                 .aspectRatio(16f / 9f)
                 .background(Color(0xFF1E1E1E))
         ) {
-            if (!video.thumbnailUrl.isNullOrBlank()) {
+            if (thumbRequest != null) {
                 AsyncImage(
-                    model = video.thumbnailUrl,
+                    model = thumbRequest,
                     contentDescription = video.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

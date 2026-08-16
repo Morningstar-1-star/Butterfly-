@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.regex.Pattern
 
 /**
  * Base helper for apiJAV network WordPress REST API integration.
@@ -365,11 +366,12 @@ open class ApiJavBaseProvider(
                     try {
                         val rawUrl = URLDecoder.decode(jwMatch.groupValues[1], "UTF-8")
                         if (rawUrl.startsWith("http") && extracted.none { it.url == rawUrl }) {
+                            val isHls = rawUrl.contains(".m3u8", ignoreCase = true)
                             extracted.add(
                                 PluginVideoStream(
                                     url = rawUrl,
-                                    qualityLabel = "JW Direct MP4 1080p",
-                                    format = "mp4",
+                                    qualityLabel = if (isHls) "JW HLS 1080p" else "JW Direct MP4 1080p",
+                                    format = if (isHls) "m3u8" else "mp4",
                                     height = 1080,
                                     isMuxed = true
                                 )
@@ -378,11 +380,11 @@ open class ApiJavBaseProvider(
                     } catch (_: Exception) {}
                 }
 
-                // 5. Direct regex match for media files
+                // 5. Direct regex match for media files (m3u8 and mp4)
                 val mediaRegex = Regex("""https?://[^\s"'<>]+\.(?:mp4|m3u8)(?:\?[^\s"'<>]*)?""")
                 mediaRegex.findAll(html).forEach { match ->
                     val mediaUrl = match.value
-                    if (extracted.none { it.url == mediaUrl } && !mediaUrl.contains("sample") && !mediaUrl.contains("preview")) {
+                    if (extracted.none { it.url == mediaUrl } && !mediaUrl.contains("sample") && !mediaUrl.contains("preview") && !mediaUrl.contains("trailer")) {
                         val isHls = mediaUrl.contains(".m3u8", ignoreCase = true)
                         extracted.add(
                             PluginVideoStream(
@@ -393,6 +395,36 @@ open class ApiJavBaseProvider(
                                 isMuxed = true
                             )
                         )
+                    }
+                }
+
+                // 6. Check for nested iframes and resolve inner stream
+                val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                iframeRegex.findAll(html).forEach { iMatch ->
+                    var iframeSrc = iMatch.groupValues[1]
+                    if (iframeSrc.startsWith("//")) iframeSrc = "https:$iframeSrc"
+                    if (iframeSrc.startsWith("http") && !iframeSrc.contains("google") && !iframeSrc.contains("facebook")) {
+                        try {
+                            val innerResp = http.get(iframeSrc)
+                            if (innerResp.statusCode == 200 && innerResp.body.isNotBlank()) {
+                                val innerHtml = innerResp.body
+                                mediaRegex.findAll(innerHtml).forEach { innerMediaMatch ->
+                                    val innerUrl = innerMediaMatch.value
+                                    if (extracted.none { it.url == innerUrl } && !innerUrl.contains("sample") && !innerUrl.contains("preview")) {
+                                        val isHls = innerUrl.contains(".m3u8", ignoreCase = true)
+                                        extracted.add(
+                                            PluginVideoStream(
+                                                url = innerUrl,
+                                                qualityLabel = if (isHls) "Iframe HLS Stream" else "Iframe Direct MP4",
+                                                format = if (isHls) "m3u8" else "mp4",
+                                                height = 1080,
+                                                isMuxed = true
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        } catch (ignored: Exception) {}
                     }
                 }
             }
@@ -448,8 +480,77 @@ open class ApiJavBaseProvider(
         )
     }
 
+    private fun resolveApiJavThumbnail(obj: JSONObject, id: String, title: String, code: String, slug: String): String {
+        // 1. Direct explicit fields in JSON
+        val directFields = listOf(
+            "thumbnail", "poster", "image", "cover", "cover_url", "cover_image",
+            "featured_image_src", "featured_image", "featured_media_url",
+            "thumb", "thumb_url", "preview", "preview_url", "screenshot", "backdrop"
+        )
+        for (field in directFields) {
+            val v = obj.optString(field).trim()
+            if (v.isNotBlank() && (v.startsWith("http://") || v.startsWith("https://") || v.startsWith("//"))) {
+                return if (v.startsWith("//")) "https:$v" else v
+            }
+        }
+
+        // 2. Nested WordPress objects (better_featured_image, yoast_head_json, _embedded)
+        val betterFeatured = obj.optJSONObject("better_featured_image")?.optString("source_url")
+        if (!betterFeatured.isNullOrBlank() && betterFeatured.startsWith("http")) return betterFeatured
+
+        val jetpack = obj.optString("jetpack_featured_media_url").trim()
+        if (jetpack.isNotBlank() && jetpack.startsWith("http")) return jetpack
+
+        val yoastOg = obj.optJSONObject("yoast_head_json")?.optJSONArray("og_image")?.optJSONObject(0)?.optString("url")
+            ?: obj.optJSONObject("yoast_head_json")?.optString("og_image")
+        if (!yoastOg.isNullOrBlank() && yoastOg.startsWith("http")) return yoastOg
+
+        val embeddedFeatured = obj.optJSONObject("_embedded")?.optJSONArray("wp:featuredmedia")?.optJSONObject(0)
+        if (embeddedFeatured != null) {
+            val src = embeddedFeatured.optString("source_url")
+            if (src.isNotBlank() && src.startsWith("http")) return src
+            val sizes = embeddedFeatured.optJSONObject("media_details")?.optJSONObject("sizes")
+            val fullSrc = sizes?.optJSONObject("full")?.optString("source_url")
+                ?: sizes?.optJSONObject("large")?.optString("source_url")
+                ?: sizes?.optJSONObject("medium_large")?.optString("source_url")
+            if (!fullSrc.isNullOrBlank() && fullSrc.startsWith("http")) return fullSrc
+        }
+
+        // 3. Extract <img> tag from HTML content or excerpt
+        val contentHtml = obj.optJSONObject("content")?.optString("rendered") ?: obj.optString("content")
+        val excerptHtml = obj.optJSONObject("excerpt")?.optString("rendered") ?: obj.optString("excerpt")
+        val fullHtml = "$contentHtml $excerptHtml"
+        if (fullHtml.isNotBlank()) {
+            val imgMatcher = Pattern.compile("<img[^>]+(?:src|data-src|data-lazy-src)=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(fullHtml)
+            while (imgMatcher.find()) {
+                var imgUrl = imgMatcher.group(1) ?: ""
+                if (imgUrl.startsWith("//")) imgUrl = "https:$imgUrl"
+                if (imgUrl.startsWith("http") && !imgUrl.contains("avatar") && !imgUrl.contains("logo") && !imgUrl.contains("icon")) {
+                    return imgUrl
+                }
+            }
+        }
+
+        // 4. Resolve via JAV DVD Code / ID (e.g. SSIS-123, IPX-456, FC2-PPV-123456)
+        val candidateCode = when {
+            code.isNotBlank() -> code
+            else -> {
+                val codeMatch = Regex("""\b([A-Z0-9]{2,6}[-_][0-9]{3,6}|FC2[-_]PPV[-_][0-9]+)\b""", RegexOption.IGNORE_CASE).find("$title $slug $id")
+                codeMatch?.groupValues?.get(1) ?: ""
+            }
+        }
+
+        if (candidateCode.isNotBlank()) {
+            val upperCode = candidateCode.uppercase().trim().replace("_", "-")
+            return "https://fourhoi.com/$upperCode/cover.jpg"
+        }
+
+        return "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop"
+    }
+
     private fun parseVideoObject(obj: JSONObject): PluginVideoItem {
-        val id = obj.optString("id").ifBlank { obj.optString("ID", obj.optString("slug", "jav_${System.currentTimeMillis()}")) }
+        val slug = obj.optString("slug")
+        val id = obj.optString("id").ifBlank { obj.optString("ID", slug.ifBlank { "jav_${System.currentTimeMillis()}" }) }
 
         var title = obj.optString("title")
         if (title.isBlank()) {
@@ -495,15 +596,10 @@ open class ApiJavBaseProvider(
         val views = obj.optLong("views", obj.optLong("view_count", 12500L))
         val likes = obj.optLong("likes", 0L)
         val rawDuration = obj.optString("duration")
-        val durationSeconds = parseDurationSeconds(rawDuration, obj.optLong("duration_seconds", 3600L))
+        val durationSeconds = parseDurationSeconds(rawDuration, obj.optLong("duration_seconds", 0L))
         val date = obj.optString("date").ifBlank { obj.optString("post_date", "Recently Added") }
 
-        var thumb = obj.optString("thumbnail").ifBlank { obj.optString("poster", obj.optString("image")) }
-        if (thumb.isBlank()) {
-            val featuredMedia = obj.optJSONObject("better_featured_image")?.optString("source_url")
-                ?: obj.optString("jetpack_featured_media_url")
-            thumb = if (!featuredMedia.isNullOrBlank()) featuredMedia else "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop"
-        }
+        val thumb = resolveApiJavThumbnail(obj, id, title, code, slug)
 
         val descParts = mutableListOf<String>()
         if (code.isNotBlank()) descParts.add("Code: $code")
@@ -571,7 +667,7 @@ open class ApiJavBaseProvider(
                 title = "$providerDisplayName - Premiere Feature $codeId (Uncensored HD)",
                 uploaderName = providerDisplayName,
                 viewCount = (50000L..450000L).random(),
-                durationSeconds = (3600L..7200L).random(),
+                durationSeconds = 0L,
                 uploadDate = "2026-08",
                 thumbnailUrl = sampleCovers[index % sampleCovers.size],
                 providerId = providerId,
@@ -723,7 +819,7 @@ class JavInfoProvider(
                             title = title,
                             uploaderName = studio,
                             viewCount = (10000L..250000L).random(),
-                            durationSeconds = 7200L,
+                            durationSeconds = 0L,
                             uploadDate = "2026",
                             thumbnailUrl = cover,
                             providerId = providerId,
@@ -744,7 +840,7 @@ class JavInfoProvider(
             title = "$query - Official JAV Feature (Uncensored 1080p)",
             uploaderName = "JavInfo Database",
             viewCount = 142000L,
-            durationSeconds = 7200L,
+            durationSeconds = 0L,
             uploadDate = "2026-08",
             thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop",
             providerId = providerId,
@@ -820,7 +916,7 @@ class JavInfoProvider(
                 title = "$code JAV Feature Title",
                 uploaderName = "S1 NO.1 STYLE",
                 viewCount = (20000L..500000L).random(),
-                durationSeconds = 7200L,
+                durationSeconds = 0L,
                 uploadDate = "2026-08",
                 thumbnailUrl = sampleCovers[idx % sampleCovers.size],
                 providerId = providerId,

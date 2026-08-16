@@ -27,6 +27,20 @@ import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.RssFeed
+import androidx.compose.material.icons.filled.Explicit
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -122,6 +136,74 @@ fun SearchScreen(
             }
         }
         map
+    }
+
+    // Build list of provider source chips (ALWAYS VISIBLE below search bar)
+    val providerChips = remember(availableProviders, adultContentEnabled) {
+        val list = mutableListOf<ProviderSourceItemData>()
+
+        // 1. ALL
+        list.add(
+            ProviderSourceItemData(
+                id = "ALL",
+                label = "All Sources",
+                icon = Icons.Default.Layers,
+                accentColor = Color(0xFF3F51B5)
+            )
+        )
+
+        val processedIds = mutableSetOf<String>("all", "ALL")
+
+        // 2. Map available enabled providers
+        availableProviders
+            .filter { it.id.lowercase() != "all" && it.isEnabled }
+            .filter { adultContentEnabled || !viewModel.isAdultProviderId(it.id) }
+            .forEach { provider ->
+                val pId = provider.id.lowercase()
+                if (!processedIds.contains(pId)) {
+                    processedIds.add(pId)
+                    val (label, icon, color) = getProviderChipInfo(provider.id, provider.name)
+                    list.add(ProviderSourceItemData(id = provider.id, label = label, icon = icon, accentColor = color))
+                }
+            }
+
+        // 3. Ensure popular default providers exist
+        val defaults = listOf(
+            ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
+            ProviderSourceItemData("adultswim", "Adult Swim", Icons.Default.Tv, Color(0xFF1E88E5)),
+            ProviderSourceItemData("hotstar", "Disney+ Hotstar", Icons.Default.Star, Color(0xFF002244)),
+            ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
+            ProviderSourceItemData("unified_torrents", "Torrents", Icons.Default.Download, Color(0xFF2E7D32)),
+            ProviderSourceItemData("jikan_anime", "Anime", Icons.Default.Star, Color(0xFF7B1FA2)),
+            ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
+            ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F)),
+            ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1))
+        )
+        defaults.forEach { item ->
+            if (!processedIds.contains(item.id.lowercase())) {
+                processedIds.add(item.id.lowercase())
+                list.add(item)
+            }
+        }
+
+        // 4. Adult providers if adult content is toggled ON
+        if (adultContentEnabled) {
+            val adultList = listOf(
+                ProviderSourceItemData("eporner", "Eporner", Icons.Default.Explicit, Color(0xFFC2185B)),
+                ProviderSourceItemData("apijav_server", "ApiJav", Icons.Default.Explicit, Color(0xFF8E24AA)),
+                ProviderSourceItemData("javinfo", "JavInfo", Icons.Default.Explicit, Color(0xFF5E35B1)),
+                ProviderSourceItemData("apijav_hentai", "Hentai", Icons.Default.Explicit, Color(0xFFD81B60)),
+                ProviderSourceItemData("apijav_porn", "Adult Feeds", Icons.Default.Explicit, Color(0xFFAD1457))
+            )
+            adultList.forEach { adultItem ->
+                if (!processedIds.contains(adultItem.id.lowercase())) {
+                    processedIds.add(adultItem.id.lowercase())
+                    list.add(adultItem)
+                }
+            }
+        }
+
+        list
     }
 
     Column(
@@ -240,6 +322,36 @@ fun SearchScreen(
                 }
             }
         }
+
+        // ALWAYS VISIBLE PROVIDER SOURCE SELECTOR BAR (Scrollable Row right under search bar)
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items(providerChips, key = { it.id }) { chipData ->
+                val isSelected = if (chipData.id == "ALL") {
+                    searchFilter.sourceProviderId == "ALL" || searchFilter.sourceProviderId.isBlank()
+                } else {
+                    searchFilter.sourceProviderId.equals(chipData.id, ignoreCase = true) ||
+                    (chipData.id == "unified_torrents" && searchFilter.sourceProviderId.lowercase().contains("torrent"))
+                }
+
+                ProviderSourceChip(
+                    data = chipData,
+                    selected = isSelected,
+                    onClick = {
+                        val newSource = if (isSelected && chipData.id != "ALL") "ALL" else chipData.id
+                        viewModel.updateSearchFilter(searchFilter.copy(sourceProviderId = newSource))
+                    }
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f), thickness = 1.dp)
 
         // HORIZONTAL QUICK FILTER CHIPS (YouTube Style Bar)
         if (searchResults.isNotEmpty()) {
@@ -777,9 +889,13 @@ private fun SearchSuggestionRow(
 
         // Optional Thumbnail Image on the right (matching YouTube screenshot)
         if (!thumbnailUrl.isNullOrBlank()) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val thumbRequest = remember(thumbnailUrl) {
+                com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, thumbnailUrl, preferCompact = true)
+            }
             Spacer(modifier = Modifier.width(8.dp))
             AsyncImage(
-                model = thumbnailUrl,
+                model = thumbRequest ?: thumbnailUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -837,6 +953,100 @@ private fun SearchQuickChip(
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 color = contentColor
             )
+        }
+    }
+}
+
+private data class ProviderSourceItemData(
+    val id: String,
+    val label: String,
+    val icon: ImageVector,
+    val accentColor: Color
+)
+
+private fun getProviderChipInfo(id: String, defaultName: String): Triple<String, ImageVector, Color> {
+    return when (id.lowercase()) {
+        "youtube" -> Triple("YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000))
+        "adultswim" -> Triple("Adult Swim", Icons.Default.Tv, Color(0xFF1E88E5))
+        "hotstar" -> Triple("Disney+ Hotstar", Icons.Default.Star, Color(0xFF002244))
+        "dailymotion" -> Triple("Dailymotion", Icons.Default.Movie, Color(0xFF0066DC))
+        "unified_torrents", "torrent", "yts", "eztv", "torrentio", "comet" -> Triple("Torrents", Icons.Default.Download, Color(0xFF2E7D32))
+        "jikan_anime", "anime" -> Triple("Anime", Icons.Default.Star, Color(0xFF7B1FA2))
+        "archive_org", "internet_archive" -> Triple("Archive.org", Icons.Default.Folder, Color(0xFF5D4037))
+        "mega" -> Triple("Mega", Icons.Default.Cloud, Color(0xFFD32F2F))
+        "telegram" -> Triple("Telegram", Icons.Default.Send, Color(0xFF0288D1))
+        "direct_mp4", "direct_hls" -> Triple("Direct Video", Icons.Default.VideoLibrary, Color(0xFF00796B))
+        "rss_video", "json" -> Triple("Feeds", Icons.Default.RssFeed, Color(0xFFF57C00))
+        "eporner" -> Triple("Eporner", Icons.Default.Explicit, Color(0xFFC2185B))
+        "apijav_server", "apijav" -> Triple("ApiJav", Icons.Default.Explicit, Color(0xFF8E24AA))
+        "javinfo" -> Triple("JavInfo", Icons.Default.Explicit, Color(0xFF5E35B1))
+        "apijav_hentai" -> Triple("Hentai", Icons.Default.Explicit, Color(0xFFD81B60))
+        "apijav_porn" -> Triple("Adult Feeds", Icons.Default.Explicit, Color(0xFFAD1457))
+        else -> Triple(defaultName.ifBlank { id.replaceFirstChar { it.uppercase() } }, Icons.Default.VideoLibrary, Color(0xFF546E7A))
+    }
+}
+
+@Composable
+private fun ProviderSourceChip(
+    data: ProviderSourceItemData,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val isDarkBg = data.accentColor == Color(0xFF000000) || data.accentColor == Color(0xFF111111)
+    val activeBg = if (isDarkBg) MaterialTheme.colorScheme.onSurface else data.accentColor
+    val activeContent = if (isDarkBg) MaterialTheme.colorScheme.surface else Color.White
+
+    val backgroundColor = if (selected) activeBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val contentColor = if (selected) activeContent else MaterialTheme.colorScheme.onSurface
+    val iconTint = if (selected) activeContent else data.accentColor
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = backgroundColor,
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) activeBg else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .background(
+                        color = if (selected) activeContent.copy(alpha = 0.22f) else data.accentColor.copy(alpha = 0.18f),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = data.icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = data.label,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = contentColor
+            )
+            if (selected && data.id != "ALL") {
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = activeContent,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
         }
     }
 }

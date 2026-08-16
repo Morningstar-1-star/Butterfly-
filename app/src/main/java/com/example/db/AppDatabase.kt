@@ -53,15 +53,20 @@ interface SourceMetricsDao {
         BookmarkEntity::class,
         LikedVideoEntity::class,
         UserPlaylistEntity::class,
-        OfflineDownloadEntity::class
+        OfflineDownloadEntity::class,
+        SearchHistoryEntity::class,
+        VideoMetadataCacheEntity::class,
+        PreloadedVideoCacheEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun responseCacheDao(): ResponseCacheDao
     abstract fun sourceMetricsDao(): SourceMetricsDao
     abstract fun userDataDao(): UserDataDao
+    abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun videoCacheDao(): VideoCacheDao
 
     companion object {
         @Volatile
@@ -142,6 +147,45 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `search_history` (
+                        `query` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`query`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `cached_video_metadata` (
+                        `videoId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `channelName` TEXT NOT NULL,
+                        `thumbnailUrl` TEXT,
+                        `description` TEXT,
+                        `duration` TEXT NOT NULL,
+                        `streamDataJson` TEXT,
+                        `providerId` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        `ttlMs` INTEGER NOT NULL,
+                        PRIMARY KEY(`videoId`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `preloaded_videos` (
+                        `videoId` TEXT NOT NULL,
+                        `streamUrl` TEXT NOT NULL,
+                        `hlsUrl` TEXT,
+                        `qualityLabel` TEXT NOT NULL,
+                        `cachedHeadersJson` TEXT,
+                        `localCachePath` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`videoId`)
+                    )
+                """.trimIndent())
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -149,7 +193,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

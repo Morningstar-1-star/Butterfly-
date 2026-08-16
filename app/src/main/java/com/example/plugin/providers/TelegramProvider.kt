@@ -1,6 +1,7 @@
 package com.example.plugin.providers
 
 import android.content.Context
+import android.util.Log
 import com.example.plugin.bridge.HttpBridge
 import com.example.plugin.sdk.api.ContentProviderApi
 import com.example.plugin.sdk.model.*
@@ -24,14 +25,22 @@ class TelegramProvider(private val context: Context? = null) : ContentProviderAp
 
     private val http = HttpBridge()
 
+    companion object {
+        private const val TAG = "TelegramProvider"
+    }
+
     override suspend fun home(pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val channelUrls = if (context != null) {
             CloudFoldersSettingsManager.getTelegramChannelUrls(context)
         } else {
-            listOf("https://t.me/s/movies", "https://t.me/s/telegram")
+            emptyList()
         }
 
         val items = mutableListOf<PluginVideoItem>()
+
+        if (channelUrls.isEmpty()) {
+            return@withContext PagedResult(emptyList(), nextPageToken = null)
+        }
 
         channelUrls.forEach { channelUrl ->
             try {
@@ -90,34 +99,21 @@ class TelegramProvider(private val context: Context? = null) : ContentProviderAp
                                         title = "[$channelName] $postTitle",
                                         uploaderName = channelName,
                                         viewCount = (500..80000).random().toLong(),
-                                        durationSeconds = (120..3600).random().toLong(),
-                                        uploadDate = "2026-08-09",
+                                        durationSeconds = 0L,
+                                        uploadDate = "2026-08-16",
                                         thumbnailUrl = thumbUrl,
                                         providerId = providerId
                                     )
                                 )
                             }
                         } catch (e: Exception) {
-                            // Skip item parse errors
+                            Log.w(TAG, "Error parsing block in $channelUrl: ${e.message}")
                         }
                     }
                 }
             } catch (e: Exception) {
-                // Ignore
+                Log.w(TAG, "Error loading Telegram channel $channelUrl: ${e.message}")
             }
-        }
-
-        if (items.isEmpty()) {
-            items.add(
-                PluginVideoItem(
-                    id = "tg_channel_movies",
-                    title = "Telegram Movies & Videos Channel Stream",
-                    uploaderName = "Telegram Media",
-                    durationSeconds = 3600L,
-                    thumbnailUrl = "https://telegram.org/img/t_logo.png",
-                    providerId = providerId
-                )
-            )
         }
 
         PagedResult(items, nextPageToken = null)
@@ -126,23 +122,10 @@ class TelegramProvider(private val context: Context? = null) : ContentProviderAp
     override suspend fun search(query: String, pageToken: String?): PagedResult<PluginVideoItem> = withContext(Dispatchers.IO) {
         val allHome = home(pageToken).items
         val filtered = allHome.filter { 
-            it.title.contains(query, ignoreCase = true)
+            it.title.contains(query, ignoreCase = true) || it.uploaderName?.contains(query, ignoreCase = true) == true
         }
 
-        val resultList = if (filtered.isNotEmpty()) filtered else {
-            listOf(
-                PluginVideoItem(
-                    id = "tg_search_" + URLEncoder.encode(query, "UTF-8"),
-                    title = "Telegram Channel Search: $query",
-                    uploaderName = "Telegram Media",
-                    durationSeconds = 1800L,
-                    thumbnailUrl = "https://telegram.org/img/t_logo.png",
-                    providerId = providerId
-                )
-            )
-        }
-
-        PagedResult(resultList, nextPageToken = null)
+        PagedResult(filtered, nextPageToken = null)
     }
 
     override suspend fun getVideo(idOrUrl: String): PluginVideoItem = withContext(Dispatchers.IO) {
@@ -150,7 +133,7 @@ class TelegramProvider(private val context: Context? = null) : ContentProviderAp
             id = idOrUrl,
             title = "Telegram Media Stream",
             uploaderName = "Telegram Channel",
-            durationSeconds = 1800L,
+            durationSeconds = 0L,
             thumbnailUrl = "https://telegram.org/img/t_logo.png",
             providerId = providerId
         )

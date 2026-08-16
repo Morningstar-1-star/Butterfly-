@@ -77,6 +77,7 @@ fun VideoDetailsSection(
     var isCaptionMenuExpanded by remember { mutableStateOf(false) }
     var selectedSubTab by remember { mutableStateOf(MediaSubTab.CAST_AND_CREW) }
     var zoomScreenshotUrl by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val currentVideoId = streamData?.videoId ?: previewItem?.id ?: ""
     val currentTitle = streamData?.title?.takeIf { it.isNotBlank() } ?: previewItem?.title?.takeIf { it.isNotBlank() } ?: "Loading video..."
@@ -891,8 +892,11 @@ fun VideoDetailsSection(
                                         colors = CardDefaults.cardColors(containerColor = Color.Black)
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize()) {
+                                            val ssRequest = remember(imageUrl) {
+                                                com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, imageUrl)
+                                            }
                                             AsyncImage(
-                                                model = imageUrl,
+                                                model = ssRequest ?: imageUrl,
                                                 contentDescription = "Scene Screenshot",
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize()
@@ -954,9 +958,12 @@ fun VideoDetailsSection(
                                                     .height(110.dp)
                                                     .background(Color.Black)
                                             ) {
+                                                val clipThumbRequest = remember(clip.thumbnailUrl) {
+                                                    com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, clip.thumbnailUrl, preferCompact = true)
+                                                }
                                                 if (!clip.thumbnailUrl.isNullOrEmpty()) {
                                                     AsyncImage(
-                                                        model = clip.thumbnailUrl,
+                                                        model = clipThumbRequest ?: clip.thumbnailUrl,
                                                         contentDescription = clip.title,
                                                         contentScale = ContentScale.Crop,
                                                         modifier = Modifier.fillMaxSize()

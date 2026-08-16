@@ -1,0 +1,17 @@
+<!-- res/drawable/butterfly_logo.xml -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+
+    <!-- Circular logo background -->
+    <path
+        android:fillColor="@color/secondary_accent"
+        android:pathData="M8,0.5A7.5,7.5 0,1 0,8 15.5A7.5,7.5 0,1 0,8 0.5" />
+
+    <!-- Butterfly Silhouette -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3.468,1.948 C5.303,3.325 7.276,6.118 8,7.616 C8.725,6.118 10.698,3.325 12.532,1.948 C13.855,0.955 16,0.186 16,2.632 C16,3.121 15.72,6.737 15.556,7.324 C14.984,9.364 12.903,9.885 11.052,9.57 C14.288,10.121 15.112,11.945 13.333,13.77 C9.957,17.234 8.481,12.9 8.103,11.79 C8.033,11.586 8,11.49 8,11.572 C8,11.491 7.967,11.586 7.898,11.79 C7.519,12.9 6.043,17.234 2.667,13.77 C0.889,11.945 1.713,10.12 4.948,9.57 C3.097,9.885 1.016,9.365 0.444,7.324 C0.28,6.737 0,3.12 0,2.632 C0,0.186 2.145,0.955 3.468,1.948 Z" />
+</vector>
