@@ -246,14 +246,13 @@ object TorrentStreamEngine {
         }
 
         if (!streamSuccessful) {
-            // Serve 200 OK or 206 with dummy video stream headers to keep player active while buffering
-            Log.w(TAG, "All candidates exhausted, sending active stream header to Media3")
-            val emptyResp = "HTTP/1.1 200 OK\r\n" +
-                    "Content-Type: video/mp4\r\n" +
-                    "Accept-Ranges: bytes\r\n" +
-                    "Content-Length: 0\r\n" +
-                    "Connection: close\r\n\r\n"
-            out.write(emptyResp.toByteArray())
+            Log.w(TAG, "All candidates exhausted for torrent stream request")
+            val errorResp = "HTTP/1.1 502 Bad Gateway\r\n" +
+                    "Content-Type: text/plain\r\n" +
+                    "Content-Length: 26\r\n" +
+                    "Connection: close\r\n\r\n" +
+                    "Torrent Stream Unavailable"
+            out.write(errorResp.toByteArray())
             out.flush()
         }
     }

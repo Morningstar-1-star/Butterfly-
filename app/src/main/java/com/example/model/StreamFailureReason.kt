@@ -12,6 +12,7 @@ enum class StreamFailureReason(val code: String, val description: String) {
     INVALID_HLS("BAD_HLS", "Invalid M3U8 playlist or expired segment tokens"),
     INVALID_EMBED("BAD_EMBED", "Embed page failed to load or refused iframe connection"),
     PARSING_FAILED("PARSE_ERR", "Failed to parse stream metadata or API response"),
+    INVALID_CONTENT_TYPE("BAD_CONTENT_TYPE", "Invalid content type or non-media response"),
     TMDB_FAILED("TMDB_ERR", "TMDB metadata lookup or API resolution failed")
 }
 

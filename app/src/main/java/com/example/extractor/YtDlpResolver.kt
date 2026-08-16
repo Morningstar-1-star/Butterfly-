@@ -74,7 +74,7 @@ object YtDlpResolver {
         // Raw 11-char YouTube ID
         if (Regex("^[a-zA-Z0-9_-]{11}$").matches(trimmed)) return true
 
-        // Check video hosts supported by yt-dlp
+        // Check video hosts supported by yt-dlp & integrated plugins
         if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
             val u = trimmed.lowercase()
             if (u.contains("eporner.com") || u.contains("archive.org")) return false
@@ -82,10 +82,43 @@ object YtDlpResolver {
                     u.contains("vimeo.com") || u.contains("tiktok.com") ||
                     u.contains("twitter.com") || u.contains("x.com") ||
                     u.contains("pornhub.com") || u.contains("xhamster.com") || u.contains("redtube.com") || u.contains("xvideos.com") ||
-                    u.contains("peer.tube") || u.contains("nicovideo.jp") || u.contains("twitch.tv") || true
+                    u.contains("peer.tube") || u.contains("nicovideo.jp") || u.contains("twitch.tv") ||
+                    u.contains("coomer.su") || u.contains("kemono.su") || u.contains("pmvhaven.com") ||
+                    u.contains("aniwatchtv.to") || u.contains("aniwatch.to") || u.contains("kaido.to") ||
+                    u.contains("hianime.to") || u.contains("hanime.tv") || u.contains("bilibili.com") ||
+                    u.contains("closedport") || u.contains("streamhub") || u.contains("vidspeed") || u.contains("filelions") ||
+                    u.contains("91porn") || u.contains("jable") || u.contains("missav") ||
+                    u.contains("uncensoredjav") || u.contains("javuncensored") || u.contains("7mmtv") || u.contains("supjav") || true
         }
 
         return false
+    }
+
+    private fun preparePlugins(context: Context): File? {
+        try {
+            val pluginDir = File(context.filesDir, "yt_plugins")
+            val extractorDir = File(pluginDir, "yt_dlp_plugins/extractor")
+            if (!extractorDir.exists()) {
+                extractorDir.mkdirs()
+            }
+            val assetManager = context.assets
+            val assetPath = "yt_plugins/yt_dlp_plugins/extractor"
+            val files = assetManager.list(assetPath) ?: emptyArray()
+            for (fileName in files) {
+                val outFile = File(extractorDir, fileName)
+                if (!outFile.exists() || outFile.length() == 0L) {
+                    assetManager.open("$assetPath/$fileName").use { input ->
+                        outFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+            }
+            return pluginDir
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to prepare yt-dlp plugin files: ${e.message}")
+            return null
+        }
     }
 
     fun normalizeUrl(input: String): String {
@@ -189,6 +222,12 @@ object YtDlpResolver {
 
         try {
             val request = YoutubeDLRequest(fullUrl)
+
+            // Pass plugin directory to yt-dlp to load embedded plugin extractors
+            val pluginDir = preparePlugins(context)
+            if (pluginDir != null && pluginDir.exists()) {
+                request.addOption("--plugin-dirs", pluginDir.absolutePath)
+            }
 
             // Format selection: Allow yt-dlp to choose best available direct streams
             request.addOption("-f", "b/bestvideo+bestaudio/best")

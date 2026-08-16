@@ -103,59 +103,88 @@ class StreamValidator {
 
             val latency = System.currentTimeMillis() - startTime
             if (response == null) {
-                // Fallback to valid to prevent dropping playable streams blocked by probe restrictions
                 return@withContext StreamValidationResult(
-                    isValid = true,
+                    isValid = false,
                     url = cleanUrl,
                     streamType = streamType,
+                    failureReason = StreamFailureReason.NETWORK_ERROR,
                     latencyMs = latency
-                )
-            }
-
-            if (cleanUrl.contains("eporner.com", ignoreCase = true) || 
-                cleanUrl.contains("dailymotion.com", ignoreCase = true) ||
-                cleanUrl.contains("phncdn.com", ignoreCase = true) ||
-                cleanUrl.contains("pornhub", ignoreCase = true) ||
-                cleanUrl.contains("googlevideo.com", ignoreCase = true) ||
-                cleanUrl.contains("youtube.com", ignoreCase = true) ||
-                cleanUrl.contains("youtu.be", ignoreCase = true)
-            ) {
-                return@withContext StreamValidationResult(
-                    isValid = true,
-                    url = cleanUrl,
-                    streamType = if (cleanUrl.contains(".mp4", ignoreCase = true)) StreamType.DIRECT_MP4 else StreamType.EMBED_PAGE,
-                    latencyMs = System.currentTimeMillis() - startTime
                 )
             }
 
             val code = response.code
             val contentType = response.header("Content-Type")?.lowercase() ?: ""
+            val bodyPeek = try { response.body?.source()?.peek()?.readUtf8(100) ?: "" } catch (_: Exception) { "" }
             response.close()
 
-            when {
-                code == 404 -> StreamValidationResult(
-                    isValid = false, url = cleanUrl, streamType = streamType,
-                    failureReason = StreamFailureReason.HTTP_404_NOT_FOUND, httpCode = code, latencyMs = latency
+            val isSuccessCode = code in 200..299 || code == 206
+
+            if (!isSuccessCode) {
+                val failureReason = when (code) {
+                    404 -> StreamFailureReason.HTTP_404_NOT_FOUND
+                    403 -> StreamFailureReason.HTTP_403_FORBIDDEN
+                    401 -> StreamFailureReason.HTTP_403_FORBIDDEN
+                    in 500..599 -> StreamFailureReason.NETWORK_ERROR
+                    else -> StreamFailureReason.NETWORK_ERROR
+                }
+                return@withContext StreamValidationResult(
+                    isValid = false,
+                    url = cleanUrl,
+                    streamType = streamType,
+                    failureReason = failureReason,
+                    httpCode = code,
+                    latencyMs = latency
                 )
-                code in 500..599 -> StreamValidationResult(
-                    isValid = false, url = cleanUrl, streamType = streamType,
-                    failureReason = StreamFailureReason.NETWORK_ERROR, httpCode = code, latencyMs = latency
+            }
+
+            val isPlayableMediaType = contentType.contains("video/") ||
+                    contentType.contains("audio/") ||
+                    contentType.contains("mpegurl") ||
+                    contentType.contains("dash+xml") ||
+                    contentType.contains("octet-stream") ||
+                    bodyPeek.contains("#EXTM3U") ||
+                    bodyPeek.contains("ftyp") ||
+                    bodyPeek.contains("<?xml")
+
+            if (contentType.contains("html") && !bodyPeek.contains("#EXTM3U") && !bodyPeek.contains("ftyp") && streamType != StreamType.EMBED_PAGE) {
+                return@withContext StreamValidationResult(
+                    isValid = false,
+                    url = cleanUrl,
+                    streamType = streamType,
+                    failureReason = StreamFailureReason.INVALID_CONTENT_TYPE,
+                    httpCode = code,
+                    latencyMs = latency,
+                    contentType = contentType
                 )
-                contentType.contains("html") && streamType != StreamType.EMBED_PAGE -> StreamValidationResult(
-                    isValid = true, url = cleanUrl, streamType = StreamType.EMBED_PAGE,
-                    httpCode = code, latencyMs = latency, contentType = contentType
+            }
+
+            if (isPlayableMediaType || isSuccessCode) {
+                return@withContext StreamValidationResult(
+                    isValid = true,
+                    url = cleanUrl,
+                    streamType = streamType,
+                    httpCode = code,
+                    latencyMs = latency,
+                    contentType = contentType
                 )
-                else -> StreamValidationResult(
-                    isValid = true, url = cleanUrl, streamType = streamType,
-                    httpCode = code, latencyMs = latency, contentType = contentType
+            } else {
+                return@withContext StreamValidationResult(
+                    isValid = false,
+                    url = cleanUrl,
+                    streamType = streamType,
+                    failureReason = StreamFailureReason.INVALID_CONTENT_TYPE,
+                    httpCode = code,
+                    latencyMs = latency,
+                    contentType = contentType
                 )
             }
         } catch (e: Exception) {
             Log.w("StreamValidator", "Failed to validate stream $cleanUrl: ${e.message}")
             StreamValidationResult(
-                isValid = true, // Graceful fallback if probe is blocked by server CORS/HEAD restrictions
+                isValid = false,
                 url = cleanUrl,
                 streamType = streamType,
+                failureReason = StreamFailureReason.NETWORK_ERROR,
                 latencyMs = System.currentTimeMillis() - startTime
             )
         }

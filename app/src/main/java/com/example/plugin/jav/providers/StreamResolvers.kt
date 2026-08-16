@@ -136,7 +136,7 @@ class JableTvStreamResolver : StreamProvider {
 
 /**
  * 4. yt-dlp Native Extractor Resolver
- * Directly extracts playable video streams using native YoutubeDL engine or supported URL patterns.
+ * Directly extracts playable video streams using native YoutubeDL engine.
  */
 class YtDlpExtractorResolver : StreamProvider {
     override val id: String = "ytdlp_extractor"
@@ -146,28 +146,23 @@ class YtDlpExtractorResolver : StreamProvider {
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().lowercase()
         val results = mutableListOf<JavStream>()
-        try {
+        val ctx = com.example.MainApplication.appContext
+        if (ctx != null) {
             val targetUrl = "https://missav.ws/en/$cleanJavId"
-            if (com.example.extractor.YtDlpResolver.isYtDlpSupportedUrl(targetUrl)) {
-                val req = Request.Builder().url(targetUrl).header("User-Agent", "Mozilla/5.0").build()
-                val res = streamClient.newCall(req).execute()
-                val html = res.body?.string() ?: ""
-                if (res.isSuccessful && html.lowercase().contains(cleanJavId)) {
-                    val m3u8Match = Pattern.compile("m3u8\\|([a-zA-Z0-9_-]+)").matcher(html)
-                    if (m3u8Match.find()) {
-                        val token = m3u8Match.group(1) ?: ""
-                        val directUrl = "https://surrit.com/$token/playlist.m3u8"
-                        val headers = mapOf("Referer" to "https://missav.ws/")
-                        if (verifyStreamUrl(directUrl, headers)) {
+            try {
+                val res = com.example.extractor.YtDlpResolver.extractStreamInfo(ctx, targetUrl)
+                if (res is com.example.extractor.YtDlpResolver.ExtractionResult.Success) {
+                    res.playableOptions.forEachIndexed { idx, opt ->
+                        if (!opt.videoUrl.isNullOrEmpty()) {
                             results.add(
                                 JavStream(
-                                    id = "ytdlp_$cleanJavId",
+                                    id = "ytdlp_${cleanJavId}_$idx",
                                     javId = javId.uppercase(),
-                                    url = directUrl,
-                                    title = "${javId.uppercase()} (yt-dlp Direct HLS)",
-                                    qualityLabel = "1080p",
-                                    mimeType = "application/x-mpegURL",
-                                    headers = headers,
+                                    url = opt.videoUrl!!,
+                                    title = "${javId.uppercase()} (${opt.qualityLabel})",
+                                    qualityLabel = opt.qualityLabel,
+                                    mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                                    headers = opt.headers ?: emptyMap(),
                                     providerId = id,
                                     providerName = name
                                 )
@@ -175,9 +170,9 @@ class YtDlpExtractorResolver : StreamProvider {
                         }
                     }
                 }
+            } catch (e: Exception) {
+                // Silently handled
             }
-        } catch (e: Exception) {
-            // Silently handled
         }
         results
     }
