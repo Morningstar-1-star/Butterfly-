@@ -29,12 +29,11 @@ private fun verifyStreamUrl(url: String, headers: Map<String, String> = emptyMap
 }
 
 /**
- * 3a. MissAV Surrit HLS Stream Resolver
- * Strictly validates that MissAV page matches the requested JAV ID before extracting playlist.
+ * 3a. MissAV / Jable Stream Resolver (Delegated to embedded yt-dlp plugin-yellow)
  */
 class MissAvSurritStreamResolver : StreamProvider {
     override val id: String = "missav_surrit"
-    override val name: String = "MissAV Surrit HLS"
+    override val name: String = "MissAV (yt-dlp Engine)"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
@@ -42,36 +41,24 @@ class MissAvSurritStreamResolver : StreamProvider {
         val results = mutableListOf<JavStream>()
         try {
             val missAvUrl = "https://missav.ws/en/$cleanJavId"
-            val req = Request.Builder()
-                .url(missAvUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .build()
-            val res = streamClient.newCall(req).execute()
-            val html = res.body?.string() ?: ""
-
-            // Ensure response page contains cleanJavId in page title or content
-            if (res.isSuccessful && html.lowercase().contains(cleanJavId)) {
-                val m3u8Match = Pattern.compile("m3u8\\|([a-zA-Z0-9_-]+)").matcher(html)
-                if (m3u8Match.find()) {
-                    val token = m3u8Match.group(1) ?: ""
-                    val streamUrl = "https://surrit.com/$token/playlist.m3u8"
-                    val headers = mapOf("Referer" to "https://missav.ws/")
-                    if (verifyStreamUrl(streamUrl, headers)) {
-                        results.add(
-                            JavStream(
-                                id = "missav_$cleanJavId",
-                                javId = javId.uppercase(),
-                                url = streamUrl,
-                                title = "${javId.uppercase()} (MissAV HLS)",
-                                qualityLabel = "1080p",
-                                codec = "H.264",
-                                mimeType = "application/x-mpegURL",
-                                headers = headers,
-                                providerId = id,
-                                providerName = name
-                            )
+            // Delegate extraction to Butterfly's unified yt-dlp resolver using plugin-yellow
+            val extractedResult = com.example.extractor.YtDlpResolver.extractStreamInfo(com.example.MainApplication.appContext, missAvUrl)
+            if (extractedResult is com.example.extractor.YtDlpResolver.ExtractionResult.Success) {
+                extractedResult.playableOptions.forEachIndexed { index, opt ->
+                    results.add(
+                        JavStream(
+                            id = "missav_ytdlp_${cleanJavId}_$index",
+                            javId = javId.uppercase(),
+                            url = opt.videoUrl ?: "",
+                            title = "${javId.uppercase()} - ${opt.qualityLabel} (MissAV yt-dlp)",
+                            qualityLabel = opt.qualityLabel,
+                            codec = "H.264",
+                            mimeType = if (opt.format == "hls") "application/x-mpegURL" else "video/mp4",
+                            headers = opt.headers,
+                            providerId = id,
+                            providerName = name
                         )
-                    }
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -82,12 +69,11 @@ class MissAvSurritStreamResolver : StreamProvider {
 }
 
 /**
- * 3b. JableTV Direct HLS Stream Resolver
- * Strictly verifies that JableTV page matches the requested JAV ID.
+ * 3b. JableTV Direct HLS Stream Resolver (Delegated to embedded yt-dlp plugin-yellow)
  */
 class JableTvStreamResolver : StreamProvider {
     override val id: String = "jable_tv"
-    override val name: String = "JableTV Direct HLS"
+    override val name: String = "JableTV (yt-dlp Engine)"
     override var isEnabled: Boolean = true
 
     override suspend fun resolveStreams(javId: String, title: String): List<JavStream> = withContext(Dispatchers.IO) {
@@ -95,36 +81,23 @@ class JableTvStreamResolver : StreamProvider {
         val results = mutableListOf<JavStream>()
         try {
             val jableUrl = "https://jable.tv/videos/$cleanJavId/"
-            val req = Request.Builder()
-                .url(jableUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .build()
-            val res = streamClient.newCall(req).execute()
-            val html = res.body?.string() ?: ""
-
-            if (res.isSuccessful && html.lowercase().contains(cleanJavId)) {
-                val hlsMatch = Pattern.compile("hlsUrl\\s*=\\s*['\"](.*?)['\"]").matcher(html)
-                if (hlsMatch.find()) {
-                    val streamUrl = hlsMatch.group(1) ?: ""
-                    if (streamUrl.isNotBlank()) {
-                        val headers = mapOf("Referer" to "https://jable.tv/")
-                        if (verifyStreamUrl(streamUrl, headers)) {
-                            results.add(
-                                JavStream(
-                                    id = "jable_$cleanJavId",
-                                    javId = javId.uppercase(),
-                                    url = streamUrl,
-                                    title = "${javId.uppercase()} (JableTV HLS)",
-                                    qualityLabel = "720p",
-                                    codec = "H.264",
-                                    mimeType = "application/x-mpegURL",
-                                    headers = headers,
-                                    providerId = id,
-                                    providerName = name
-                                )
-                            )
-                        }
-                    }
+            val extractedResult = com.example.extractor.YtDlpResolver.extractStreamInfo(com.example.MainApplication.appContext, jableUrl)
+            if (extractedResult is com.example.extractor.YtDlpResolver.ExtractionResult.Success) {
+                extractedResult.playableOptions.forEachIndexed { index, opt ->
+                    results.add(
+                        JavStream(
+                            id = "jable_ytdlp_${cleanJavId}_$index",
+                            javId = javId.uppercase(),
+                            url = opt.videoUrl ?: "",
+                            title = "${javId.uppercase()} - ${opt.qualityLabel} (JableTV yt-dlp)",
+                            qualityLabel = opt.qualityLabel,
+                            codec = "H.264",
+                            mimeType = if (opt.format == "hls") "application/x-mpegURL" else "video/mp4",
+                            headers = opt.headers,
+                            providerId = id,
+                            providerName = name
+                        )
+                    )
                 }
             }
         } catch (e: Exception) {

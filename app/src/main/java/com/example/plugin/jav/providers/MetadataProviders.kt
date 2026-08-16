@@ -56,14 +56,53 @@ class JavinizerGoMetadataProvider : MetadataProvider {
                     return@withContext JavMetadata(
                         javId = cleanJavId,
                         title = title.ifBlank { "$cleanJavId (R18 Javinizer)" },
-                        coverUrl = coverUrl,
+                        coverUrl = coverUrl.replace("js-", "pl-").replace("-", "pl"),
                         studio = studio,
                         overallConfidenceScore = 91
                     )
                 }
             }
         } catch (e: Exception) {
-            // Fallback to MGStage
+            // Fallback to DMM / MGStage
+        }
+
+        // Secondary: Javinizer DMM Logic Fallback
+        try {
+            val parts = cleanJavId.split("-", "_")
+            if (parts.size >= 2) {
+                val prefix = parts[0].lowercase()
+                val numStr = parts[1].lowercase()
+                val paddedNum = numStr.padStart(5, '0')
+                val dmmCid = "$prefix$paddedNum"
+                
+                val dmmUrl = "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=$dmmCid/"
+                val req = Request.Builder()
+                    .url(dmmUrl)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .header("Cookie", "age_check_done=1")
+                    .build()
+                val res = sharedClient.newCall(req).execute()
+                val html = res.body?.string() ?: ""
+
+                if (res.isSuccessful && html.isNotBlank()) {
+                    val titleMatch = Pattern.compile("id=\"title\">(.*?)</h1>").matcher(html)
+                    val title = if (titleMatch.find()) titleMatch.group(1)?.trim() ?: "" else ""
+                    val imgMatch = Pattern.compile("href=\"(https://pics.dmm.co.jp/mono/movie/.+?pl.jpg)\"").matcher(html)
+                    val coverUrl = if (imgMatch.find()) imgMatch.group(1) ?: "" else ""
+                    
+                    if (title.isNotBlank() && coverUrl.isNotBlank()) {
+                        return@withContext JavMetadata(
+                            javId = cleanJavId,
+                            title = title,
+                            coverUrl = coverUrl,
+                            studio = "DMM (Javinizer)",
+                            overallConfidenceScore = 90
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Silently handled
         }
 
         // Secondary: MGStage Search logic from Javinizer-Go
@@ -635,8 +674,32 @@ class JavMenuMetadataProvider : MetadataProvider {
  */
 class GFriendsAvatarProvider : MetadataProvider {
     override val id: String = "gfriends_cdn"
-    override val name: String = "GFriends GitHub CDN"
+    override val name: String = "GFriends GitHub CDN (Filetree)"
     override var isEnabled: Boolean = true
+
+    private var fileTreeCache: JSONObject? = null
+    private var fileTreeTimestamp: Long = 0
+
+    private suspend fun getFileTree(): JSONObject? = withContext(Dispatchers.IO) {
+        if (fileTreeCache != null && System.currentTimeMillis() - fileTreeTimestamp < 86400_000) {
+            return@withContext fileTreeCache
+        }
+        try {
+            val url = "https://raw.githubusercontent.com/gfriends/gfriends/master/Content/Filetree.json"
+            val req = Request.Builder().url(url).build()
+            val res = sharedClient.newCall(req).execute()
+            val jsonStr = res.body?.string() ?: ""
+            if (res.isSuccessful && jsonStr.isNotBlank()) {
+                val json = JSONObject(jsonStr)
+                fileTreeCache = json
+                fileTreeTimestamp = System.currentTimeMillis()
+                return@withContext json
+            }
+        } catch (e: Exception) {
+            // Silently handled
+        }
+        null
+    }
 
     override suspend fun fetchMetadata(javId: String): JavMetadata? = withContext(Dispatchers.IO) {
         val cleanJavId = javId.trim().uppercase()
@@ -651,14 +714,46 @@ class GFriendsAvatarProvider : MetadataProvider {
             val actorName = if (actorMatch.find()) actorMatch.group(1)?.trim() ?: "" else ""
 
             if (actorName.isNotBlank()) {
-                val gfriendsUrl = "https://raw.githubusercontent.com/gfriends/gfriends/master/Content/File/$actorName.jpg"
-                val headReq = Request.Builder().url(gfriendsUrl).head().build()
-                val headRes = sharedClient.newCall(headReq).execute()
-                if (headRes.isSuccessful) {
+                val fileTree = getFileTree()
+                var avatarUrl = ""
+                
+                if (fileTree != null) {
+                    val contentObj = fileTree.optJSONObject("Content")
+                    if (contentObj != null) {
+                        val keys = contentObj.keys()
+                        while (keys.hasNext()) {
+                            val folder = keys.next()
+                            val filesArray = contentObj.optJSONArray(folder)
+                            if (filesArray != null) {
+                                for (i in 0 until filesArray.length()) {
+                                    val fileName = filesArray.optString(i)
+                                    val nameWithoutExt = fileName.substringBeforeLast(".")
+                                    if (nameWithoutExt.equals(actorName, ignoreCase = true)) {
+                                        avatarUrl = "https://raw.githubusercontent.com/gfriends/gfriends/master/Content/$folder/$fileName"
+                                        break
+                                    }
+                                }
+                            }
+                            if (avatarUrl.isNotBlank()) break
+                        }
+                    }
+                }
+                
+                if (avatarUrl.isBlank()) {
+                    // Fallback to legacy single-name check
+                    val fallbackUrl = "https://raw.githubusercontent.com/gfriends/gfriends/master/Content/File/$actorName.jpg"
+                    val headReq = Request.Builder().url(fallbackUrl).head().build()
+                    val headRes = sharedClient.newCall(headReq).execute()
+                    if (headRes.isSuccessful) {
+                        avatarUrl = fallbackUrl
+                    }
+                }
+
+                if (avatarUrl.isNotBlank()) {
                     return@withContext JavMetadata(
                         javId = cleanJavId,
                         title = "$cleanJavId - Star: $actorName",
-                        coverUrl = gfriendsUrl,
+                        coverUrl = avatarUrl,
                         actors = listOf(actorName),
                         overallConfidenceScore = 95
                     )

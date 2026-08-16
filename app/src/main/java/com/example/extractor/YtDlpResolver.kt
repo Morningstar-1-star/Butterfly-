@@ -88,7 +88,7 @@ object YtDlpResolver {
                     u.contains("hianime.to") || u.contains("hanime.tv") || u.contains("bilibili.com") ||
                     u.contains("closedport") || u.contains("streamhub") || u.contains("vidspeed") || u.contains("filelions") ||
                     u.contains("91porn") || u.contains("jable") || u.contains("missav") ||
-                    u.contains("uncensoredjav") || u.contains("javuncensored") || u.contains("7mmtv") || u.contains("supjav") || true
+                    u.contains("uncensoredjav") || u.contains("javuncensored") || u.contains("7mmtv") || u.contains("supjav")
         }
 
         return false

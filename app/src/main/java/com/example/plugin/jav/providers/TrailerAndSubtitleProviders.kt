@@ -136,12 +136,24 @@ class DmmFreePvTrailerProvider : TrailerProvider {
                 val c1 = cid.take(1)
                 val c3 = cid.take(3)
 
-                val candidateUrls = listOf(
+                val candidateUrls = mutableListOf(
                     "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_mbf_w.mp4",
                     "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_dmb_w.mp4",
                     "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_sm_w.mp4",
-                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_dm_w.mp4"
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_dm_w.mp4",
+                    // JAV-Preview R18 CDN endpoints
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_mhz_w.mp4",
+                    "https://cc3001.dmm.co.jp/litevideo/freepv/$c1/$c3/$cid/${cid}_dmm_w.mp4"
                 )
+                
+                if (parts.size >= 2) {
+                    val prefix = parts[0].lowercase()
+                    val numStr = parts[1].lowercase()
+                    val paddedNum = numStr.padStart(5, '0')
+                    candidateUrls.add("https://sample.mgstage.com/sample/${prefix}_${numStr}/${prefix}_${numStr}.mp4")
+                    candidateUrls.add("https://sample.mgstage.com/sample/${prefix}_${paddedNum}/${prefix}_${paddedNum}.mp4")
+                }
+                
                 val thumbUrl = "https://images.dmm.co.jp/digital/video/$cid/${cid}ps.jpg"
 
                 for (vUrl in candidateUrls) {
@@ -213,6 +225,61 @@ class OpenSubtitlesRestProvider : SubtitleProvider {
                                     format = format,
                                     providerId = id,
                                     matchScore = 90
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Silently handled
+        }
+
+        results
+    }
+}
+
+class BazarrSubHdProvider : SubtitleProvider {
+    override val id: String = "bazarr_subhd"
+    override val name: String = "Bazarr SubHD Provider"
+    override var isEnabled: Boolean = true
+
+    override suspend fun searchSubtitles(javId: String, title: String): List<JavSubtitle> = withContext(Dispatchers.IO) {
+        val cleanJavId = javId.trim().uppercase()
+        val results = mutableListOf<JavSubtitle>()
+
+        try {
+            val url = "https://subhd.tv/search/$cleanJavId"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            val res = trailerClient.newCall(req).execute()
+            val html = res.body?.string() ?: ""
+
+            if (res.isSuccessful && html.contains("/a/")) {
+                val linkMatch = Pattern.compile("href=\"(/a/\\d+)\"").matcher(html)
+                if (linkMatch.find()) {
+                    val detailPath = linkMatch.group(1) ?: ""
+                    val detailUrl = "https://subhd.tv$detailPath"
+                    val detailReq = Request.Builder().url(detailUrl).header("User-Agent", "Mozilla/5.0").build()
+                    val detailRes = trailerClient.newCall(detailReq).execute()
+                    val detailHtml = detailRes.body?.string() ?: ""
+
+                    val dlMatch = Pattern.compile("id=\"down\" a=\"(.*?)\"").matcher(detailHtml)
+                    if (dlMatch.find()) {
+                        val dlToken = dlMatch.group(1) ?: ""
+                        if (dlToken.isNotBlank()) {
+                            results.add(
+                                JavSubtitle(
+                                    id = "subhd_$cleanJavId",
+                                    javId = cleanJavId,
+                                    language = "Chinese (SubHD)",
+                                    languageCode = "zh",
+                                    url = detailUrl,
+                                    format = "srt",
+                                    providerId = id,
+                                    matchScore = 88
                                 )
                             )
                         }

@@ -40,17 +40,33 @@ object UnifiedJavOrchestrator {
 
     val subtitleProviders = mutableListOf<SubtitleProvider>(
         SubtitleCatProvider(),
-        OpenSubtitlesRestProvider()
+        OpenSubtitlesRestProvider(),
+        BazarrSubHdProvider()
     )
 
     private val metadataCache = ConcurrentHashMap<String, JavMetadata>()
     private val streamCache = ConcurrentHashMap<String, List<JavStream>>()
 
     /**
+     * Normalizes a raw JAV ID search string into a consistent format using AVM Engine ID normalization logic.
+     * e.g., "abp 123" -> "ABP-123", "040110_123" -> "040110-123"
+     */
+    private fun normalizeJavId(rawId: String): String {
+        var id = rawId.trim().uppercase()
+        // Replace underscores or multiple spaces with a single dash
+        id = id.replace("_", "-").replace(Regex("\\s+"), "-")
+        // Insert dash between letters and numbers if missing (e.g., SSNI001 -> SSNI-001)
+        if (!id.contains("-") && Regex("^[A-Z]+[0-9]+$").matches(id)) {
+            id = id.replace(Regex("^([A-Z]+)([0-9]+)$"), "$1-$2")
+        }
+        return id
+    }
+
+    /**
      * Executes unified resolution pipeline for a JAV ID
      */
     suspend fun resolveJav(javId: String, title: String = ""): JavUnifiedResult = withContext(Dispatchers.IO) {
-        val cleanJavId = javId.trim().uppercase()
+        val cleanJavId = normalizeJavId(javId)
 
         // 1. Metadata Aggregation
         val metadataDeferred = async { aggregateMetadata(cleanJavId) }
