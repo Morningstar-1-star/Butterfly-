@@ -90,6 +90,9 @@ class PluginManager(private val context: Context) {
         registerNativeProvider(ViuProvider())
         registerNativeProvider(VkProvider())
         registerNativeProvider(InstagramProvider())
+        com.example.plugin.providers.AdultProviderRegistry.providers.forEach { provider ->
+            registerNativeProvider(provider)
+        }
     }
 
     fun getAllAvailableProviders(): List<ContentProviderApi> {

@@ -365,6 +365,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "newgrounds", "myspace", "tumblr", "bluesky", "weibo", "okru", "rutube",
             "bigo", "viu", "vk", "instagram",
             "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
+            "pornhub", "xvideos", "xnxx", "xhamster", "youporn", "redtube", "spankbang", "stripchat",
+            "chaturbate", "bongacams", "cam4", "camsoda", "cammodels", "manyvids", "eporner_yt", "beeg",
+            "eroprofile", "erocast", "drtuber", "tube8", "tnaflix", "pornbox", "pornerbros", "pornflip",
+            "pornotube", "porntop", "porntube", "rule34video", "redgifs", "soundgasm", "thisvid", "youjizz",
+            "xxxymovies", "alphaporno", "nubilesporn", "nuvid", "moviefap", "lovehomeporn", "sunporno",
+            "zenporn", "slutload", "behindkink", "toypics", "pornovoisines", "pornoxox", "sexu",
             "archive_org", "mega", "direct_mp4", "direct_hls", "rss_video", "json",
             "javinizer_go", "avm_engine", "javdex", "openaver", "mdcx", "fss", "javlibrary", "jav321", "javdb", "javbus", "javmenu", "airav", "arzon", "gfriends",
             "javpy_resolver", "missav_surrit", "jable_tv", "avgle_api", "jav_trailers", "supjav", "javcl", "jav18", "hanime_tv", "iwara",
@@ -1772,6 +1778,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun getProviderCategoryName(id: String): String {
+        if (com.example.plugin.providers.AdultProviderRegistry.providers.any { it.providerId == id }) {
+            return "Adult Media Feeds"
+        }
         return when (id) {
             "all" -> "Aggregator"
             "youtube", "jikan_anime", "adultswim", "hotstar", "dailymotion", "vimeo", "twitch", "bilibili", "tiktok", "ninegag", "telegram", "newgrounds", "myspace", "tumblr", "bluesky", "weibo", "okru", "rutube", "bigo", "viu", "vk", "instagram", "archive_org", "mega", "direct_mp4", "direct_hls", "rss_video", "json" -> "Social & Video Platforms"
@@ -1784,6 +1793,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun getReadableProviderName(id: String): String {
+        com.example.plugin.providers.AdultProviderRegistry.providers.find { it.providerId == id }?.let {
+            return it.platformName
+        }
         return when (id) {
             "all" -> "All Sources"
             "unified_torrents" -> "Torrents (All Indexers)"
