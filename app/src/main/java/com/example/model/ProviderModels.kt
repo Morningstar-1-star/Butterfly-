@@ -7,13 +7,15 @@ enum class AppScreen {
     HOME,
     EXPLORE,
     SHORTS,
+    MUSIC,
     SUBSCRIPTIONS,
     ACCOUNT,
     LIBRARY,
     PROVIDERS,
     PLAYER,
     SETTINGS,
-    SPONSORBLOCK_SETTINGS
+    SPONSORBLOCK_SETTINGS,
+    CHANNEL
 }
 
 data class ProviderUiItem(

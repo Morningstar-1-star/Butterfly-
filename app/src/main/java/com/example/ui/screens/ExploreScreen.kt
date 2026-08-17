@@ -129,6 +129,68 @@ fun ExploreScreen(
                     }
                 } catch (e: Exception) { emptyList() }
             }
+            val musicDeferred = async {
+                try {
+                    com.example.plugin.providers.YouTubeProvider().home().items.filter { item ->
+                        com.example.util.PlaybackPreferences.isMusicMedia(item.title, item.uploaderName, item.description, null, item.providerId) ||
+                        item.title.contains("official music video", ignoreCase = true) ||
+                        item.title.contains("song", ignoreCase = true) ||
+                        item.title.contains("audio", ignoreCase = true) ||
+                        item.title.contains("lofi", ignoreCase = true)
+                    }.map { item ->
+                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "youtube")
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
+            val shortsDeferred = async {
+                try {
+                    com.example.plugin.providers.YouTubeProvider().home().items.filter { item ->
+                        (item.durationSeconds in 1..120) || item.title.contains("shorts", ignoreCase = true) || item.title.contains("tiktok", ignoreCase = true)
+                    }.map { item ->
+                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "youtube")
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
+            val dailymotionDeferred = async {
+                try {
+                    com.example.plugin.providers.DailymotionProvider().home().items.map { item ->
+                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "dailymotion")
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
+            val torrentDeferred = async {
+                try {
+                    com.example.plugin.providers.TorrentApiMultiProvider().home().items.map { item ->
+                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "torrent")
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
+            val archiveDeferred = async {
+                try {
+                    com.example.plugin.providers.ArchiveOrgProvider().home().items.map { item ->
+                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "archive_org")
+                    }
+                } catch (e: Exception) { emptyList() }
+            }
+            val epornerDeferred = async {
+                try {
+                    if (adultContentEnabled) {
+                        com.example.plugin.providers.EpornerProvider().home().items.map { item ->
+                            VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "eporner")
+                        }
+                    } else emptyList()
+                } catch (e: Exception) { emptyList() }
+            }
+            val apijavDeferred = async {
+                try {
+                    if (adultContentEnabled) {
+                        com.example.plugin.providers.ApiJavServerProvider().home().items.map { item ->
+                            VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "apijav")
+                        }
+                    } else emptyList()
+                } catch (e: Exception) { emptyList() }
+            }
+
             val liveHeroes = heroesDeferred.await()
             if (liveHeroes.isNotEmpty()) {
                 heroItems = liveHeroes
@@ -147,9 +209,18 @@ fun ExploreScreen(
 
             val javInfoItems = javInfoDeferred.await()
             val ytItems = ytDeferred.await()
+            val musicItems = musicDeferred.await()
+            val shortsItems = shortsDeferred.await()
+            val dailymotionItems = dailymotionDeferred.await()
+            val torrentItems = torrentDeferred.await()
+            val archiveItems = archiveDeferred.await()
+            val epornerItems = epornerDeferred.await()
+            val apijavItems = apijavDeferred.await()
 
             rawCategories = listOf(
                 CuratedCategory("youtube", "YouTube Trending", "🔴", ytItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("music", "YouTube Music & Audio", "🎵", musicItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("shorts", "YouTube Shorts & Reels", "⚡", shortsItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("mystery", "Mystery Mindbenders", "🔍", mystery.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("horror", "Horror Nights", "🍿", horror.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("scifi", "Sci-Fi Dimensions", "✨", scifi.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
@@ -157,10 +228,15 @@ fun ExploreScreen(
                 CuratedCategory("anime", "Anime", "🎌", anime.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("kids", "Kids & Family", "🟢", kids.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("docu", "Documentaries", "📜", docu.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("dailymotion", "Dailymotion Videos", "▶️", dailymotionItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("torrent", "Torrent & Debrid Streams", "⚡", torrentItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("archive_org", "Archive.org Audio & Video", "📜", archiveItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("eporner", "Eporner Adult Video Feed", "🔥", epornerItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
+                CuratedCategory("apijav", "ApiJav / JAV Streams", "💖", apijavItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("adult", "Adult / Steamy & JAV (18+)", "💖", javInfoItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) })
             )
             val allCategoryItems = rawCategories.flatMap { it.items }
-            com.example.util.ThumbnailOptimizer.preloadThumbnails(context, allCategoryItems, maxCount = 48)
+            com.example.util.ThumbnailOptimizer.preloadThumbnails(context, allCategoryItems, maxCount = 60)
         }
     }
 
@@ -230,6 +306,54 @@ fun ExploreScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
+                    }
+                }
+            }
+
+            // 1.5. SWIPABLE PROVIDERS & SOURCES ROW
+            item {
+                val providersList = listOf(
+                    "Prime Video" to "🎬",
+                    "Apple TV" to "🍎",
+                    "Z5" to "📺",
+                    "Google Play" to "▶️",
+                    "JioHotstar" to "🌟",
+                    "YouTube" to "🔴",
+                    "Music" to "🎵",
+                    "Shorts" to "⚡",
+                    "Dailymotion" to "▶️",
+                    "Torrent" to "⚡",
+                    "Archive.org" to "📜",
+                    "ApiJav" to "💖",
+                    "Eporner" to "🔥"
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(providersList) { (providerName, emoji) ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.clickable {
+                                onGenreSelected(providerName)
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = emoji, fontSize = 16.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = providerName,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                     }
                 }
             }

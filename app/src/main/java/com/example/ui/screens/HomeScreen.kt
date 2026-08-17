@@ -123,12 +123,12 @@ fun HomeScreen(
         }
     }
 
-    var headerHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var chipsHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var topAppBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var fullHeaderHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var scrollOffsetPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
 
-    val maxScrollOffsetPx = (headerHeightPx + chipsHeightPx).coerceAtLeast(1f)
+    val maxScrollOffsetPx = fullHeaderHeightPx.coerceAtLeast(1f)
 
     val nestedScrollConnection = remember(maxScrollOffsetPx, isSearchExpanded) {
         object : NestedScrollConnection {
@@ -177,14 +177,11 @@ fun HomeScreen(
     )
 
     val density = LocalDensity.current
-    val headerHeightDp = remember(headerHeightPx, density) {
-        if (headerHeightPx > 0f) with(density) { headerHeightPx.toDp() } else 56.dp
-    }
-    val topBarPaddingDp = remember(headerHeightPx, chipsHeightPx, density) {
-        if (headerHeightPx > 0f || chipsHeightPx > 0f) {
-            with(density) { (headerHeightPx + chipsHeightPx).toDp() }
+    val topBarPaddingDp = remember(fullHeaderHeightPx, density) {
+        if (fullHeaderHeightPx > 0f) {
+            with(density) { fullHeaderHeightPx.toDp() + 12.dp }
         } else {
-            104.dp
+            160.dp
         }
     }
     val bottomBarPaddingDp = remember(bottomBarHeightPx, density) {
@@ -296,6 +293,18 @@ fun HomeScreen(
                             ProvidersScreen(viewModel = viewModel)
                         }
 
+                        AppScreen.CHANNEL -> {
+                            com.example.ui.screens.ChannelScreen(
+                                viewModel = viewModel,
+                                onSelectVideo = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+                                topPadding = 0.dp,
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
+                            )
+                        }
+
                         AppScreen.EXPLORE -> {
                             ExploreScreen(
                                 viewModel = viewModel,
@@ -308,7 +317,7 @@ fun HomeScreen(
                                     isSearchExpanded = true
                                 },
                                 topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
-                                bottomPadding = bottomBarPaddingDp + 90.dp
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
 
@@ -325,14 +334,24 @@ fun HomeScreen(
                         }
 
                         AppScreen.SHORTS -> {
-                            val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                            val feedList = rawFeed.filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
-                            ShortsSection(
-                                shorts = feedList,
+                            ShortsScreen(
+                                viewModel = viewModel,
                                 onSelectShort = { video ->
                                     viewModel.playVideo(video.id, video.providerId)
                                 },
-                                modifier = Modifier.padding(top = 8.dp)
+                                topPadding = 0.dp,
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
+                            )
+                        }
+
+                        AppScreen.MUSIC -> {
+                            MusicScreen(
+                                viewModel = viewModel,
+                                onSelectTrack = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                topPadding = 0.dp,
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
 
@@ -344,7 +363,7 @@ fun HomeScreen(
                                 },
                                 onOpenSearch = { isSearchExpanded = true },
                                 topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
-                                bottomPadding = bottomBarPaddingDp + 90.dp
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
 
@@ -356,7 +375,7 @@ fun HomeScreen(
                                 },
                                 onBackClick = { viewModel.navigateToScreen(AppScreen.ACCOUNT) },
                                 topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
-                                bottomPadding = bottomBarPaddingDp + 90.dp
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
 
@@ -416,7 +435,7 @@ fun HomeScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     contentPadding = PaddingValues(
                                         top = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
-                                        bottom = bottomBarPaddingDp + 90.dp
+                                        bottom = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                                     )
                                 ) {
                                     // SHORTS CAROUSEL SECTION (ONLY IF ENABLED)
@@ -567,7 +586,7 @@ fun HomeScreen(
         }
 
         // LAYER 2: YOUTUBE-STYLE COLLAPSIBLE TOP BAR OVERLAY
-        if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) {
+        if (currentScreen != AppScreen.ACCOUNT && currentScreen != AppScreen.SHORTS && currentScreen != AppScreen.MUSIC && currentScreen != AppScreen.CHANNEL && !isSearchExpanded) {
             // Status bar solid background shield
             Box(
                 modifier = Modifier
@@ -578,66 +597,6 @@ fun HomeScreen(
                     .zIndex(10f)
             )
 
-            // Header Bar (TopAppBar with Logo & Actions) - Collapses first as user scrolls down
-            val headerTranslationY = animatedScrollOffsetPx.coerceIn(-headerHeightPx, 0f)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .zIndex(9f)
-                    .graphicsLayer {
-                        translationY = headerTranslationY
-                    }
-                    .background(MaterialTheme.colorScheme.background)
-                    .statusBarsPadding()
-                    .onSizeChanged { headerHeightPx = it.height.toFloat() }
-            ) {
-                TopAppBar(
-                    windowInsets = WindowInsets(0, 0, 0, 0),
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    viewModel.navigateToScreen(AppScreen.SETTINGS)
-                                }
-                                .padding(vertical = 4.dp, horizontal = 2.dp)
-                        ) {
-                            com.example.ui.components.ThemedButterflyLogo(
-                                size = 32.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Butterfly",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp,
-                                letterSpacing = (-0.2).sp,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            if (isSearchExpanded) {
-                                viewModel.clearSearch()
-                            }
-                            isSearchExpanded = !isSearchExpanded
-                        }) {
-                            Icon(
-                                imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                                contentDescription = if (isSearchExpanded) "Close Search" else "Search",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent
-                    )
-                )
-            }
-
-            // Tags Bar (Smart contextual category chips) - Smoothly moves up & hides right after Header
             val activeContextTitle = globalActiveStreamData?.title 
                 ?: currentStreamData?.title 
                 ?: trendingVideos.firstOrNull()?.title 
@@ -653,21 +612,75 @@ fun HomeScreen(
             val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
             val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
 
-            Box(
+            val headerTranslationY = animatedScrollOffsetPx.coerceIn(-fullHeaderHeightPx, 0f)
+
+            // Combined Collapsible Header + Tags Column
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(top = headerHeightDp)
-                    .zIndex(8f)
+                    .zIndex(9f)
                     .graphicsLayer {
-                        translationY = animatedScrollOffsetPx
+                        translationY = headerTranslationY
                     }
                     .background(MaterialTheme.colorScheme.background)
-                    .onSizeChanged { chipsHeightPx = it.height.toFloat() }
+                    .statusBarsPadding()
+                    .onSizeChanged { fullHeaderHeightPx = it.height.toFloat() }
             ) {
+                // Header Bar (TopAppBar with Logo & Actions)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { topAppBarHeightPx = it.height.toFloat() }
+                ) {
+                    TopAppBar(
+                        windowInsets = WindowInsets(0, 0, 0, 0),
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        viewModel.navigateToScreen(AppScreen.SETTINGS)
+                                    }
+                                    .padding(vertical = 4.dp, horizontal = 2.dp)
+                            ) {
+                                com.example.ui.components.ThemedButterflyLogo(
+                                    size = 32.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Butterfly",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 20.sp,
+                                    letterSpacing = (-0.2).sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                if (isSearchExpanded) {
+                                    viewModel.clearSearch()
+                                }
+                                isSearchExpanded = !isSearchExpanded
+                            }) {
+                                Icon(
+                                    imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = if (isSearchExpanded) "Close Search" else "Search",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent
+                        )
+                    )
+                }
+
+                // Tags Bar (Smart contextual category chips)
                 LazyRow(
-                    contentPadding = PaddingValues(start = 12.dp, top = 6.dp, end = 12.dp, bottom = 8.dp),
+                    contentPadding = PaddingValues(start = 12.dp, top = 2.dp, end = 12.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()

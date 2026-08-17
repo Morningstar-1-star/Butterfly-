@@ -279,6 +279,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                id.contains("pornhub") || id.contains("redtube") || id.contains("xhamster")
     }
 
+    fun isDemoOrPlaceholderVideo(item: VideoItem): Boolean {
+        val t = item.title.lowercase()
+        val id = item.id.lowercase()
+        return t.contains("top stream") ||
+               t.contains("sample video") ||
+               t.contains("trending video 1") ||
+               t.contains("popular hd clip") ||
+               t.contains("drama highlights") ||
+               t.contains("meme video") ||
+               t.contains("animation remastered") ||
+               t.contains("indie band music") ||
+               t.contains("aesthetic video") ||
+               t.contains("bluesky video") ||
+               t.contains("weibo video") ||
+               t.contains("ok.ru popular") ||
+               t.contains("rutube top") ||
+               t.contains("bigo live") ||
+               t.contains("vk video popular") ||
+               t.contains("instagram reels trending") ||
+               t.contains("placeholder") ||
+               t.contains("demo") ||
+               id.endsWith("_h1") || id.endsWith("_h2") || id.endsWith("_h3") || id.endsWith("_s1") ||
+               id.startsWith("gag_") || id.startsWith("ng_") || id.startsWith("ms_") || id.startsWith("tb_") ||
+               id.startsWith("bsky_") || id.startsWith("wb_") || id.startsWith("ok_") || id.startsWith("rt_") ||
+               id.startsWith("bg_") || id.startsWith("viu_") || id.startsWith("vk_") || id.startsWith("ig_")
+    }
+
     fun isAdultSearchQuery(query: String): Boolean {
         val q = query.lowercase().trim()
         if (q.isBlank()) return false
@@ -343,6 +370,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
+
+    private val _selectedChannelName = MutableStateFlow<String?>(null)
+    val selectedChannelName: StateFlow<String?> = _selectedChannelName.asStateFlow()
+
+    private val _selectedChannelAvatarUrl = MutableStateFlow<String?>(null)
+    val selectedChannelAvatarUrl: StateFlow<String?> = _selectedChannelAvatarUrl.asStateFlow()
+
+    private val _channelVideos = MutableStateFlow<List<VideoItem>>(emptyList())
+    val channelVideos: StateFlow<List<VideoItem>> = _channelVideos.asStateFlow()
+
+    private val _isChannelLoading = MutableStateFlow(false)
+    val isChannelLoading: StateFlow<Boolean> = _isChannelLoading.asStateFlow()
 
     private val _isPipMode = MutableStateFlow(false)
     val isPipMode: StateFlow<Boolean> = _isPipMode.asStateFlow()
@@ -1932,14 +1971,156 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openChannel(channelName: String) {
+    fun filterRankAndDeduplicateSearchResults(
+        rawResults: List<VideoItem>,
+        query: String
+    ): List<VideoItem> {
+        val qClean = query.trim().lowercase()
+        if (qClean.isBlank()) return rawResults.distinctBy { "${it.providerId}_${it.id}" }
+
+        val stopWords = setOf("a", "an", "the", "in", "of", "to", "for", "is", "and", "or", "on", "at", "by", "with", "from", "it", "video", "full", "hd")
+        val queryTokens = qClean.split(Regex("[\\s\\-_/:]+")).filter { it.isNotBlank() }
+        val significantTokens = queryTokens.filterNot { stopWords.contains(it) && queryTokens.size > 1 }
+        val searchTokens = if (significantTokens.isNotEmpty()) significantTokens else queryTokens
+
+        val scoredList = mutableListOf<Pair<VideoItem, Double>>()
+
+        for (item in rawResults) {
+            if (item.id.isBlank()) continue
+            if (isBlockedVideo(item)) continue
+            if (!_adultContentEnabled.value && isAdultVideoItem(item)) continue
+
+            val titleLower = item.title.lowercase()
+            val channelLower = (item.uploaderName ?: "").lowercase()
+            val descLower = (item.description ?: "").lowercase()
+
+            var score = 0.0
+
+            if (titleLower == qClean) {
+                score += 3000.0
+            } else if (titleLower.contains(qClean)) {
+                score += 1500.0
+            } else if (qClean.contains(titleLower) && titleLower.length >= 4) {
+                score += 800.0
+            }
+
+            if (channelLower == qClean) {
+                score += 2000.0
+            } else if (channelLower.contains(qClean) || qClean.contains(channelLower)) {
+                score += 1000.0
+            }
+
+            var matchedTokensCount = 0
+            for (token in searchTokens) {
+                var tokenMatched = false
+                if (titleLower.contains(token)) {
+                    score += 400.0
+                    tokenMatched = true
+                }
+                if (channelLower.contains(token)) {
+                    score += 300.0
+                    tokenMatched = true
+                }
+                if (descLower.contains(token)) {
+                    score += 100.0
+                    tokenMatched = true
+                }
+                if (tokenMatched) matchedTokensCount++
+            }
+
+            if (matchedTokensCount == 0) {
+                continue
+            }
+
+            if (searchTokens.size > 1 && matchedTokensCount >= searchTokens.size) {
+                score += 1000.0
+            }
+
+            if (item.providerId == "youtube") {
+                score += 150.0
+            }
+            if (item.viewCount > 0) {
+                score += Math.min(300.0, Math.log10(item.viewCount.toDouble() + 1.0) * 40.0)
+            }
+
+            scoredList.add(item to score)
+        }
+
+        val sortedCandidates = scoredList.sortedByDescending { it.second }.map { it.first }
+
+        val finalResults = mutableListOf<VideoItem>()
+        val seenIds = mutableSetOf<String>()
+        val seenNormTitles = mutableSetOf<String>()
+
+        for (item in sortedCandidates) {
+            val uniqueKey = "${item.providerId}_${item.id}"
+            if (seenIds.contains(uniqueKey) || seenIds.contains(item.id)) continue
+
+            val normTitle = normalizeTitleForCleanDeduplication(item.title)
+            if (normTitle.length > 5 && seenNormTitles.contains(normTitle)) {
+                continue
+            }
+
+            seenIds.add(uniqueKey)
+            seenIds.add(item.id)
+            if (normTitle.length > 5) {
+                seenNormTitles.add(normTitle)
+            }
+            finalResults.add(item)
+        }
+
+        return finalResults
+    }
+
+    private fun normalizeTitleForCleanDeduplication(title: String): String {
+        return title.lowercase()
+            .replace(Regex("\\[(4k|1080p|720p|hd|uhd|official video|official music video|official audio|official trailer|full movie|trailer)\\]"), "")
+            .replace(Regex("\\((4k|1080p|720p|hd|uhd|official video|official music video|official audio|official trailer|full movie|trailer)\\)"), "")
+            .replace(Regex("[^a-z0-9]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    fun openChannel(channelName: String, avatarUrl: String? = null) {
         val trimmed = channelName.trim()
         if (trimmed.isBlank()) return
-        _isSearchExpanded.value = true
-        updateSearchQuery(trimmed)
-        performSearch(trimmed)
-        if (_currentScreen.value == AppScreen.PLAYER) {
-            _currentScreen.value = AppScreen.HOME
+        _selectedChannelName.value = trimmed
+        _selectedChannelAvatarUrl.value = avatarUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(trimmed, avatarUrl).logoUrls.firstOrNull()
+        _currentScreen.value = AppScreen.CHANNEL
+
+        _isChannelLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val cachedAndFeed = (_searchResults.value + _trendingVideos.value)
+                .filter {
+                    val uName = it.uploaderName ?: ""
+                    uName.contains(trimmed, ignoreCase = true) || trimmed.contains(uName, ignoreCase = true)
+                }
+
+            val ytResults = try {
+                val provider = com.example.plugin.providers.YouTubeProvider()
+                val paged = provider.search(trimmed)
+                paged.items.map { item ->
+                    VideoItem(
+                        id = item.id,
+                        title = item.title,
+                        uploaderName = item.uploaderName,
+                        uploaderUrl = item.uploaderUrl,
+                        uploaderAvatarUrl = item.uploaderAvatarUrl ?: avatarUrl,
+                        viewCount = item.viewCount,
+                        durationSeconds = item.durationSeconds,
+                        uploadDate = item.uploadDate,
+                        thumbnailUrl = item.thumbnailUrl,
+                        providerId = item.providerId ?: "youtube",
+                        description = item.description
+                    )
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            val combined = (cachedAndFeed + ytResults)
+            _channelVideos.value = filterRankAndDeduplicateSearchResults(combined, trimmed)
+            _isChannelLoading.value = false
         }
     }
 
@@ -2059,7 +2240,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         combined.addAll(items)
                     }
                 }
-                _searchResults.value = if (_adultContentEnabled.value) combined else combined.filterNot { isAdultVideoItem(it) }
+                val cleanedSearch = combined.filterNot { isDemoOrPlaceholderVideo(it) }
+                _searchResults.value = filterRankAndDeduplicateSearchResults(cleanedSearch, q)
                 updateRecommendedVideosAsync()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Search failed: ${e.localizedMessage}", e)
@@ -2157,7 +2339,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                _trendingVideos.value = if (_adultContentEnabled.value) combined else combined.filterNot { isAdultVideoItem(it) }
+                val cleanedTrending = combined.filterNot { isDemoOrPlaceholderVideo(it) }
+                _trendingVideos.value = if (_adultContentEnabled.value) cleanedTrending else cleanedTrending.filterNot { isAdultVideoItem(it) }
                 updateRecommendedVideosAsync()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed: ${e.localizedMessage}", e)
@@ -2246,10 +2429,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    val filtered = if (_adultContentEnabled.value) newItems else newItems.filterNot { isAdultVideoItem(it) }
                     val currentList = _searchResults.value
-                    val combined = (currentList + filtered).distinctBy { it.id }
-                    _searchResults.value = combined
+                    val combined = currentList + newItems
+                    _searchResults.value = filterRankAndDeduplicateSearchResults(combined, q)
                 } else {
                     currentTrendingPage++
                     val activeId = _activeProviderId.value
