@@ -26,17 +26,27 @@ object YtDlpResolver {
 
     fun isYtDlpSupportedUrl(url: String): Boolean {
         val u = url.lowercase().trim()
-        return u.startsWith("http://") || u.startsWith("https://") ||
-                u.contains("youtube.com") || u.contains("youtu.be") ||
-                u.contains("vimeo.com") || u.contains("dailymotion.com") || u.contains("dai.ly") ||
-                u.contains("bilibili.com") || u.contains("curiositystream.com") ||
-                u.contains("pornhub.com") || u.contains("phncdn.com") ||
-                u.contains("xvideos.com") || u.contains("4tube.com") ||
-                u.contains("beeg.com") || u.contains("rule34video.com") ||
-                u.contains("redtube.com") || u.contains("xhamster.com") ||
-                u.contains("youporn.com") || u.contains("tiktok.com") ||
-                u.contains("twitch.tv") || u.contains("soundcloud.com") ||
-                (url.length == 11 && !url.contains("/"))
+        val supportedDomains = listOf(
+            "youtube.com", "youtu.be",
+            "vimeo.com",
+            "dailymotion.com", "dai.ly",
+            "bilibili.com",
+            "curiositystream.com",
+            "pornhub.com", "phncdn.com",
+            "xvideos.com",
+            "4tube.com",
+            "beeg.com",
+            "rule34video.com",
+            "redtube.com",
+            "xhamster.com",
+            "youporn.com",
+            "eporner.com",
+            "archive.org",
+            "tiktok.com",
+            "twitch.tv",
+            "soundcloud.com"
+        )
+        return supportedDomains.any { u.contains(it) } || (url.length == 11 && !url.contains("/"))
     }
 
     data class ParsedFormat(
@@ -492,9 +502,7 @@ object YtDlpResolver {
             request.addOption("--user-agent", DEFAULT_USER_AGENT)
 
             val response = try {
-                kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                    YoutubeDL.getInstance().execute(request)
-                }
+                YoutubeDL.getInstance().execute(request)
             } catch (e: Exception) {
                 null
             }

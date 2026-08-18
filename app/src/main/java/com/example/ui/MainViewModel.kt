@@ -148,6 +148,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
         settingsPrefs.edit().putBoolean("adult_content_enabled", enabled).apply()
+        val currentSet = _enabledProviderIds.value.toMutableSet()
+        val adultIds = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
+        if (enabled) {
+            currentSet.addAll(adultIds)
+        } else {
+            currentSet.removeAll(adultIds)
+        }
+        _enabledProviderIds.value = currentSet
         refreshProvidersList()
     }
 
@@ -216,9 +224,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeProviderId = MutableStateFlow("all")
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
-    private val _enabledProviderIds = MutableStateFlow<Set<String>>(
-        setOf("all", "youtube", "archive_org")
-    )
+    private val _enabledProviderIds = MutableStateFlow<Set<String>>({
+        val set = mutableSetOf("all", "youtube", "archive_org", "dailymotion", "bilibili", "vimeo", "curiositystream", "eporner")
+        if (settingsPrefs.getBoolean("adult_content_enabled", false)) {
+            set.addAll(listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn"))
+        }
+        set
+    }())
     val enabledProviderIds: StateFlow<Set<String>> = _enabledProviderIds.asStateFlow()
 
     private val _availableProviders = MutableStateFlow<List<ProviderUiItem>>(emptyList())
@@ -1381,10 +1393,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDefault = (activeId == "curiositystream")
             )
         )
+        uiList.add(
+            ProviderUiItem(
+                id = "eporner",
+                name = "Eporner",
+                description = "Eporner video catalog via yt-dlp",
+                category = "Video",
+                isEnabled = enabledSet.contains("eporner"),
+                isDefault = (activeId == "eporner")
+            )
+        )
 
         if (adultEnabled) {
             val adultProviders = listOf(
-                Triple("eporner", "Eporner", "Eporner adult video catalog"),
                 Triple("pornhub", "Pornhub", "Pornhub adult video catalog"),
                 Triple("xvideos", "XVideos", "XVideos adult video catalog"),
                 Triple("4tube", "4tube", "4tube adult video catalog"),

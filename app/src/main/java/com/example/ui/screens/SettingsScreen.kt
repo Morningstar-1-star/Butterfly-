@@ -66,6 +66,7 @@ fun SettingsScreen(
             ProviderDiag("bilibili", "Bilibili", false),
             ProviderDiag("vimeo", "Vimeo", false),
             ProviderDiag("curiositystream", "CuriosityStream", false),
+            ProviderDiag("eporner", "Eporner", false),
             ProviderDiag("pornhub", "Pornhub", true),
             ProviderDiag("xvideos", "XVideos", true),
             ProviderDiag("4tube", "4tube", true),
@@ -73,8 +74,7 @@ fun SettingsScreen(
             ProviderDiag("rule34video", "Rule34Video", true),
             ProviderDiag("redtube", "RedTube", true),
             ProviderDiag("xhamster", "XHamster", true),
-            ProviderDiag("youporn", "YouPorn", true),
-            ProviderDiag("eporner", "Eporner", true)
+            ProviderDiag("youporn", "YouPorn", true)
         )
     }
 
@@ -82,38 +82,132 @@ fun SettingsScreen(
         diag.status = "TESTING"
         coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val start = System.currentTimeMillis()
+            var errorMsg = ""
+            var formatInfo = ""
+            var isWorking = false
             try {
-                val success = when (diag.id) {
+                when (diag.id) {
                     "youtube" -> {
-                        val list = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(context)
-                        list.isNotEmpty()
+                        val items = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(context)
+                        if (items.isNotEmpty()) {
+                            val result = com.example.extractor.YouTubeExtractorHelper.resolveStream(items[0].id, context, "youtube")
+                            when (result) {
+                                is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Success -> {
+                                    val sd = result.streamData
+                                    val opt = sd.selectedStreamOption ?: sd.availableStreamOptions.firstOrNull { !it.videoUrl.isNullOrBlank() }
+                                    if (opt != null && !opt.videoUrl.isNullOrBlank()) {
+                                        isWorking = true
+                                        val mime = opt.format.ifBlank { "mp4" }
+                                        formatInfo = "Format: ${opt.qualityLabel} ($mime) | Direct URL: ${opt.videoUrl.take(40)}..."
+                                    } else {
+                                        errorMsg = "No direct playable media format URL found"
+                                    }
+                                }
+                                is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Error -> {
+                                    errorMsg = result.errorDetails.message
+                                }
+                            }
+                        } else {
+                            errorMsg = "No YouTube trending items found"
+                        }
                     }
                     "archive_org" -> {
-                        val list = com.example.extractor.ArchiveOrgProvider.getHome(1)
-                        list.isNotEmpty()
+                        val items = com.example.extractor.ArchiveOrgProvider.getHome(1)
+                        if (items.isNotEmpty()) {
+                            val streamData = com.example.extractor.ArchiveOrgProvider.getStreamData(items[0].id)
+                            if (streamData != null && ((streamData.videoUrl?.isNotBlank() == true) || streamData.availableStreamOptions.isNotEmpty())) {
+                                val opt = streamData.availableStreamOptions.firstOrNull() ?: com.example.model.PlayableStreamOption(qualityLabel = "Direct", format = "mp4", isMuxed = true, videoUrl = streamData.videoUrl ?: "")
+                                if (opt.videoUrl?.isNotBlank() == true) {
+                                    isWorking = true
+                                    formatInfo = "Format: ${opt.qualityLabel} (${opt.format}) | Direct URL: ${opt.videoUrl?.take(40)}..."
+                                } else {
+                                    errorMsg = "Archive stream URL is blank"
+                                }
+                            } else {
+                                errorMsg = "No Archive stream data resolved"
+                            }
+                        } else {
+                            errorMsg = "No Archive items found"
+                        }
                     }
                     "eporner" -> {
-                        val stream = com.example.extractor.EpornerProvider.getStreamData("12345")
-                        stream != null && (stream.availableStreamOptions.isNotEmpty() || stream.progressiveStreams.isNotEmpty() || stream.videoUrl.isNotBlank())
+                        val testUrl = "https://www.eporner.com/video-3746271/"
+                        val streamData = com.example.extractor.EpornerProvider.getStreamData(testUrl)
+                        if (streamData != null && streamData.videoUrl?.isNotBlank() == true) {
+                            isWorking = true
+                            formatInfo = "Format: ${streamData.selectedStreamOption?.qualityLabel ?: "HD"} (mp4) | Direct URL: ${streamData.videoUrl?.take(40)}..."
+                        } else {
+                            val extractionResult = com.example.extractor.YtDlpResolver.extractStreamInfo(context, testUrl)
+                            when (extractionResult) {
+                                is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Success -> {
+                                    val sd = extractionResult.streamData
+                                    val option = sd.availableStreamOptions.firstOrNull { !it.videoUrl.isNullOrBlank() }
+                                    if (option != null && option.videoUrl?.isNotBlank() == true) {
+                                        isWorking = true
+                                        formatInfo = "Format: ${option.qualityLabel} (${option.format}) | Direct URL: ${option.videoUrl?.take(40)}..."
+                                    } else if (sd.videoUrl?.isNotBlank() == true) {
+                                        isWorking = true
+                                        formatInfo = "Format: Direct (mp4) | Direct URL: ${sd.videoUrl?.take(40)}..."
+                                    } else {
+                                        errorMsg = "Eporner extraction returned no playable media formats"
+                                    }
+                                }
+                                is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Error -> {
+                                    errorMsg = extractionResult.errorDetails.message
+                                }
+                            }
+                        }
                     }
                     else -> {
-                        val list = com.example.extractor.YtDlpResolver.search(context, "test", 1, diag.id)
-                        list.isNotEmpty()
+                        val testUrl = when (diag.id) {
+                            "dailymotion" -> "https://www.dailymotion.com/video/x8n2202"
+                            "vimeo" -> "https://vimeo.com/76979871"
+                            "bilibili" -> "https://www.bilibili.com/video/BV1xx411c7m9"
+                            "curiositystream" -> "https://curiositystream.com/video/1"
+                            "pornhub" -> "https://www.pornhub.com/view_video.php?viewkey=ph5bc340904031a"
+                            "xvideos" -> "https://www.xvideos.com/video.uuhbcpf9a4c/test"
+                            "4tube" -> "https://www.4tube.com/videos/243681/test"
+                            "beeg" -> "https://beeg.com/"
+                            "rule34video" -> "https://rule34video.com/"
+                            "redtube" -> "https://www.redtube.com/"
+                            "xhamster" -> "https://xhamster.com/"
+                            "youporn" -> "https://www.youporn.com/"
+                            else -> ""
+                        }
+                        if (testUrl.isBlank()) {
+                            errorMsg = "Unknown test URL for provider ${diag.id}"
+                        } else {
+                            val extractionResult = com.example.extractor.YtDlpResolver.extractStreamInfo(context, testUrl)
+                            when (extractionResult) {
+                                is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Success -> {
+                                    val sd = extractionResult.streamData
+                                    val option = sd.availableStreamOptions.firstOrNull { !it.videoUrl.isNullOrBlank() }
+                                    if (option != null && option.videoUrl?.isNotBlank() == true) {
+                                        isWorking = true
+                                        formatInfo = "Format: ${option.qualityLabel} (${option.format}) | Direct URL: ${option.videoUrl?.take(40)}..."
+                                    } else if (sd.videoUrl?.isNotBlank() == true) {
+                                        isWorking = true
+                                        formatInfo = "Format: Direct (mp4) | Direct URL: ${sd.videoUrl?.take(40)}..."
+                                    } else {
+                                        errorMsg = "No playable media format found in extraction output"
+                                    }
+                                }
+                                is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Error -> {
+                                    errorMsg = extractionResult.errorDetails.message
+                                }
+                            }
+                        }
                     }
                 }
-                val elapsed = System.currentTimeMillis() - start
-                val timeStr = String.format(java.util.Locale.US, "%.1fs", elapsed / 1000f)
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    diag.status = if (success) "WORKING" else "FAILED"
-                    diag.resultDetail = if (success) timeStr else "No playable results"
-                }
             } catch (e: Exception) {
-                val elapsed = System.currentTimeMillis() - start
-                val err = e.message ?: e.javaClass.simpleName
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    diag.status = "FAILED"
-                    diag.resultDetail = err
-                }
+                errorMsg = e.message ?: e.javaClass.simpleName
+            }
+
+            val elapsed = System.currentTimeMillis() - start
+            val timeStr = String.format(java.util.Locale.US, "%.1fs", elapsed / 1000f)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                diag.status = if (isWorking) "WORKING" else "FAILED"
+                diag.resultDetail = if (isWorking) "$timeStr - $formatInfo" else "$timeStr - $errorMsg"
             }
         }
     }
