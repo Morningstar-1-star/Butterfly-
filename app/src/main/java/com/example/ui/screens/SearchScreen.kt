@@ -183,23 +183,6 @@ fun SearchScreen(
             }
         }
 
-        // 4. Adult providers if adult content is toggled ON
-        if (adultContentEnabled) {
-            val adultList = listOf(
-                ProviderSourceItemData("eporner", "Eporner", Icons.Default.Explicit, Color(0xFFC2185B)),
-                ProviderSourceItemData("apijav_server", "ApiJav", Icons.Default.Explicit, Color(0xFF8E24AA)),
-                ProviderSourceItemData("javinfo", "JavInfo", Icons.Default.Explicit, Color(0xFF5E35B1)),
-                ProviderSourceItemData("apijav_hentai", "Hentai", Icons.Default.Explicit, Color(0xFFD81B60)),
-                ProviderSourceItemData("apijav_porn", "Adult Feeds", Icons.Default.Explicit, Color(0xFFAD1457))
-            )
-            adultList.forEach { adultItem ->
-                if (!processedIds.contains(adultItem.id.lowercase())) {
-                    processedIds.add(adultItem.id.lowercase())
-                    list.add(adultItem)
-                }
-            }
-        }
-
         list
     }
 

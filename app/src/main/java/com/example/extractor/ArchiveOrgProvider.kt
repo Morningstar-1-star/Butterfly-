@@ -27,63 +27,6 @@ object ArchiveOrgProvider {
         .followRedirects(true)
         .build()
 
-    private val CURATED_FALLBACK_ITEMS = listOf(
-        VideoItem(
-            id = "Awaara1951HindiMovie",
-            title = "Awaara (1951) - Raj Kapoor Classic Hindi Cinema",
-            uploaderName = "Raj Kapoor Films",
-            uploadDate = "1951",
-            thumbnailUrl = "https://archive.org/services/img/Awaara1951HindiMovie",
-            viewCount = 4250000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "shree_420_1955",
-            title = "Shree 420 (1955) - Raj Kapoor & Nargis Hindi Masterpiece",
-            uploaderName = "Classic Indian Cinema",
-            uploadDate = "1955",
-            thumbnailUrl = "https://archive.org/services/img/shree_420_1955",
-            viewCount = 3980000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "pyaasa_1957_hindi",
-            title = "Pyaasa (1957) - Guru Dutt Masterpiece Hindi Movie",
-            uploaderName = "Guru Dutt Films",
-            uploadDate = "1957",
-            thumbnailUrl = "https://archive.org/services/img/pyaasa_1957_hindi",
-            viewCount = 3120000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "do_bigha_zamin_1953",
-            title = "Do Bigha Zamin (1953) - Bimal Roy Classic Hindi Film",
-            uploaderName = "Bimal Roy Productions",
-            uploadDate = "1953",
-            thumbnailUrl = "https://archive.org/services/img/do_bigha_zamin_1953",
-            viewCount = 2850000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "night_of_the_living_dead",
-            title = "Night of the Living Dead (1968)",
-            uploaderName = "George A. Romero",
-            uploadDate = "1968",
-            thumbnailUrl = "https://archive.org/services/img/night_of_the_living_dead",
-            viewCount = 2650000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "SteamboatWillie1928_201903",
-            title = "Steamboat Willie (1928) - Walt Disney Landmark Cartoon",
-            uploaderName = "National Film Archive",
-            uploadDate = "1928",
-            thumbnailUrl = "https://archive.org/services/img/SteamboatWillie1928_201903",
-            viewCount = 980000L,
-            providerId = PROVIDER_ID
-        )
-    )
-
     private fun httpGet(url: String): String? {
         return try {
             val req = Request.Builder()
@@ -128,10 +71,6 @@ object ArchiveOrgProvider {
             }
         }
 
-        if (items.isEmpty() && page == 1) {
-            items.addAll(CURATED_FALLBACK_ITEMS)
-        }
-
         items.distinctBy { it.id }
     }
 
@@ -147,13 +86,6 @@ object ArchiveOrgProvider {
         val body = httpGet(url)
         if (!body.isNullOrBlank()) {
             items.addAll(parseArchiveList(body))
-        }
-
-        if (items.isEmpty()) {
-            val filteredFallback = CURATED_FALLBACK_ITEMS.filter {
-                it.title.contains(query, ignoreCase = true) || it.uploaderName.contains(query, ignoreCase = true)
-            }
-            items.addAll(filteredFallback)
         }
 
         items.distinctBy { it.id }

@@ -78,7 +78,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         "tech news reviews",
         "viral video clips",
         "popular anime episodes",
-        "eztv torrent releases",
         "internet archive movies",
         "classic comedy shows"
     )

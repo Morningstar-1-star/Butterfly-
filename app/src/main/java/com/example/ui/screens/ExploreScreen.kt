@@ -113,18 +113,15 @@ fun ExploreScreen(
             val docuDeferred = async { TMDBHelper.fetchExploreCategoryMovies(99, "Documentary") }
             val aniListDeferred = async { TMDBHelper.fetchAniListTrendingAnime() }
             val jikanDeferred = async { TMDBHelper.fetchJikanTopAnime() }
-            val javInfoDeferred = async { if (adultContentEnabled) TMDBHelper.fetchJavInfoAdultVideos() else emptyList() }
-            val ytDeferred = async { emptyList<com.example.model.VideoItem>() }
+            val ytDeferred = async { try { com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending() } catch (e: Exception) { emptyList() } }
             val musicDeferred = async { emptyList<com.example.model.VideoItem>() }
             val shortsDeferred = async { emptyList<com.example.model.VideoItem>() }
-            val dailymotionDeferred = async { emptyList<VideoItem>() }
+            val dailymotionDeferred = async { emptyList<com.example.model.VideoItem>() }
             val archiveDeferred = async {
                 try {
                     com.example.extractor.ArchiveOrgProvider.getHome()
-                } catch (e: Exception) { emptyList() }
+                } catch (e: Exception) { emptyList<com.example.model.VideoItem>() }
             }
-            val epornerDeferred = async { emptyList<VideoItem>() }
-            val apijavDeferred = async { emptyList<VideoItem>() }
 
             val liveHeroes = heroesDeferred.await()
             if (liveHeroes.isNotEmpty()) {
@@ -142,14 +139,11 @@ fun ExploreScreen(
             val jikanItems = jikanDeferred.await()
             val anime = (aniListItems + jikanItems).distinctBy { it.id }
 
-            val javInfoItems = javInfoDeferred.await()
             val ytItems = ytDeferred.await()
             val musicItems = musicDeferred.await()
             val shortsItems = shortsDeferred.await()
             val dailymotionItems = dailymotionDeferred.await()
             val archiveItems = archiveDeferred.await()
-            val epornerItems = epornerDeferred.await()
-            val apijavItems = apijavDeferred.await()
 
             rawCategories = listOf(
                 CuratedCategory("youtube", "YouTube Trending", "🔴", ytItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
@@ -163,10 +157,7 @@ fun ExploreScreen(
                 CuratedCategory("kids", "Kids & Family", "🟢", kids.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("docu", "Documentaries", "📜", docu.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("dailymotion", "Dailymotion Videos", "▶️", dailymotionItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
-                CuratedCategory("archive_org", "Archive.org Audio & Video", "📜", archiveItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
-                CuratedCategory("eporner", "Eporner Adult Video Feed", "🔥", epornerItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
-                CuratedCategory("apijav", "ApiJav / JAV Streams", "💖", apijavItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
-                CuratedCategory("adult", "Adult / Steamy & JAV (18+)", "💖", javInfoItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) })
+                CuratedCategory("archive_org", "Archive.org Audio & Video", "📜", archiveItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) })
             )
             val allCategoryItems = rawCategories.flatMap { it.items }
             com.example.util.ThumbnailOptimizer.preloadThumbnails(context, allCategoryItems, maxCount = 60)
@@ -255,10 +246,7 @@ fun ExploreScreen(
                     "Music" to "🎵",
                     "Shorts" to "⚡",
                     "Dailymotion" to "▶️",
-                    "Torrent" to "⚡",
-                    "Archive.org" to "📜",
-                    "ApiJav" to "💖",
-                    "Eporner" to "🔥"
+                    "Archive.org" to "📜"
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),

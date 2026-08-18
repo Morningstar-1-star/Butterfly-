@@ -22,13 +22,21 @@ object YtDlpResolver {
     }
 
     fun isYtDlpSupportedUrl(url: String): Boolean {
-        return url.contains("youtube.com") || url.contains("youtu.be") || url.length == 11
+        return url.startsWith("http://") || url.startsWith("https://") || url.contains("youtube.com") || url.contains("youtu.be") || url.length == 11
     }
 
     suspend fun extractStreamInfo(ctx: Context, targetUrl: String): YouTubeExtractorHelper.ExtractionResult = withContext(Dispatchers.IO) {
         try {
-            val videoUrl = if (targetUrl.startsWith("http")) targetUrl else "https://www.youtube.com/watch?v=$targetUrl"
-            Log.i(TAG, "Executing real yt-dlp for video: $videoUrl")
+            val isYouTube = targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be") || (targetUrl.length == 11 && !targetUrl.startsWith("http"))
+            val videoUrl = if (targetUrl.startsWith("http")) {
+                targetUrl
+            } else if (targetUrl.length == 11) {
+                "https://www.youtube.com/watch?v=$targetUrl"
+            } else {
+                targetUrl
+            }
+
+            Log.i(TAG, "Executing generic yt-dlp for video: $videoUrl")
 
             try {
                 YoutubeDL.getInstance().init(ctx)
@@ -48,12 +56,13 @@ object YtDlpResolver {
             }
 
             val json = JSONObject(jsonStr)
-            val title = json.optString("title", "YouTube Video")
-            val uploader = json.optString("uploader", "YouTube")
+            val title = json.optString("title", "Video")
+            val uploader = json.optString("uploader", json.optString("extractor", "Online Video"))
             val description = json.optString("description", "")
             val thumbnail = json.optString("thumbnail", "")
 
             val options = mutableListOf<PlayableStreamOption>()
+            val headersMap = if (isYouTube) mapOf("Referer" to "https://www.youtube.com/") else emptyMap<String, String>()
 
             val formats = json.optJSONArray("formats")
             if (formats != null) {
@@ -74,7 +83,7 @@ object YtDlpResolver {
                             isMuxed = isMuxed,
                             videoUrl = url,
                             providerType = ProviderType.DIRECT,
-                            headers = mapOf("Referer" to "https://www.youtube.com/")
+                            headers = headersMap
                         )
                     )
                 }
@@ -90,7 +99,7 @@ object YtDlpResolver {
                             isMuxed = true,
                             videoUrl = directUrl,
                             providerType = ProviderType.DIRECT,
-                            headers = mapOf("Referer" to "https://www.youtube.com/")
+                            headers = headersMap
                         )
                     )
                 }
@@ -111,6 +120,7 @@ object YtDlpResolver {
             }
 
             val bestOption = options.firstOrNull { it.qualityLabel.contains("1080p") } ?: options.first()
+            val providerId = if (isYouTube) "youtube" else json.optString("extractor_key", "generic").lowercase()
             val streamData = StreamData(
                 videoId = targetUrl,
                 videoUrl = bestOption.videoUrl ?: "",
@@ -120,7 +130,7 @@ object YtDlpResolver {
                 thumbnailUrl = thumbnail,
                 availableStreamOptions = options,
                 selectedStreamOption = bestOption,
-                providerId = "youtube",
+                providerId = providerId,
                 providerType = ProviderType.DIRECT
             )
             Log.i(TAG, "yt-dlp success: extracted ${options.size} streams, selected: ${bestOption.qualityLabel}")

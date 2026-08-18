@@ -75,16 +75,6 @@ object YouTubeExtractorHelper {
             Log.w(TAG, "NewPipe trending fetch failed: ${e.message}")
         }
 
-        // Search Fallback if Kiosk Trending is unavailable
-        val popularQueries = listOf("trending videos 2026", "music hits", "official trailers", "gaming highlights")
-        for (q in popularQueries) {
-            val res = searchYouTube(q)
-            if (res.isNotEmpty()) {
-                Log.i(TAG, "Fetched ${res.size} popular videos via Search Fallback for '$q'")
-                return@withContext res
-            }
-        }
-
         emptyList()
     }
 
@@ -122,8 +112,6 @@ object YouTubeExtractorHelper {
 
     suspend fun resolveStream(urlOrId: String, context: Context? = null): ExtractionResult = withContext(Dispatchers.IO) {
         val isArchive = urlOrId.contains("archive.org") || urlOrId.startsWith("archive_")
-        
-        // Handle Archive.org media explicitly
         if (isArchive) {
             val archiveData = ArchiveOrgProvider.getStreamData(urlOrId)
             if (archiveData != null) {
@@ -142,104 +130,122 @@ object YouTubeExtractorHelper {
             }
         }
 
-        // Process as YouTube video
-        val videoId = when {
-            urlOrId.contains("v=") -> urlOrId.substringAfter("v=").substringBefore("&")
-            urlOrId.contains("youtu.be/") -> urlOrId.substringAfter("youtu.be/").substringBefore("?")
-            else -> urlOrId
-        }
+        val isYouTube = urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
 
-        val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.youtube.com/watch?v=$videoId"
-        Log.i(TAG, "Resolving YouTube Video ID: '$videoId', Target URL: '$targetUrl'")
+        if (isYouTube) {
+            val videoId = when {
+                urlOrId.contains("v=") -> urlOrId.substringAfter("v=").substringBefore("&")
+                urlOrId.contains("youtu.be/") -> urlOrId.substringAfter("youtu.be/").substringBefore("?")
+                else -> urlOrId
+            }
 
-        // Step 1: NewPipe Extractor
-        Log.i(TAG, "YouTube Resolution Step 1 (NewPipe Extractor): $targetUrl")
-        try {
+            val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.youtube.com/watch?v=$videoId"
+            Log.i(TAG, "Resolving YouTube Video ID: '$videoId', Target URL: '$targetUrl'")
+
+            // Step 1: NewPipe Extractor
+            Log.i(TAG, "YouTube Resolution Step 1 (NewPipe Extractor): $targetUrl")
             try {
-                NewPipe.init(DownloaderImpl.getInstance())
-            } catch (ignored: Exception) {}
+                try {
+                    NewPipe.init(DownloaderImpl.getInstance())
+                } catch (ignored: Exception) {}
 
-            val streamInfo = StreamInfo.getInfo(ServiceList.YouTube, targetUrl)
-            val title = streamInfo.name ?: "YouTube Video"
-            val uploader = streamInfo.uploaderName ?: "YouTube"
-            val desc = streamInfo.description?.getContent() ?: ""
-            val thumb = streamInfo.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                val streamInfo = StreamInfo.getInfo(ServiceList.YouTube, targetUrl)
+                val title = streamInfo.name ?: "YouTube Video"
+                val uploader = streamInfo.uploaderName ?: "YouTube"
+                val desc = streamInfo.description?.getContent() ?: ""
+                val thumb = streamInfo.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 
-            val options = mutableListOf<PlayableStreamOption>()
+                val options = mutableListOf<PlayableStreamOption>()
 
-            streamInfo.videoStreams?.forEach { vStream ->
-                val vUrl = vStream.content
-                val resolution = vStream.resolution ?: "720p"
-                val formatName = vStream.format?.name ?: "mp4"
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "NewPipe Video $resolution ($formatName)",
-                        format = formatName,
-                        isMuxed = true,
-                        videoStream = vStream,
-                        videoUrl = vUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = mapOf("Referer" to "https://www.youtube.com/")
+                streamInfo.videoStreams?.forEach { vStream ->
+                    val vUrl = vStream.content
+                    val resolution = vStream.resolution ?: "720p"
+                    val formatName = vStream.format?.name ?: "mp4"
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = "NewPipe Video $resolution ($formatName)",
+                            format = formatName,
+                            isMuxed = true,
+                            videoStream = vStream,
+                            videoUrl = vUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = mapOf("Referer" to "https://www.youtube.com/")
+                        )
                     )
-                )
-            }
+                }
 
-            if (options.isEmpty() && !streamInfo.hlsUrl.isNullOrBlank()) {
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "NewPipe HLS Stream",
-                        format = "m3u8",
-                        isMuxed = true,
-                        videoUrl = streamInfo.hlsUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = mapOf("Referer" to "https://www.youtube.com/")
+                if (options.isEmpty() && !streamInfo.hlsUrl.isNullOrBlank()) {
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = "NewPipe HLS Stream",
+                            format = "m3u8",
+                            isMuxed = true,
+                            videoUrl = streamInfo.hlsUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = mapOf("Referer" to "https://www.youtube.com/")
+                        )
                     )
+                }
+
+                if (options.isNotEmpty()) {
+                    val bestOption = options.firstOrNull { it.qualityLabel.contains("1080p") } ?: options.first()
+                    val streamData = StreamData(
+                        videoId = videoId,
+                        videoUrl = bestOption.videoUrl ?: "",
+                        title = title,
+                        channelName = uploader,
+                        description = desc,
+                        thumbnailUrl = thumb,
+                        availableStreamOptions = options,
+                        selectedStreamOption = bestOption,
+                        hlsUrl = streamInfo.hlsUrl,
+                        providerId = "youtube",
+                        providerType = ProviderType.DIRECT
+                    )
+                    Log.i(TAG, "NewPipe extraction success: ${options.size} formats available.")
+                    return@withContext ExtractionResult.Success(streamData)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "NewPipe extraction failed: ${e.message}")
+            }
+
+            // Step 2: Fallback to yt-dlp for YouTube
+            if (context != null) {
+                Log.i(TAG, "YouTube Resolution Step 2 (yt-dlp fallback): $targetUrl")
+                val ytDlpResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
+                if (ytDlpResult is ExtractionResult.Success) {
+                    return@withContext ytDlpResult
+                }
+            }
+
+            return@withContext ExtractionResult.Error(
+                ExtractorErrorDetails(
+                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                    message = "Unable to resolve playable stream for this YouTube video.",
+                    rawExceptionName = "YouTubeExtractionFailedException",
+                    fullStackTrace = "",
+                    urlOrId = targetUrl,
+                    causeInfo = "NewPipe Extractor and yt-dlp fallback were both attempted.",
+                    technicalFixSuggestion = "Check internet connection or retry later."
                 )
-            }
-
-            if (options.isNotEmpty()) {
-                val bestOption = options.firstOrNull { it.qualityLabel.contains("1080p") } ?: options.first()
-                val streamData = StreamData(
-                    videoId = videoId,
-                    videoUrl = bestOption.videoUrl ?: "",
-                    title = title,
-                    channelName = uploader,
-                    description = desc,
-                    thumbnailUrl = thumb,
-                    availableStreamOptions = options,
-                    selectedStreamOption = bestOption,
-                    hlsUrl = streamInfo.hlsUrl,
-                    providerId = "youtube",
-                    providerType = ProviderType.DIRECT
-                )
-                Log.i(TAG, "NewPipe extraction success: ${options.size} formats available.")
-                return@withContext ExtractionResult.Success(streamData)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "NewPipe extraction failed: ${e.message}")
-        }
-
-        // Step 2: Fallback to yt-dlp
-        if (context != null) {
-            Log.i(TAG, "YouTube Resolution Step 2 (yt-dlp fallback): $targetUrl")
-            val ytDlpResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
-            if (ytDlpResult is ExtractionResult.Success) {
-                return@withContext ytDlpResult
-            }
-        }
-
-        Log.e(TAG, "All YouTube stream resolvers failed for Video ID: $videoId")
-        ExtractionResult.Error(
-            ExtractorErrorDetails(
-                errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
-                message = "Unable to resolve playable stream for this YouTube video.",
-                rawExceptionName = "YouTubeExtractionFailedException",
-                fullStackTrace = "",
-                urlOrId = targetUrl,
-                causeInfo = "NewPipe Extractor and yt-dlp fallback were both attempted.",
-                technicalFixSuggestion = "Check internet connection or retry later."
             )
-        )
+        } else {
+            // Generic non-YouTube URL: direct yt-dlp resolution
+            if (context != null) {
+                Log.i(TAG, "Non-YouTube URL, resolving via yt-dlp: $urlOrId")
+                return@withContext YtDlpResolver.extractStreamInfo(context, urlOrId)
+            } else {
+                return@withContext ExtractionResult.Error(
+                    ExtractorErrorDetails(
+                        errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                        message = "Context required for generic stream resolution",
+                        rawExceptionName = "NoContextException",
+                        fullStackTrace = "",
+                        urlOrId = urlOrId
+                    )
+                )
+            }
+        }
     }
 
     suspend fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult {
