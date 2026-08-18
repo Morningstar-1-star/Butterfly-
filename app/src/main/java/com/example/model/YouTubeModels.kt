@@ -1,6 +1,5 @@
 package com.example.model
 
-import com.example.plugin.sdk.model.ProviderType
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import org.schabi.newpipe.extractor.stream.VideoStream

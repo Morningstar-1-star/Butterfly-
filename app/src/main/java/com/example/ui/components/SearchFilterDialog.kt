@@ -314,22 +314,11 @@ fun SearchFilterDialog(
                         onClick = { tempFilter = tempFilter.copy(isFullHdOnly = !tempFilter.isFullHdOnly) }
                     )
                     FeaturePill(
-                        label = "Torrents & P2P",
-                        selected = tempFilter.isTorrentOnly,
-                        onClick = {
-                            tempFilter = tempFilter.copy(
-                                isTorrentOnly = !tempFilter.isTorrentOnly,
-                                isDirectStreamOnly = if (!tempFilter.isTorrentOnly) false else tempFilter.isDirectStreamOnly
-                            )
-                        }
-                    )
-                    FeaturePill(
                         label = "Direct Stream",
                         selected = tempFilter.isDirectStreamOnly,
                         onClick = {
                             tempFilter = tempFilter.copy(
-                                isDirectStreamOnly = !tempFilter.isDirectStreamOnly,
-                                isTorrentOnly = if (!tempFilter.isDirectStreamOnly) false else tempFilter.isTorrentOnly
+                                isDirectStreamOnly = !tempFilter.isDirectStreamOnly
                             )
                         }
                     )

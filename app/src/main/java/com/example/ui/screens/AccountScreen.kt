@@ -467,18 +467,6 @@ fun AccountScreen(
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
                     ) {
-                        AccountMenuItem(
-                            icon = Icons.Outlined.Extension,
-                            title = "Content Providers & Extensions",
-                            subtitle = "Manage active extensions & sources",
-                            onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) }
-                        )
-
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        )
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -572,7 +560,6 @@ fun AccountScreen(
     if (showEditProfileDialog) {
         val syncStatus by viewModel.syncStatus.collectAsState()
         val likedVideoIds by viewModel.likedVideoIds.collectAsState()
-        val currentTimeSlot = remember { com.example.engine.RecommendationPipelineEngine.getCurrentTimeSlot() }
 
         var emailInput by remember { mutableStateOf("") }
         var passwordInput by remember { mutableStateOf("") }
@@ -855,12 +842,6 @@ fun AccountScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FilterChip(
-                            selected = true,
-                            onClick = {},
-                            label = { Text("Slot: $currentTimeSlot", fontSize = 11.sp) },
-                            leadingIcon = { Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        )
                         FilterChip(
                             selected = true,
                             onClick = {},

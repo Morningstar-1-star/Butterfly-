@@ -1,8 +1,5 @@
 package com.example.model
 
-import com.example.plugin.sdk.model.ProviderType
-import com.example.plugin.jav.ProviderStatusState
-
 enum class AppScreen {
     HOME,
     EXPLORE,
@@ -11,11 +8,26 @@ enum class AppScreen {
     SUBSCRIPTIONS,
     ACCOUNT,
     LIBRARY,
-    PROVIDERS,
     PLAYER,
     SETTINGS,
     SPONSORBLOCK_SETTINGS,
     CHANNEL
+}
+
+enum class ProviderType {
+    DIRECT,
+    SCRAPER,
+    TORRENT,
+    DEBRID,
+    OTHER
+}
+
+enum class ProviderStatusState {
+    ACTIVE,
+    DEGRADED,
+    BLOCKED,
+    ERROR,
+    NO_RESULT
 }
 
 data class ProviderUiItem(
@@ -45,5 +57,17 @@ data class UserProfile(
     val bio: String = "Passionate video lover & content curator.",
     val avatarUrl: String? = null,
     val avatarPreset: String = "purple"
+)
+
+data class ServerScanState(
+    val nodes: List<ServerNode> = emptyList(),
+    val selectedNodeId: String? = null,
+    val activeServerIndex: Int = 1
+)
+
+data class ServerNode(
+    val id: String,
+    val name: String,
+    val streamOption: PlayableStreamOption? = null
 )
 

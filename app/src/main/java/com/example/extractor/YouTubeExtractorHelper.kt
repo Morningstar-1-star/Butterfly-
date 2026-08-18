@@ -2,167 +2,34 @@ package com.example.extractor
 
 import android.content.Context
 import android.util.Log
-import com.example.model.CaptionOption
-import com.example.model.ExtractorErrorDetails
-import com.example.model.ExtractorErrorType
-import com.example.model.FeedErrorDetails
-import com.example.model.FeedResult
-import com.example.model.PlayableStreamOption
-import com.example.model.StreamData
-import com.example.model.VideoItem
+import com.example.model.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.StreamingService
-import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
-import org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException
-import org.schabi.newpipe.extractor.exceptions.ParsingException
-import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
-import org.schabi.newpipe.extractor.kiosk.KioskInfo
-import org.schabi.newpipe.extractor.localization.ContentCountry
-import org.schabi.newpipe.extractor.localization.Localization
-import org.schabi.newpipe.extractor.search.SearchInfo
-import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
-import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.StreamInfo
-import org.schabi.newpipe.extractor.stream.StreamInfoItem
-import org.schabi.newpipe.extractor.stream.VideoStream
-import java.io.IOException
-import java.io.PrintWriter
-import java.io.StringWriter
-import java.util.Locale
+
+sealed class UrlParseResult {
+    data class VideoId(val id: String) : UrlParseResult()
+    data class ChannelId(val id: String) : UrlParseResult()
+    data class PlaylistId(val id: String) : UrlParseResult()
+    data class ShortId(val id: String) : UrlParseResult()
+    object SearchQuery : UrlParseResult()
+    data class Unknown(val url: String) : UrlParseResult()
+    data class ParsedSearchResults(val items: List<VideoItem>) : UrlParseResult()
+}
 
 object YouTubeExtractorHelper {
-
-    @Volatile
-    private var isInitialized = false
+    private const val TAG = "YouTubeExtractorHelper"
 
     interface CustomPoTokenProvider {
         fun getPoToken(visitorData: String?): String?
     }
 
-    private var poTokenProvider: CustomPoTokenProvider? = null
+    private var customPoTokenProvider: CustomPoTokenProvider? = null
 
-    fun setPoTokenProvider(provider: CustomPoTokenProvider) {
-        this.poTokenProvider = provider
-    }
-
-    fun getPoTokenProvider(): CustomPoTokenProvider? = poTokenProvider
-
-    fun ensureInitialized() {
-        if (!isInitialized) {
-            synchronized(this) {
-                if (!isInitialized) {
-                    val localization = Localization.fromLocale(Locale.getDefault())
-                    val contentCountry = ContentCountry(Locale.getDefault().country)
-                    NewPipe.init(DownloaderImpl.getInstance(), localization, contentCountry)
-                    isInitialized = true
-                }
-            }
-        }
-    }
-
-    fun getYouTubeService(): StreamingService {
-        ensureInitialized()
-        return ServiceList.YouTube
-    }
-
-    private fun logDebug(tag: String, message: String) {
-        try {
-            Log.d(tag, message)
-        } catch (e: Throwable) {
-            println("[$tag] [DEBUG] $message")
-        }
-    }
-
-    private fun logWarn(tag: String, message: String) {
-        try {
-            Log.w(tag, message)
-        } catch (e: Throwable) {
-            println("[$tag] [WARN] $message")
-        }
-    }
-
-    private fun logError(tag: String, message: String, throwable: Throwable? = null) {
-        try {
-            if (throwable != null) Log.e(tag, message, throwable) else Log.e(tag, message)
-        } catch (e: Throwable) {
-            println("[$tag] [ERROR] $message")
-            throwable?.printStackTrace()
-        }
-    }
-
-    sealed class UrlParseResult {
-        data class ValidVideoId(val videoId: String) : UrlParseResult()
-        data class InvalidUrl(val message: String) : UrlParseResult()
-        object SearchQuery : UrlParseResult()
-    }
-
-    /**
-     * Parses input string to determine if it is a valid YouTube video ID, a YouTube URL,
-     * an invalid YouTube URL, or a search query.
-     */
-    fun parseYouTubeInput(input: String): UrlParseResult {
-        val trimmed = input.trim()
-        if (trimmed.isEmpty()) return UrlParseResult.SearchQuery
-
-        val rawIdRegex = Regex("^[a-zA-Z0-9_-]{11}$")
-
-        // Identifiers for URL attempts
-        val isUrlAttempt = trimmed.startsWith("http://", ignoreCase = true) ||
-                trimmed.startsWith("https://", ignoreCase = true) ||
-                trimmed.startsWith("www.", ignoreCase = true) ||
-                trimmed.contains("youtube.com", ignoreCase = true) ||
-                trimmed.contains("youtu.be", ignoreCase = true)
-
-        if (isUrlAttempt) {
-            // 1. youtube.com/watch?v=ID or m.youtube.com/watch?v=ID (parameter v can be anywhere in query)
-            val watchRegex = Regex("""[?&]v=([a-zA-Z0-9_-]{11})(?:[&?]|\b)""", RegexOption.IGNORE_CASE)
-            watchRegex.find(trimmed)?.groupValues?.get(1)?.let {
-                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from watch URL: '$trimmed'")
-                return UrlParseResult.ValidVideoId(it)
-            }
-
-            // 2. youtu.be/ID
-            val shortUrlRegex = Regex("""youtu\.be\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
-            shortUrlRegex.find(trimmed)?.groupValues?.get(1)?.let {
-                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from youtu.be URL: '$trimmed'")
-                return UrlParseResult.ValidVideoId(it)
-            }
-
-            // 3. youtube.com/shorts/ID
-            val shortsRegex = Regex("""youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
-            shortsRegex.find(trimmed)?.groupValues?.get(1)?.let {
-                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from shorts URL: '$trimmed'")
-                return UrlParseResult.ValidVideoId(it)
-            }
-
-            // 4. youtube.com/live/ID
-            val liveRegex = Regex("""youtube\.com\/live\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
-            liveRegex.find(trimmed)?.groupValues?.get(1)?.let {
-                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from live URL: '$trimmed'")
-                return UrlParseResult.ValidVideoId(it)
-            }
-
-            // 5. Generic embed/v path: youtube.com/embed/ID or youtube.com/v/ID
-            val embedRegex = Regex("""youtube\.com\/(?:embed|v)\/([a-zA-Z0-9_-]{11})(?:[\/?&]|\b)""", RegexOption.IGNORE_CASE)
-            embedRegex.find(trimmed)?.groupValues?.get(1)?.let {
-                logDebug("YouTubeExtractor", "[PARSER] Extracted video ID '$it' from embed/v URL: '$trimmed'")
-                return UrlParseResult.ValidVideoId(it)
-            }
-
-            // URL attempt detected but no valid 11-char video ID found
-            logWarn("YouTubeExtractor", "[PARSER] Invalid YouTube URL provided: '$trimmed'")
-            return UrlParseResult.InvalidUrl("Invalid YouTube URL")
-        }
-
-        // Raw 11-character video ID check
-        if (rawIdRegex.matches(trimmed)) {
-            logDebug("YouTubeExtractor", "[PARSER] Input matches raw 11-char video ID: '$trimmed'")
-            return UrlParseResult.ValidVideoId(trimmed)
-        }
-
-        // Plain search query
-        return UrlParseResult.SearchQuery
+    fun setPoTokenProvider(provider: CustomPoTokenProvider?) {
+        customPoTokenProvider = provider
     }
 
     sealed class ExtractionResult {
@@ -170,314 +37,279 @@ object YouTubeExtractorHelper {
         data class Error(val errorDetails: ExtractorErrorDetails) : ExtractionResult()
     }
 
-    suspend fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        // Adult Swim / Hotstar / External Extractor Path: Use YtDlpResolver with geo-bypass & proxy routing
-        if (urlOrId.contains("adultswim.com", ignoreCase = true) || urlOrId.contains("hotstar.com", ignoreCase = true) || urlOrId.contains("dailymotion.com") || urlOrId.contains("vimeo.com")) {
-            val ctx = context ?: try { com.example.MainApplication.appContext } catch (_: Throwable) { null }
-            if (ctx != null) {
-                when (val ytRes = YtDlpResolver.extractStreamInfo(ctx, urlOrId)) {
-                    is YtDlpResolver.ExtractionResult.Success -> {
-                        return@withContext ExtractionResult.Success(ytRes.streamData)
-                    }
-                    is YtDlpResolver.ExtractionResult.Error -> {
-                        logWarn("YouTubeExtractor", "External extractor (yt-dlp) failed for $urlOrId: ${ytRes.message}")
-                    }
-                }
-            }
-        }
-
-        // Fast Path: Ultra-fast Innertube and multi-source parallel resolution (100-400ms)
+    init {
         try {
-            val fastResult = YouTubeFastStreamResolver.resolveStream(urlOrId, context)
-            if (fastResult is ExtractionResult.Success && fastResult.streamData.availableStreamOptions.isNotEmpty()) {
-                logDebug("YouTubeExtractor", "FastStreamResolver SUCCESS for $urlOrId with ${fastResult.streamData.availableStreamOptions.size} options")
-                return@withContext fastResult
-            }
-        } catch (t: Throwable) {
-            logWarn("YouTubeExtractor", "FastStreamResolver error: ${t.message}")
+            NewPipe.init(DownloaderImpl.getInstance())
+            Log.i(TAG, "NewPipe initialized successfully")
+        } catch (e: Exception) {
+            Log.w(TAG, "NewPipe initialization note: ${e.message}")
         }
+    }
 
-        ensureInitialized()
-        val service = getYouTubeService()
-
-        val videoId = when (val parsed = parseYouTubeInput(urlOrId)) {
-            is UrlParseResult.ValidVideoId -> parsed.videoId
-            is UrlParseResult.InvalidUrl -> {
-                return@withContext ExtractionResult.Error(
-                    ExtractorErrorDetails(
-                        errorType = ExtractorErrorType.UNAVAILABLE,
-                        message = "Invalid YouTube URL",
-                        rawExceptionName = "IllegalArgumentException",
-                        fullStackTrace = "Unable to extract a valid 11-character video ID from input: '$urlOrId'",
-                        urlOrId = urlOrId,
-                        technicalFixSuggestion = "Check the YouTube URL format and try again."
+    suspend fun fetchYouTubeTrending(): List<VideoItem> = withContext(Dispatchers.IO) {
+        try {
+            try { NewPipe.init(DownloaderImpl.getInstance()) } catch (ignored: Exception) {}
+            val kioskInfo = org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(
+                ServiceList.YouTube,
+                "https://www.youtube.com/feed/trending"
+            )
+            val items = kioskInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                ?.map { item ->
+                    val vId = item.url.substringAfter("v=").substringBefore("&")
+                    val thumb = item.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                    VideoItem(
+                        id = vId,
+                        title = item.name ?: "YouTube Video",
+                        uploaderName = item.uploaderName ?: "YouTube",
+                        viewCount = item.viewCount,
+                        durationSeconds = item.duration,
+                        thumbnailUrl = thumb,
+                        providerId = "youtube"
                     )
-                )
+                } ?: emptyList()
+            if (items.isNotEmpty()) {
+                Log.i(TAG, "Fetched ${items.size} trending videos via NewPipe")
+                return@withContext items
             }
-            is UrlParseResult.SearchQuery -> urlOrId.trim()
+        } catch (e: Exception) {
+            Log.w(TAG, "NewPipe trending fetch failed: ${e.message}")
         }
 
-        val fullUrl = "https://www.youtube.com/watch?v=$videoId"
+        try {
+            val client = okhttp3.OkHttpClient()
+            val req = okhttp3.Request.Builder()
+                .url("https://pipedapi.kavin.rocks/trending?region=US")
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val bodyStr = resp.body?.string() ?: ""
+                val jsonArray = org.json.JSONArray(bodyStr)
+                val items = mutableListOf<VideoItem>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.optJSONObject(i) ?: continue
+                    val url = obj.optString("url", "")
+                    val vId = url.substringAfter("v=").substringBefore("&")
+                    if (vId.isBlank()) continue
+                    items.add(
+                        VideoItem(
+                            id = vId,
+                            title = obj.optString("title", "YouTube Video"),
+                            uploaderName = obj.optString("uploaderName", "YouTube"),
+                            viewCount = obj.optLong("views", -1L),
+                            durationSeconds = obj.optLong("duration", -1L),
+                            thumbnailUrl = obj.optString("thumbnail", "https://i.ytimg.com/vi/$vId/hqdefault.jpg"),
+                            providerId = "youtube"
+                        )
+                    )
+                }
+                Log.i(TAG, "Fetched ${items.size} trending videos via Piped API fallback")
+                return@withContext items
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Piped API trending fallback failed: ${e.message}")
+        }
 
-        logDebug("YouTubeExtractor", "[TRACE] BEFORE StreamInfo.getInfo for videoId: '$videoId', fullUrl: '$fullUrl'")
+        emptyList()
+    }
+
+    suspend fun searchYouTube(query: String): List<VideoItem> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
 
         try {
-            val info = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                StreamInfo.getInfo(service, fullUrl)
-            } ?: throw IOException("StreamInfo.getInfo timed out after 4s")
+            try { NewPipe.init(DownloaderImpl.getInstance()) } catch (ignored: Exception) {}
+            val searchExtractor = ServiceList.YouTube.getSearchExtractor(query)
+            searchExtractor.fetchPage()
+            val items = searchExtractor.initialPage?.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                ?.map { item ->
+                    val vId = item.url.substringAfter("v=").substringBefore("&")
+                    val thumb = item.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                    VideoItem(
+                        id = vId,
+                        title = item.name ?: "YouTube Video",
+                        uploaderName = item.uploaderName ?: "YouTube",
+                        viewCount = item.viewCount,
+                        durationSeconds = item.duration,
+                        thumbnailUrl = thumb,
+                        providerId = "youtube"
+                    )
+                } ?: emptyList()
+            if (items.isNotEmpty()) {
+                Log.i(TAG, "Fetched ${items.size} search results for '$query' via NewPipe")
+                return@withContext items
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "NewPipe search failed: ${e.message}")
+        }
 
-            val progressiveStreams = info.videoStreams ?: emptyList()
-            val videoOnlyStreams = info.videoOnlyStreams ?: emptyList()
-            val audioStreams = info.audioStreams ?: emptyList()
-            val totalStreams = progressiveStreams.size + videoOnlyStreams.size + audioStreams.size
+        try {
+            val client = okhttp3.OkHttpClient()
+            val req = okhttp3.Request.Builder()
+                .url("https://pipedapi.kavin.rocks/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&filter=all")
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val bodyStr = resp.body?.string() ?: ""
+                val json = org.json.JSONObject(bodyStr)
+                val jsonArray = json.optJSONArray("items") ?: org.json.JSONArray()
+                val items = mutableListOf<VideoItem>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.optJSONObject(i) ?: continue
+                    val type = obj.optString("type", "")
+                    if (type != "stream") continue
+                    val url = obj.optString("url", "")
+                    val vId = url.substringAfter("v=").substringBefore("&")
+                    if (vId.isBlank()) continue
+                    items.add(
+                        VideoItem(
+                            id = vId,
+                            title = obj.optString("title", "YouTube Video"),
+                            uploaderName = obj.optString("uploaderName", "YouTube"),
+                            viewCount = obj.optLong("views", -1L),
+                            durationSeconds = obj.optLong("duration", -1L),
+                            thumbnailUrl = obj.optString("thumbnail", "https://i.ytimg.com/vi/$vId/hqdefault.jpg"),
+                            providerId = "youtube"
+                        )
+                    )
+                }
+                Log.i(TAG, "Fetched ${items.size} search results for '$query' via Piped API fallback")
+                return@withContext items
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Piped API search fallback failed: ${e.message}")
+        }
 
-            val bestAudio = audioStreams.maxByOrNull { it.averageBitrate }
+        emptyList()
+    }
+
+    suspend fun resolveStream(urlOrId: String, context: Context? = null): ExtractionResult = withContext(Dispatchers.IO) {
+        val archiveData = ArchiveOrgProvider.getStreamData(urlOrId)
+        if (archiveData != null) {
+            Log.i(TAG, "Resolved via ArchiveOrgProvider")
+            return@withContext ExtractionResult.Success(archiveData)
+        }
+
+        val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.youtube.com/watch?v=$urlOrId"
+        Log.i(TAG, "Attempting NewPipe primary extraction for: $targetUrl")
+
+        try {
+            try {
+                NewPipe.init(DownloaderImpl.getInstance())
+            } catch (ignored: Exception) {}
+
+            val streamInfo = StreamInfo.getInfo(ServiceList.YouTube, targetUrl)
+            val title = streamInfo.name ?: "YouTube Video"
+            val uploader = streamInfo.uploaderName ?: "YouTube"
+            val desc = streamInfo.description?.getContent() ?: ""
+            val thumb = streamInfo.thumbnails?.firstOrNull()?.url ?: ""
 
             val options = mutableListOf<PlayableStreamOption>()
 
-            // 1. Muxed progressive streams (Video + Audio)
-            for (vs in progressiveStreams) {
-                val vUrl = vs.content ?: vs.url
-                if (!vUrl.isNullOrEmpty()) {
-                    val q = vs.resolution ?: "360p"
-                    options.add(
-                        PlayableStreamOption(
-                            qualityLabel = "$q (Progressive)",
-                            format = vs.format?.name ?: "MP4",
-                            isMuxed = true,
-                            videoStream = vs,
-                            audioStream = null,
-                            videoUrl = vUrl,
-                            audioUrl = null
-                        )
+            streamInfo.videoStreams?.forEach { vStream ->
+                val vUrl = vStream.content
+                val resolution = vStream.resolution ?: "720p"
+                val formatName = vStream.format?.name ?: "mp4"
+                options.add(
+                    PlayableStreamOption(
+                        qualityLabel = "NewPipe Video $resolution ($formatName)",
+                        format = formatName,
+                        isMuxed = true,
+                        videoStream = vStream,
+                        videoUrl = vUrl,
+                        providerType = ProviderType.DIRECT,
+                        headers = mapOf("Referer" to "https://www.youtube.com/")
                     )
-                }
-            }
-
-            // 2. High quality video-only streams (1080p, 1440p, 4K) combined with best audio stream
-            if (bestAudio != null) {
-                val bestAudioUrl = bestAudio.content ?: bestAudio.url
-                for (vo in videoOnlyStreams) {
-                    val vUrl = vo.content ?: vo.url
-                    if (!vUrl.isNullOrEmpty() && !bestAudioUrl.isNullOrEmpty()) {
-                        val res = vo.resolution ?: "HD"
-                        val fps = if (vo.fps > 30) " ${vo.fps}fps" else ""
-                        val label = when {
-                            res.contains("2160") || res.contains("4k") -> "2160p (4K)$fps"
-                            res.contains("1440") || res.contains("2k") -> "1440p (2K)$fps"
-                            res.contains("1080") -> "1080p HD$fps"
-                            res.contains("720") -> "720p HD$fps"
-                            else -> "$res$fps"
-                        }
-
-                        options.add(
-                            PlayableStreamOption(
-                                qualityLabel = label,
-                                format = "${vo.format?.name ?: "MP4"} + ${bestAudio.format?.name ?: "M4A"}",
-                                isMuxed = false,
-                                videoStream = vo,
-                                audioStream = bestAudio,
-                                videoUrl = vUrl,
-                                audioUrl = bestAudioUrl
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Sort options so highest quality (4K, 1440p, 1080p, 720p) appears at top
-            options.sortByDescending { opt ->
-                val numStr = opt.qualityLabel.takeWhile { it.isDigit() }
-                numStr.toIntOrNull() ?: 0
-            }
-
-            if (options.isEmpty() && info.hlsUrl.isNullOrEmpty()) {
-                val fastRes = YouTubeFastStreamResolver.resolveStream(videoId, context)
-                if (fastRes is ExtractionResult.Success) {
-                    return@withContext fastRes
-                }
-            }
-
-            val defaultSelectedOption = options.firstOrNull { it.qualityLabel.contains("1080p") }
-                ?: options.firstOrNull { it.qualityLabel.contains("720p") }
-                ?: options.firstOrNull { !it.isMuxed }
-                ?: options.firstOrNull()
-
-            val captions = (info.subtitles ?: emptyList()).map { sub ->
-                CaptionOption(
-                    languageName = sub.displayLanguageName ?: sub.languageTag ?: "Unknown",
-                    languageCode = sub.languageTag ?: "en",
-                    format = sub.format?.name ?: "VTT",
-                    url = sub.content
                 )
             }
 
-            val related = (info.relatedItems ?: emptyList()).filterIsInstance<StreamInfoItem>().map { item ->
-                VideoItem(
-                    id = item.url.substringAfter("v=").substringBefore("&"),
-                    title = item.name ?: "",
-                    uploaderName = item.uploaderName ?: "",
-                    uploaderUrl = item.uploaderUrl,
-                    uploaderAvatarUrl = item.uploaderAvatars?.firstOrNull()?.url,
-                    viewCount = item.viewCount,
-                    durationSeconds = item.duration,
-                    uploadDate = item.uploadDate?.offsetDateTime()?.toString(),
-                    thumbnailUrl = item.thumbnails?.firstOrNull()?.url
+            streamInfo.videoOnlyStreams?.forEach { vStream ->
+                val vUrl = vStream.content
+                val resolution = vStream.resolution ?: "720p"
+                val formatName = vStream.format?.name ?: "mp4"
+                options.add(
+                    PlayableStreamOption(
+                        qualityLabel = "NewPipe Video-Only $resolution ($formatName)",
+                        format = formatName,
+                        isMuxed = false,
+                        videoStream = vStream,
+                        videoUrl = vUrl,
+                        providerType = ProviderType.DIRECT,
+                        headers = mapOf("Referer" to "https://www.youtube.com/")
+                    )
                 )
             }
 
-            val avatarUrl = info.uploaderAvatars?.firstOrNull()?.url
-
-            val streamData = StreamData(
-                videoId = info.id ?: urlOrId,
-                videoUrl = fullUrl,
-                title = info.name ?: "Untitled Video",
-                channelName = info.uploaderName ?: "Unknown Channel",
-                channelAvatarUrl = avatarUrl,
-                subscriberCountText = null,
-                viewCount = info.viewCount,
-                likeCount = info.likeCount,
-                uploadDate = info.uploadDate?.offsetDateTime()?.toLocalDate()?.toString(),
-                description = info.description?.content,
-                progressiveStreams = progressiveStreams,
-                videoOnlyStreams = videoOnlyStreams,
-                audioStreams = audioStreams,
-                captionOptions = captions,
-                availableStreamOptions = options,
-                selectedStreamOption = defaultSelectedOption,
-                hlsUrl = info.hlsUrl,
-                relatedVideos = related,
-                thumbnailUrl = info.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/${info.id ?: urlOrId}/hqdefault.jpg"
-            )
-
-            ExtractionResult.Success(streamData)
-
-        } catch (e: Throwable) {
-            logWarn("YouTubeExtractor", "NewPipe extraction hit exception for $fullUrl: ${e.message}. Launching yt-dlp resolver.")
-            
-            val fastRes = YouTubeFastStreamResolver.resolveStream(videoId, context)
-            if (fastRes is ExtractionResult.Success) {
-                return@withContext fastRes
+            if (options.isEmpty() && !streamInfo.hlsUrl.isNullOrBlank()) {
+                options.add(
+                    PlayableStreamOption(
+                        qualityLabel = "NewPipe HLS Stream",
+                        format = "m3u8",
+                        isMuxed = true,
+                        videoUrl = streamInfo.hlsUrl,
+                        providerType = ProviderType.DIRECT,
+                        headers = mapOf("Referer" to "https://www.youtube.com/")
+                    )
+                )
             }
 
-            return@withContext ExtractionResult.Error(
-                ExtractorErrorDetails(
-                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
-                    message = "Unable to fetch direct YouTube media streams.",
-                    rawExceptionName = e.javaClass.simpleName,
-                    fullStackTrace = e.stackTraceToString(),
-                    urlOrId = fullUrl,
-                    technicalFixSuggestion = "Check internet connection or retry video playback."
+            if (options.isNotEmpty()) {
+                val bestOption = options.firstOrNull { it.qualityLabel.contains("1080p") } ?: options.first()
+                val streamData = StreamData(
+                    videoId = urlOrId,
+                    videoUrl = bestOption.videoUrl ?: "",
+                    title = title,
+                    channelName = uploader,
+                    description = desc,
+                    thumbnailUrl = thumb,
+                    availableStreamOptions = options,
+                    selectedStreamOption = bestOption,
+                    hlsUrl = streamInfo.hlsUrl,
+                    providerId = "youtube",
+                    providerType = ProviderType.DIRECT
                 )
-            )
+                Log.i(TAG, "NewPipe extraction success: ${options.size} formats available. Selected: ${bestOption.qualityLabel}")
+                return@withContext ExtractionResult.Success(streamData)
+            } else {
+                Log.w(TAG, "NewPipe returned zero streams, falling back to yt-dlp")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "NewPipe extraction failed: ${e.message}. Falling back to yt-dlp.", e)
         }
+
+        if (context != null) {
+            Log.i(TAG, "Triggering yt-dlp fallback resolver")
+            val ytDlpResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
+            if (ytDlpResult is ExtractionResult.Success) {
+                return@withContext ytDlpResult
+            }
+        }
+
+        ExtractionResult.Error(
+            ExtractorErrorDetails(
+                errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                message = "Could not resolve YouTube stream",
+                rawExceptionName = "ExtractionFailedException",
+                fullStackTrace = "",
+                urlOrId = targetUrl,
+                causeInfo = "Both NewPipe and yt-dlp failed",
+                technicalFixSuggestion = "Check network or video availability."
+            )
+        )
     }
 
-    suspend fun searchVideos(query: String): FeedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val apiSearch = com.example.util.YouTubeApiHelper.search(query, 25)
-        if (apiSearch != null && apiSearch.videoItems.isNotEmpty()) {
-            val items = apiSearch.videoItems.map { item ->
-                VideoItem(
-                    id = item.id,
-                    title = item.title,
-                    uploaderName = item.uploaderName,
-                    uploaderUrl = item.uploaderUrl,
-                    uploaderAvatarUrl = item.uploaderAvatarUrl,
-                    viewCount = item.viewCount,
-                    durationSeconds = item.durationSeconds,
-                    uploadDate = item.uploadDate,
-                    thumbnailUrl = item.thumbnailUrl
-                )
-            }
-            return@withContext FeedResult.Success(items)
-        }
-
-        ensureInitialized()
-        try {
-            val service = getYouTubeService()
-            val searchExtractor = service.getSearchExtractor(
-                query,
-                listOf(YoutubeSearchQueryHandlerFactory.VIDEOS),
-                ""
-            )
-            val searchInfo = SearchInfo.getInfo(searchExtractor)
-            val items = searchInfo.relatedItems.filterIsInstance<StreamInfoItem>().map { item ->
-                VideoItem(
-                    id = item.url.substringAfter("v=").substringBefore("&"),
-                    title = item.name ?: "",
-                    uploaderName = item.uploaderName ?: "",
-                    uploaderUrl = item.uploaderUrl,
-                    uploaderAvatarUrl = item.uploaderAvatars?.firstOrNull()?.url,
-                    viewCount = item.viewCount,
-                    durationSeconds = item.duration,
-                    uploadDate = item.uploadDate?.offsetDateTime()?.toString(),
-                    thumbnailUrl = item.thumbnails?.firstOrNull()?.url
-                )
-            }
-            FeedResult.Success(items)
-        } catch (e: Exception) {
-            logError("YouTubeExtractor", "Exception in searchVideos for query '$query'", e)
-            e.printStackTrace()
-
-            val sw = StringWriter()
-            e.printStackTrace(PrintWriter(sw))
-            val stackTraceStr = sw.toString()
-            val msg = e.message ?: "No error message provided (${e.javaClass.canonicalName ?: e.javaClass.name})"
-            val causeStr = e.cause?.let { "${it.javaClass.name}: ${it.message}" }
-
-            FeedResult.Error(
-                FeedErrorDetails(
-                    rawExceptionName = e.javaClass.canonicalName ?: e.javaClass.name,
-                    message = msg,
-                    fullStackTrace = stackTraceStr,
-                    causeInfo = causeStr,
-                    urlOrQuery = query
-                )
-            )
-        }
+    suspend fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult {
+        return resolveStream(urlOrId, context)
     }
 
-    suspend fun fetchTrendingVideos(): FeedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val apiPopular = com.example.util.YouTubeApiHelper.fetchPopularVideos(25)
-        if (!apiPopular.isNullOrEmpty()) {
-            val items = apiPopular.map { item ->
-                VideoItem(
-                    id = item.id,
-                    title = item.title,
-                    uploaderName = item.uploaderName,
-                    uploaderUrl = item.uploaderUrl,
-                    uploaderAvatarUrl = item.uploaderAvatarUrl,
-                    viewCount = item.viewCount,
-                    durationSeconds = item.durationSeconds,
-                    uploadDate = item.uploadDate,
-                    thumbnailUrl = item.thumbnailUrl
-                )
-            }
-            return@withContext FeedResult.Success(items)
-        }
-
-        ensureInitialized()
+    suspend fun searchVideos(query: String): UrlParseResult = withContext(Dispatchers.IO) {
         try {
-            searchVideos("trending videos")
+            val ytItems = searchYouTube(query)
+            val archiveItems = ArchiveOrgProvider.search(query, 1)
+            val combined = (ytItems + archiveItems).distinctBy { it.id }
+            UrlParseResult.ParsedSearchResults(combined)
         } catch (e: Exception) {
-            logError("YouTubeExtractor", "Exception in fetchTrendingVideos", e)
-            e.printStackTrace()
-
-            val sw = StringWriter()
-            e.printStackTrace(PrintWriter(sw))
-            val stackTraceStr = sw.toString()
-            val msg = e.message ?: "No error message provided (${e.javaClass.canonicalName ?: e.javaClass.name})"
-            val causeStr = e.cause?.let { "${it.javaClass.name}: ${it.message}" }
-
-            FeedResult.Error(
-                FeedErrorDetails(
-                    rawExceptionName = e.javaClass.canonicalName ?: e.javaClass.name,
-                    message = msg,
-                    fullStackTrace = stackTraceStr,
-                    causeInfo = causeStr,
-                    urlOrQuery = "Trending Videos Feed"
-                )
-            )
+            UrlParseResult.ParsedSearchResults(emptyList())
         }
     }
 }

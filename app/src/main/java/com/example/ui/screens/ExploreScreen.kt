@@ -1,4 +1,5 @@
 package com.example.ui.screens
+import kotlinx.coroutines.async
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -32,7 +33,6 @@ import coil.compose.AsyncImage
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
 import com.example.util.TMDBHelper
-import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -114,82 +114,17 @@ fun ExploreScreen(
             val aniListDeferred = async { TMDBHelper.fetchAniListTrendingAnime() }
             val jikanDeferred = async { TMDBHelper.fetchJikanTopAnime() }
             val javInfoDeferred = async { if (adultContentEnabled) TMDBHelper.fetchJavInfoAdultVideos() else emptyList() }
-            val ytDeferred = async {
-                try {
-                    com.example.plugin.providers.YouTubeProvider().home().items.map { item ->
-                        VideoItem(
-                            id = item.id,
-                            title = item.title,
-                            uploaderName = item.uploaderName,
-                            thumbnailUrl = item.thumbnailUrl,
-                            durationSeconds = item.durationSeconds,
-                            viewCount = item.viewCount,
-                            providerId = "youtube"
-                        )
-                    }
-                } catch (e: Exception) { emptyList() }
-            }
-            val musicDeferred = async {
-                try {
-                    com.example.plugin.providers.YouTubeProvider().home().items.filter { item ->
-                        com.example.util.PlaybackPreferences.isMusicMedia(item.title, item.uploaderName, item.description, null, item.providerId) ||
-                        item.title.contains("official music video", ignoreCase = true) ||
-                        item.title.contains("song", ignoreCase = true) ||
-                        item.title.contains("audio", ignoreCase = true) ||
-                        item.title.contains("lofi", ignoreCase = true)
-                    }.map { item ->
-                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "youtube")
-                    }
-                } catch (e: Exception) { emptyList() }
-            }
-            val shortsDeferred = async {
-                try {
-                    com.example.plugin.providers.YouTubeProvider().home().items.filter { item ->
-                        (item.durationSeconds in 1..120) || item.title.contains("shorts", ignoreCase = true) || item.title.contains("tiktok", ignoreCase = true)
-                    }.map { item ->
-                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "youtube")
-                    }
-                } catch (e: Exception) { emptyList() }
-            }
-            val dailymotionDeferred = async {
-                try {
-                    com.example.plugin.providers.DailymotionProvider().home().items.map { item ->
-                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "dailymotion")
-                    }
-                } catch (e: Exception) { emptyList() }
-            }
-            val torrentDeferred = async {
-                try {
-                    com.example.plugin.providers.TorrentApiMultiProvider().home().items.map { item ->
-                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "torrent")
-                    }
-                } catch (e: Exception) { emptyList() }
-            }
+            val ytDeferred = async { emptyList<com.example.model.VideoItem>() }
+            val musicDeferred = async { emptyList<com.example.model.VideoItem>() }
+            val shortsDeferred = async { emptyList<com.example.model.VideoItem>() }
+            val dailymotionDeferred = async { emptyList<VideoItem>() }
             val archiveDeferred = async {
                 try {
-                    com.example.plugin.providers.ArchiveOrgProvider().home().items.map { item ->
-                        VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "archive_org")
-                    }
+                    com.example.extractor.ArchiveOrgProvider.getHome()
                 } catch (e: Exception) { emptyList() }
             }
-            val epornerDeferred = async {
-                try {
-                    if (adultContentEnabled) {
-                        com.example.plugin.providers.EpornerProvider().home().items.map { item ->
-                            VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "eporner")
-                        }
-                    } else emptyList()
-                } catch (e: Exception) { emptyList() }
-            }
-            val apijavDeferred = async {
-                try {
-                    if (adultContentEnabled) {
-                        com.example.plugin.providers.ApiJavServerProvider().home().items.map { item ->
-                            VideoItem(id = item.id, title = item.title, uploaderName = item.uploaderName, thumbnailUrl = item.thumbnailUrl, durationSeconds = item.durationSeconds, providerId = "apijav")
-                        }
-                    } else emptyList()
-                } catch (e: Exception) { emptyList() }
-            }
+            val epornerDeferred = async { emptyList<VideoItem>() }
+            val apijavDeferred = async { emptyList<VideoItem>() }
 
             val liveHeroes = heroesDeferred.await()
             if (liveHeroes.isNotEmpty()) {
@@ -212,7 +147,6 @@ fun ExploreScreen(
             val musicItems = musicDeferred.await()
             val shortsItems = shortsDeferred.await()
             val dailymotionItems = dailymotionDeferred.await()
-            val torrentItems = torrentDeferred.await()
             val archiveItems = archiveDeferred.await()
             val epornerItems = epornerDeferred.await()
             val apijavItems = apijavDeferred.await()
@@ -229,7 +163,6 @@ fun ExploreScreen(
                 CuratedCategory("kids", "Kids & Family", "🟢", kids.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("docu", "Documentaries", "📜", docu.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("dailymotion", "Dailymotion Videos", "▶️", dailymotionItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
-                CuratedCategory("torrent", "Torrent & Debrid Streams", "⚡", torrentItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("archive_org", "Archive.org Audio & Video", "📜", archiveItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("eporner", "Eporner Adult Video Feed", "🔥", epornerItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),
                 CuratedCategory("apijav", "ApiJav / JAV Streams", "💖", apijavItems.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }),

@@ -39,7 +39,6 @@ import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.ErrorDiagnosticCard
-import com.example.ui.components.TorrentArtworkOverlay
 import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoDetailsSection
 import com.example.ui.components.DownloadQualityBottomSheet
@@ -68,6 +67,7 @@ fun VideoPlayerScreen(
     val watchPositionMsMap by viewModel.watchPositionMsMap.collectAsState()
     val userPlaylists by viewModel.userPlaylists.collectAsState()
     val serverScanState by viewModel.serverScanState.collectAsState()
+    val torrentReviewsResult by viewModel.torrentReviewsResult.collectAsState()
 
     val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
     val providerId = currentStreamData?.providerId
@@ -109,9 +109,7 @@ fun VideoPlayerScreen(
     val downloadProgressFraction = currentDownloadInfo?.progress ?: 0f
 
     var seasonsAndEpisodes by remember(currentStreamData?.videoId) {
-        mutableStateOf<List<com.example.model.SeriesSeason>>(
-            currentStreamData?.let { com.example.util.SeriesDataHelper.generateSeasonsAndEpisodes(it) } ?: emptyList()
-        )
+        mutableStateOf<List<com.example.model.SeriesSeason>>(emptyList())
     }
 
     val playbackEnded by com.example.ui.player.GlobalPlayerManager.playbackEnded.collectAsState()
@@ -274,24 +272,16 @@ fun VideoPlayerScreen(
     val playerRecommendations by viewModel.playerRecommendations.collectAsState()
     val isLoadingPlayerRecs by viewModel.isLoadingPlayerRecs.collectAsState()
 
-    val relatedContent = remember(currentStreamData, trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
-        val base = if (currentStreamData != null) {
-            com.example.util.SeriesDataHelper.getRelatedContent(currentStreamData, trendingVideos)
-        } else {
-            trendingVideos.filter { it.id != activeVideoId }
-        }
-        (base + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
+    val relatedContent = remember(trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+        val base = trendingVideos.filter { it.id != activeVideoId }
+        (base + playerRecommendations)
             .distinctBy { it.id }
             .filterNot { viewModel.isBlockedVideo(it) }
     }
 
-    val recommendedContent = remember(currentStreamData, trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
-        val base = if (currentStreamData != null) {
-            com.example.util.SeriesDataHelper.getRecommendedContent(currentStreamData, trendingVideos)
-        } else {
-            trendingVideos.filter { it.id != activeVideoId }
-        }
-        (base + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
+    val recommendedContent = remember(trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+        val base = trendingVideos.filter { it.id != activeVideoId }
+        (base + playerRecommendations)
             .distinctBy { it.id }
             .filterNot { viewModel.isBlockedVideo(it) }
     }
@@ -302,42 +292,10 @@ fun VideoPlayerScreen(
     var isCommentsLoading by remember(currentStreamData?.videoId, activeVideoId) {
         mutableStateOf(false)
     }
-    var torrentReviewsResult by remember(currentStreamData?.videoId, activeVideoId) {
-        mutableStateOf<com.example.util.TorrentReviewsResult?>(null)
-    }
 
-    LaunchedEffect(currentStreamData?.videoId, activeVideoId, currentVideoItem?.title, providerId) {
-        val vid = activeVideoId ?: currentStreamData?.videoId ?: ""
-        val titleToFetch = currentStreamData?.title ?: currentVideoItem?.title ?: vid
-        if (vid.isNotBlank() || titleToFetch.isNotBlank()) {
-            isCommentsLoading = true
-            val isYt = providerId == "youtube" || (vid.length == 11 && !vid.startsWith("movie_") && !vid.startsWith("tv_"))
-            var comments = emptyList<com.example.model.VideoComment>()
-            if (isYt && vid.isNotBlank()) {
-                comments = com.example.util.YouTubeApiHelper.fetchCommentsForVideo(vid)
-            }
-            if (comments.isNotEmpty()) {
-                fetchedComments = comments
-                torrentReviewsResult = com.example.util.TorrentReviewsResult(
-                    reviews = comments,
-                    totalCount = comments.size,
-                    averageRating = 0f,
-                    mediaTitle = titleToFetch
-                )
-            } else {
-                val res = com.example.util.TorrentReviewFetcher.fetchReviewsForTorrent(
-                    title = titleToFetch,
-                    videoId = vid,
-                    providerId = providerId
-                )
-                torrentReviewsResult = res
-                fetchedComments = res.reviews
-            }
-            isCommentsLoading = false
-        } else {
-            fetchedComments = emptyList()
-            isCommentsLoading = false
-        }
+    LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
+        fetchedComments = emptyList()
+        isCommentsLoading = false
     }
 
     val reactionGroups by viewModel.reactionGroups.collectAsState()
@@ -406,15 +364,24 @@ fun VideoPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
                 .pointerInput(Unit) {
-                    detectVerticalDragGestures { change, dragAmount ->
-                        if (dragAmount < -25f && !showLandscapeRelatedDrawer) {
-                            change.consume()
-                            showLandscapeRelatedDrawer = true
-                        } else if (dragAmount > 25f && showLandscapeRelatedDrawer) {
-                            change.consume()
-                            showLandscapeRelatedDrawer = false
+                    var totalDrag = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { totalDrag = 0f },
+                        onDragEnd = { totalDrag = 0f },
+                        onDragCancel = { totalDrag = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            totalDrag += dragAmount
+                            if (totalDrag < -60f && !showLandscapeRelatedDrawer) {
+                                change.consume()
+                                totalDrag = 0f
+                                showLandscapeRelatedDrawer = true
+                            } else if (totalDrag > 60f && showLandscapeRelatedDrawer) {
+                                change.consume()
+                                totalDrag = 0f
+                                showLandscapeRelatedDrawer = false
+                            }
                         }
-                    }
+                    )
                 },
             contentAlignment = Alignment.Center
         ) {
@@ -458,19 +425,6 @@ fun VideoPlayerScreen(
                     }
                 },
                 modifier = Modifier.fillMaxSize()
-            )
-
-            TorrentArtworkOverlay(
-                isTorrent = isTorrentStream,
-                title = displayTitle,
-                posterUrl = displayPosterUrl,
-                isExtracting = isExtracting,
-                statusMessage = "Loading video stream from $providerName...",
-                firstFrameRendered = firstFrameRendered,
-                extractionError = extractionError,
-                onRetry = {
-                    activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
-                }
             )
 
             if (isUpNextActive && nextEpisode != null) {
@@ -529,12 +483,20 @@ fun VideoPlayerScreen(
                     .aspectRatio(16f / 9f)
                     .background(Color.Black)
                     .pointerInput(Unit) {
-                        detectVerticalDragGestures { change, dragAmount ->
-                            if (dragAmount > 25f) {
-                                change.consume()
-                                onBackClick()
+                        var totalDrag = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { totalDrag = 0f },
+                            onDragEnd = { totalDrag = 0f },
+                            onDragCancel = { totalDrag = 0f },
+                            onVerticalDrag = { change, dragAmount ->
+                                totalDrag += dragAmount
+                                if (totalDrag > 80f) {
+                                    change.consume()
+                                    totalDrag = 0f
+                                    onBackClick()
+                                }
                             }
-                        }
+                        )
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -576,19 +538,6 @@ fun VideoPlayerScreen(
                                 com.example.ui.player.GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
                             }
                         }
-                    }
-                )
-
-                TorrentArtworkOverlay(
-                    isTorrent = isTorrentStream,
-                    title = displayTitle,
-                    posterUrl = displayPosterUrl,
-                    isExtracting = isExtracting,
-                    statusMessage = "Loading video stream from $providerName...",
-                    firstFrameRendered = firstFrameRendered,
-                    extractionError = extractionError,
-                    onRetry = {
-                        activeVideoId?.let { id -> viewModel.playVideo(id, providerId) }
                     }
                 )
 
@@ -718,7 +667,7 @@ fun VideoPlayerScreen(
                                 onTabSelected = { selectedPlayerTab = it },
                                 showSeasonsTab = isTvSeries,
                                 showReactionsTab = showReactionsTab,
-                                commentsCount = torrentReviewsResult?.totalCount ?: playerComments.size
+                                commentsCount = playerComments.size
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                         }
@@ -1091,7 +1040,7 @@ fun VideoPlayerScreen(
                     },
                     isTorrent = isTorrentStream,
                     isLoading = isCommentsLoading,
-                    totalReviewsCountText = torrentReviewsResult?.let { "${it.totalCount}" }
+                    totalReviewsCountText = null
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))

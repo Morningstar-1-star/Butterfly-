@@ -25,7 +25,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.repository.SyncRepository.init(applicationContext)
-        com.example.plugin.providers.ArchiveOrgProvider.contextRef = applicationContext
         enableEdgeToEdge()
         setupHighRefreshRate()
         setupCoilCache()
@@ -100,9 +99,9 @@ class MainActivity : ComponentActivity() {
                         .build()
                 }
                 .respectCacheHeaders(false)
-                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565) // 50% RAM savings, 2x faster decode on low-end devices
+                .bitmapConfig(if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) android.graphics.Bitmap.Config.ARGB_8888 else android.graphics.Bitmap.Config.RGB_565)
                 .allowHardware(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-                .allowRgb565(true)
+                .allowRgb565(android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .networkCachePolicy(CachePolicy.ENABLED)

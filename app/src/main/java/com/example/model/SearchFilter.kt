@@ -5,7 +5,6 @@ enum class SearchTypeFilter(val label: String) {
     VIDEOS("Videos"),
     MOVIES("Movies"),
     TV_SHOWS("TV Shows"),
-    TORRENTS("Torrents"),
     CHANNELS("Channels")
 }
 
@@ -35,14 +34,13 @@ enum class SearchSortFilter(val label: String) {
 
 data class SearchFilterState(
     val type: SearchTypeFilter = SearchTypeFilter.ALL,
-    val sourceProviderId: String = "ALL", // "ALL" or specific provider ID (e.g. "youtube", "torrentio", "yts", "eztv", "archive_org", etc.)
+    val sourceProviderId: String = "ALL", // "ALL" or specific provider ID (e.g. "youtube", "archive_org", etc.)
     val duration: SearchDurationFilter = SearchDurationFilter.ANY,
     val uploadDate: SearchUploadDateFilter = SearchUploadDateFilter.ANY,
     val sortBy: SearchSortFilter = SearchSortFilter.RELEVANCE,
     // Feature Badges / Toggles
     val is4kOnly: Boolean = false,
     val isFullHdOnly: Boolean = false,
-    val isTorrentOnly: Boolean = false,
     val isDirectStreamOnly: Boolean = false,
     val isSubtitlesOnly: Boolean = false,
     val isWatchedOnly: Boolean = false,
@@ -54,7 +52,7 @@ data class SearchFilterState(
                 duration != SearchDurationFilter.ANY ||
                 uploadDate != SearchUploadDateFilter.ANY ||
                 sortBy != SearchSortFilter.RELEVANCE ||
-                is4kOnly || isFullHdOnly || isTorrentOnly || isDirectStreamOnly ||
+                is4kOnly || isFullHdOnly || isDirectStreamOnly ||
                 isSubtitlesOnly || isWatchedOnly || isUnwatchedOnly
 
     val activeFilterCount: Int
@@ -67,7 +65,6 @@ data class SearchFilterState(
             if (sortBy != SearchSortFilter.RELEVANCE) count++
             if (is4kOnly) count++
             if (isFullHdOnly) count++
-            if (isTorrentOnly) count++
             if (isDirectStreamOnly) count++
             if (isSubtitlesOnly) count++
             if (isWatchedOnly) count++
@@ -89,8 +86,6 @@ data class SearchFilterState(
                 pId == targetId ||
                 pId.contains(targetId) ||
                 targetId.contains(pId) ||
-                ((targetId == "torrent" || targetId == "unified_torrents" || targetId == "torrents") &&
-                    (pId.contains("torrent") || pId.contains("yts") || pId.contains("eztv") || pId.contains("comet") || pId.contains("torrentio"))) ||
                 (targetId.startsWith("apijav") && pId.startsWith("apijav"))
             }
         }
@@ -102,7 +97,7 @@ data class SearchFilterState(
                 filtered = filtered.filter { item ->
                     val title = item.title.lowercase()
                     val pId = (item.providerId ?: "").lowercase()
-                    pId == "yts" || title.contains("yify") || title.contains("1080p") || title.contains("720p") ||
+                    title.contains("movie") || title.contains("1080p") || title.contains("720p") ||
                             (item.durationSeconds > 3000 && !title.matches(Regex(".*s\\d{1,2}e\\d{1,2}.*")) && !title.contains("episode"))
                 }
             }
@@ -110,19 +105,13 @@ data class SearchFilterState(
                 filtered = filtered.filter { item ->
                     val title = item.title.lowercase()
                     val pId = (item.providerId ?: "").lowercase()
-                    pId.contains("eztv") || title.matches(Regex(".*s\\d{1,2}e\\d{1,2}.*")) || title.contains("season ") || title.contains("episode ")
+                    title.matches(Regex(".*s\\d{1,2}e\\d{1,2}.*")) || title.contains("season ") || title.contains("episode ")
                 }
             }
             SearchTypeFilter.VIDEOS -> {
                 filtered = filtered.filter { item ->
                     val pId = (item.providerId ?: "").lowercase()
-                    !pId.contains("torrent") && !pId.contains("yts") && !pId.contains("eztv")
-                }
-            }
-            SearchTypeFilter.TORRENTS -> {
-                filtered = filtered.filter { item ->
-                    val pId = (item.providerId ?: "").lowercase()
-                    pId.contains("torrent") || pId.contains("yts") || pId.contains("eztv") || item.id.startsWith("magnet:")
+                    pId == "youtube" || pId == "dailymotion" || pId == "archive_org" || pId == "mega" || pId == "telegram"
                 }
             }
             SearchTypeFilter.CHANNELS -> {
@@ -197,16 +186,10 @@ data class SearchFilterState(
                 it.title.contains("2160p", ignoreCase = true)
             }
         }
-        if (isTorrentOnly) {
-            filtered = filtered.filter {
-                val pId = (it.providerId ?: "").lowercase()
-                pId.contains("torrent") || pId.contains("yts") || pId.contains("eztv") || it.id.startsWith("magnet:")
-            }
-        }
         if (isDirectStreamOnly) {
             filtered = filtered.filter {
                 val pId = (it.providerId ?: "").lowercase()
-                !pId.contains("torrent") && !pId.contains("yts") && !pId.contains("eztv") && !it.id.startsWith("magnet:")
+                pId == "youtube" || pId == "dailymotion" || pId == "archive_org" || pId == "mega" || pId == "telegram"
             }
         }
         if (isSubtitlesOnly) {

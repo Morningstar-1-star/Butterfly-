@@ -58,9 +58,9 @@ class MainApplication : Application() {
                     .build()
             }
             .respectCacheHeaders(false) // Cache regardless of server max-age headers
-            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565) // 50% RAM savings, 2x faster decode
+            .bitmapConfig(if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) android.graphics.Bitmap.Config.ARGB_8888 else android.graphics.Bitmap.Config.RGB_565)
             .allowHardware(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-            .allowRgb565(true)
+            .allowRgb565(android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
@@ -76,12 +76,6 @@ class MainApplication : Application() {
                 Log.d("MainApplication", "YtDlpResolver pre-warmed successfully")
             } catch (e: Throwable) {
                 Log.e("MainApplication", "Error pre-warming YtDlpResolver", e)
-            }
-            try {
-                com.example.torrent.MegaStreamServer.start(this@MainApplication)
-                com.example.torrent.TorrentStreamEngine.ensureServerStarted(this@MainApplication)
-            } catch (e: Throwable) {
-                Log.e("MainApplication", "Error starting stream servers", e)
             }
         }
     }

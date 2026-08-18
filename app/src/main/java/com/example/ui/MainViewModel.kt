@@ -11,26 +11,14 @@ import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.AppScreen
 import com.example.model.CaptionOption
 import com.example.model.FeedErrorDetails
-import com.example.model.NodeScanState
 import com.example.model.PlayableStreamOption
 import com.example.model.ProviderUiItem
-import com.example.model.ServerNode
-import com.example.model.ServerScanState
 import com.example.model.StreamData
 import com.example.model.UserPlaylist
 import com.example.model.UserProfile
+import com.example.model.ServerScanState
+import com.example.model.ServerNode
 import com.example.model.VideoItem
-import com.example.plugin.manager.ExtensionManager
-import com.example.plugin.manager.ExtensionStatus
-import com.example.plugin.manager.InstallationResult
-import com.example.plugin.manager.PluginManager
-import com.example.plugin.manager.Repository
-import com.example.plugin.manager.RepositoryManager
-import com.example.plugin.sdk.api.ContentProviderApi
-import com.example.plugin.sdk.model.PluginStreamInfo
-import com.example.plugin.jav.orchestrator.UnifiedJavOrchestrator
-import com.example.plugin.jav.ProviderStatusState
-import com.example.plugin.jav.ProviderDiagnosticResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -49,7 +37,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import com.example.model.SearchSuggestionItem
 import com.example.model.SearchFilterState
-import com.example.engine.SearchAutocompleteEngine
 
 import com.example.db.AppDatabase
 import com.example.db.WatchHistoryEntity
@@ -135,9 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             emptyList()
         }
     }
-    val pluginManager = PluginManager(application)
-    val repositoryManager = RepositoryManager(application, pluginManager)
-    val extensionManager = ExtensionManager(application, pluginManager, repositoryManager)
+
     
     val libraryRepository = com.example.repository.LibraryRepository(application)
     val syncStatus = com.example.repository.SyncRepository.syncStatus
@@ -161,12 +146,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         callback(true, null)
     }
     
-    val searchEngine = com.example.engine.SearchEngine(application)
-    val providerEngine = com.example.engine.ProviderEngine(application, pluginManager, repositoryManager, extensionManager)
-    val playbackEngine = com.example.engine.PlaybackEngine(application)
-
-    private val sourcePipelineEngine = com.example.plugin.manager.SourcePipelineEngine(context = application)
-
     private val _orionApiKey = MutableStateFlow(
         com.example.util.DebridSettingsManager.getOrionApiKey(application)
     )
@@ -365,8 +344,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _accentColor.value = accent
     }
 
-    val repositories: StateFlow<List<Repository>> = repositoryManager.repositories
-    val extensionStatuses: StateFlow<List<ExtensionStatus>> = extensionManager.extensionStatuses
+    val repositories: StateFlow<List<String>> = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
+    val extensionStatuses: StateFlow<List<String>> = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
 
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
@@ -393,51 +372,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeProviderId = MutableStateFlow("all")
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
-    private val subTorrentProviderIds = setOf(
-        "yts_torrents", "eztv_torrents", "torrentio_aggregator", "torrent_api_multi", "tmdb_movies", "nyaa_si"
-    )
-
     private val _enabledProviderIds = MutableStateFlow<Set<String>>(
-        setOf(
-            "all", "unified_torrents", "youtube", "jikan_anime", "adultswim", "hotstar",
-            "dailymotion", "vimeo", "twitch", "bilibili", "tiktok", "ninegag", "telegram",
-            "newgrounds", "myspace", "tumblr", "bluesky", "weibo", "okru", "rutube",
-            "bigo", "viu", "vk", "instagram",
-            "javinfo", "apijav_server", "apijav_hentai", "apijav_porn", "eporner",
-            "pornhub", "xvideos", "xnxx", "xhamster", "youporn", "redtube", "spankbang", "stripchat",
-            "chaturbate", "bongacams", "cam4", "camsoda", "cammodels", "manyvids", "eporner_yt", "beeg",
-            "eroprofile", "erocast", "drtuber", "tube8", "tnaflix", "pornbox", "pornerbros", "pornflip",
-            "pornotube", "porntop", "porntube", "rule34video", "redgifs", "soundgasm", "thisvid", "youjizz",
-            "xxxymovies", "alphaporno", "nubilesporn", "nuvid", "moviefap", "lovehomeporn", "sunporno",
-            "zenporn", "slutload", "behindkink", "toypics", "pornovoisines", "pornoxox", "sexu",
-            "archive_org", "mega", "direct_mp4", "direct_hls", "rss_video", "json",
-            "javinizer_go", "avm_engine", "javdex", "openaver", "mdcx", "fss", "javlibrary", "jav321", "javdb", "javbus", "javmenu", "airav", "arzon", "gfriends",
-            "javpy_resolver", "missav_surrit", "jable_tv", "avgle_api", "jav_trailers", "supjav", "javcl", "jav18", "hanime_tv", "iwara",
-            "orion", "comet", "mediafusion", "zilean"
-        )
+        setOf("all", "youtube", "archive_org")
     )
     val enabledProviderIds: StateFlow<Set<String>> = _enabledProviderIds.asStateFlow()
 
     private val _availableProviders = MutableStateFlow<List<ProviderUiItem>>(emptyList())
     val availableProviders: StateFlow<List<ProviderUiItem>> = _availableProviders.asStateFlow()
 
-    private val _providerDiagnosticsMap = MutableStateFlow<Map<String, ProviderDiagnosticResult>>(emptyMap())
-    val providerDiagnosticsMap: StateFlow<Map<String, ProviderDiagnosticResult>> = _providerDiagnosticsMap.asStateFlow()
+    val providerDiagnosticsMap: StateFlow<Map<String, String>> = MutableStateFlow<Map<String, String>>(emptyMap()).asStateFlow()
 
-    fun runAllDiagnostics(testJavId: String = "IPX-800") {
-        viewModelScope.launch(Dispatchers.IO) {
-            val results = UnifiedJavOrchestrator.runDiagnostics(testJavId)
-            val map = results.associateBy { it.providerId }
-            _providerDiagnosticsMap.value = map
-            refreshProvidersList()
-        }
-    }
+    fun runAllDiagnostics(testJavId: String = "IPX-800") {}
 
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
 
     private val _watchPositionMsMap = MutableStateFlow<Map<String, Long>>(emptyMap())
     val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
+
+    data class TorrentReviewsResultStub(val totalCount: Int = 0)
+    val torrentReviewsResult: StateFlow<TorrentReviewsResultStub?> = MutableStateFlow(null).asStateFlow()
 
     private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
         com.example.util.NotInterestedManager.getHiddenVideoIds(application)
@@ -1353,7 +1307,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             } else {
                 try {
-                    val result = com.example.extractor.YouTubeFastStreamResolver.resolveStream(videoId, getApplication())
+                    val result = YouTubeExtractorHelper.resolveStream(videoId, getApplication())
                     if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
                         val opts = result.streamData.availableStreamOptions
                         val cleanQ = qualityLabel.replace("p", "").trim()
@@ -1526,8 +1480,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             launch {
-                repositoryManager.loadRepositories()
-                extensionManager.refreshExtensions()
                 refreshProvidersList()
                 setActiveProvider("all")
             }
@@ -1536,70 +1488,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _searchQuery
                     .debounce(250)
                     .collectLatest { query ->
-                        if (query.isBlank()) {
-                            _searchSuggestions.value = emptyList()
-                        } else {
-                            val suggestions = SearchAutocompleteEngine.getSuggestions(
-                                query = query,
-                                recentHistory = _recentSearches.value,
-                                adultEnabled = _adultContentEnabled.value
-                            )
-                            _searchSuggestions.value = suggestions
-                        }
+                        _searchSuggestions.value = emptyList()
                     }
             }
         }
     }
 
-    fun addRepositorySource(url: String, name: String = "Custom Repository") {
-        viewModelScope.launch(Dispatchers.IO) {
-            repositoryManager.addRepository(url, name)
-            extensionManager.refreshExtensions()
-            refreshProvidersList()
-        }
-    }
-
-    fun removeRepositorySource(repoId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repositoryManager.removeRepository(repoId)
-        }
-    }
-
-    fun installExtension(sourceStr: String, onResult: (InstallationResult) -> Unit = {}) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val res = extensionManager.installExtensionFromSource(sourceStr)
-            refreshProvidersList()
-            onResult(res)
-        }
-    }
-
-    fun uninstallExtension(pluginId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            extensionManager.uninstallExtension(pluginId)
-            refreshProvidersList()
-        }
-    }
-
-    fun updateExtension(pluginId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            extensionManager.updateExtension(pluginId)
-            refreshProvidersList()
-        }
-    }
+    fun addRepositorySource(url: String, name: String = "Custom Repository") {}
+    fun removeRepositorySource(repoId: String) {}
+    fun installExtension(sourceStr: String, onResult: (Any) -> Unit = {}) {}
+    fun uninstallExtension(pluginId: String) {}
+    fun updateExtension(pluginId: String) {}
 
     fun navigateToScreen(screen: AppScreen) {
         _currentScreen.value = screen
     }
 
-    fun getActiveProvider(): ContentProviderApi? {
-        val id = _activeProviderId.value
-        if (id == "all") return null
-        return pluginManager.getProvider(id)
-    }
+    fun getActiveProvider(): Any? = null
 
     fun reloadProviders() {
         viewModelScope.launch(Dispatchers.IO) {
-            pluginManager.loadInstalledPlugins()
             refreshProvidersList()
             loadTrending()
         }
@@ -1609,9 +1517,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeProviderId.value = providerId
         if (!_enabledProviderIds.value.contains(providerId)) {
             _enabledProviderIds.value = _enabledProviderIds.value + providerId
-        }
-        if (isAdultProviderId(providerId) && !_adultContentEnabled.value) {
-            setAdultContentEnabled(true)
         }
         _searchResults.value = emptyList()
         _searchQuery.value = ""
@@ -1624,27 +1529,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val newState = !current.contains(providerId)
         if (newState) {
             current.add(providerId)
-            if (isAdultProviderId(providerId) && !_adultContentEnabled.value) {
-                setAdultContentEnabled(true)
-            }
         } else {
             if (providerId == _activeProviderId.value) return
             current.remove(providerId)
         }
         _enabledProviderIds.value = current
-        UnifiedJavOrchestrator.setProviderEnabled(providerId, newState)
         refreshProvidersList()
     }
 
     private fun refreshProvidersList() {
-        val allNative = pluginManager.getAllAvailableProviders()
         val activeId = _activeProviderId.value
         val enabledSet = _enabledProviderIds.value
-        val diagMap = _providerDiagnosticsMap.value
-
         val uiList = mutableListOf<ProviderUiItem>()
 
-        // 1. All-In-One Feed
         uiList.add(
             ProviderUiItem(
                 id = "all",
@@ -1652,105 +1549,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 description = "Aggregated feed combining all enabled content providers",
                 category = "Aggregator",
                 isEnabled = enabledSet.contains("all"),
-                isDefault = (activeId == "all"),
-                statusState = ProviderStatusState.SUCCESS,
-                statusMessage = "Ready"
+                isDefault = (activeId == "all")
             )
         )
-
-        // 2. Native Content Providers
-        allNative.forEach { provider ->
-            val id = provider.providerId
-            if (id in subTorrentProviderIds) return@forEach
-
-            val name = getReadableProviderName(id)
-            val desc = getProviderRoleDescription(id)
-            val category = getProviderCategoryName(id)
-            val diag = diagMap[id]
-
-            val isTorrent = provider.capabilities.supportsTorrent || provider.capabilities.providerType == com.example.plugin.sdk.model.ProviderType.TORRENT
-            val pType = if (isTorrent) com.example.plugin.sdk.model.ProviderType.TORRENT else provider.capabilities.providerType
-
-            val isEnabled = enabledSet.contains(id)
-            val stState = diag?.status ?: if (isEnabled) ProviderStatusState.SUCCESS else ProviderStatusState.NO_RESULT
-            val stMsg = diag?.let { "${it.status.name} (${it.responseTimeMs}ms)" } ?: if (isEnabled) "Ready / Active" else "Disabled"
-
-            uiList.add(
-                ProviderUiItem(
-                    id = id,
-                    name = name,
-                    description = desc,
-                    category = category,
-                    isEnabled = isEnabled,
-                    isDefault = (id == activeId),
-                    providerType = pType,
-                    statusState = stState,
-                    statusMessage = stMsg,
-                    responseTimeMs = diag?.responseTimeMs ?: 0L
-                )
+        uiList.add(
+            ProviderUiItem(
+                id = "youtube",
+                name = "YouTube",
+                description = "YouTube fast stream resolution, video search & channel metadata",
+                category = "Video",
+                isEnabled = enabledSet.contains("youtube"),
+                isDefault = (activeId == "youtube")
             )
-        }
-
-        // 3. Orchestrator Metadata Scrapers (Javinizer-Go, AVM, Javdex, OpenAver, MDCx, FSS, etc.)
-        UnifiedJavOrchestrator.metadataProviders.forEach { meta ->
-            val id = meta.id
-            if (uiList.none { it.id == id }) {
-                val diag = diagMap[id]
-                val isEnabled = enabledSet.contains(id) && meta.isEnabled
-                val stState = diag?.status ?: if (isEnabled) ProviderStatusState.SUCCESS else ProviderStatusState.NO_RESULT
-                val stMsg = diag?.let { "${it.status.name} (${it.responseTimeMs}ms)" } ?: if (isEnabled) "Ready / Active" else "Disabled"
-
-                uiList.add(
-                    ProviderUiItem(
-                        id = id,
-                        name = getReadableProviderName(id).ifBlank { meta.name },
-                        description = getProviderRoleDescription(id),
-                        category = "Repository Catalog Scraper",
-                        isEnabled = isEnabled,
-                        isDefault = (id == activeId),
-                        statusState = stState,
-                        statusMessage = stMsg,
-                        responseTimeMs = diag?.responseTimeMs ?: 0L
-                    )
-                )
-            }
-        }
-
-        // 4. Orchestrator Stream Resolvers (JavPy, MissAV, Jable.tv, Avgle, etc.)
-        UnifiedJavOrchestrator.streamProviders.forEach { stream ->
-            val id = stream.id
-            if (uiList.none { it.id == id }) {
-                val diag = diagMap[id]
-                val isEnabled = enabledSet.contains(id) && stream.isEnabled
-                val stState = diag?.status ?: if (isEnabled) ProviderStatusState.SUCCESS else ProviderStatusState.NO_RESULT
-                val stMsg = diag?.let { "${it.status.name} (${it.responseTimeMs}ms)" } ?: if (isEnabled) "Ready / Active" else "Disabled"
-
-                uiList.add(
-                    ProviderUiItem(
-                        id = id,
-                        name = getReadableProviderName(id).ifBlank { stream.name },
-                        description = getProviderRoleDescription(id),
-                        category = "Stream Resolver Engine",
-                        isEnabled = isEnabled,
-                        isDefault = (id == activeId),
-                        statusState = stState,
-                        statusMessage = stMsg,
-                        responseTimeMs = diag?.responseTimeMs ?: 0L
-                    )
-                )
-            }
-        }
-
+        )
+        uiList.add(
+            ProviderUiItem(
+                id = "archive_org",
+                name = "Archive.org",
+                description = "Internet Archive video catalog",
+                category = "Library",
+                isEnabled = enabledSet.contains("archive_org"),
+                isDefault = (activeId == "archive_org")
+            )
+        )
         _availableProviders.value = uiList
     }
 
     private fun getProviderRoleDescription(id: String): String {
         return when (id) {
             "all" -> "Aggregated feed combining all enabled content providers"
-            "unified_torrents" -> "Multi-indexer torrent aggregator (YTS, EZTV, Torrentio, TMDB, Nyaa & Torrent API)"
             "youtube" -> "YouTube fast stream resolution, video search & channel metadata"
-            "adultswim" -> "Adult Swim video catalog, show clips, live stream & geo-unlocked yt-dlp stream resolver"
-            "hotstar" -> "Disney+ Hotstar shows, movies, live sports & native HotstarIE yt-dlp stream resolver"
             "jikan_anime" -> "MyAnimeList & Jikan API for anime catalog search, episode guides & artwork"
             "dailymotion" -> "Dailymotion video discovery & embedded player stream resolver"
             "vimeo" -> "Vimeo high-definition video discovery & stream resolver"
@@ -1791,7 +1619,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "javlibrary" -> "Core JAV catalog indexer for release dates, studios, actresses, and tags"
             "jav321" -> "Japanese video code search scraper for studio & release metadata"
             "javdb" -> "Community database indexer for JAV metadata, ratings, and cover art"
-            "javbus" -> "JAV catalog scraper & magnet link aggregator"
+            "javbus" -> "JAV catalog scraper & video metadata aggregator"
             "javmenu" -> "Online JAV catalog & video page metadata scraper"
             "airav" -> "Barcode & video code metadata API resolver"
             "arzon" -> "Arzon adult DVD store detail page parser"
@@ -1807,40 +1635,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "jav18" -> "Jav18 video stream link extractor"
             "hanime_tv" -> "Anime & Hentai video stream resolver"
             "iwara" -> "Iwara 3D animation video stream parser"
-
-            "orion" -> "Orion Stremio API - Torrent & Debrid hash indexer"
-            "comet" -> "Comet Stremio - Fast Stremio add-on stream indexer"
-            "mediafusion" -> "MediaFusion Stremio - Multi-source Stremio add-on indexer"
-            "zilean" -> "Zilean DMM Indexer - DMM torrent indexer for Debrid playback"
             else -> "Media & Data Provider ($id)"
         }
     }
 
     private fun getProviderCategoryName(id: String): String {
-        if (com.example.plugin.providers.AdultProviderRegistry.providers.any { it.providerId == id }) {
-            return "Adult Media Feeds"
-        }
         return when (id) {
             "all" -> "Aggregator"
-            "youtube", "jikan_anime", "adultswim", "hotstar", "dailymotion", "vimeo", "twitch", "bilibili", "tiktok", "ninegag", "telegram", "newgrounds", "myspace", "tumblr", "bluesky", "weibo", "okru", "rutube", "bigo", "viu", "vk", "instagram", "archive_org", "mega", "direct_mp4", "direct_hls", "rss_video", "json" -> "Social & Video Platforms"
+            "youtube", "jikan_anime", "dailymotion", "vimeo", "twitch", "bilibili", "tiktok", "ninegag", "telegram", "newgrounds", "myspace", "tumblr", "bluesky", "weibo", "okru", "rutube", "bigo", "viu", "vk", "instagram", "archive_org", "mega", "direct_mp4", "direct_hls", "rss_video", "json" -> "Social & Video Platforms"
             "eporner", "apijav_server", "apijav_hentai", "apijav_porn", "javinfo" -> "Adult Media Feeds"
             "javinizer_go", "avm_engine", "javdex", "openaver", "mdcx", "fss", "javlibrary", "jav321", "javdb", "javbus", "javmenu", "airav", "arzon", "gfriends" -> "Repository Catalog Scrapers"
             "javpy_resolver", "missav_surrit", "jable_tv", "avgle_api", "jav_trailers", "supjav", "javcl", "jav18", "hanime_tv", "iwara" -> "Stream Resolver Engines"
-            "orion", "comet", "mediafusion", "zilean", "unified_torrents" -> "Debrid & Indexers"
             else -> "Plugins & Extensions"
         }
     }
 
     private fun getReadableProviderName(id: String): String {
-        com.example.plugin.providers.AdultProviderRegistry.providers.find { it.providerId == id }?.let {
-            return it.platformName
-        }
         return when (id) {
             "all" -> "All Sources"
-            "unified_torrents" -> "Torrents (All Indexers)"
             "youtube" -> "YouTube"
-            "adultswim" -> "Adult Swim"
-            "hotstar" -> "Disney+ Hotstar"
             "bilibili" -> "Bilibili"
             "jikan_anime" -> "Anime (Jikan / MAL)"
             "dailymotion" -> "Dailymotion"
@@ -1988,6 +1801,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         for (item in rawResults) {
             if (item.id.isBlank()) continue
             if (isBlockedVideo(item)) continue
+            if (!com.example.util.LanguageFilterHelper.isAllowedVideoItem(item)) continue
             if (!_adultContentEnabled.value && isAdultVideoItem(item)) continue
 
             val titleLower = item.title.lowercase()
@@ -2096,27 +1910,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     uName.contains(trimmed, ignoreCase = true) || trimmed.contains(uName, ignoreCase = true)
                 }
 
-            val ytResults = try {
-                val provider = com.example.plugin.providers.YouTubeProvider()
-                val paged = provider.search(trimmed)
-                paged.items.map { item ->
-                    VideoItem(
-                        id = item.id,
-                        title = item.title,
-                        uploaderName = item.uploaderName,
-                        uploaderUrl = item.uploaderUrl,
-                        uploaderAvatarUrl = item.uploaderAvatarUrl ?: avatarUrl,
-                        viewCount = item.viewCount,
-                        durationSeconds = item.durationSeconds,
-                        uploadDate = item.uploadDate,
-                        thumbnailUrl = item.thumbnailUrl,
-                        providerId = item.providerId ?: "youtube",
-                        description = item.description
-                    )
-                }
-            } catch (e: Exception) {
-                emptyList()
-            }
+            val ytResults = emptyList<VideoItem>()
 
             val combined = (cachedAndFeed + ytResults)
             _channelVideos.value = filterRankAndDeduplicateSearchResults(combined, trimmed)
@@ -2134,124 +1928,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         addRecentSearch(q)
         currentSearchPage = 1
 
-        Log.d("MainViewModel", "Search query: '$q' on active provider: ${_activeProviderId.value}")
-
-        // Special handling for Mega.nz URLs (Folder or File)
-        if (q.contains("mega.nz", ignoreCase = true) || q.startsWith("mega_")) {
-            _isSearching.value = true
-            viewModelScope.launch(Dispatchers.IO) {
-                _feedError.value = null
-                try {
-                    // Also auto-add to Mega Cloud Folders in preferences if it's a folder URL
-                    if (q.contains("/folder/")) {
-                        com.example.util.CloudFoldersSettingsManager.addMegaFolderUrl(getApplication(), q)
-                    }
-                    val megaProvider = com.example.plugin.providers.MegaProvider(getApplication())
-                    val paged = megaProvider.home("1")
-                    val items = paged.items.map { item ->
-                        VideoItem(
-                            id = item.id,
-                            title = item.title,
-                            uploaderName = item.uploaderName,
-                            uploaderUrl = item.uploaderUrl,
-                            uploaderAvatarUrl = item.uploaderAvatarUrl,
-                            viewCount = item.viewCount,
-                            durationSeconds = item.durationSeconds,
-                            uploadDate = item.uploadDate,
-                            thumbnailUrl = item.thumbnailUrl,
-                            providerId = "mega",
-                            description = item.description
-                        )
-                    }
-                    _searchResults.value = items
-                    updateRecommendedVideosAsync()
-                } catch (e: Exception) {
-                    Log.e("MainViewModel", "Mega parse failed", e)
-                } finally {
-                    _isSearching.value = false
-                }
-            }
-            return
-        }
-
         _isSearching.value = true
         viewModelScope.launch(Dispatchers.IO) {
             _feedError.value = null
             try {
-                val activeId = _activeProviderId.value
-                val combined = mutableListOf<VideoItem>()
-
-                if (activeId == "all") {
-                    val activeProviders = pluginManager.getAllAvailableProviders().filter {
-                        _enabledProviderIds.value.contains(it.providerId) &&
-                        (_adultContentEnabled.value || !isAdultProviderId(it.providerId))
-                    }
-
-                    val deferreds = activeProviders.map { provider ->
-                        async {
-                            try {
-                                kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                    val paged = provider.search(q, "1")
-                                    paged.items.map { item ->
-                                        VideoItem(
-                                            id = item.id,
-                                            title = item.title,
-                                            uploaderName = item.uploaderName,
-                                            uploaderUrl = item.uploaderUrl,
-                                            uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                            viewCount = item.viewCount,
-                                            durationSeconds = item.durationSeconds,
-                                            uploadDate = item.uploadDate,
-                                            thumbnailUrl = item.thumbnailUrl,
-                                            providerId = provider.providerId,
-                                            description = item.description
-                                        )
-                                    }
-                                } ?: emptyList()
-                            } catch (e: Exception) {
-                                emptyList()
-                            }
-                        }
-                    }
-                    val resultsList = deferreds.awaitAll()
-                    val interleaved = interleaveLists(resultsList)
-                    combined.addAll(interleaved)
-                } else {
-                    val provider = getActiveProvider()
-                    if (provider != null) {
-                        val items = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            val paged = provider.search(q, "1")
-                            paged.items.map { item ->
-                                VideoItem(
-                                    id = item.id,
-                                    title = item.title,
-                                    uploaderName = item.uploaderName,
-                                    uploaderUrl = item.uploaderUrl,
-                                    uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                    viewCount = item.viewCount,
-                                    durationSeconds = item.durationSeconds,
-                                    uploadDate = item.uploadDate,
-                                    thumbnailUrl = item.thumbnailUrl,
-                                    providerId = provider.providerId,
-                                    description = item.description
-                                )
-                            }
-                        } ?: emptyList()
-                        combined.addAll(items)
-                    }
+                val archiveResults = com.example.extractor.ArchiveOrgProvider.search(q, 1)
+                val ytRes = YouTubeExtractorHelper.searchVideos(q)
+                val ytItems = when (ytRes) {
+                    is com.example.extractor.UrlParseResult.ParsedSearchResults -> ytRes.items
+                    else -> emptyList()
                 }
-                val cleanedSearch = combined.filterNot { isDemoOrPlaceholderVideo(it) }
-                _searchResults.value = filterRankAndDeduplicateSearchResults(cleanedSearch, q)
-                updateRecommendedVideosAsync()
+                val combined = (archiveResults + ytItems).distinctBy { it.id }
+                _searchResults.value = combined
             } catch (e: Exception) {
-                Log.e("MainViewModel", "Search failed: ${e.localizedMessage}", e)
+                Log.e("MainViewModel", "Search failed", e)
                 _searchResults.value = emptyList()
-                _feedError.value = FeedErrorDetails(
-                    rawExceptionName = e.javaClass.simpleName,
-                    message = e.localizedMessage ?: "Search failed",
-                    fullStackTrace = e.stackTraceToString(),
-                    urlOrQuery = q
-                )
             } finally {
                 _isSearching.value = false
             }
@@ -2273,83 +1964,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _searchResults.value = emptyList()
             }
             try {
-                val activeId = _activeProviderId.value
-                val combined = mutableListOf<VideoItem>()
-                val pageToken: String? = "1"
-
-                if (activeId == "all") {
-                    val activeProviders = pluginManager.getAllAvailableProviders().filter {
-                        _enabledProviderIds.value.contains(it.providerId) &&
-                        (_adultContentEnabled.value || !isAdultProviderId(it.providerId))
-                    }
-
-                    val deferreds = activeProviders.map { provider ->
-                        async {
-                            try {
-                                kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                    val paged = provider.home(pageToken)
-                                    paged.items.map { item ->
-                                        VideoItem(
-                                            id = item.id,
-                                            title = item.title,
-                                            uploaderName = item.uploaderName,
-                                            uploaderUrl = item.uploaderUrl,
-                                            uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                            viewCount = item.viewCount,
-                                            durationSeconds = item.durationSeconds,
-                                            uploadDate = item.uploadDate,
-                                            thumbnailUrl = item.thumbnailUrl,
-                                            providerId = provider.providerId,
-                                            description = item.description
-                                        )
-                                    }
-                                } ?: emptyList()
-                            } catch (e: Exception) {
-                                Log.e("MainViewModel", "Provider ${provider.providerId} failed home: ${e.message}")
-                                emptyList()
-                            }
-                        }
-                    }
-
-                    val resultsList = deferreds.awaitAll()
-                    val interleaved = interleaveLists(resultsList)
-                    combined.addAll(if (forceRefresh) interleaved.shuffled() else interleaved)
-                } else {
-                    val provider = getActiveProvider()
-                    if (provider != null) {
-                        val items = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            val paged = provider.home(pageToken)
-                            paged.items.map { item ->
-                                VideoItem(
-                                    id = item.id,
-                                    title = item.title,
-                                    uploaderName = item.uploaderName,
-                                    uploaderUrl = item.uploaderUrl,
-                                    uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                    viewCount = item.viewCount,
-                                    durationSeconds = item.durationSeconds,
-                                    uploadDate = item.uploadDate,
-                                    thumbnailUrl = item.thumbnailUrl,
-                                    providerId = provider.providerId,
-                                    description = item.description
-                                )
-                            }
-                        } ?: emptyList()
-                        combined.addAll(if (forceRefresh) items.shuffled() else items)
-                    }
-                }
-
-                val cleanedTrending = combined.filterNot { isDemoOrPlaceholderVideo(it) }
-                _trendingVideos.value = if (_adultContentEnabled.value) cleanedTrending else cleanedTrending.filterNot { isAdultVideoItem(it) }
-                updateRecommendedVideosAsync()
+                val ytItems = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending()
+                val archiveItems = com.example.extractor.ArchiveOrgProvider.getHome(1)
+                val combined = (ytItems + archiveItems).distinctBy { it.id }
+                _trendingVideos.value = if (forceRefresh) combined.shuffled() else combined
             } catch (e: Exception) {
-                Log.e("MainViewModel", "loadTrending failed: ${e.localizedMessage}", e)
+                Log.e("MainViewModel", "loadTrending failed", e)
                 _trendingVideos.value = emptyList()
-                _feedError.value = FeedErrorDetails(
-                    rawExceptionName = e.javaClass.simpleName,
-                    message = e.localizedMessage ?: "Failed to fetch content",
-                    fullStackTrace = e.stackTraceToString()
-                )
             } finally {
                 _isLoadingTrending.value = false
             }
@@ -2367,161 +1988,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (isSearchMode && q.isNotBlank()) {
                     currentSearchPage++
-                    val activeId = _activeProviderId.value
-                    val pageToken = currentSearchPage.toString()
-                    val newItems = mutableListOf<VideoItem>()
-
-                    if (activeId == "all") {
-                        val activeProviders = pluginManager.getAllAvailableProviders().filter {
-                            _enabledProviderIds.value.contains(it.providerId) &&
-                            (_adultContentEnabled.value || !isAdultProviderId(it.providerId))
-                        }
-                        val deferreds = activeProviders.map { provider ->
-                            async {
-                                try {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                        val paged = provider.search(q, pageToken)
-                                        paged.items.map { item ->
-                                            VideoItem(
-                                                id = item.id,
-                                                title = item.title,
-                                                uploaderName = item.uploaderName,
-                                                uploaderUrl = item.uploaderUrl,
-                                                uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                                viewCount = item.viewCount,
-                                                durationSeconds = item.durationSeconds,
-                                                uploadDate = item.uploadDate,
-                                                thumbnailUrl = item.thumbnailUrl,
-                                                providerId = provider.providerId,
-                                                description = item.description
-                                            )
-                                        }
-                                    } ?: emptyList()
-                                } catch (e: Exception) {
-                                    emptyList()
-                                }
-                            }
-                        }
-                        val results = deferreds.awaitAll()
-                        newItems.addAll(interleaveLists(results))
-                    } else {
-                        val provider = getActiveProvider()
-                        if (provider != null) {
-                            val items = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                val paged = provider.search(q, pageToken)
-                                paged.items.map { item ->
-                                    VideoItem(
-                                        id = item.id,
-                                        title = item.title,
-                                        uploaderName = item.uploaderName,
-                                        uploaderUrl = item.uploaderUrl,
-                                        uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                        viewCount = item.viewCount,
-                                        durationSeconds = item.durationSeconds,
-                                        uploadDate = item.uploadDate,
-                                        thumbnailUrl = item.thumbnailUrl,
-                                        providerId = provider.providerId,
-                                        description = item.description
-                                    )
-                                }
-                            } ?: emptyList()
-                            newItems.addAll(items)
-                        }
-                    }
-
+                    val ytResults = com.example.extractor.YouTubeExtractorHelper.searchYouTube(q)
+                    val archiveResults = com.example.extractor.ArchiveOrgProvider.search(q, currentSearchPage)
                     val currentList = _searchResults.value
-                    val combined = currentList + newItems
-                    _searchResults.value = filterRankAndDeduplicateSearchResults(combined, q)
+                    val combined = (currentList + ytResults + archiveResults).distinctBy { it.id }
+                    _searchResults.value = combined
                 } else {
                     currentTrendingPage++
-                    val activeId = _activeProviderId.value
-                    val pageToken = currentTrendingPage.toString()
-                    val newItems = mutableListOf<VideoItem>()
-
-                    if (activeId == "all") {
-                        val activeProviders = pluginManager.getAllAvailableProviders().filter {
-                            _enabledProviderIds.value.contains(it.providerId) &&
-                            (_adultContentEnabled.value || !isAdultProviderId(it.providerId))
-                        }
-                        val deferreds = activeProviders.map { provider ->
-                            async {
-                                try {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                        val paged = provider.home(pageToken)
-                                        paged.items.map { item ->
-                                            VideoItem(
-                                                id = item.id,
-                                                title = item.title,
-                                                uploaderName = item.uploaderName,
-                                                uploaderUrl = item.uploaderUrl,
-                                                uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                                viewCount = item.viewCount,
-                                                durationSeconds = item.durationSeconds,
-                                                uploadDate = item.uploadDate,
-                                                thumbnailUrl = item.thumbnailUrl,
-                                                providerId = provider.providerId,
-                                                description = item.description
-                                            )
-                                        }
-                                    } ?: emptyList()
-                                } catch (e: Exception) {
-                                    emptyList()
-                                }
-                            }
-                        }
-                        val results = deferreds.awaitAll()
-                        newItems.addAll(interleaveLists(results))
-                    } else {
-                        val provider = getActiveProvider()
-                        if (provider != null) {
-                            val items = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                val paged = provider.home(pageToken)
-                                paged.items.map { item ->
-                                    VideoItem(
-                                        id = item.id,
-                                        title = item.title,
-                                        uploaderName = item.uploaderName,
-                                        uploaderUrl = item.uploaderUrl,
-                                        uploaderAvatarUrl = item.uploaderAvatarUrl,
-                                        viewCount = item.viewCount,
-                                        durationSeconds = item.durationSeconds,
-                                        uploadDate = item.uploadDate,
-                                        thumbnailUrl = item.thumbnailUrl,
-                                        providerId = provider.providerId,
-                                        description = item.description
-                                    )
-                                }
-                            } ?: emptyList()
-                            newItems.addAll(items)
-                        }
-                    }
-
-                    val filtered = if (_adultContentEnabled.value) newItems else newItems.filterNot { isAdultVideoItem(it) }
+                    val archiveItems = com.example.extractor.ArchiveOrgProvider.getHome(currentTrendingPage)
                     val currentList = _trendingVideos.value
-                    var combined = (currentList + filtered).distinctBy { it.id }
-
-                    // If provider didn't return any new unique items for page > 1, query diverse topics so infinite scroll continues
-                    if (combined.size <= currentList.size) {
-                        val topicIndex = (currentTrendingPage - 1) % DIVERSE_TOPICS.size
-                        val fallbackTopic = DIVERSE_TOPICS[topicIndex]
-                        try {
-                            when (val res = YouTubeExtractorHelper.searchVideos(fallbackTopic)) {
-                                is com.example.model.FeedResult.Success -> {
-                                    val fallbackItems = res.items.map { it.copy(providerId = activeId.ifBlank { "youtube" }) }
-                                    val filteredFallback = if (_adultContentEnabled.value) fallbackItems else fallbackItems.filterNot { isAdultVideoItem(it) }
-                                    combined = (currentList + filteredFallback).distinctBy { it.id }
-                                }
-                                else -> {}
-                            }
-                        } catch (e: Exception) {
-                            Log.e("MainViewModel", "Error fetching fallback topic for pagination", e)
-                        }
-                    }
-
+                    val combined = (currentList + archiveItems).distinctBy { it.id }
                     _trendingVideos.value = combined
                 }
             } catch (e: Exception) {
-                Log.e("MainViewModel", "loadMoreContent failed: ${e.message}")
+                Log.e("MainViewModel", "loadMoreContent failed", e)
             } finally {
                 _isLoadingMore.value = false
             }
@@ -2578,25 +2058,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         else -> {}
                     }
                 } else {
-                    val prov = pluginManager.getProvider(providerId)
-                    if (prov != null) {
-                        try {
-                            val paged = prov.search(targetTerm, playerRecsPage.toString())
-                            discovered.addAll(paged.items.map { item ->
-                                VideoItem(
-                                    id = item.id,
-                                    title = item.title,
-                                    uploaderName = item.uploaderName,
-                                    thumbnailUrl = item.thumbnailUrl,
-                                    durationSeconds = item.durationSeconds,
-                                    viewCount = item.viewCount,
-                                    providerId = providerId,
-                                    description = item.description
-                                )
-                            }.filter { it.id != vid })
-                        } catch (e: Exception) {
-                            // Continue
-                        }
+                    try {
+                        val list = com.example.extractor.ArchiveOrgProvider.search(targetTerm, playerRecsPage)
+                        discovered.addAll(list.map { item ->
+                            VideoItem(
+                                id = item.id,
+                                title = item.title,
+                                uploaderName = item.uploaderName,
+                                thumbnailUrl = item.thumbnailUrl,
+                                durationSeconds = item.durationSeconds,
+                                viewCount = item.viewCount,
+                                providerId = providerId,
+                                description = item.description
+                            )
+                        }.filter { it.id != vid })
+                    } catch (e: Exception) {
+                        // Continue
                     }
                 }
 
@@ -2656,15 +2133,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (targetProviderId.isNullOrEmpty() || targetProviderId == "all") {
             targetProviderId = when {
-                cleanIdOrUrl.startsWith("tt") || cleanIdOrUrl.startsWith("movie_") || cleanIdOrUrl.startsWith("tv_") -> "unified_torrents"
-                cleanIdOrUrl.contains("mega.nz", ignoreCase = true) || cleanIdOrUrl.startsWith("mega_") -> "mega"
+                cleanIdOrUrl.contains("mega.nz", ignoreCase = true) || cleanIdOrUrl.contains("mega.io", ignoreCase = true) || cleanIdOrUrl.contains("mega.co.nz", ignoreCase = true) || cleanIdOrUrl.contains("#F!") || cleanIdOrUrl.contains("#!") || cleanIdOrUrl.startsWith("mega_") -> "mega"
                 cleanIdOrUrl.startsWith("tg_") || cleanIdOrUrl.contains("t.me/") -> "telegram"
                 cleanIdOrUrl.contains("youtube.com", ignoreCase = true) || cleanIdOrUrl.contains("youtu.be", ignoreCase = true) -> "youtube"
-                cleanIdOrUrl.contains("adultswim.com", ignoreCase = true) -> "adultswim"
-                cleanIdOrUrl.contains("hotstar.com", ignoreCase = true) -> "hotstar"
                 cleanIdOrUrl.contains("dailymotion.com", ignoreCase = true) || cleanIdOrUrl.contains("dai.ly", ignoreCase = true) -> "dailymotion"
                 cleanIdOrUrl.contains("eporner.com", ignoreCase = true) -> "eporner"
-                cleanIdOrUrl.contains("archive.org", ignoreCase = true) -> "internet_archive"
+                cleanIdOrUrl.contains("archive.org", ignoreCase = true) -> "archive_org"
                 cleanIdOrUrl.contains("vimeo.com", ignoreCase = true) -> "vimeo"
                 cleanIdOrUrl.contains("bitchute.com", ignoreCase = true) -> "bitchute"
                 cleanIdOrUrl.contains("rumble.com", ignoreCase = true) -> "rumble"
@@ -2676,9 +2150,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _activeProviderId.value != "all" && _activeProviderId.value.isNotBlank() -> _activeProviderId.value
                 else -> "all"
             }
-        }
-        if (targetProviderId in subTorrentProviderIds || targetProviderId.contains("torrent") || targetProviderId == "tmdb" || targetProviderId == "tmdb_movies") {
-            targetProviderId = "unified_torrents"
         }
 
         Log.d("MainViewModel", "playVideo for: '$cleanIdOrUrl' on provider: $targetProviderId")
@@ -2735,6 +2206,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _activeVideoId.value = cleanIdOrUrl
+        fallbackAttemptsCount = 0
+        lastFallbackAttemptTime = 0L
         _isExtracting.value = true
         _extractionResult.value = null
         _selectedStreamOption.value = null
@@ -2747,127 +2220,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val allProviders = pluginManager.getAllAvailableProviders()
-                val enabledProvidersList = if (_enabledProviderIds.value.contains("all") || _enabledProviderIds.value.isEmpty()) {
-                    allProviders
-                } else {
-                    allProviders.filter { _enabledProviderIds.value.contains(it.providerId) }
-                }
-
+                val result = YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication())
                 if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
-
-                val pipelineResult = sourcePipelineEngine.discoverAndRankStreams(
-                    idOrUrl = cleanIdOrUrl,
-                    providers = enabledProvidersList,
-                    targetProviderId = targetProviderId
-                )
-
-                if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
-
-                if (pipelineResult.failedLogs.isNotEmpty()) {
-                    pipelineResult.failedLogs.forEach { recordFailedSource(it) }
-                }
-
-                if (pipelineResult.playableStreams.isNotEmpty()) {
-                    val activeProvider = pluginManager.getProvider(targetProviderId ?: "")
-                    val providerInfo = try { activeProvider?.getStreams(cleanIdOrUrl) } catch (e: Exception) { null }
-                    val providerRecs = (try { activeProvider?.getRecommendations(cleanIdOrUrl) } catch (e: Exception) { null }) ?: emptyList()
-
-                    if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
-
-                    val resolvedTitle = currentMatch?.title?.takeIf { it.isNotBlank() && it != "Torrentio Stream" && it != "Torrent Stream" }
-                        ?: providerInfo?.title?.takeIf { it.isNotBlank() && it != "Torrentio Stream" && it != "Torrent Stream" }
-                        ?: cleanIdOrUrl
-                    val resolvedChannelName = currentMatch?.uploaderName?.takeIf { it.isNotBlank() && !it.contains("Torrent", ignoreCase = true) && it != "Butterfly Stream" }
-                        ?: providerInfo?.channelName?.takeIf { it.isNotBlank() && !it.contains("Torrent", ignoreCase = true) && it != "Butterfly Stream" }
-                        ?: com.example.util.StudioDetector.detectStudio(resolvedTitle, cleanIdOrUrl.startsWith("tv_"))
-                    val resolvedAvatarUrl = providerInfo?.channelAvatarUrl
-                    val resolvedDesc = providerInfo?.description
-                    val resolvedThumb = providerInfo?.thumbnailUrl ?: currentMatch?.thumbnailUrl
-
-                    val mappedRelated = if (providerRecs.isNotEmpty()) {
-                        providerRecs.map { r ->
-                            VideoItem(
-                                id = r.id,
-                                title = r.title,
-                                uploaderName = r.uploaderName,
-                                thumbnailUrl = r.thumbnailUrl,
-                                durationSeconds = r.durationSeconds,
-                                viewCount = r.viewCount,
-                                providerId = targetProviderId
-                            )
-                        }
-                    } else {
-                        _trendingVideos.value.filter { it.id != cleanIdOrUrl }.take(15)
-                    }
-
-                    val mappedCaptions = providerInfo?.subtitles?.map { sub ->
-                        CaptionOption(
-                            languageName = sub.languageName ?: sub.languageCode ?: "English",
-                            languageCode = sub.languageCode ?: "en",
-                            format = sub.format ?: "VTT",
-                            url = sub.url
-                        )
-                    } ?: emptyList()
-
-                    val primaryOption = pipelineResult.playableStreams.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
-                        ?: pipelineResult.playableStreams.first()
-
-                    val streamData = StreamData(
-                        videoId = cleanIdOrUrl,
-                        title = resolvedTitle,
-                        channelName = resolvedChannelName,
-                        channelAvatarUrl = resolvedAvatarUrl,
-                        description = resolvedDesc,
-                        thumbnailUrl = resolvedThumb,
-                        availableStreamOptions = pipelineResult.playableStreams,
-                        selectedStreamOption = primaryOption,
-                        captionOptions = mappedCaptions,
-                        relatedVideos = mappedRelated,
-                        providerId = targetProviderId
-                    )
-
-                    if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
-
-                    _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(streamData)
-                    _selectedStreamOption.value = primaryOption
-                    _selectedCaptionOption.value = mappedCaptions.firstOrNull()
-                } else {
-                    if (targetProviderId == "youtube" || cleanIdOrUrl.contains("youtube.com", ignoreCase = true) || cleanIdOrUrl.contains("youtu.be", ignoreCase = true) || cleanIdOrUrl.length == 11) {
-                        val result = com.example.extractor.YouTubeFastStreamResolver.resolveStream(cleanIdOrUrl, getApplication())
-                        if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
-                        _extractionResult.value = result
-                        if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
-                            val primary = result.streamData.availableStreamOptions.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
-                                ?: result.streamData.selectedStreamOption
-                            _selectedStreamOption.value = primary
-                            _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
-                        }
-                    } else {
-                        val isWebUrl = cleanIdOrUrl.startsWith("http://") || cleanIdOrUrl.startsWith("https://")
-                        val fallbackUrl = cleanIdOrUrl
-                        val fallbackOption = PlayableStreamOption(
-                            qualityLabel = "Auto Quality",
-                            format = "mp4",
-                            isMuxed = true,
-                            videoUrl = fallbackUrl,
-                            providerType = com.example.plugin.sdk.model.ProviderType.OTHER
-                        )
-                        val fallbackData = StreamData(
-                            videoId = cleanIdOrUrl,
-                            videoUrl = fallbackUrl,
-                            title = initialVideoItem.title ?: "Streaming Video",
-                            channelName = initialVideoItem.uploaderName ?: "Video Creator",
-                            thumbnailUrl = initialVideoItem.thumbnailUrl,
-                            availableStreamOptions = listOf(fallbackOption),
-                            selectedStreamOption = fallbackOption,
-                            providerId = targetProviderId ?: "web",
-                            description = "Direct stream video playback."
-                        )
-                        if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
-                        _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(fallbackData)
-                        _selectedStreamOption.value = fallbackOption
-                    }
+                _extractionResult.value = result
+                if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    val primary = result.streamData.availableStreamOptions.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
+                        ?: result.streamData.selectedStreamOption
+                    _selectedStreamOption.value = primary
+                    _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) return@launch
@@ -2911,16 +2271,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var lastFallbackAttemptTime = 0L
+    private var fallbackAttemptsCount = 0
+
     fun tryNextFallbackStream() {
+        val now = System.currentTimeMillis()
+        if (now - lastFallbackAttemptTime < 1000L) {
+            return
+        }
+        lastFallbackAttemptTime = now
+
         val current = _selectedStreamOption.value ?: return
         val ext = _extractionResult.value
         if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
             val options = ext.streamData.availableStreamOptions
             val currentIndex = options.indexOfFirst { it.videoUrl == current.videoUrl || it.qualityLabel == current.qualityLabel }
-            if (currentIndex >= 0 && currentIndex + 1 < options.size) {
+            if (currentIndex >= 0 && currentIndex + 1 < options.size && fallbackAttemptsCount < 4) {
+                fallbackAttemptsCount++
                 val nextOption = options[currentIndex + 1]
-                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto falling back to option ${currentIndex + 1}: '${nextOption.qualityLabel}'")
+                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto falling back ($fallbackAttemptsCount/4) to option ${currentIndex + 1}: '${nextOption.qualityLabel}'")
                 _selectedStreamOption.value = nextOption
+            } else {
+                Log.w("MainViewModel", "[Fallback] All fallback stream options exhausted or maximum attempts reached.")
             }
         }
     }
@@ -2933,112 +2305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedCaptionOption.value = caption
     }
 
-    private fun PluginStreamInfo.toStreamData(
-        providerId: String,
-        recommendations: List<VideoItem>
-    ): StreamData {
-        val provider = pluginManager.getProvider(providerId)
-        val isTorrentProvider = provider?.capabilities?.supportsTorrent == true ||
-                provider?.capabilities?.providerType == com.example.plugin.sdk.model.ProviderType.TORRENT ||
-                providerId == "unified_torrents" ||
-                providerId.contains("torrent")
 
-        val pType = if (isTorrentProvider) com.example.plugin.sdk.model.ProviderType.TORRENT else (provider?.capabilities?.providerType ?: com.example.plugin.sdk.model.ProviderType.OTHER)
-
-        val captions = subtitles.map { sub ->
-            CaptionOption(
-                languageName = sub.languageName,
-                languageCode = sub.languageCode,
-                format = sub.format,
-                url = sub.url
-            )
-        }
-
-        val streamOptions = mutableListOf<PlayableStreamOption>()
-        val seenInfoHashes = mutableSetOf<String>()
-        val seenUrls = mutableSetOf<String>()
-
-        videoStreams.forEach { vs ->
-            val rawUrl = vs.url ?: return@forEach
-            val infoHash = sourcePipelineEngine.extractInfoHash(rawUrl)
-
-            if (infoHash != null) {
-                if (seenInfoHashes.contains(infoHash)) {
-                    val log = com.example.model.FailedSourceLog(
-                        providerId = providerId,
-                        sourceTitle = vs.qualityLabel,
-                        rawUrl = rawUrl,
-                        errorType = "DUPLICATE_TORRENT",
-                        httpStatus = null,
-                        urlType = "MAGNET",
-                        stage = com.example.model.SourceLifecycleStage.PARSED,
-                        failureReason = "Duplicate infoHash: $infoHash"
-                    )
-                    recordFailedSource(log)
-                    return@forEach
-                }
-                seenInfoHashes.add(infoHash)
-            } else {
-                val normUrl = sourcePipelineEngine.normalizeUrl(rawUrl)
-                if (seenUrls.contains(normUrl)) {
-                    val log = com.example.model.FailedSourceLog(
-                        providerId = providerId,
-                        sourceTitle = vs.qualityLabel,
-                        rawUrl = rawUrl,
-                        errorType = "DUPLICATE_EMBED",
-                        httpStatus = null,
-                        urlType = "EMBED_DIRECT",
-                        stage = com.example.model.SourceLifecycleStage.PARSED,
-                        failureReason = "Duplicate normalized URL: $normUrl"
-                    )
-                    recordFailedSource(log)
-                    return@forEach
-                }
-                seenUrls.add(normUrl)
-            }
-
-            val isVsTorrent = isTorrentProvider || vs.format.equals("torrent", ignoreCase = true) || vs.format.equals("p2p", ignoreCase = true) || vs.url.startsWith("magnet:")
-            val vsType = if (isVsTorrent) com.example.plugin.sdk.model.ProviderType.TORRENT else pType
-
-            streamOptions.add(
-                PlayableStreamOption(
-                    qualityLabel = vs.qualityLabel,
-                    format = vs.format,
-                    isMuxed = true,
-                    videoStream = null,
-                    audioStream = null,
-                    videoUrl = vs.url,
-                    audioUrl = null,
-                    providerType = vsType
-                )
-            )
-        }
-
-        return StreamData(
-            videoId = id,
-            videoUrl = url,
-            title = title,
-            channelName = channelName,
-            channelAvatarUrl = channelAvatarUrl,
-            subscriberCountText = null,
-            viewCount = viewCount,
-            likeCount = likeCount,
-            uploadDate = uploadDate,
-            description = description,
-            progressiveStreams = emptyList(),
-            videoOnlyStreams = emptyList(),
-            audioStreams = emptyList(),
-            captionOptions = captions,
-            availableStreamOptions = streamOptions,
-            selectedStreamOption = streamOptions.firstOrNull(),
-            hlsUrl = hlsUrl,
-            relatedVideos = recommendations,
-            embedUrl = url,
-            providerId = providerId,
-            thumbnailUrl = thumbnailUrl,
-            providerType = pType
-        )
-    }
 
     private fun interleaveLists(lists: List<List<VideoItem>>): List<VideoItem> {
         val result = mutableListOf<VideoItem>()

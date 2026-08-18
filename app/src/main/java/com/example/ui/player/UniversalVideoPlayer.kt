@@ -107,8 +107,7 @@ fun UniversalVideoPlayer(
         else com.example.model.PlaybackDecisionResolver.determineSourceType(rawVideoUrl, streamOption?.format)
     }
 
-    val isMagnetLink = playbackSourceType == com.example.model.PlaybackSourceType.MAGNET
-    val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW && !isMagnetLink
+    val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
 
     // Playback Speed & Scaling Controls
     val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
@@ -747,47 +746,6 @@ fun UniversalVideoPlayer(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (isMagnetLink) {
-                                IconButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawVideoUrl))
-                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "No external torrent app found", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.OpenInNew,
-                                        contentDescription = "Open in Torrent App",
-                                        tint = Color.Cyan,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("Magnet Link", rawVideoUrl)
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "Magnet URL copied to clipboard", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Copy Magnet",
-                                        tint = Color.Yellow,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
                             if (anime4kMode.isEnabled) {
                                 Surface(
                                     onClick = {
@@ -1927,76 +1885,6 @@ fun UniversalVideoPlayer(
             }
         }
     }
-}
-
-private fun buildWebTorHtml(magnetUrl: String): String {
-    val formattedMagnet = com.example.utils.TorrentUtils.formatMagnetUrl(magnetUrl)
-    val escapedMagnet = formattedMagnet
-        .replace("\\", "\\\\")
-        .replace("'", "\\'")
-        .replace("\"", "\\\"")
-        .replace("\n", "")
-        .replace("\r", "")
-        .trim()
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                html, body {
-                    width: 100vw;
-                    height: 100vh;
-                    background-color: #000000;
-                    color: #ffffff;
-                    font-family: system-ui, -apple-system, sans-serif;
-                    overflow: hidden;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-                #player {
-                    width: 100vw;
-                    height: 100vh;
-                }
-                iframe {
-                    border: none !important;
-                    width: 100% !important;
-                    height: 100% !important;
-                }
-                header, nav, .navbar, .header, #header, .top-bar,
-                footer, .footer, .sidebar, .comments, .related-posts,
-                .site-header, .site-footer, .webtor-header, .download-box,
-                div[class*="promo"], div[class*="unlock"], div[class*="banner"] {
-                    display: none !important;
-                    visibility: hidden !important;
-                }
-            </style>
-            <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@webtor/embed-sdk-js/dist/index.min.js" charset="utf-8" async></script>
-        </head>
-        <body>
-            <div id="player"></div>
-            <script>
-                window.webtor = window.webtor || [];
-                window.webtor.push({
-                    id: 'player',
-                    magnet: '$escapedMagnet',
-                    width: '100%',
-                    height: '100%',
-                    features: {
-                        title: false,
-                        download: true,
-                        subtitles: true,
-                        settings: true,
-                        continue: true
-                    }
-                });
-            </script>
-        </body>
-        </html>
-    """.trimIndent()
 }
 
 private fun Context.findActivity(): Activity? {

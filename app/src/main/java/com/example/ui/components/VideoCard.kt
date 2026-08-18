@@ -104,11 +104,9 @@ fun VideoCard(
             pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
             pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
             video.id.startsWith("tv_") || (pid.contains("eztv") && (titleLower.contains("s0") || titleLower.contains("season"))) -> "Series"
-            video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("unified_torrents", "yts", "tmdb", "tmdb_movies", "torrentio", "comet") -> "Movie"
+            video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("tmdb", "tmdb_movies") -> "Movie"
             pid == "archive_org" -> "Archive"
             pid == "youtube" -> "YouTube"
-            pid == "adultswim" -> "Adult Swim"
-            pid == "hotstar" -> "Hotstar"
             pid == "dailymotion" -> "Dailymotion"
             pid == "vimeo" -> "Vimeo"
             else -> "Video"
@@ -120,20 +118,12 @@ fun VideoCard(
             "Anime" -> Color(0xFF9C27B0)
             "18+" -> Color(0xFFC2185B)
             "YouTube" -> Color(0xFFFF0000)
-            "Hotstar" -> Color(0xFF002244)
-            "Adult Swim" -> Color(0xFF1E88E5)
             else -> Color(0xFF1976D2)
         }
         Pair(name, bgColor)
     }
 
-    val seriesPillText = remember(video.title, video.uploadDate, video.id, video.providerId, providerBadgeInfo.first) {
-        if (providerBadgeInfo.first == "Movie" || video.id.startsWith("movie_")) {
-            null
-        } else {
-            com.example.util.SeriesDataHelper.getSeriesPillText(video.title, video.uploadDate, video.providerId, video.id)
-        }
-    }
+    val seriesPillText: String? = null
 
     val thumbnailImageRequest = remember(video.thumbnailUrl) {
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 100)

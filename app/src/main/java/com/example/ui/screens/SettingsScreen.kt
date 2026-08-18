@@ -1590,12 +1590,11 @@ fun SettingsScreen(
 
                         for (provider in categoryProviders) {
                             val statusColor = when (provider.statusState) {
-                                com.example.plugin.jav.ProviderStatusState.SUCCESS -> Color(0xFF4CAF50)
-                                com.example.plugin.jav.ProviderStatusState.TIMEOUT -> Color(0xFFFF9800)
-                                com.example.plugin.jav.ProviderStatusState.NO_RESULT -> Color.Gray
-                                com.example.plugin.jav.ProviderStatusState.BLOCKED,
-                                com.example.plugin.jav.ProviderStatusState.ERROR -> Color(0xFFF44336)
-                                else -> MaterialTheme.colorScheme.primary
+                                com.example.model.ProviderStatusState.ACTIVE -> Color(0xFF4CAF50)
+                                com.example.model.ProviderStatusState.DEGRADED -> Color(0xFFFF9800)
+                                com.example.model.ProviderStatusState.NO_RESULT -> Color.Gray
+                                com.example.model.ProviderStatusState.BLOCKED,
+                                com.example.model.ProviderStatusState.ERROR -> Color(0xFFF44336)
                             }
 
                             Row(
@@ -1800,15 +1799,7 @@ fun SettingsScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(
-                        onClick = { viewModel.navigateToScreen(AppScreen.PROVIDERS) },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Manage Extensions & Repos")
-                    }
+
                 }
             }
         }

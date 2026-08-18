@@ -1,8 +1,9 @@
 package com.example.util
 
-import com.example.plugin.bridge.HttpBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
 
 data class RYDVoteData(
@@ -13,20 +14,23 @@ data class RYDVoteData(
 )
 
 object ReturnYouTubeDislikeHelper {
-    private val http = HttpBridge()
+    private val client = OkHttpClient()
 
     suspend fun getVotes(videoId: String): RYDVoteData? = withContext(Dispatchers.IO) {
         if (videoId.isBlank() || videoId.contains("/") || videoId.length != 11) return@withContext null
         try {
             val url = "https://returnyoutubedislikeapi.com/votes?videoId=$videoId"
-            val resp = http.get(url)
-            if (resp.statusCode == 200) {
-                val json = JSONObject(resp.body)
-                val likes = json.optLong("likes", 0)
-                val dislikes = json.optLong("dislikes", 0)
-                val rating = json.optDouble("rating", 0.0)
-                val viewCount = json.optLong("viewCount", 0)
-                return@withContext RYDVoteData(likes, dislikes, rating, viewCount)
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyStr = response.body?.string() ?: return@withContext null
+                    val json = JSONObject(bodyStr)
+                    val likes = json.optLong("likes", 0)
+                    val dislikes = json.optLong("dislikes", 0)
+                    val rating = json.optDouble("rating", 0.0)
+                    val viewCount = json.optLong("viewCount", 0)
+                    return@withContext RYDVoteData(likes, dislikes, rating, viewCount)
+                }
             }
         } catch (e: Exception) {
             // Silently fallback if RYD API is unavailable

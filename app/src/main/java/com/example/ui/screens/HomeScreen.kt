@@ -289,10 +289,6 @@ fun HomeScreen(
                     label = "screen_transition"
                 ) { screen ->
                     when (screen) {
-                        AppScreen.PROVIDERS -> {
-                            ProvidersScreen(viewModel = viewModel)
-                        }
-
                         AppScreen.CHANNEL -> {
                             com.example.ui.screens.ChannelScreen(
                                 viewModel = viewModel,
@@ -394,6 +390,7 @@ fun HomeScreen(
                                     .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+                                    .filter { !it.thumbnailUrl.isNullOrBlank() && it.thumbnailUrl != "null" }
                                     .distinctBy { "${it.providerId}_${it.id}" }
                             }
                             val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
@@ -401,6 +398,7 @@ fun HomeScreen(
                                     .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+                                    .filter { !it.thumbnailUrl.isNullOrBlank() && it.thumbnailUrl != "null" }
                                     .distinctBy { "${it.providerId}_${it.id}" }
                             }
 
@@ -729,15 +727,26 @@ fun HomeScreen(
         val activeStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
         val playingStreamData = activeStreamData ?: currentStreamData
 
-        if (playingStreamData != null && currentScreen != AppScreen.PLAYER && !isSearchExpanded) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = bottomBarPaddingDp + 12.dp, end = 8.dp, start = 8.dp)
-                    .graphicsLayer {
-                        translationY = animatedBottomBarOffsetPx
-                    }
-            ) {
+        AnimatedVisibility(
+            visible = (playingStreamData != null && currentScreen != AppScreen.PLAYER && !isSearchExpanded),
+            enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
+                    slideInVertically(
+                        initialOffsetY = { (it * 0.4f).toInt() },
+                        animationSpec = tween(160, easing = FastOutSlowInEasing)
+                    ),
+            exit = fadeOut(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
+                   slideOutVertically(
+                       targetOffsetY = { (it * 0.4f).toInt() },
+                       animationSpec = tween(120, easing = FastOutSlowInEasing)
+                   ),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = bottomBarPaddingDp + 12.dp, end = 8.dp, start = 8.dp)
+                .graphicsLayer {
+                    translationY = animatedBottomBarOffsetPx
+                }
+        ) {
+            if (playingStreamData != null) {
                 LiquidGlassMiniPlayer(
                     streamData = playingStreamData,
                     progressFraction = activeVideoProgress,
@@ -802,20 +811,17 @@ fun HomeScreen(
             )
         }
 
-        // FULLSCREEN OVERLAY: SETTINGS SCREEN WITH SPRING ANIMATION
+        // FULLSCREEN OVERLAY: SETTINGS SCREEN WITH CLEAN SMOOTH TRANSITION
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.SETTINGS),
             enter = slideInVertically(
-                initialOffsetY = { it / 3 },
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutVertically(
-                targetOffsetY = { it / 3 },
+                initialOffsetY = { (it * 0.1f).toInt() },
                 animationSpec = tween(180, easing = FastOutSlowInEasing)
-            ) + fadeOut(animationSpec = tween(180)),
+            ) + fadeIn(animationSpec = tween(180)),
+            exit = slideOutVertically(
+                targetOffsetY = { (it * 0.1f).toInt() },
+                animationSpec = tween(150, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(150)),
             modifier = Modifier.fillMaxSize().zIndex(90f)
         ) {
             SettingsScreen(
@@ -825,23 +831,19 @@ fun HomeScreen(
             )
         }
 
-        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SPRING EXPAND & COLLAPSE
+        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH, MINIMAL TRANSITION
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.PLAYER),
-            enter = slideInVertically(
-                initialOffsetY = { it },
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ) + fadeIn(animationSpec = tween(150)),
-            exit = slideOutVertically(
-                targetOffsetY = { it },
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMedium
-                )
-            ) + fadeOut(animationSpec = tween(150)),
+            enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
+                    slideInVertically(
+                        initialOffsetY = { (it * 0.06f).toInt() },
+                        animationSpec = tween(160, easing = FastOutSlowInEasing)
+                    ),
+            exit = fadeOut(animationSpec = tween(140, easing = FastOutSlowInEasing)) +
+                   slideOutVertically(
+                       targetOffsetY = { (it * 0.06f).toInt() },
+                       animationSpec = tween(140, easing = FastOutSlowInEasing)
+                   ),
             modifier = Modifier.fillMaxSize().zIndex(100f)
         ) {
             VideoPlayerScreen(

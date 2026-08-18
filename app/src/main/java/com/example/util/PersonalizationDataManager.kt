@@ -208,7 +208,7 @@ object PersonalizationDataManager {
         // 10. Recommendation Signals
         val signalsObj = JSONObject()
         signalsObj.put("preferredLanguages", JSONArray(listOf("en", "hi", "ja")))
-        signalsObj.put("circadianSlot", com.example.engine.SmartRecommendationEngine.getCurrentTimeSlot())
+        signalsObj.put("circadianSlot", "day")
         root.put("recommendationSignals", signalsObj)
 
         return@withContext root.toString(2)

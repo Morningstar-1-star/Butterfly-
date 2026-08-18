@@ -35,11 +35,28 @@ object GlobalPlayerManager {
     private val okHttpClient = OkHttpClient.Builder()
         .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
         .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
-        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
+        .dns(object : okhttp3.Dns {
+            override fun lookup(hostname: String): List<java.net.InetAddress> {
+                return try {
+                    okhttp3.Dns.SYSTEM.lookup(hostname)
+                } catch (e: java.net.UnknownHostException) {
+                    try {
+                        // Fallback lookup via GetAllByName
+                        java.net.InetAddress.getAllByName(hostname).toList().ifEmpty {
+                            throw e
+                        }
+                    } catch (fallbackError: Throwable) {
+                        throw e
+                    }
+                }
+            }
+        })
         .build()
 
     private val _activeStreamData = MutableStateFlow<StreamData?>(null)
@@ -216,16 +233,22 @@ object GlobalPlayerManager {
         return if (existing == null) {
             val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    1_500,  // minBufferMs (1.5s for fast start)
-                    50_000, // maxBufferMs
-                    500,    // bufferForPlaybackMs (0.5s for instant playback startup)
-                    1_000   // bufferForPlaybackAfterRebufferMs (1.0s)
+                    2_500,   // minBufferMs (2.5s minimum buffer)
+                    50_000,  // maxBufferMs
+                    500,     // bufferForPlaybackMs (0.5s for instant playback startup)
+                    1_000    // bufferForPlaybackAfterRebufferMs (1.0s)
                 )
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .setBackBuffer(15_000, true)
                 .build()
 
+            val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context.applicationContext).apply {
+                setEnableDecoderFallback(true)
+                setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            }
+
             val player = ExoPlayer.Builder(context.applicationContext)
+                .setRenderersFactory(renderersFactory)
                 .setLoadControl(loadControl)
                 .build()
             player.playWhenReady = true
@@ -268,7 +291,25 @@ object GlobalPlayerManager {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    _playerError.value = error.localizedMessage ?: "Playback error"
+                    val rootCause = error.cause
+                    val isHttpError = rootCause is androidx.media3.datasource.HttpDataSource.HttpDataSourceException
+                    val isNetworkError = rootCause is java.net.UnknownHostException ||
+                            rootCause is java.net.SocketTimeoutException ||
+                            rootCause is java.net.ConnectException ||
+                            isHttpError ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+
+                    val message = when {
+                        rootCause is java.net.UnknownHostException -> "Network host unreachable. Please check your internet connection."
+                        rootCause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException -> {
+                            "Stream server returned HTTP ${rootCause.responseCode}. Switching to backup stream..."
+                        }
+                        isNetworkError -> "Network connection interrupted. Retrying with alternate stream..."
+                        else -> error.localizedMessage ?: "Playback error"
+                    }
+                    _playerError.value = message
                     _isPlaying.value = false
                     playbackFailedListener?.invoke()
                 }
@@ -432,14 +473,8 @@ object GlobalPlayerManager {
 
         val sourceType = com.example.model.PlaybackDecisionResolver.determineSourceType(rawUrl, streamOption?.format)
         val isEmbed = sourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
-        val isMagnet = sourceType == com.example.model.PlaybackSourceType.MAGNET
 
-        // Resolve playable URL: for magnets, pipe via TorrentStreamEngine local HTTP streaming server
-        val effectivePlayableUrl = if (isMagnet || rawUrl.startsWith("magnet:") || streamOption?.format.equals("torrent", ignoreCase = true)) {
-            com.example.torrent.TorrentStreamEngine.getStreamUrl(context, rawUrl, streamData?.title)
-        } else {
-            rawUrl
-        }
+        val effectivePlayableUrl = rawUrl
 
         _isEmbedOrWebPage.value = isEmbed
 
@@ -554,7 +589,20 @@ object GlobalPlayerManager {
                     .setConstantBitrateSeekingEnabled(true)
                     .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
 
+                val errorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
+                    override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                        val rootCause = loadErrorInfo.exception
+                        if (rootCause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                            if (rootCause.responseCode in 400..599) {
+                                return androidx.media3.common.C.TIME_UNSET
+                            }
+                        }
+                        return super.getRetryDelayMsFor(loadErrorInfo)
+                    }
+                }
+
                 val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+                    .setLoadErrorHandlingPolicy(errorHandlingPolicy)
 
                 fun sanitizeMediaUrl(rawUrl: String?): String? {
                     if (rawUrl.isNullOrBlank()) return null

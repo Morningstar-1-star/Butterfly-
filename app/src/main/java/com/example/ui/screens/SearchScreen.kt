@@ -170,10 +170,7 @@ fun SearchScreen(
         // 3. Ensure popular default providers exist
         val defaults = listOf(
             ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
-            ProviderSourceItemData("adultswim", "Adult Swim", Icons.Default.Tv, Color(0xFF1E88E5)),
-            ProviderSourceItemData("hotstar", "Disney+ Hotstar", Icons.Default.Star, Color(0xFF002244)),
             ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
-            ProviderSourceItemData("unified_torrents", "Torrents", Icons.Default.Download, Color(0xFF2E7D32)),
             ProviderSourceItemData("jikan_anime", "Anime", Icons.Default.Star, Color(0xFF7B1FA2)),
             ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
             ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F)),
@@ -336,8 +333,7 @@ fun SearchScreen(
                 val isSelected = if (chipData.id == "ALL") {
                     searchFilter.sourceProviderId == "ALL" || searchFilter.sourceProviderId.isBlank()
                 } else {
-                    searchFilter.sourceProviderId.equals(chipData.id, ignoreCase = true) ||
-                    (chipData.id == "unified_torrents" && searchFilter.sourceProviderId.lowercase().contains("torrent"))
+                    searchFilter.sourceProviderId.equals(chipData.id, ignoreCase = true)
                 }
 
                 ProviderSourceChip(
@@ -386,21 +382,6 @@ fun SearchScreen(
                         label = "All",
                         selected = !searchFilter.isActive,
                         onClick = { viewModel.resetSearchFilter() }
-                    )
-                }
-
-                // "Torrents" chip
-                item {
-                    val isSelected = searchFilter.type == SearchTypeFilter.TORRENTS || searchFilter.isTorrentOnly
-                    SearchQuickChip(
-                        label = "Torrents",
-                        selected = isSelected,
-                        onClick = {
-                            viewModel.updateSearchFilter(
-                                if (isSelected) searchFilter.copy(type = SearchTypeFilter.ALL, isTorrentOnly = false)
-                                else searchFilter.copy(type = SearchTypeFilter.TORRENTS, isTorrentOnly = true)
-                            )
-                        }
                     )
                 }
 
@@ -967,10 +948,7 @@ private data class ProviderSourceItemData(
 private fun getProviderChipInfo(id: String, defaultName: String): Triple<String, ImageVector, Color> {
     return when (id.lowercase()) {
         "youtube" -> Triple("YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000))
-        "adultswim" -> Triple("Adult Swim", Icons.Default.Tv, Color(0xFF1E88E5))
-        "hotstar" -> Triple("Disney+ Hotstar", Icons.Default.Star, Color(0xFF002244))
         "dailymotion" -> Triple("Dailymotion", Icons.Default.Movie, Color(0xFF0066DC))
-        "unified_torrents", "torrent", "yts", "eztv", "torrentio", "comet" -> Triple("Torrents", Icons.Default.Download, Color(0xFF2E7D32))
         "jikan_anime", "anime" -> Triple("Anime", Icons.Default.Star, Color(0xFF7B1FA2))
         "archive_org", "internet_archive" -> Triple("Archive.org", Icons.Default.Folder, Color(0xFF5D4037))
         "mega" -> Triple("Mega", Icons.Default.Cloud, Color(0xFFD32F2F))

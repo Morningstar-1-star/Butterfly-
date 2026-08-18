@@ -3,7 +3,7 @@ package com.example.util
 import android.util.Log
 import com.example.model.StreamData
 import com.example.model.VideoItem
-import com.example.plugin.providers.YouTubeProvider
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -120,33 +120,9 @@ object ReactionHelper {
         )
 
         val rawFetchedVideos = mutableListOf<VideoItem>()
-        val youtubeProvider = YouTubeProvider()
+        
 
-        for (q in queries) {
-            try {
-                val res = youtubeProvider.search(q, null)
-                if (res.items.isNotEmpty()) {
-                    val mappedItems = res.items.map { item ->
-                        VideoItem(
-                            id = item.id,
-                            title = item.title,
-                            uploaderName = item.uploaderName,
-                            uploaderUrl = item.uploaderUrl,
-                            uploaderAvatarUrl = item.uploaderAvatarUrl,
-                            viewCount = item.viewCount,
-                            durationSeconds = item.durationSeconds,
-                            uploadDate = item.uploadDate,
-                            thumbnailUrl = item.thumbnailUrl,
-                            providerId = "youtube"
-                        )
-                    }
-                    rawFetchedVideos.addAll(mappedItems)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed searching reactions for query: $q", e)
-            }
-            if (rawFetchedVideos.size >= 25) break
-        }
+        
 
         // Deduplicate and filter out videos that are not authentic reactions
         val reactionKeywords = listOf("reaction", "react", "reacts", "reacting", "blind reaction", "first time watching", "trailer reaction", "movie reaction", "episode reaction", "part 1", "part 2", "uncut")
