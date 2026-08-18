@@ -775,51 +775,6 @@ object TMDBHelper {
         }
     }
 
-    suspend fun fetchExploreHeroItems(): List<com.example.ui.screens.FeaturedMedia> = withContext(Dispatchers.IO) {
-        val list = mutableListOf<com.example.ui.screens.FeaturedMedia>()
-        try {
-            val url = "https://api.themoviedb.org/3/trending/all/day?api_key=$TMDB_API_KEY"
-            val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
-            val resp = client.newCall(req).execute()
-            val body = resp.body?.string()
-            if (body != null) {
-                val json = JSONObject(body)
-                val results = json.optJSONArray("results")
-                if (results != null) {
-                    for (i in 0 until minOf(results.length(), 6)) {
-                        val obj = results.getJSONObject(i)
-                        val mType = obj.optString("media_type", "movie")
-                        val tmdbId = obj.optInt("id")
-                        val id = if (mType == "tv") "tv_$tmdbId" else "movie_$tmdbId"
-                        val title = obj.optString("title", obj.optString("name", "Untitled"))
-                        val overview = obj.optString("overview", "")
-                        val backdropPath = obj.optString("backdrop_path")
-                        val posterPath = obj.optString("poster_path")
-                        val releaseDate = obj.optString("release_date", obj.optString("first_air_date", "2025"))
-                        val year = if (releaseDate.length >= 4) releaseDate.take(4) else "2025"
-
-                        if (backdropPath.isNotBlank() && backdropPath != "null") {
-                            list.add(
-                                com.example.ui.screens.FeaturedMedia(
-                                    id = id,
-                                    title = title,
-                                    genres = "Trending • ${if (mType == "tv") "TV Series" else "Movie"} • $year",
-                                    synopsis = overview.ifBlank { "Stream in ultra full HD resolution on Butterfly player." },
-                                    backdropUrl = "https://image.tmdb.org/t/p/w1280$backdropPath",
-                                    posterUrl = if (posterPath.isNotBlank() && posterPath != "null") "https://image.tmdb.org/t/p/w500$posterPath" else "https://image.tmdb.org/t/p/w1280$backdropPath",
-                                    providerId = "tmdb"
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching explore hero items", e)
-        }
-        return@withContext list
-    }
-
     suspend fun fetchExploreCategoryMovies(genreId: Int, categoryLabel: String): List<com.example.model.VideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<com.example.model.VideoItem>()
         try {

@@ -289,88 +289,14 @@ fun HomeScreen(
                     label = "screen_transition"
                 ) { screen ->
                     when (screen) {
-                        AppScreen.CHANNEL -> {
-                            com.example.ui.screens.ChannelScreen(
-                                viewModel = viewModel,
-                                onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
-                                },
-                                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
-                                topPadding = 0.dp,
-                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
-                            )
-                        }
-
-                        AppScreen.EXPLORE -> {
-                            ExploreScreen(
-                                viewModel = viewModel,
-                                onMovieSelected = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
-                                },
-                                onGenreSelected = { term ->
-                                    viewModel.updateSearchQuery(term)
-                                    viewModel.performSearch(term)
-                                    isSearchExpanded = true
-                                },
-                                topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
-                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
-                            )
-                        }
-
-                        AppScreen.ACCOUNT -> {
-                            AccountScreen(
-                                viewModel = viewModel,
-                                onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
-                                },
-                                onToggleSearch = { isSearchExpanded = !isSearchExpanded },
-                                showShortsFeed = showShortsFeed,
-                                onToggleShortsFeed = { viewModel.setShowShortsFeed(it) }
-                            )
-                        }
-
-                        AppScreen.SHORTS -> {
-                            ShortsScreen(
-                                viewModel = viewModel,
-                                onSelectShort = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
-                                },
-                                topPadding = 0.dp,
-                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
-                            )
-                        }
-
-                        AppScreen.MUSIC -> {
-                            MusicScreen(
-                                viewModel = viewModel,
-                                onSelectTrack = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
-                                },
-                                topPadding = 0.dp,
-                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
-                            )
-                        }
-
-                        AppScreen.SUBSCRIPTIONS -> {
-                            SubscriptionsScreen(
-                                viewModel = viewModel,
-                                onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
-                                },
-                                onOpenSearch = { isSearchExpanded = true },
-                                topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
-                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
-                            )
-                        }
-
                         AppScreen.LIBRARY -> {
                             LibraryScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
                                     viewModel.playVideo(video.id, video.providerId)
                                 },
-                                onBackClick = { viewModel.navigateToScreen(AppScreen.ACCOUNT) },
-                                topPadding = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
+                                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+                                topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
                                 bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
@@ -382,7 +308,7 @@ fun HomeScreen(
                             )
                         }
 
-                        AppScreen.HOME -> {
+                        else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
                             val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
@@ -419,7 +345,7 @@ fun HomeScreen(
                                         isRefreshing = isRefreshingFeed,
                                         modifier = Modifier
                                             .align(Alignment.TopCenter)
-                                            .padding(top = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp + 8.dp else 16.dp),
+                                            .padding(top = if (!isSearchExpanded) topBarPaddingDp + 8.dp else 16.dp),
                                         color = MaterialTheme.colorScheme.primary,
                                         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
                                     )
@@ -430,45 +356,10 @@ fun HomeScreen(
                                     state = feedListState,
                                     modifier = Modifier.fillMaxSize(),
                                     contentPadding = PaddingValues(
-                                        top = if (currentScreen != AppScreen.ACCOUNT && !isSearchExpanded) topBarPaddingDp else 0.dp,
+                                        top = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
                                         bottom = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                                     )
                                 ) {
-                                    // SHORTS CAROUSEL SECTION (ONLY IF ENABLED)
-                                    if (showShortsFeed && feedList.isNotEmpty()) {
-                                        item {
-                                            if (shortsFeedList.isNotEmpty()) {
-                                                Column(modifier = Modifier.padding(vertical = 12.dp)) {
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.PlayCircle,
-                                                            contentDescription = "Shorts",
-                                                            tint = Color.Red,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Text(
-                                                            text = "Shorts",
-                                                            style = MaterialTheme.typography.titleMedium,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                    ShortsSection(
-                                                        shorts = shortsFeedList.take(6),
-                                                        onSelectShort = { video ->
-                                                            viewModel.playVideo(video.id, video.providerId)
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
                                     // MAIN FEED HEADER (ONLY WHEN SEARCH RESULTS EXIST)
                                     if (searchResults.isNotEmpty()) {
                                         item {
@@ -574,15 +465,13 @@ fun HomeScreen(
                                 }
                             }
                         }
-                        AppScreen.PLAYER -> {}
-                        else -> {}
                     }
                 }
             }
         }
 
         // LAYER 2: YOUTUBE-STYLE COLLAPSIBLE TOP BAR OVERLAY
-        if (currentScreen != AppScreen.ACCOUNT && currentScreen != AppScreen.SHORTS && currentScreen != AppScreen.MUSIC && currentScreen != AppScreen.CHANNEL && !isSearchExpanded) {
+        if (!isSearchExpanded) {
             // Status bar solid background shield
             Box(
                 modifier = Modifier
@@ -681,14 +570,6 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    item {
-                        com.example.ui.components.AllSourcesDropdownMenu(
-                            viewModel = viewModel,
-                            backgroundColor = unselectedChipBg,
-                            contentColor = unselectedChipFg
-                        )
-                    }
-
                     items(smartTagsList) { tag ->
                         val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
                         Surface(

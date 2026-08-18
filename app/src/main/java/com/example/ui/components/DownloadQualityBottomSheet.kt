@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.PlayableStreamOption
 import com.example.model.VideoItem
-import com.example.util.DebridSettingsManager
 
 data class DownloadQualityItem(
     val label: String,
@@ -49,9 +48,7 @@ fun DownloadQualityBottomSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    val savedDefaultQuality = remember { DebridSettingsManager.getDefaultDownloadQuality(context) }
-    var rememberSetting by remember { mutableStateOf(DebridSettingsManager.getRememberDownloadQuality(context)) }
+    var rememberSetting by remember { mutableStateOf(false) }
 
     // Build quality choices based on real stream options or standard presets
     val qualityOptions = remember(availableOptions) {
@@ -116,8 +113,7 @@ fun DownloadQualityBottomSheet(
     }
 
     var selectedQualityTag by remember {
-        val initial = if (savedDefaultQuality.isNotBlank()) savedDefaultQuality else "720p"
-        mutableStateOf(initial)
+        mutableStateOf("720p")
     }
 
     ModalBottomSheet(
@@ -366,10 +362,6 @@ fun DownloadQualityBottomSheet(
 
                 Button(
                     onClick = {
-                        if (rememberSetting) {
-                            DebridSettingsManager.setDefaultDownloadQuality(context, selectedQualityTag)
-                            DebridSettingsManager.setRememberDownloadQuality(context, true)
-                        }
                         val chosen = qualityOptions.firstOrNull { it.qualityTag == selectedQualityTag }
                         onConfirmDownload(selectedQualityTag, chosen?.matchedOption)
                     },

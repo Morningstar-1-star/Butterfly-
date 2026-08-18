@@ -47,14 +47,14 @@ class MainApplication : Application() {
             .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.35)
+                    .maxSizePercent(0.25)
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache_v2"))
-                    .maxSizeBytes(500L * 1024L * 1024L) // 500 MB dedicated disk cache
+                    .maxSizeBytes(250L * 1024L * 1024L) // 250 MB dedicated disk cache
                     .build()
             }
             .respectCacheHeaders(false) // Cache regardless of server max-age headers
@@ -77,6 +77,26 @@ class MainApplication : Application() {
             } catch (e: Throwable) {
                 Log.e("MainApplication", "Error pre-warming YtDlpResolver", e)
             }
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        try {
+            Coil.imageLoader(this).memoryCache?.let { memCache ->
+                memCache.trimMemory(level)
+            }
+        } catch (e: Exception) {
+            Log.w("MainApplication", "Error trimming memory cache: ${e.message}")
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        try {
+            Coil.imageLoader(this).memoryCache?.clear()
+        } catch (e: Exception) {
+            Log.w("MainApplication", "Error clearing memory cache on low memory: ${e.message}")
         }
     }
 }

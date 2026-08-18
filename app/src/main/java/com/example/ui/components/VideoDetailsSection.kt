@@ -93,30 +93,17 @@ fun VideoDetailsSection(
     var mediaDetails by remember(currentVideoId, currentTitle) {
         mutableStateOf<MediaDetailInfo?>(null)
     }
-    var selectedCastMemberForSheet by remember { mutableStateOf<CastMember?>(null) }
 
-    val isTorrent = remember(currentProviderId, currentTitle) {
-        val pid = (currentProviderId ?: "").lowercase()
-        pid.contains("movie") || pid.contains("show") || pid.contains("cinema")
-    }
-
-    var rydData by remember(currentVideoId) { mutableStateOf<com.example.util.RYDVoteData?>(null) }
-
-    LaunchedEffect(currentVideoId, currentTitle, isTorrent) {
-        if (currentTitle.isNotBlank() && (isTorrent || currentProviderId == "archive_org")) {
+    LaunchedEffect(currentVideoId, currentTitle) {
+        if (currentTitle.isNotBlank() && currentProviderId == "archive_org") {
             mediaDetails = TMDBHelper.fetchMediaDetails(currentTitle, currentVideoId)
         } else {
             mediaDetails = null
         }
-        if (currentProviderId == "youtube" || currentVideoId.length == 11) {
-            rydData = com.example.util.ReturnYouTubeDislikeHelper.getVotes(currentVideoId)
-        }
     }
 
-    val baseLikes = remember(currentLikeCount, rydData, currentViewCount, currentTitle) {
-        val rydLikes = rydData?.likes ?: 0L
-        if (rydLikes > 0) rydLikes
-        else if (currentLikeCount > 0) currentLikeCount
+    val baseLikes = remember(currentLikeCount, currentViewCount, currentTitle) {
+        if (currentLikeCount > 0) currentLikeCount
         else {
             val hash = kotlin.math.abs(currentTitle.hashCode())
             val estimated = if (currentViewCount > 0) (currentViewCount * 0.085).toLong() else (12500L + (hash % 85000))
@@ -124,14 +111,10 @@ fun VideoDetailsSection(
         }
     }
 
-    val baseDislikes = remember(rydData, baseLikes, currentTitle) {
-        val rydDislikes = rydData?.dislikes ?: 0L
-        if (rydDislikes > 0) rydDislikes
-        else {
-            val hash = kotlin.math.abs(currentTitle.hashCode())
-            val estimated = (baseLikes * 0.028).toLong() + (hash % 350)
-            estimated.coerceAtLeast(42L)
-        }
+    val baseDislikes = remember(baseLikes, currentTitle) {
+        val hash = kotlin.math.abs(currentTitle.hashCode())
+        val estimated = (baseLikes * 0.028).toLong() + (hash % 350)
+        estimated.coerceAtLeast(42L)
     }
 
     val formattedLikes = remember(baseLikes, isLiked) {
@@ -607,8 +590,8 @@ fun VideoDetailsSection(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 1. UNIFIED "DESCRIPTION" CARD (Plot, Cast, Director, Box Office, Media for Torrents; Clean description for others)
-        val plotText = if (isTorrent && mediaDetails != null && !mediaDetails?.plotOverview.isNullOrBlank()) {
+        // 1. UNIFIED "DESCRIPTION" CARD
+        val plotText = if (mediaDetails != null && !mediaDetails?.plotOverview.isNullOrBlank()) {
             mediaDetails!!.plotOverview
         } else {
             (currentDescription ?: "").ifBlank {
@@ -665,25 +648,10 @@ fun VideoDetailsSection(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Detailed Metadata, Cast, Director, Box Office for Torrent Media
-                if (isTorrent && mediaDetails != null) {
-                    val castList = mediaDetails?.cast ?: emptyList()
+                // Detailed Metadata, Director, Box Office for Media
+                if (mediaDetails != null) {
                     val screenshots = mediaDetails?.screenshots ?: emptyList()
                     val clips = mediaDetails?.clipsAndTrailers ?: emptyList()
-
-                    // Always show Cast Section in Description for Torrents if available
-                    if (castList.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        CastSection(
-                            castList = castList,
-                            onCastClick = { member ->
-                                selectedCastMemberForSheet = member
-                            }
-                        )
-                    }
 
                     // Expanded Details (Crew, Box Office, Financials, Media Gallery)
                     if (isDescriptionExpanded) {
@@ -1032,17 +1000,6 @@ fun VideoDetailsSection(
                 }
             }
         }
-    }
-
-    // Cast Filmography Sheet
-    selectedCastMemberForSheet?.let { member ->
-        CastFilmographySheet(
-            castMember = member,
-            onDismiss = { selectedCastMemberForSheet = null },
-            onSelectFilmographyItem = { filmItem ->
-                onTagClick?.invoke(filmItem.title)
-            }
-        )
     }
 }
 

@@ -67,30 +67,21 @@ fun LiquidGlassNavBar(
                 )
 
                 NavItem(
-                    label = "Explore",
-                    selectedIcon = Icons.Filled.Explore,
-                    unselectedIcon = Icons.Outlined.Explore,
-                    isSelected = (currentScreen == AppScreen.EXPLORE),
+                    label = "Library",
+                    selectedIcon = Icons.Filled.VideoLibrary,
+                    unselectedIcon = Icons.Outlined.VideoLibrary,
+                    isSelected = (currentScreen == AppScreen.LIBRARY),
                     modifier = Modifier.weight(1f),
-                    onClick = { onSelectScreen(AppScreen.EXPLORE) }
+                    onClick = { onSelectScreen(AppScreen.LIBRARY) }
                 )
 
                 NavItem(
-                    label = "Subscriptions",
-                    selectedIcon = Icons.Filled.Subscriptions,
-                    unselectedIcon = Icons.Outlined.Subscriptions,
-                    isSelected = (currentScreen == AppScreen.SUBSCRIPTIONS),
+                    label = "Settings",
+                    selectedIcon = Icons.Filled.Settings,
+                    unselectedIcon = Icons.Outlined.Settings,
+                    isSelected = (currentScreen == AppScreen.SETTINGS),
                     modifier = Modifier.weight(1f),
-                    onClick = { onSelectScreen(AppScreen.SUBSCRIPTIONS) }
-                )
-
-                NavItem(
-                    label = "Account",
-                    selectedIcon = Icons.Filled.AccountCircle,
-                    unselectedIcon = Icons.Outlined.AccountCircle,
-                    isSelected = (currentScreen == AppScreen.ACCOUNT),
-                    modifier = Modifier.weight(1f),
-                    onClick = { onSelectScreen(AppScreen.ACCOUNT) }
+                    onClick = { onSelectScreen(AppScreen.SETTINGS) }
                 )
             }
         }

@@ -44,7 +44,6 @@ import com.example.db.BookmarkEntity
 import com.example.db.LikedVideoEntity
 import com.example.db.UserPlaylistEntity
 import com.example.db.OfflineDownloadEntity
-import com.example.util.OfflineDownloadManager
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -122,48 +121,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    
     val libraryRepository = com.example.repository.LibraryRepository(application)
-    val syncStatus = com.example.repository.SyncRepository.syncStatus
-    val videoTagPreferences = com.example.util.VideoTagPreferences.getInstance(application)
-
-    fun triggerCloudBackup() {
-        com.example.repository.SyncRepository.triggerSync()
-    }
-
-    fun signOutCloudUser() {
-        com.example.repository.SyncRepository.signOut(getApplication())
-    }
-
-    fun registerWithEmail(email: String, pass: String, callback: (Boolean, String?) -> Unit) {
-        com.example.repository.SyncRepository.setUserEmail(getApplication(), email)
-        callback(true, null)
-    }
-
-    fun signInWithEmail(email: String, pass: String, callback: (Boolean, String?) -> Unit) {
-        com.example.repository.SyncRepository.setUserEmail(getApplication(), email)
-        callback(true, null)
-    }
-    
-    private val _reactionGroups = MutableStateFlow<List<com.example.util.ReactionGroup>>(emptyList())
-    val reactionGroups: StateFlow<List<com.example.util.ReactionGroup>> = _reactionGroups.asStateFlow()
-
-    private val _isLoadingReactions = MutableStateFlow(false)
-    val isLoadingReactions: StateFlow<Boolean> = _isLoadingReactions.asStateFlow()
-
-    fun loadReactionsForCurrentVideo(title: String, uploaderName: String, isTorrent: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingReactions.value = true
-            try {
-                val groups = com.example.util.ReactionHelper.fetchReactions(title, uploaderName, isTorrent)
-                _reactionGroups.value = groups
-            } catch (e: Exception) {
-                _reactionGroups.value = emptyList()
-            } finally {
-                _isLoadingReactions.value = false
-            }
-        }
-    }
+    private val prefs = application.getSharedPreferences("app_user_prefs", android.content.Context.MODE_PRIVATE)
+    private val settingsPrefs = application.getSharedPreferences("app_settings_prefs", android.content.Context.MODE_PRIVATE)
 
     private val _failedSourceLogs = MutableStateFlow<List<com.example.model.FailedSourceLog>>(emptyList())
     val failedSourceLogs: StateFlow<List<com.example.model.FailedSourceLog>> = _failedSourceLogs.asStateFlow()
@@ -180,16 +140,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Theme & Appearance Settings
-    private val prefs = application.getSharedPreferences("app_settings_prefs", android.content.Context.MODE_PRIVATE)
-
     private val _adultContentEnabled = MutableStateFlow(
-        prefs.getBoolean("adult_content_enabled", false)
+        settingsPrefs.getBoolean("adult_content_enabled", false)
     )
     val adultContentEnabled: StateFlow<Boolean> = _adultContentEnabled.asStateFlow()
 
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
-        prefs.edit().putBoolean("adult_content_enabled", enabled).apply()
+        settingsPrefs.edit().putBoolean("adult_content_enabled", enabled).apply()
         refreshProvidersList()
     }
 
@@ -256,17 +214,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
 
     private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
-        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
+        prefs.getStringSet("hidden_video_ids", emptySet()) ?: emptySet()
     )
     val hiddenVideoIds: StateFlow<Set<String>> = _hiddenVideoIds.asStateFlow()
 
     private val _notInterestedChannels = MutableStateFlow<Set<String>>(
-        com.example.util.NotInterestedManager.getBlockedChannels(application)
+        prefs.getStringSet("blocked_channels", emptySet()) ?: emptySet()
     )
     val notInterestedChannels: StateFlow<Set<String>> = _notInterestedChannels.asStateFlow()
 
     private val _notInterestedVideoIds = MutableStateFlow<Set<String>>(
-        com.example.util.NotInterestedManager.getHiddenVideoIds(application)
+        prefs.getStringSet("hidden_video_ids", emptySet()) ?: emptySet()
     )
     val notInterestedVideoIds: StateFlow<Set<String>> = _notInterestedVideoIds.asStateFlow()
 
@@ -470,16 +428,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (cleanVid.isEmpty()) return
         val cleanChannel = channelName?.trim() ?: ""
 
-        // 1. Permanently persist in NotInterestedManager (SharedPreferences)
-        com.example.util.NotInterestedManager.markNotInterested(getApplication(), cleanVid, cleanChannel)
-
-        // 2. Update reactive StateFlow sets
         val updatedIds = _hiddenVideoIds.value + cleanVid
         _hiddenVideoIds.value = updatedIds
         _notInterestedVideoIds.value = _notInterestedVideoIds.value + cleanVid
-        if (cleanChannel.isNotBlank()) {
-            _notInterestedChannels.value = _notInterestedChannels.value + cleanChannel.lowercase()
+        val updatedChans = if (cleanChannel.isNotBlank()) {
+            _notInterestedChannels.value + cleanChannel.lowercase()
+        } else {
+            _notInterestedChannels.value
         }
+        _notInterestedChannels.value = updatedChans
+
+        prefs.edit()
+            .putStringSet("hidden_video_ids", updatedIds)
+            .putStringSet("blocked_channels", updatedChans)
+            .apply()
 
         // 3. Purge immediately from all in-memory lists
         _trendingVideos.value = _trendingVideos.value.filterNot { isBlockedVideo(it) }
@@ -511,9 +473,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun removeNotInterested(videoId: String) {
         val cleanVid = videoId.trim()
         if (cleanVid.isEmpty()) return
-        com.example.util.NotInterestedManager.removeNotInterested(getApplication(), cleanVid)
-        _hiddenVideoIds.value = _hiddenVideoIds.value - cleanVid
+        val updatedIds = _hiddenVideoIds.value - cleanVid
+        _hiddenVideoIds.value = updatedIds
         _notInterestedVideoIds.value = _notInterestedVideoIds.value - cleanVid
+        prefs.edit().putStringSet("hidden_video_ids", updatedIds).apply()
         updateRecommendedVideosAsync()
     }
 
@@ -1102,7 +1065,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (adultEnabled) list else list.filterNot { isAdultDownload(it) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val downloadLiveProgress = OfflineDownloadManager.liveProgress
+    val downloadLiveProgress: StateFlow<Map<String, Any>> = MutableStateFlow(emptyMap())
 
     var downloadSheetVideoItem by mutableStateOf<VideoItem?>(null)
         private set
@@ -1131,72 +1094,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         qualityLabel: String,
         streamOption: PlayableStreamOption? = null
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val targetUrl = streamOption?.videoUrl
-                ?: streamOption?.videoStream?.content
-                ?: streamOption?.videoStream?.url
-                ?: (if (!streamOption?.audioUrl.isNullOrBlank()) streamOption?.audioUrl else null)
-
-            if (!targetUrl.isNullOrBlank()) {
-                OfflineDownloadManager.downloadVideo(
-                    context = getApplication(),
-                    videoId = videoId,
-                    title = title,
-                    channelName = channelName,
-                    videoUrl = targetUrl,
-                    thumbnailUrl = thumbnailUrl,
-                    qualityLabel = qualityLabel,
-                    headers = streamOption?.headers ?: emptyMap()
-                )
-            } else {
-                try {
-                    val result = YouTubeExtractorHelper.resolveStream(videoId, getApplication())
-                    if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
-                        val opts = result.streamData.availableStreamOptions
-                        val cleanQ = qualityLabel.replace("p", "").trim()
-                        val matched = opts.firstOrNull { it.qualityLabel.contains(cleanQ) }
-                            ?: opts.firstOrNull { it.isMuxed }
-                            ?: opts.firstOrNull()
-
-                        val urlToDownload = matched?.videoUrl
-                            ?: matched?.videoStream?.content
-                            ?: matched?.videoStream?.url
-                            ?: result.streamData.videoUrl
-
-                        if (!urlToDownload.isNullOrBlank()) {
-                            OfflineDownloadManager.downloadVideo(
-                                context = getApplication(),
-                                videoId = videoId,
-                                title = title.ifBlank { result.streamData.title },
-                                channelName = channelName.ifBlank { result.streamData.channelName },
-                                videoUrl = urlToDownload,
-                                thumbnailUrl = thumbnailUrl ?: result.streamData.channelAvatarUrl,
-                                qualityLabel = qualityLabel,
-                                headers = matched?.headers ?: emptyMap()
-                            )
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MainViewModel", "Failed to extract stream for download: ${e.message}")
-                }
-            }
-        }
     }
 
     fun pauseDownload(videoId: String) {
-        OfflineDownloadManager.pauseDownload(getApplication(), videoId)
     }
 
     fun resumeDownload(videoId: String) {
-        OfflineDownloadManager.resumeDownload(getApplication(), videoId)
     }
 
     fun deleteDownload(videoId: String, localFilePath: String? = null) {
-        OfflineDownloadManager.deleteDownload(getApplication(), videoId, localFilePath)
     }
 
     fun clearAllDownloads() {
-        OfflineDownloadManager.clearAllDownloads(getApplication())
     }
 
     fun playOfflineDownload(download: OfflineDownloadEntity) {
@@ -1239,8 +1148,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             streamData = streamData,
             streamOption = option,
             hlsUrl = null,
-            captionOption = null,
-            embedUrl = null
+            captionOption = null
         )
     }
 
@@ -1441,12 +1349,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
+        refreshProvidersList()
+        loadTrending()
         viewModelScope.launch {
             videoCacheRepo.searchHistoryFlow.collect { roomSearches ->
                 if (roomSearches.isNotEmpty()) {
                     _recentSearches.value = roomSearches
                 }
             }
+        }
+        com.example.ui.player.GlobalPlayerManager.setPlaybackFailedListener {
+            tryNextFallbackStream()
         }
     }
 
@@ -1595,22 +1508,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (trimmed.isBlank()) return
         _selectedChannelName.value = trimmed
         _selectedChannelAvatarUrl.value = avatarUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(trimmed, avatarUrl).logoUrls.firstOrNull()
-        _currentScreen.value = AppScreen.CHANNEL
-
-        _isChannelLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val cachedAndFeed = (_searchResults.value + _trendingVideos.value)
-                .filter {
-                    val uName = it.uploaderName ?: ""
-                    uName.contains(trimmed, ignoreCase = true) || trimmed.contains(uName, ignoreCase = true)
-                }
-
-            val ytResults = emptyList<VideoItem>()
-
-            val combined = (cachedAndFeed + ytResults)
-            _channelVideos.value = filterRankAndDeduplicateSearchResults(combined, trimmed)
-            _isChannelLoading.value = false
-        }
+        _currentScreen.value = AppScreen.HOME
+        updateSearchQuery(trimmed)
+        performSearch(trimmed)
     }
 
     fun updateSearchQuery(query: String) {
@@ -1938,13 +1838,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _isExtracting.value = false
                 }
             }
-        }
-    }
-
-    init {
-        // Wire GlobalPlayerManager error listener for automatic fallback
-        com.example.ui.player.GlobalPlayerManager.setPlaybackFailedListener {
-            tryNextFallbackStream()
         }
     }
 

@@ -2,16 +2,9 @@ package com.example.model
 
 enum class AppScreen {
     HOME,
-    EXPLORE,
-    SHORTS,
-    MUSIC,
-    SUBSCRIPTIONS,
-    ACCOUNT,
     LIBRARY,
     PLAYER,
-    SETTINGS,
-    SPONSORBLOCK_SETTINGS,
-    CHANNEL
+    SETTINGS
 }
 
 enum class ProviderType {

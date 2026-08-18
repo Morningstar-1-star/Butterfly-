@@ -90,9 +90,6 @@ fun VideoCard(
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val videoTagPrefs = remember { com.example.util.VideoTagPreferences.getInstance(context) }
-    val hideAllTags by videoTagPrefs.hideAllTags.collectAsState()
-    val hiddenTags by videoTagPrefs.hiddenTags.collectAsState()
 
     val providerBadgeInfo = remember(video.providerId, video.title, video.uploaderName, video.uploadDate, video.id) {
         val pid = (video.providerId ?: "").lowercase()
@@ -203,11 +200,7 @@ fun VideoCard(
                     )
                 }
 
-                val isTagVisible = remember(hideAllTags, hiddenTags, providerBadgeInfo.first) {
-                    videoTagPrefs.isTagVisible(providerBadgeInfo.first)
-                }
-
-                if (!video.providerId.isNullOrEmpty() && isTagVisible) {
+                if (!video.providerId.isNullOrEmpty()) {
                     Text(
                         text = providerBadgeInfo.first,
                         color = Color.White,
@@ -435,11 +428,7 @@ fun VideoCard(
                     onClick = {
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
-                            if (onDownload != null) {
-                                onDownload.invoke(video)
-                            } else {
-                                com.example.util.VideoActionHelper.downloadVideo(context, video)
-                            }
+                            onDownload?.invoke(video)
                         }
                     }
                 )
@@ -453,7 +442,14 @@ fun VideoCard(
                             if (onShare != null) {
                                 onShare.invoke(video)
                             } else {
-                                com.example.util.VideoActionHelper.shareVideo(context, video)
+                                try {
+                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(android.content.Intent.EXTRA_SUBJECT, video.title)
+                                        putExtra(android.content.Intent.EXTRA_TEXT, "${video.title}\nhttps://youtube.com/watch?v=${video.id}")
+                                    }
+                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share video"))
+                                } catch (e: Exception) {}
                             }
                         }
                     }
@@ -465,11 +461,7 @@ fun VideoCard(
                     onClick = {
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
-                            if (onNotInterested != null) {
-                                onNotInterested.invoke(video)
-                            } else {
-                                com.example.util.NotInterestedManager.markNotInterested(context, video.id, video.uploaderName)
-                            }
+                            onNotInterested?.invoke(video)
                             Toast.makeText(context, "We won't recommend this video again", Toast.LENGTH_SHORT).show()
                         }
                     }

@@ -15,7 +15,6 @@ data class VideoItem(
     val uploadDate: String? = null,
     val thumbnailUrl: String? = null,
     val providerId: String? = null,
-    val embedUrl: String? = null,
     val tags: List<String> = emptyList(),
     val description: String? = null
 ) {
@@ -111,13 +110,7 @@ data class PlayableStreamOption(
     val audioUrl: String? = null,
     val providerType: ProviderType = ProviderType.OTHER,
     val headers: Map<String, String> = emptyMap()
-) {
-    val isTorrent: Boolean
-        get() = providerType == ProviderType.TORRENT ||
-                format.equals("torrent", ignoreCase = true) ||
-                format.equals("p2p", ignoreCase = true) ||
-                (videoUrl?.startsWith("magnet:") == true)
-}
+)
 
 data class CaptionOption(
     val languageName: String,
@@ -145,15 +138,11 @@ data class StreamData(
     val selectedStreamOption: PlayableStreamOption? = null,
     val hlsUrl: String? = null,
     val relatedVideos: List<VideoItem> = emptyList(),
-    val embedUrl: String? = null,
     val providerId: String? = null,
     val thumbnailUrl: String? = null,
     val providerType: ProviderType = ProviderType.OTHER,
     val headers: Map<String, String> = emptyMap()
 ) {
-    val isTorrent: Boolean
-        get() = providerType == ProviderType.TORRENT || selectedStreamOption?.isTorrent == true || availableStreamOptions.any { it.isTorrent }
-
     val effectiveThumbnailUrl: String?
         get() {
             if (!thumbnailUrl.isNullOrEmpty()) return thumbnailUrl

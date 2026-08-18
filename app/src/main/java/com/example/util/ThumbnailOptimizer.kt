@@ -33,7 +33,7 @@ object ThumbnailOptimizer {
         if (rawUrl.isNullOrBlank()) return null
         val trimmed = rawUrl.trim()
 
-        // 1. Optimize YouTube thumbnails (replace hqdefault.jpg which has 4:3 letterbox black bars with true 16:9 mqdefault.jpg / hq720.jpg)
+        // 1. Optimize YouTube thumbnails (use reliable mqdefault.jpg for compact or hqdefault.jpg)
         if (trimmed.contains("i.ytimg.com") || trimmed.contains("img.youtube.com")) {
             if (preferCompact) {
                 if (trimmed.contains("/maxresdefault.jpg")) return trimmed.replace("/maxresdefault.jpg", "/mqdefault.jpg")
@@ -41,9 +41,9 @@ object ThumbnailOptimizer {
                 if (trimmed.contains("/hqdefault.jpg")) return trimmed.replace("/hqdefault.jpg", "/mqdefault.jpg")
                 if (trimmed.contains("/hq720.jpg")) return trimmed.replace("/hq720.jpg", "/mqdefault.jpg")
             } else {
-                if (trimmed.contains("/hqdefault.jpg")) return trimmed.replace("/hqdefault.jpg", "/hq720.jpg")
-                if (trimmed.contains("/maxresdefault.jpg")) return trimmed.replace("/maxresdefault.jpg", "/hq720.jpg")
-                if (trimmed.contains("/sddefault.jpg")) return trimmed.replace("/sddefault.jpg", "/hq720.jpg")
+                if (trimmed.contains("/maxresdefault.jpg")) return trimmed.replace("/maxresdefault.jpg", "/hqdefault.jpg")
+                if (trimmed.contains("/sddefault.jpg")) return trimmed.replace("/sddefault.jpg", "/hqdefault.jpg")
+                if (trimmed.contains("/hq720.jpg")) return trimmed.replace("/hq720.jpg", "/hqdefault.jpg")
             }
             return trimmed
         }
