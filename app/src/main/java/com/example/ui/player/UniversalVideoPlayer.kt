@@ -97,17 +97,15 @@ fun UniversalVideoPlayer(
 ) {
     val context = LocalContext.current
 
-    val rawVideoUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl ?: embedUrl
+    val rawVideoUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
 
     var playerError by remember { mutableStateOf<String?>(null) }
-    var forceWebViewFallback by remember { mutableStateOf(false) }
 
-    val playbackSourceType = remember(rawVideoUrl, streamOption, forceWebViewFallback) {
-        if (forceWebViewFallback) com.example.model.PlaybackSourceType.EMBED_WEBVIEW
-        else com.example.model.PlaybackDecisionResolver.determineSourceType(rawVideoUrl, streamOption?.format)
+    val playbackSourceType = remember(rawVideoUrl, streamOption) {
+        com.example.model.PlaybackDecisionResolver.determineSourceType(rawVideoUrl, streamOption?.format)
     }
 
-    val isEmbedOrWebPage = playbackSourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
+    val isEmbedOrWebPage = false
 
     // Playback Speed & Scaling Controls
     val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }

@@ -446,7 +446,7 @@ object GlobalPlayerManager {
         }
         _playerError.value = null
 
-        val rawUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl ?: embedUrl
+        val rawUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
         if (rawUrl.isNullOrEmpty()) {
             _isEmbedOrWebPage.value = false
             currentLoadedMediaKey = null
@@ -472,11 +472,11 @@ object GlobalPlayerManager {
         }
 
         val sourceType = com.example.model.PlaybackDecisionResolver.determineSourceType(rawUrl, streamOption?.format)
-        val isEmbed = sourceType == com.example.model.PlaybackSourceType.EMBED_WEBVIEW
+        val isEmbed = false
 
         val effectivePlayableUrl = rawUrl
 
-        _isEmbedOrWebPage.value = isEmbed
+        _isEmbedOrWebPage.value = false
 
         val mediaKey = "${effectivePlayableUrl}_${captionOption?.languageCode}"
         if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
