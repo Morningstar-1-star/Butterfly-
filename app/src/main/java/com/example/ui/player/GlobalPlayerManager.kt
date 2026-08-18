@@ -44,20 +44,42 @@ object GlobalPlayerManager {
         .addInterceptor { chain ->
             var request = chain.request()
             val urlStr = request.url.toString().lowercase()
-            if (urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia")) {
-                val builder = request.newBuilder()
-                if (request.header("User-Agent") == null) {
-                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-                }
-                if (request.header("Referer") == null) {
-                    builder.header("Referer", "https://archive.org/")
-                }
-                if (request.header("Accept") == null) {
-                    builder.header("Accept", "*/*")
-                }
-                request = builder.build()
+            val builder = request.newBuilder()
+
+            // Default Desktop Chrome User-Agent if missing or generic okhttp
+            val existingUa = request.header("User-Agent")
+            if (existingUa.isNullOrBlank() || existingUa.startsWith("okhttp", ignoreCase = true)) {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            chain.proceed(request)
+
+            when {
+                urlStr.contains("youtube.com") || urlStr.contains("googlevideo.com") || urlStr.contains("youtu.be") -> {
+                    if (request.header("Referer") == null) builder.header("Referer", "https://www.youtube.com/")
+                    if (request.header("Origin") == null) builder.header("Origin", "https://www.youtube.com")
+                }
+                urlStr.contains("eporner.com") || urlStr.contains("eporner") || urlStr.contains("static-cluster") -> {
+                    if (request.header("Referer") == null) builder.header("Referer", "https://www.eporner.com/")
+                    if (request.header("Origin") == null) builder.header("Origin", "https://www.eporner.com")
+                }
+                urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia") -> {
+                    if (request.header("Referer") == null) builder.header("Referer", "https://archive.org/")
+                    if (request.header("Accept") == null) builder.header("Accept", "*/*")
+                }
+                urlStr.contains("dailymotion.com") || urlStr.contains("dmcdn.net") || urlStr.contains("dai.ly") -> {
+                    if (request.header("Referer") == null) builder.header("Referer", "https://www.dailymotion.com/")
+                    if (request.header("Origin") == null) builder.header("Origin", "https://www.dailymotion.com")
+                }
+                urlStr.contains("pornhub.com") || urlStr.contains("phncdn.com") -> {
+                    if (request.header("Referer") == null) builder.header("Referer", "https://www.pornhub.com/")
+                    if (request.header("Origin") == null) builder.header("Origin", "https://www.pornhub.com")
+                    if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1")
+                }
+                urlStr.contains("vimeo.com") -> {
+                    if (request.header("Referer") == null) builder.header("Referer", "https://vimeo.com/")
+                }
+            }
+
+            chain.proceed(builder.build())
         }
         .dns(object : okhttp3.Dns {
             override fun lookup(hostname: String): List<java.net.InetAddress> {

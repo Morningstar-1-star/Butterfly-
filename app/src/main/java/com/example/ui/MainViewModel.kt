@@ -1772,7 +1772,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     deferredList.awaitAll().filterNotNull().forEach { combinedItems.addAll(it) }
                 }
 
-                val combined = combinedItems
+                val ytItems = combinedItems.filter { it.providerId == "youtube" }
+                val nonYtItems = combinedItems.filter { it.providerId != "youtube" }
+                val combined = (ytItems + nonYtItems)
                     .distinctBy { it.id }
                     .filter { adultEnabled || !isAdultVideoItem(it) }
 
@@ -1886,11 +1888,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     deferredList.awaitAll().filterNotNull().forEach { combinedItems.addAll(it) }
                 }
 
-                val combined = combinedItems
+                val ytItems = combinedItems.filter { it.providerId == "youtube" }
+                val nonYtItems = combinedItems.filter { it.providerId != "youtube" }
+                val combined = (ytItems + nonYtItems)
                     .distinctBy { it.id }
                     .filter { adultEnabled || !isAdultVideoItem(it) }
 
-                _trendingVideos.value = if (forceRefresh) combined.shuffled() else combined
+                _trendingVideos.value = combined
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed", e)
                 _trendingVideos.value = emptyList()

@@ -214,7 +214,7 @@ val archiveHeaders = mapOf(
 val standardFallbacks = listOf(
     "$identifier.mp4" to "MP4 High Quality",
     "${identifier}_512kb.mp4" to "MP4 Standard 512kb",
-    "$identifier.ogv" to "OGV Video",
+    "$identifier.ia.mp4" to "MP4 IA Derivative",
     "$identifier.webm" to "WebM Video"
 )
 for ((fname, label) in standardFallbacks) {

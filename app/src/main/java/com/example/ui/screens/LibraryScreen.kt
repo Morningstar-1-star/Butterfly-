@@ -183,7 +183,10 @@ fun LibraryScreen(
                     val isSelected = selectedChannelFilter == id || (id == "all" && selectedChannelFilter == null)
                     FilterChip(
                         selected = isSelected,
-                        onClick = { selectedChannelFilter = if (id == "all") null else id },
+                        onClick = {
+                            selectedChannelFilter = if (id == "all") null else id
+                            viewModel.setActiveProvider(id)
+                        },
                         label = { Text(name, fontWeight = FontWeight.SemiBold) },
                         leadingIcon = {
                             Icon(
