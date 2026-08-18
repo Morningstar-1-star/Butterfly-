@@ -129,4 +129,74 @@ object EpornerProvider {
             null
         }
     }
+
+    suspend fun getHome(limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
+        val items = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder().url("https://www.eporner.com/").build()
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return@withContext emptyList()
+
+            val pattern = Pattern.compile("<a\\s+href=\"(/video-([0-9a-zA-Z]+)/[^\"]+)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
+            val matcher = pattern.matcher(html)
+            val seenIds = mutableSetOf<String>()
+            while (matcher.find() && items.size < limit) {
+                val path = matcher.group(1) ?: continue
+                val videoId = matcher.group(2) ?: continue
+                val title = matcher.group(3) ?: "Eporner Video"
+                if (seenIds.contains(videoId)) continue
+                seenIds.add(videoId)
+
+                items.add(
+                    VideoItem(
+                        id = videoId,
+                        title = title,
+                        uploaderName = "Eporner",
+                        thumbnailUrl = "",
+                        providerId = PROVIDER_ID
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Eporner getHome failed: ${e.message}")
+        }
+        items
+    }
+
+    suspend fun search(query: String, limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
+        val items = mutableListOf<VideoItem>()
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val req = Request.Builder().url("https://www.eporner.com/search/$encoded/").build()
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return@withContext emptyList()
+
+            val pattern = Pattern.compile("<a\\s+href=\"(/video-([0-9a-zA-Z]+)/[^\"]+)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
+            val matcher = pattern.matcher(html)
+            val seenIds = mutableSetOf<String>()
+            while (matcher.find() && items.size < limit) {
+                val path = matcher.group(1) ?: continue
+                val videoId = matcher.group(2) ?: continue
+                val title = matcher.group(3) ?: "Eporner Video"
+                if (seenIds.contains(videoId)) continue
+                seenIds.add(videoId)
+
+                items.add(
+                    VideoItem(
+                        id = videoId,
+                        title = title,
+                        uploaderName = "Eporner",
+                        thumbnailUrl = "",
+                        providerId = PROVIDER_ID
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Eporner search failed: ${e.message}")
+        }
+        items
+    }
 }

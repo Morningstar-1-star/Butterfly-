@@ -198,7 +198,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPipMode.value = enabled
     }
 
-    private val adultProviderIds = setOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "eporner", "apijav")
+    private val adultProviderIds = setOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav")
 
     fun isAdultProviderId(providerId: String?): Boolean {
         if (providerId.isNullOrBlank()) return false
@@ -209,13 +209,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun isAdultVideoItem(item: VideoItem): Boolean {
         if (isAdultProviderId(item.providerId)) return true
         val text = "${item.title} ${item.uploaderName} ${item.description}".lowercase()
-        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "eporner", "apijav", "adult", "nsfw")
+        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw")
         return adultKeywords.any { text.contains(it) }
     }
 
     fun isAdultSearchQuery(query: String): Boolean {
         val q = query.lowercase()
-        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "eporner", "apijav", "adult", "nsfw")
+        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw")
         return adultKeywords.any { q.contains(it) }
     }
     fun isAdultDownload(entity: OfflineDownloadEntity): Boolean = false
@@ -1635,22 +1635,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val adultEnabled = _adultContentEnabled.value
                 val activeProv = _activeProviderId.value
+                val enabledSet = _enabledProviderIds.value
 
-                val archiveResults = if (activeProv == "all" || activeProv == "archive_org") {
+                val archiveResults = if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                     com.example.extractor.ArchiveOrgProvider.search(q, 1)
                 } else emptyList()
 
-                val ytItems = if (activeProv == "all" || activeProv == "youtube") {
+                val ytItems = if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                     com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
                 } else emptyList()
 
-                val ytDlpResults = if (activeProv != "youtube" && activeProv != "archive_org") {
-                    com.example.extractor.YtDlpResolver.search(getApplication(), q, 25)
-                } else if (adultEnabled || !isAdultSearchQuery(q)) {
-                    com.example.extractor.YtDlpResolver.search(getApplication(), q, 10)
+                val epornerResults = if ((activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
+                    com.example.extractor.EpornerProvider.search(q, 25)
                 } else emptyList()
 
-                val combined = (archiveResults + ytItems + ytDlpResults)
+                val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "curiositystream") +
+                    if (adultEnabled) listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn") else emptyList()
+
+                val searchSources = when {
+                    activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) }
+                    enabledSet.contains(activeProv) && ytDlpSources.contains(activeProv) -> listOf(activeProv)
+                    else -> emptyList()
+                }
+
+                val ytDlpResults = mutableListOf<VideoItem>()
+                if (searchSources.isNotEmpty()) {
+                    kotlinx.coroutines.supervisorScope {
+                        val deferreds = searchSources.map { prov ->
+                            async(Dispatchers.IO) {
+                                try {
+                                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                        com.example.extractor.YtDlpResolver.search(getApplication(), q, 15, prov)
+                                    } ?: emptyList()
+                                } catch (e: Exception) {
+                                    emptyList()
+                                }
+                            }
+                        }
+                        deferreds.awaitAll().filterNotNull().forEach { ytDlpResults.addAll(it) }
+                    }
+                } else if (activeProv != "all" && activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner" && enabledSet.contains(activeProv)) {
+                    ytDlpResults.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), q, 25, activeProv))
+                }
+
+                val combined = (archiveResults + ytItems + epornerResults + ytDlpResults)
                     .distinctBy { it.id }
                     .filter { adultEnabled || !isAdultVideoItem(it) }
 
@@ -1681,27 +1709,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val adultEnabled = _adultContentEnabled.value
                 val activeProv = _activeProviderId.value
+                val enabledSet = _enabledProviderIds.value
 
-                val ytItems = if (activeProv == "all" || activeProv == "youtube") {
+                val ytItems = if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                     com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
                 } else emptyList()
 
-                val archiveItems = if (activeProv == "all" || activeProv == "archive_org") {
+                val archiveItems = if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                     com.example.extractor.ArchiveOrgProvider.getHome(1)
                 } else emptyList()
 
+                val epornerItems = if ((activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
+                    com.example.extractor.EpornerProvider.getHome(25)
+                } else emptyList()
+
+                val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "curiositystream") +
+                    if (adultEnabled) listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn") else emptyList()
+
+                val targetSources = when {
+                    activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) }
+                    enabledSet.contains(activeProv) && ytDlpSources.contains(activeProv) -> listOf(activeProv)
+                    else -> emptyList()
+                }
+
                 val ytDlpItems = mutableListOf<VideoItem>()
-                if (activeProv == "all") {
-                    val sources = mutableListOf("dailymotion", "vimeo")
-                    if (adultEnabled) {
-                        sources.add("pornhub")
-                    }
+                if (targetSources.isNotEmpty()) {
                     kotlinx.coroutines.supervisorScope {
-                        val deferreds = sources.map { prov ->
+                        val deferreds = targetSources.map { prov ->
                             async(Dispatchers.IO) {
                                 try {
-                                    kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                        com.example.extractor.YtDlpResolver.search(getApplication(), "trending", 5, prov)
+                                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                        val query = when (prov) {
+                                            "dailymotion" -> "trending"
+                                            "vimeo" -> "staff picks"
+                                            "bilibili" -> "anime"
+                                            "curiositystream" -> "documentary"
+                                            else -> "popular"
+                                        }
+                                        com.example.extractor.YtDlpResolver.search(getApplication(), query, 10, prov)
                                     } ?: emptyList()
                                 } catch (e: Exception) {
                                     emptyList()
@@ -1710,7 +1755,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         deferreds.awaitAll().filterNotNull().forEach { ytDlpItems.addAll(it) }
                     }
-                } else if (activeProv != "youtube" && activeProv != "archive_org") {
+                } else if (activeProv != "all" && activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner" && enabledSet.contains(activeProv)) {
                     val query = when (activeProv) {
                         "dailymotion" -> "trending"
                         "vimeo" -> "staff picks"
@@ -1718,7 +1763,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "curiositystream" -> "documentary"
                         "pornhub" -> "trending"
                         "xvideos" -> "popular"
-                        "eporner" -> "HD"
                         "xhamster" -> "popular"
                         "redtube" -> "trending"
                         "youporn" -> "popular"
@@ -1730,7 +1774,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ytDlpItems.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), query, 25, activeProv))
                 }
 
-                val combined = (ytItems + archiveItems + ytDlpItems)
+                val combined = (ytItems + archiveItems + epornerItems + ytDlpItems)
                     .distinctBy { it.id }
                     .filter { adultEnabled || !isAdultVideoItem(it) }
 

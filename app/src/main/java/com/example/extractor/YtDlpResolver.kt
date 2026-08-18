@@ -478,8 +478,8 @@ object YtDlpResolver {
 
             val searchTarget = when {
                 query.startsWith("http://") || query.startsWith("https://") -> query
-                providerId == "dailymotion" -> "https://www.dailymotion.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "vimeo" -> "https://vimeo.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "dailymotion" -> "dailymotion:search:$query"
+                providerId == "vimeo" -> "vimeo:search:$query"
                 providerId == "bilibili" -> "https://search.bilibili.com/all?keyword=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "curiositystream" -> "https://curiositystream.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "pornhub" -> "https://www.pornhub.com/video/search?search=${java.net.URLEncoder.encode(query, "UTF-8")}"

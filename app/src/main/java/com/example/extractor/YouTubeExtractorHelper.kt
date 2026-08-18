@@ -56,8 +56,14 @@ object YouTubeExtractorHelper {
             )
             val items = kioskInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
                 ?.map { item ->
-                    val vId = item.url.substringAfter("v=").substringBefore("&")
-                    val thumb = item.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                    val vId = when {
+                        item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
+                        item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+                        item.url.length == 11 -> item.url
+                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 } ?: "dQw4w9WgXcQ"
+                    }
+                    val rawThumb = item.thumbnails?.firstOrNull()?.url
+                    val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
                     VideoItem(
                         id = vId,
                         title = item.name ?: "YouTube Video",
@@ -99,8 +105,14 @@ object YouTubeExtractorHelper {
             searchExtractor.fetchPage()
             val items = searchExtractor.initialPage?.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
                 ?.map { item ->
-                    val vId = item.url.substringAfter("v=").substringBefore("&")
-                    val thumb = item.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                    val vId = when {
+                        item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
+                        item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+                        item.url.length == 11 -> item.url
+                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 } ?: "dQw4w9WgXcQ"
+                    }
+                    val rawThumb = item.thumbnails?.firstOrNull()?.url
+                    val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
                     VideoItem(
                         id = vId,
                         title = item.name ?: "YouTube Video",
