@@ -9,8 +9,15 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -26,6 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +47,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.model.CaptionOption
 import com.example.model.PlayableStreamOption
+import com.example.model.StreamData
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,6 +56,7 @@ fun UniversalVideoPlayer(
     streamOption: PlayableStreamOption?,
     hlsUrl: String?,
     captionOption: CaptionOption?,
+    streamData: StreamData? = null,
     providerId: String? = null,
     isPlaying: Boolean = true,
     videoId: String? = null,
@@ -148,10 +160,10 @@ fun UniversalVideoPlayer(
         if (isPlaying) GlobalPlayerManager.play() else GlobalPlayerManager.pause()
     }
 
-    LaunchedEffect(streamOption, hlsUrl, captionOption, videoId) {
+    LaunchedEffect(streamOption, hlsUrl, captionOption, videoId, streamData) {
         GlobalPlayerManager.prepareAndPlay(
             context = context,
-            streamData = null,
+            streamData = streamData ?: activeStreamData,
             streamOption = streamOption,
             hlsUrl = hlsUrl,
             captionOption = captionOption,
@@ -327,6 +339,12 @@ fun UniversalVideoPlayer(
         contentAlignment = Alignment.Center
     ) {
         val currentPlayerContext = LocalContext.current
+        val isBuffering by GlobalPlayerManager.isBuffering.collectAsState()
+        val firstFrameRendered by GlobalPlayerManager.firstFrameRendered.collectAsState()
+        val playerError by GlobalPlayerManager.playerError.collectAsState()
+
+        val showLoadingIndicator = isBuffering || (!firstFrameRendered && playerError == null)
+
         Box(modifier = Modifier.fillMaxSize()) {
             PersistentPlayerHost(
                 useController = false,
@@ -336,6 +354,70 @@ fun UniversalVideoPlayer(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Glowing Loading / Buffering Indicator
+            AnimatedVisibility(
+                visible = showLoadingIndicator,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                GlowingBufferingIndicator(
+                    statusText = if (isBuffering) "Buffering video..." else "Connecting stream..."
+                )
+            }
+
+            // Error Overlay if playerError != null
+            if (playerError != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                        .background(Color.Black.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.ErrorOutline,
+                            contentDescription = "Error",
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Playback Failed",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = playerError ?: "Unable to play stream",
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 11.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 3
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                GlobalPlayerManager.prepareAndPlay(
+                                    context = context,
+                                    streamData = streamData ?: activeStreamData,
+                                    streamOption = streamOption,
+                                    hlsUrl = hlsUrl,
+                                    captionOption = captionOption,
+                                    initialPos = GlobalPlayerManager.currentPositionMs.value
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                        ) {
+                            Text("Retry Playback", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
 
             // Top Header (Title + Actions Toolbar)
             AnimatedVisibility(
@@ -1263,5 +1345,71 @@ private fun toggleFullscreen(context: Context) {
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+    }
+}
+
+@Composable
+fun GlowingBufferingIndicator(
+    statusText: String = "Loading stream...",
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "buffering_rotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+
+    Box(
+        modifier = modifier
+            .size(110.dp)
+            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .graphicsLayer { rotationZ = rotation },
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = 4.dp.toPx()
+                    drawArc(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.25f),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    )
+                    drawArc(
+                        brush = androidx.compose.ui.graphics.Brush.sweepGradient(
+                            listOf(Color(0xFF00E5FF), Color(0xFF1DE9B6), Color(0xFF2979FF))
+                        ),
+                        startAngle = -90f,
+                        sweepAngle = 270f,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = statusText,
+                color = Color.White.copy(alpha = 0.90f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
     }
 }

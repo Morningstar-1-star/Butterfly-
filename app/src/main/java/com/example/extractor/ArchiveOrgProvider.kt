@@ -25,6 +25,22 @@ object ArchiveOrgProvider {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
+        .followSslRedirects(true)
+        .addInterceptor { chain ->
+            var request = chain.request()
+            val urlStr = request.url.toString().lowercase()
+            if (urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia")) {
+                val builder = request.newBuilder()
+                if (request.header("User-Agent") == null) {
+                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                }
+                if (request.header("Referer") == null) {
+                    builder.header("Referer", "https://archive.org/")
+                }
+                request = builder.build()
+            }
+            chain.proceed(request)
+        }
         .build()
 
     private fun httpGet(url: String): String? {
@@ -150,69 +166,129 @@ object ArchiveOrgProvider {
                     }
                 }
 
-                for (f in videoFiles) {
-                    val name = f.optString("name")
-                    val title = f.optString("title", "").ifBlank {
-                        name.removeSuffix(".ia.mp4")
-                            .removeSuffix(".mp4")
-                            .removeSuffix(".mkv")
-                            .removeSuffix(".webm")
-                            .removeSuffix(".avi")
-                            .replace("_", " ")
-                    }
-                    val encodedName = Uri.encode(name, "/@:.-_")
-                    val fileUrl = "https://archive.org/download/$identifier/$encodedName"
-                    val height = f.optInt("height", 0)
-                    val heightLabel = if (height > 0) "${height}p" else "720p"
+        val archiveHeaders = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer" to "https://archive.org/"
+        )
 
-                    options.add(
-                        PlayableStreamOption(
-                            qualityLabel = "$title ($heightLabel)",
-                            format = "mp4",
-                            isMuxed = true,
-                            videoUrl = fileUrl,
-                            providerType = ProviderType.DIRECT,
-                            headers = mapOf("Referer" to "https://archive.org/")
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed parsing metadata: ${e.message}")
+        for (f in videoFiles) {
+            val name = f.optString("name")
+            val fmt = f.optString("format", "")
+            val title = f.optString("title", "").ifBlank {
+                name.removeSuffix(".ia.mp4")
+                    .removeSuffix(".mp4")
+                    .removeSuffix(".mkv")
+                    .removeSuffix(".webm")
+                    .removeSuffix(".avi")
+                    .replace("_", " ")
             }
-        }
+            val encodedName = Uri.encode(name, "/@:.-_")
+            val fileUrl = "https://archive.org/download/$identifier/$encodedName"
+            val height = f.optInt("height", 0)
+            val heightLabel = if (height > 0) "${height}p" else "Direct"
 
-        if (options.isEmpty()) {
-            if (idOrUrl.startsWith("http://") || idOrUrl.startsWith("https://")) {
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "Direct Video Stream",
-                        format = "mp4",
-                        isMuxed = true,
-                        videoUrl = idOrUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = mapOf("Referer" to "https://archive.org/")
-                    )
+            val isH264Mp4 = name.endsWith(".mp4", ignoreCase = true) || fmt.contains("h.264", ignoreCase = true) || fmt.contains("mp4", ignoreCase = true)
+            val is512Kb = fmt.contains("512kb", ignoreCase = true) || name.contains("512kb", ignoreCase = true)
+
+            options.add(
+                PlayableStreamOption(
+                    qualityLabel = "$title ($heightLabel${if (isH264Mp4) " MP4" else ""})",
+                    format = if (isH264Mp4) "mp4" else "video",
+                    isMuxed = true,
+                    videoUrl = fileUrl,
+                    providerType = ProviderType.DIRECT,
+                    headers = archiveHeaders
                 )
-            } else {
-                Log.w(TAG, "No valid playable video files found in metadata for $identifier")
-                return@withContext null
-            }
+            )
         }
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed parsing metadata: ${e.message}")
+    }
+}
 
-        StreamData(
-            videoId = identifier,
-            videoUrl = options.firstOrNull()?.videoUrl ?: "",
-            title = resolvedTitle,
-            channelName = resolvedCreator,
-            description = resolvedDesc,
-            thumbnailUrl = "https://archive.org/services/img/$identifier",
-            availableStreamOptions = options,
-            selectedStreamOption = options.firstOrNull(),
-            captionOptions = captions,
-            providerId = PROVIDER_ID,
-            providerType = ProviderType.DIRECT
+// Always ensure standard direct download fallback options are present for archive.org items
+val archiveHeaders = mapOf(
+    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer" to "https://archive.org/"
+)
+val standardFallbacks = listOf(
+    "$identifier.mp4" to "MP4 High Quality",
+    "${identifier}_512kb.mp4" to "MP4 Standard 512kb",
+    "$identifier.ogv" to "OGV Video",
+    "$identifier.webm" to "WebM Video"
+)
+for ((fname, label) in standardFallbacks) {
+    val fallbackUrl = "https://archive.org/download/$identifier/$fname"
+    if (options.none { it.videoUrl == fallbackUrl }) {
+        options.add(
+            PlayableStreamOption(
+                qualityLabel = "$label (Direct)",
+                format = "mp4",
+                isMuxed = true,
+                videoUrl = fallbackUrl,
+                providerType = ProviderType.DIRECT,
+                headers = archiveHeaders
+            )
         )
     }
+}
+
+if (options.isEmpty()) {
+    if (idOrUrl.startsWith("http://") || idOrUrl.startsWith("https://")) {
+        options.add(
+            PlayableStreamOption(
+                qualityLabel = "Direct Video Stream",
+                format = "mp4",
+                isMuxed = true,
+                videoUrl = idOrUrl,
+                providerType = ProviderType.DIRECT,
+                headers = archiveHeaders
+            )
+        )
+    } else {
+        // Fallback with identifier itself
+        val fallbackUrl = "https://archive.org/download/$identifier/$identifier.mp4"
+        options.add(
+            PlayableStreamOption(
+                qualityLabel = "MP4 Direct Stream",
+                format = "mp4",
+                isMuxed = true,
+                videoUrl = fallbackUrl,
+                providerType = ProviderType.DIRECT,
+                headers = archiveHeaders
+            )
+        )
+    }
+}
+
+// Sort options: prefer MP4/H.264, 720p/1080p, non-512kb
+val sortedOptions = options.sortedWith(
+    compareByDescending<PlayableStreamOption> { opt ->
+        var score = 0
+        if (opt.format.equals("mp4", ignoreCase = true) || opt.qualityLabel.contains("MP4", ignoreCase = true)) score += 1000
+        if (opt.qualityLabel.contains("720p") || opt.qualityLabel.contains("1080p") || opt.qualityLabel.contains("480p")) score += 500
+        if (opt.qualityLabel.contains("512kb", ignoreCase = true)) score -= 200
+        score
+    }
+)
+
+val bestOption = sortedOptions.firstOrNull() ?: return@withContext null
+
+StreamData(
+    videoId = identifier,
+    videoUrl = bestOption.videoUrl ?: "",
+    title = resolvedTitle,
+    channelName = resolvedCreator,
+    description = resolvedDesc,
+    thumbnailUrl = "https://archive.org/services/img/$identifier",
+    availableStreamOptions = sortedOptions,
+    selectedStreamOption = bestOption,
+    captionOptions = captions,
+    providerId = PROVIDER_ID,
+    providerType = ProviderType.DIRECT,
+    headers = bestOption.headers
+)
+}
 
     private fun parseArchiveList(jsonStr: String): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
@@ -264,6 +340,11 @@ object ArchiveOrgProvider {
 
     private fun extractId(input: String): String {
         var clean = input.trim()
+            .removePrefix("archive_org:")
+            .removePrefix("archive:")
+        if (clean.startsWith("archive_") && !clean.contains("details") && !clean.contains("download")) {
+            clean = clean.removePrefix("archive_")
+        }
         if (clean.contains("archive.org/details/")) {
             clean = clean.substringAfter("archive.org/details/").substringBefore("/").substringBefore("?").substringBefore("#")
         } else if (clean.contains("archive.org/download/")) {

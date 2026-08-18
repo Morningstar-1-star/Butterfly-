@@ -41,13 +41,30 @@ object GlobalPlayerManager {
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
+        .addInterceptor { chain ->
+            var request = chain.request()
+            val urlStr = request.url.toString().lowercase()
+            if (urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia")) {
+                val builder = request.newBuilder()
+                if (request.header("User-Agent") == null) {
+                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                }
+                if (request.header("Referer") == null) {
+                    builder.header("Referer", "https://archive.org/")
+                }
+                if (request.header("Accept") == null) {
+                    builder.header("Accept", "*/*")
+                }
+                request = builder.build()
+            }
+            chain.proceed(request)
+        }
         .dns(object : okhttp3.Dns {
             override fun lookup(hostname: String): List<java.net.InetAddress> {
                 return try {
                     okhttp3.Dns.SYSTEM.lookup(hostname)
                 } catch (e: java.net.UnknownHostException) {
                     try {
-                        // Fallback lookup via GetAllByName
                         java.net.InetAddress.getAllByName(hostname).toList().ifEmpty {
                             throw e
                         }
@@ -80,11 +97,11 @@ object GlobalPlayerManager {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
+
     private val _playerError = MutableStateFlow<String?>(null)
     val playerError: StateFlow<String?> = _playerError.asStateFlow()
-
-    private val _isEmbedOrWebPage = MutableStateFlow(false)
-    val isEmbedOrWebPage: StateFlow<Boolean> = _isEmbedOrWebPage.asStateFlow()
 
     private val _firstFrameRendered = MutableStateFlow(false)
     val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
@@ -158,50 +175,6 @@ object GlobalPlayerManager {
     }
 
     private var playerViewInstance: androidx.media3.ui.PlayerView? = null
-    private var webViewInstance: android.webkit.WebView? = null
-
-    @android.annotation.SuppressLint("SetJavaScriptEnabled")
-    fun getOrCreateWebView(context: Context): android.webkit.WebView {
-        val existing = webViewInstance
-        return if (existing != null) {
-            existing
-        } else {
-            val wv = android.webkit.WebView(context.applicationContext).apply {
-                layoutParams = android.widget.FrameLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.databaseEnabled = true
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.allowFileAccess = true
-                settings.allowContentAccess = true
-                settings.useWideViewPort = true
-                settings.loadWithOverviewMode = true
-                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
-                addJavascriptInterface(object {
-                    @android.webkit.JavascriptInterface
-                    fun onTimeUpdate(currentTimeSec: Float, durationSec: Float, isPlaying: Boolean) {
-                        val posMs = (currentTimeSec * 1000).toLong()
-                        val durMs = (durationSec * 1000).toLong()
-                        updateEmbedProgress(posMs, durMs, isPlaying)
-                    }
-
-                    @android.webkit.JavascriptInterface
-                    fun onPlayingStateChange(isPlaying: Boolean) {
-                        _isPlaying.value = isPlaying
-                        if (isPlaying) {
-                            _firstFrameRendered.value = true
-                        }
-                    }
-                }, "AndroidPlayerBridge")
-            }
-            webViewInstance = wv
-            wv
-        }
-    }
 
     fun getOrCreatePlayerView(context: Context): androidx.media3.ui.PlayerView {
         val existing = playerViewInstance
@@ -255,6 +228,7 @@ object GlobalPlayerManager {
             player.addListener(object : Player.Listener {
                 override fun onRenderedFirstFrame() {
                     _firstFrameRendered.value = true
+                    com.example.util.PlaybackPipelineTracker.logFirstFrame(player.duration)
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -267,9 +241,16 @@ object GlobalPlayerManager {
 
                 override fun onPlaybackStateChanged(state: Int) {
                     _isPlaying.value = player.isPlaying
+                    _isBuffering.value = (state == Player.STATE_BUFFERING)
                     updatePlayerPositions(player)
+                    if (state == Player.STATE_READY && player.playWhenReady) {
+                        _firstFrameRendered.value = true
+                        _isBuffering.value = false
+                        com.example.util.PlaybackPipelineTracker.logFirstFrame(player.duration)
+                    }
                     if (state == Player.STATE_ENDED) {
                         _isPlaying.value = false
+                        _isBuffering.value = false
                         _playbackEnded.value = true
                     }
                 }
@@ -292,24 +273,27 @@ object GlobalPlayerManager {
 
                 override fun onPlayerError(error: PlaybackException) {
                     val rootCause = error.cause
-                    val isHttpError = rootCause is androidx.media3.datasource.HttpDataSource.HttpDataSourceException
-                    val isNetworkError = rootCause is java.net.UnknownHostException ||
-                            rootCause is java.net.SocketTimeoutException ||
-                            rootCause is java.net.ConnectException ||
-                            isHttpError ||
-                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-                            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+                    val httpStatus = (rootCause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+                    val errorCodeName = error.errorCodeName
 
-                    val message = when {
-                        rootCause is java.net.UnknownHostException -> "Network host unreachable. Please check your internet connection."
-                        rootCause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException -> {
-                            "Stream server returned HTTP ${rootCause.responseCode}. Switching to backup stream..."
-                        }
-                        isNetworkError -> "Network connection interrupted. Retrying with alternate stream..."
-                        else -> error.localizedMessage ?: "Playback error"
+                    com.example.util.PlaybackPipelineTracker.logPlaybackError(
+                        errorCodeName = errorCodeName,
+                        errorCode = error.errorCode,
+                        message = error.message,
+                        causeName = rootCause?.javaClass?.simpleName,
+                        causeMessage = rootCause?.message,
+                        httpStatus = httpStatus
+                    )
+
+                    val detailedError = StringBuilder("Media3 Error [$errorCodeName / ${error.errorCode}]: ${error.message ?: "Unknown error"}")
+                    if (rootCause != null) {
+                        detailedError.append("\nCause: [${rootCause.javaClass.simpleName}] ${rootCause.message}")
                     }
-                    _playerError.value = message
+                    if (httpStatus != null) {
+                        detailedError.append(" (HTTP Status $httpStatus)")
+                    }
+
+                    _playerError.value = detailedError.toString()
                     _isPlaying.value = false
                     playbackFailedListener?.invoke()
                 }
@@ -436,7 +420,6 @@ object GlobalPlayerManager {
         streamOption: PlayableStreamOption?,
         hlsUrl: String?,
         captionOption: CaptionOption?,
-        embedUrl: String?,
         initialPos: Long = 0L
     ) {
         val player = getExoPlayer(context)
@@ -448,7 +431,6 @@ object GlobalPlayerManager {
 
         val rawUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
         if (rawUrl.isNullOrEmpty()) {
-            _isEmbedOrWebPage.value = false
             currentLoadedMediaKey = null
             _firstFrameRendered.value = false
             _isPlaying.value = false
@@ -457,362 +439,327 @@ object GlobalPlayerManager {
             _bufferedPositionMs.value = 0L
             _progressFraction.value = 0f
             _bufferedFraction.value = 0f
-            exoPlayerInstance?.let { player ->
-                player.playWhenReady = false
-                player.stop()
-                player.clearMediaItems()
-            }
-            webViewInstance?.let { wv ->
-                try {
-                    wv.stopLoading()
-                    wv.loadUrl("about:blank")
-                } catch (ignored: Throwable) {}
+            exoPlayerInstance?.let { p ->
+                p.playWhenReady = false
+                p.stop()
+                p.clearMediaItems()
             }
             return
         }
 
-        val sourceType = com.example.model.PlaybackDecisionResolver.determineSourceType(rawUrl, streamOption?.format)
-        val isEmbed = false
-
         val effectivePlayableUrl = rawUrl
-
-        _isEmbedOrWebPage.value = false
-
         val mediaKey = "${effectivePlayableUrl}_${captionOption?.languageCode}"
         if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
-            // Already loaded and playing this media, ensure playing
             player.playWhenReady = true
             _isPlaying.value = true
             return
         }
 
         _firstFrameRendered.value = false
+        _currentPositionMs.value = initialPos
+        _durationMs.value = 0L
+        _bufferedPositionMs.value = 0L
+        _progressFraction.value = 0f
+        _bufferedFraction.value = 0f
+        _playerError.value = null
         currentLoadedMediaKey = mediaKey
 
-        if (isEmbed) {
-            try {
-                player.playWhenReady = false
-                player.stop()
-                player.clearMediaItems()
-            } catch (ignored: Throwable) {}
-            _firstFrameRendered.value = true
-            _isPlaying.value = true
-        } else {
-            try {
-                webViewInstance?.let { wv ->
-                    wv.stopLoading()
-                    wv.loadUrl("about:blank")
+        try {
+            player.stop()
+            player.clearMediaItems()
+
+            val combinedHeaders = mutableMapOf<String, String>()
+            streamData?.headers?.let { combinedHeaders.putAll(it) }
+            streamOption?.headers?.let { combinedHeaders.putAll(it) }
+
+            val uriHost = try { Uri.parse(rawUrl).host ?: "unknown" } catch (_: Exception) { "unknown" }
+            android.util.Log.i("GlobalPlayerManager", "[PLAYBACK_START] provider=${streamData?.providerId ?: "direct"}, videoId=${streamData?.videoId}, format=${streamOption?.format}, isMuxed=${streamOption?.isMuxed}, host=$uriHost, quality='${streamOption?.qualityLabel}', headersCount=${combinedHeaders.size}, headerKeys=${combinedHeaders.keys}")
+
+            val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+            val defaultHeaders = mutableMapOf<String, String>()
+            var customUserAgentSet = false
+            combinedHeaders.forEach { (k, v) ->
+                if (k.equals("User-Agent", ignoreCase = true)) {
+                    dataSourceFactory.setUserAgent(v)
+                    customUserAgentSet = true
+                } else {
+                    defaultHeaders[k] = v
                 }
-            } catch (ignored: Throwable) {}
-            try {
-                player.stop()
-                player.clearMediaItems()
+            }
+            if (!customUserAgentSet) {
+                dataSourceFactory.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            }
 
-                val combinedHeaders = mutableMapOf<String, String>()
-                streamData?.headers?.let { combinedHeaders.putAll(it) }
-                streamOption?.headers?.let { combinedHeaders.putAll(it) }
+            // Inject domain-specific referer & origin headers if not explicitly specified
+            val lowerTarget = rawUrl.lowercase()
+            val hasReferer = defaultHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
+            if (!hasReferer) {
+                when {
+                    lowerTarget.contains("youtube.com") || lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtu.be") -> {
+                        defaultHeaders["Referer"] = "https://www.youtube.com/"
+                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                            defaultHeaders["Origin"] = "https://www.youtube.com"
+                        }
+                    }
+                    lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") || lowerTarget.contains("cdndirector") -> {
+                        defaultHeaders["Referer"] = "https://www.dailymotion.com/"
+                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                            defaultHeaders["Origin"] = "https://www.dailymotion.com"
+                        }
+                    }
+                    lowerTarget.contains("archive.org") -> {
+                        defaultHeaders["Referer"] = "https://archive.org/"
+                        defaultHeaders["Accept"] = "*/*"
+                    }
+                    lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
+                        defaultHeaders["Referer"] = "https://www.pornhub.com/"
+                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                            defaultHeaders["Origin"] = "https://www.pornhub.com"
+                        }
+                        if (!defaultHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                            defaultHeaders["Cookie"] = "age_verified=1"
+                        }
+                    }
+                    lowerTarget.contains("eporner.com") -> {
+                        defaultHeaders["Referer"] = "https://www.eporner.com/"
+                    }
+                    lowerTarget.contains("redtube.com") -> {
+                        defaultHeaders["Referer"] = "https://www.redtube.com/"
+                    }
+                    lowerTarget.contains("xhamster.com") -> {
+                        defaultHeaders["Referer"] = "https://xhamster.com/"
+                    }
+                    lowerTarget.contains("xvideos.com") -> {
+                        defaultHeaders["Referer"] = "https://www.xvideos.com/"
+                    }
+                    lowerTarget.contains("vimeo.com") -> {
+                        defaultHeaders["Referer"] = "https://vimeo.com/"
+                    }
+                    lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
+                        defaultHeaders["Referer"] = "https://upload18.org/"
+                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                            defaultHeaders["Origin"] = "https://upload18.org"
+                        }
+                    }
+                }
+            }
 
-                val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-                val defaultHeaders = mutableMapOf<String, String>()
-                var customUserAgentSet = false
-                combinedHeaders.forEach { (k, v) ->
-                    if (k.equals("User-Agent", ignoreCase = true)) {
-                        dataSourceFactory.setUserAgent(v)
-                        customUserAgentSet = true
+            if (defaultHeaders.isNotEmpty()) {
+                dataSourceFactory.setDefaultRequestProperties(defaultHeaders)
+            }
+
+            val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+                .setConstantBitrateSeekingEnabled(true)
+                .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
+
+            val errorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
+                override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                    val rootCause = loadErrorInfo.exception
+                    if (rootCause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                        if (rootCause.responseCode in 400..599) {
+                            return androidx.media3.common.C.TIME_UNSET
+                        }
+                    }
+                    return super.getRetryDelayMsFor(loadErrorInfo)
+                }
+            }
+
+            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+                .setLoadErrorHandlingPolicy(errorHandlingPolicy)
+
+            fun sanitizeMediaUrl(rawUrl: String?): String? {
+                if (rawUrl.isNullOrBlank()) return null
+                var trimmed = rawUrl.trim()
+                if (trimmed.isEmpty()) return null
+
+                if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") &&
+                    !trimmed.startsWith("file://") && !trimmed.startsWith("content://") &&
+                    !trimmed.startsWith("asset://") && !trimmed.startsWith("rtmp://") &&
+                    !trimmed.startsWith("rtsp://") && !trimmed.startsWith("udp://")
+                ) {
+                    if (trimmed.contains(".") && !trimmed.startsWith("/")) {
+                        trimmed = "https://$trimmed"
                     } else {
-                        defaultHeaders[k] = v
-                    }
-                }
-                if (!customUserAgentSet) {
-                    dataSourceFactory.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-                }
-
-                // Inject domain-specific referer & origin headers if not explicitly specified
-                val lowerTarget = rawUrl.lowercase()
-                val hasReferer = defaultHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
-                if (!hasReferer) {
-                    when {
-                        lowerTarget.contains("youtube.com") || lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtu.be") -> {
-                            defaultHeaders["Referer"] = "https://www.youtube.com/"
-                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                                defaultHeaders["Origin"] = "https://www.youtube.com"
-                            }
-                        }
-                        lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") || lowerTarget.contains("cdndirector") -> {
-                            defaultHeaders["Referer"] = "https://www.dailymotion.com/"
-                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                                defaultHeaders["Origin"] = "https://www.dailymotion.com"
-                            }
-                        }
-                        lowerTarget.contains("archive.org") -> {
-                            defaultHeaders["Referer"] = "https://archive.org/"
-                            defaultHeaders["Accept"] = "*/*"
-                        }
-                        lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
-                            defaultHeaders["Referer"] = "https://www.pornhub.com/"
-                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                                defaultHeaders["Origin"] = "https://www.pornhub.com"
-                            }
-                            if (!defaultHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
-                                defaultHeaders["Cookie"] = "age_verified=1"
-                            }
-                        }
-                        lowerTarget.contains("eporner.com") -> {
-                            defaultHeaders["Referer"] = "https://www.eporner.com/"
-                        }
-                        lowerTarget.contains("redtube.com") -> {
-                            defaultHeaders["Referer"] = "https://www.redtube.com/"
-                        }
-                        lowerTarget.contains("xhamster.com") -> {
-                            defaultHeaders["Referer"] = "https://xhamster.com/"
-                        }
-                        lowerTarget.contains("xvideos.com") -> {
-                            defaultHeaders["Referer"] = "https://www.xvideos.com/"
-                        }
-                        lowerTarget.contains("vimeo.com") -> {
-                            defaultHeaders["Referer"] = "https://vimeo.com/"
-                        }
-                        lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
-                            defaultHeaders["Referer"] = "https://upload18.org/"
-                            if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                                defaultHeaders["Origin"] = "https://upload18.org"
-                            }
-                        }
+                        return null
                     }
                 }
 
-                if (defaultHeaders.isNotEmpty()) {
-                    dataSourceFactory.setDefaultRequestProperties(defaultHeaders)
+                return try {
+                    val sanitized = trimmed
+                        .replace("\n", "")
+                        .replace("\r", "")
+                        .replace("\t", "")
+                        .replace(" ", "%20")
+                        .replace("\"", "%22")
+                        .replace("<", "%3C")
+                        .replace(">", "%3E")
+                        .replace("\\", "/")
+
+                    val parsed = Uri.parse(sanitized)
+                    if (parsed.scheme.isNullOrEmpty()) return null
+                    sanitized
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+
+            fun buildMediaItem(
+                rawUrl: String,
+                format: String? = null,
+                subtitles: List<MediaItem.SubtitleConfiguration> = emptyList()
+            ): MediaItem? {
+                val cleanUrl = sanitizeMediaUrl(rawUrl) ?: return null
+                val uri = Uri.parse(cleanUrl)
+                val lowerUrl = cleanUrl.lowercase()
+                val lowerFormat = format?.lowercase()
+
+                val builder = MediaItem.Builder().setUri(uri)
+
+                if (lowerFormat == "hls" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
+                    builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
+                    builder.setMimeType(MimeTypes.APPLICATION_MPD)
+                } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
+                    builder.setMimeType(MimeTypes.VIDEO_WEBM)
+                } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
+                    builder.setMimeType(MimeTypes.AUDIO_WEBM)
+                } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a")) {
+                    builder.setMimeType(MimeTypes.AUDIO_MP4)
+                } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerFormat == "mp4") {
+                    builder.setMimeType(MimeTypes.VIDEO_MP4)
                 }
 
-                val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-                    .setConstantBitrateSeekingEnabled(true)
-                    .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
-
-                val errorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
-                    override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                        val rootCause = loadErrorInfo.exception
-                        if (rootCause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-                            if (rootCause.responseCode in 400..599) {
-                                return androidx.media3.common.C.TIME_UNSET
-                            }
-                        }
-                        return super.getRetryDelayMsFor(loadErrorInfo)
-                    }
+                if (subtitles.isNotEmpty()) {
+                    builder.setSubtitleConfigurations(subtitles)
                 }
 
-                val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
-                    .setLoadErrorHandlingPolicy(errorHandlingPolicy)
+                return builder.build()
+            }
 
-                fun sanitizeMediaUrl(rawUrl: String?): String? {
-                    if (rawUrl.isNullOrBlank()) return null
-                    var trimmed = rawUrl.trim()
-                    if (trimmed.isEmpty()) return null
+            var mediaSourceSet = false
+            if (streamOption != null) {
+                val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
+                val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
 
-                    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") &&
-                        !trimmed.startsWith("file://") && !trimmed.startsWith("content://") &&
-                        !trimmed.startsWith("asset://") && !trimmed.startsWith("rtmp://") &&
-                        !trimmed.startsWith("rtsp://") && !trimmed.startsWith("udp://")
-                    ) {
-                        if (trimmed.contains(".") && !trimmed.startsWith("/")) {
-                            trimmed = "https://$trimmed"
-                        } else {
-                            return null
-                        }
-                    }
-
-                    return try {
-                        val sanitized = trimmed
-                            .replace("\n", "")
-                            .replace("\r", "")
-                            .replace("\t", "")
-                            .replace(" ", "%20")
-                            .replace("\"", "%22")
-                            .replace("<", "%3C")
-                            .replace(">", "%3E")
-                            .replace("\\", "/")
-
-                        val parsed = Uri.parse(sanitized)
-                        if (parsed.scheme.isNullOrEmpty()) return null
-                        sanitized
-                    } catch (_: Throwable) {
-                        null
-                    }
-                }
-
-                fun buildMediaItem(
-                    rawUrl: String,
-                    format: String? = null,
-                    subtitles: List<MediaItem.SubtitleConfiguration> = emptyList()
-                ): MediaItem? {
-                    val cleanUrl = sanitizeMediaUrl(rawUrl) ?: return null
-                    val uri = Uri.parse(cleanUrl)
-                    val lowerUrl = cleanUrl.lowercase()
-                    val lowerFormat = format?.lowercase()
-
-                    val builder = MediaItem.Builder().setUri(uri)
-
-                    if (lowerFormat == "hls" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
-                        builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                    } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
-                        builder.setMimeType(MimeTypes.APPLICATION_MPD)
-                    } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
-                        builder.setMimeType(MimeTypes.VIDEO_WEBM)
-                    } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
-                        builder.setMimeType(MimeTypes.AUDIO_WEBM)
-                    } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a")) {
-                        builder.setMimeType(MimeTypes.AUDIO_MP4)
-                    } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerFormat == "mp4") {
-                        builder.setMimeType(MimeTypes.VIDEO_MP4)
-                    }
-
-                    if (subtitles.isNotEmpty()) {
-                        builder.setSubtitleConfigurations(subtitles)
-                    }
-
-                    return builder.build()
-                }
-
-                var mediaSourceSet = false
-                if (streamOption != null) {
-                    val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
-                    val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
-
-                    val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
-                    if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
-                        val cleanCapUrl = sanitizeMediaUrl(captionOption.url)
-                        if (cleanCapUrl != null) {
-                            val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanCapUrl))
-                                .setMimeType(MimeTypes.TEXT_VTT)
-                                .setLanguage(captionOption.languageCode)
-                                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                                .build()
-                            subtitleConfigs.add(subtitleConfig)
-                        }
-                    }
-
-                    if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
-                        val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
-                        if (item != null) {
-                            val mediaSource = mediaSourceFactory.createMediaSource(item)
-                            player.setMediaSource(mediaSource)
-                            mediaSourceSet = true
-                        }
-                    } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
-                        val videoItem = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
-                        val audioItem = buildMediaItem(aUrl)
-                        if (videoItem != null && audioItem != null) {
-                            val videoSource = mediaSourceFactory.createMediaSource(videoItem)
-                            val audioSource = mediaSourceFactory.createMediaSource(audioItem)
-                            val mergedSource = MergingMediaSource(videoSource, audioSource)
-                            player.setMediaSource(mergedSource)
-                            mediaSourceSet = true
-                        } else if (videoItem != null) {
-                            val videoSource = mediaSourceFactory.createMediaSource(videoItem)
-                            player.setMediaSource(videoSource)
-                            mediaSourceSet = true
-                        }
-                    } else if (!vUrl.isNullOrEmpty()) {
-                        val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
-                        if (item != null) {
-                            val mediaSource = mediaSourceFactory.createMediaSource(item)
-                            player.setMediaSource(mediaSource)
-                            mediaSourceSet = true
-                        }
+                val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+                if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
+                    val cleanCapUrl = sanitizeMediaUrl(captionOption.url)
+                    if (cleanCapUrl != null) {
+                        val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanCapUrl))
+                            .setMimeType(MimeTypes.TEXT_VTT)
+                            .setLanguage(captionOption.languageCode)
+                            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                            .build()
+                        subtitleConfigs.add(subtitleConfig)
                     }
                 }
 
-                if (!mediaSourceSet && !hlsUrl.isNullOrEmpty()) {
-                    val cleanHls = sanitizeMediaUrl(hlsUrl)
-                    if (cleanHls != null) {
-                        val item = buildMediaItem(cleanHls, "hls")
-                        if (item != null) {
-                            val mediaSource = mediaSourceFactory.createMediaSource(item)
-                            player.setMediaSource(mediaSource)
-                            mediaSourceSet = true
-                        }
+                if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
+                    val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
+                    if (item != null) {
+                        val mediaSource = mediaSourceFactory.createMediaSource(item)
+                        player.setMediaSource(mediaSource)
+                        mediaSourceSet = true
                     }
-                } else if (!mediaSourceSet && !rawUrl.isNullOrEmpty()) {
-                    val cleanRaw = sanitizeMediaUrl(rawUrl)
-                    if (cleanRaw != null) {
-                        val item = buildMediaItem(cleanRaw, streamOption?.format)
-                        if (item != null) {
-                            val mediaSource = mediaSourceFactory.createMediaSource(item)
-                            player.setMediaSource(mediaSource)
-                            mediaSourceSet = true
-                        }
+                } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
+                    val videoItem = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
+                    val audioItem = buildMediaItem(aUrl)
+                    if (videoItem != null && audioItem != null) {
+                        val videoSource = mediaSourceFactory.createMediaSource(videoItem)
+                        val audioSource = mediaSourceFactory.createMediaSource(audioItem)
+                        val mergedSource = MergingMediaSource(videoSource, audioSource)
+                        player.setMediaSource(mergedSource)
+                        mediaSourceSet = true
+                    } else if (videoItem != null) {
+                        val videoSource = mediaSourceFactory.createMediaSource(videoItem)
+                        player.setMediaSource(videoSource)
+                        mediaSourceSet = true
+                    }
+                } else if (!vUrl.isNullOrEmpty()) {
+                    val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
+                    if (item != null) {
+                        val mediaSource = mediaSourceFactory.createMediaSource(item)
+                        player.setMediaSource(mediaSource)
+                        mediaSourceSet = true
                     }
                 }
+            }
 
-                if (!mediaSourceSet) {
-                    _playerError.value = "Unable to parse valid video stream URL"
-                    _isEmbedOrWebPage.value = true
-                    playbackFailedListener?.invoke()
-                    return
+            if (!mediaSourceSet && !hlsUrl.isNullOrEmpty()) {
+                val cleanHls = sanitizeMediaUrl(hlsUrl)
+                if (cleanHls != null) {
+                    val item = buildMediaItem(cleanHls, "hls")
+                    if (item != null) {
+                        val mediaSource = mediaSourceFactory.createMediaSource(item)
+                        player.setMediaSource(mediaSource)
+                        mediaSourceSet = true
+                    }
                 }
-
-                if (initialPos > 0L) {
-                    player.seekTo(initialPos)
+            } else if (!mediaSourceSet && !rawUrl.isNullOrEmpty()) {
+                val cleanRaw = sanitizeMediaUrl(rawUrl)
+                if (cleanRaw != null) {
+                    val item = buildMediaItem(cleanRaw, streamOption?.format)
+                    if (item != null) {
+                        val mediaSource = mediaSourceFactory.createMediaSource(item)
+                        player.setMediaSource(mediaSource)
+                        mediaSourceSet = true
+                    }
                 }
+            }
 
-                player.prepare()
-                player.playWhenReady = true
-                _isPlaying.value = true
+            if (!mediaSourceSet) {
+                _playerError.value = "Unable to parse valid video stream URL"
+                playbackFailedListener?.invoke()
+                return
+            }
 
-                // Save to Room Database for offline access and zero-buffering preloading
-                val ctx = context.applicationContext
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val videoRepo = com.example.db.VideoCacheRepository(ctx)
-                        if (streamData != null) {
-                            videoRepo.cacheVideoMetadata(
+            if (initialPos > 0L) {
+                player.seekTo(initialPos)
+            }
+
+            com.example.util.PlaybackPipelineTracker.logPrepare(
+                urlSnippet = effectivePlayableUrl.take(60),
+                headersCount = combinedHeaders.size
+            )
+
+            player.prepare()
+            player.playWhenReady = true
+            _isPlaying.value = true
+
+            // Save to Room Database for offline access and zero-buffering preloading
+            val ctx = context.applicationContext
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val videoRepo = com.example.db.VideoCacheRepository(ctx)
+                    if (streamData != null) {
+                        videoRepo.cacheVideoMetadata(
+                            videoId = streamData.videoId,
+                            title = streamData.title,
+                            channelName = streamData.channelName,
+                            thumbnailUrl = "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg",
+                            description = streamData.description,
+                            duration = "",
+                            providerId = streamData.providerId
+                        )
+                        if (effectivePlayableUrl.isNotBlank()) {
+                            videoRepo.cachePreloadedStream(
                                 videoId = streamData.videoId,
-                                title = streamData.title,
-                                channelName = streamData.channelName,
-                                thumbnailUrl = "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg",
-                                description = streamData.description,
-                                duration = "",
-                                providerId = streamData.providerId
+                                streamUrl = effectivePlayableUrl,
+                                hlsUrl = hlsUrl ?: streamData.hlsUrl,
+                                qualityLabel = streamOption?.qualityLabel ?: "Auto"
                             )
-                            if (effectivePlayableUrl.isNotBlank()) {
-                                videoRepo.cachePreloadedStream(
-                                    videoId = streamData.videoId,
-                                    streamUrl = effectivePlayableUrl,
-                                    hlsUrl = hlsUrl ?: streamData.hlsUrl,
-                                    qualityLabel = streamOption?.qualityLabel ?: "Auto"
-                                )
-                            }
                         }
-                    } catch (_: Throwable) {}
-                }
-            } catch (e: Throwable) {
-                _playerError.value = e.localizedMessage ?: "Playback initialization failed"
-                _isEmbedOrWebPage.value = true
+                    }
+                } catch (_: Throwable) {}
             }
+        } catch (e: Throwable) {
+            _playerError.value = e.localizedMessage ?: "Playback initialization failed"
         }
     }
 
-    fun updateEmbedProgress(positionMs: Long, durationMs: Long, playing: Boolean) {
-        if (_isEmbedOrWebPage.value) {
-            _currentPositionMs.value = positionMs
-            if (durationMs > 0) {
-                _durationMs.value = durationMs
-                _bufferedPositionMs.value = durationMs
-                _progressFraction.value = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                _bufferedFraction.value = 1f
-            }
-            _isPlaying.value = playing
-            _firstFrameRendered.value = true
-        }
-    }
-
-    fun hasLoadedMedia(): Boolean = currentLoadedMediaKey != null && ((exoPlayerInstance?.mediaItemCount ?: 0) > 0 || _isEmbedOrWebPage.value)
+    fun hasLoadedMedia(): Boolean = currentLoadedMediaKey != null && (exoPlayerInstance?.mediaItemCount ?: 0) > 0
 
     fun togglePlayPause() {
-        if (_isEmbedOrWebPage.value) {
-            if (_isPlaying.value) pause() else play()
-            return
-        }
         exoPlayerInstance?.let { player ->
             if (player.isPlaying) {
                 player.pause()
@@ -825,18 +772,6 @@ object GlobalPlayerManager {
     }
 
     fun play() {
-        if (_isEmbedOrWebPage.value) {
-            _isPlaying.value = true
-            webViewInstance?.let { wv ->
-                try {
-                    wv.evaluateJavascript(
-                        "(function() { var vids = document.querySelectorAll('video'); for (var i = 0; i < vids.length; i++) { vids[i].muted = false; vids[i].play().catch(function(){}); } })();",
-                        null
-                    )
-                } catch (ignored: Throwable) {}
-            }
-            return
-        }
         exoPlayerInstance?.let { player ->
             if (player.mediaItemCount > 0) {
                 player.play()
@@ -846,18 +781,6 @@ object GlobalPlayerManager {
     }
 
     fun pause() {
-        if (_isEmbedOrWebPage.value) {
-            _isPlaying.value = false
-            webViewInstance?.let { wv ->
-                try {
-                    wv.evaluateJavascript(
-                        "(function() { var vids = document.querySelectorAll('video'); for (var i = 0; i < vids.length; i++) { vids[i].pause(); } })();",
-                        null
-                    )
-                } catch (ignored: Throwable) {}
-            }
-            return
-        }
         exoPlayerInstance?.let { player ->
             player.pause()
             _isPlaying.value = false
@@ -871,35 +794,11 @@ object GlobalPlayerManager {
         if (dur > 0) {
             _progressFraction.value = (target.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
         }
-
-        if (_isEmbedOrWebPage.value) {
-            val targetSec = target / 1000.0
-            webViewInstance?.let { wv ->
-                try {
-                    wv.evaluateJavascript(
-                        "(function() { var vids = document.querySelectorAll('video'); for (var i = 0; i < vids.length; i++) { vids[i].currentTime = $targetSec; } })();",
-                        null
-                    )
-                } catch (ignored: Throwable) {}
-            }
-            return
-        }
-
         exoPlayerInstance?.seekTo(target)
     }
 
     fun setPlaybackSpeed(speed: Float) {
         exoPlayerInstance?.playbackParameters = PlaybackParameters(speed)
-        if (_isEmbedOrWebPage.value) {
-            webViewInstance?.let { wv ->
-                try {
-                    wv.evaluateJavascript(
-                        "(function() { var vids = document.querySelectorAll('video'); for (var i = 0; i < vids.length; i++) { vids[i].playbackRate = $speed; } })();",
-                        null
-                    )
-                } catch (ignored: Throwable) {}
-            }
-        }
     }
 
     fun stopAndClear() {
@@ -913,20 +812,12 @@ object GlobalPlayerManager {
         _bufferedFraction.value = 0f
         _isPlaying.value = false
         _firstFrameRendered.value = false
-        _isEmbedOrWebPage.value = false
         _playerError.value = null
         exoPlayerInstance?.let { player ->
             try {
                 player.playWhenReady = false
                 player.stop()
                 player.clearMediaItems()
-            } catch (ignored: Throwable) {}
-        }
-        webViewInstance?.let { wv ->
-            try {
-                wv.stopLoading()
-                wv.loadUrl("about:blank")
-                wv.tag = null
             } catch (ignored: Throwable) {}
         }
     }

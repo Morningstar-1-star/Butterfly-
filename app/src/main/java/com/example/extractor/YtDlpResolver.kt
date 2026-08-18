@@ -34,7 +34,7 @@ object YtDlpResolver {
                 (url.length == 11 && !url.contains("/"))
     }
 
-    private data class ParsedFormat(
+    data class ParsedFormat(
         val formatId: String,
         val url: String,
         val ext: String,
@@ -48,7 +48,8 @@ object YtDlpResolver {
         val vcodec: String,
         val acodec: String,
         val formatNote: String,
-        val protocol: String
+        val protocol: String,
+        val httpHeaders: Map<String, String> = emptyMap()
     ) {
         val isAudioOnly: Boolean
             get() = (vcodec == "none" || vcodec.isBlank()) && (acodec != "none" && acodec.isNotBlank())
@@ -65,6 +66,9 @@ object YtDlpResolver {
                     ext.equals("mpd", ignoreCase = true) ||
                     protocol.contains("dash", ignoreCase = true)
 
+        val isH264: Boolean
+            get() = vcodec.startsWith("avc", ignoreCase = true) || vcodec.startsWith("h264", ignoreCase = true)
+
         val effectiveHeight: Int
             get() {
                 if (height > 0) return height
@@ -77,18 +81,18 @@ object YtDlpResolver {
             get() {
                 var score = effectiveHeight * 10_000_000L
                 score += (fps.toLong() * 100_000L)
-                if (vcodec.startsWith("avc", ignoreCase = true) || vcodec.startsWith("h264", ignoreCase = true)) {
-                    score += 50_000L // Highly compatible hardware decode
+                if (isH264) {
+                    score += 500_000L // Highly compatible hardware decode
                 } else if (vcodec.startsWith("vp09", ignoreCase = true) || vcodec.startsWith("vp9", ignoreCase = true)) {
                     score += 30_000L
                 } else if (vcodec.startsWith("av01", ignoreCase = true) || vcodec.startsWith("av1", ignoreCase = true)) {
                     score += 20_000L
                 }
                 if (ext.equals("mp4", ignoreCase = true)) {
-                    score += 10_000L
+                    score += 200_000L
                 }
                 if (isMuxed) {
-                    score += 5_000L
+                    score += 1_000_000L // Prefer muxed stream for direct playback without merging
                 }
                 score += tbr.toLong()
                 return score
@@ -168,6 +172,21 @@ object YtDlpResolver {
             val description = json.optString("description", "")
             val thumbnail = json.optString("thumbnail", "")
 
+            // Parse top-level http_headers
+            val topHeaders = mutableMapOf<String, String>()
+            topHeaders.putAll(domainHeaders)
+            val jsonTopHeaders = json.optJSONObject("http_headers")
+            if (jsonTopHeaders != null) {
+                val keys = jsonTopHeaders.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = jsonTopHeaders.optString(k, "")
+                    if (k.isNotBlank() && v.isNotBlank()) {
+                        topHeaders[k] = v
+                    }
+                }
+            }
+
             // Parse all formats returned by yt-dlp
             val parsedFormats = mutableListOf<ParsedFormat>()
             val formatsArray = json.optJSONArray("formats")
@@ -191,6 +210,20 @@ object YtDlpResolver {
                     val note = fmt.optString("format_note", "")
                     val protocol = fmt.optString("protocol", "https")
 
+                    val fmtHeaders = mutableMapOf<String, String>()
+                    fmtHeaders.putAll(topHeaders)
+                    val jsonFmtHeaders = fmt.optJSONObject("http_headers")
+                    if (jsonFmtHeaders != null) {
+                        val hKeys = jsonFmtHeaders.keys()
+                        while (hKeys.hasNext()) {
+                            val hk = hKeys.next()
+                            val hv = jsonFmtHeaders.optString(hk, "")
+                            if (hk.isNotBlank() && hv.isNotBlank()) {
+                                fmtHeaders[hk] = hv
+                            }
+                        }
+                    }
+
                     parsedFormats.add(
                         ParsedFormat(
                             formatId = formatId,
@@ -206,7 +239,8 @@ object YtDlpResolver {
                             vcodec = vcodec,
                             acodec = acodec,
                             formatNote = note,
-                            protocol = protocol
+                            protocol = protocol,
+                            httpHeaders = fmtHeaders
                         )
                     )
                 }
@@ -223,7 +257,7 @@ object YtDlpResolver {
 
             val streamOptions = mutableListOf<PlayableStreamOption>()
 
-            // 1. Muxed Video + Audio Progressive streams
+            // 1. Muxed Video + Audio Progressive streams (H.264 / MP4 preferred)
             val muxedFormats = parsedFormats.filter { it.isMuxed && it.url.isNotBlank() }
                 .sortedByDescending { it.qualityScore }
 
@@ -240,7 +274,7 @@ object YtDlpResolver {
                         isMuxed = true,
                         videoUrl = fmt.url,
                         providerType = ProviderType.DIRECT,
-                        headers = domainHeaders
+                        headers = fmt.httpHeaders
                     )
                 )
             }
@@ -263,7 +297,7 @@ object YtDlpResolver {
                         videoUrl = fmt.url,
                         audioUrl = bestAudio?.url,
                         providerType = ProviderType.DIRECT,
-                        headers = domainHeaders
+                        headers = fmt.httpHeaders
                     )
                 )
             }
@@ -279,7 +313,7 @@ object YtDlpResolver {
                         isMuxed = true,
                         videoUrl = fmt.url,
                         providerType = ProviderType.DIRECT,
-                        headers = domainHeaders
+                        headers = fmt.httpHeaders
                     )
                 )
             }
@@ -294,7 +328,7 @@ object YtDlpResolver {
                         isMuxed = true,
                         videoUrl = topDirectUrl,
                         providerType = ProviderType.DIRECT,
-                        headers = domainHeaders
+                        headers = topHeaders
                     )
                 )
             }
@@ -316,8 +350,11 @@ object YtDlpResolver {
             // Deduplicate options by quality label
             val distinctOptions = streamOptions.distinctBy { it.qualityLabel }
 
-            // Select best option: Prefer 1080p, then 720p, or highest quality available
-            val bestOption = distinctOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
+            // Select best option: First prefer muxed 1080p/720p H.264/MP4, then any muxed, then adaptive 1080p/720p
+            val bestOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.startsWith("1080p") }
+                ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.startsWith("720p") }
+                ?: distinctOptions.firstOrNull { it.isMuxed }
+                ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
                 ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("720p") }
                 ?: distinctOptions.first()
 
@@ -333,7 +370,7 @@ object YtDlpResolver {
                 selectedStreamOption = bestOption,
                 providerId = providerId,
                 providerType = ProviderType.DIRECT,
-                headers = domainHeaders
+                headers = bestOption.headers
             )
 
             Log.i(TAG, "yt-dlp success: found ${distinctOptions.size} streams, selected '${bestOption.qualityLabel}'")

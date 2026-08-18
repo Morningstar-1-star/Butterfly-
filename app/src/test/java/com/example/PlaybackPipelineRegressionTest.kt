@@ -1,8 +1,10 @@
 package com.example
 
+import com.example.extractor.ArchiveOrgProvider
+import com.example.extractor.YouTubeExtractorHelper
 import com.example.extractor.YtDlpResolver
-import com.example.model.PlaybackDecisionResolver
-import com.example.model.PlaybackSourceType
+import com.example.model.PlayableStreamOption
+import com.example.model.ProviderType
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,14 +26,75 @@ class PlaybackPipelineRegressionTest {
     }
 
     @Test
-    fun testPlaybackDecisionResolver() {
-        val hlsType = PlaybackDecisionResolver.determineSourceType("https://example.com/live/playlist.m3u8", "hls")
-        assertEquals(PlaybackSourceType.DIRECT_STREAM, hlsType)
+    fun testParsedFormatPrioritization() {
+        val muxedH264 = YtDlpResolver.ParsedFormat(
+            formatId = "18",
+            url = "https://example.com/muxed18.mp4",
+            ext = "mp4",
+            resolution = "640x360",
+            width = 640,
+            height = 360,
+            fps = 30.0,
+            tbr = 500.0,
+            vbr = 400.0,
+            abr = 96.0,
+            vcodec = "avc1.42001E",
+            acodec = "mp4a.40.2",
+            formatNote = "360p",
+            protocol = "https",
+            httpHeaders = mapOf("Referer" to "https://www.youtube.com/")
+        )
 
-        val dashType = PlaybackDecisionResolver.determineSourceType("https://example.com/manifest.mpd", "dash")
-        assertEquals(PlaybackSourceType.DIRECT_STREAM, dashType)
+        val videoOnly = YtDlpResolver.ParsedFormat(
+            formatId = "137",
+            url = "https://example.com/video137.mp4",
+            ext = "mp4",
+            resolution = "1920x1080",
+            width = 1920,
+            height = 1080,
+            fps = 30.0,
+            tbr = 2500.0,
+            vbr = 2500.0,
+            abr = 0.0,
+            vcodec = "avc1.640028",
+            acodec = "none",
+            formatNote = "1080p",
+            protocol = "https"
+        )
 
-        val mp4Type = PlaybackDecisionResolver.determineSourceType("https://example.com/video.mp4", "mp4")
-        assertEquals(PlaybackSourceType.DIRECT_STREAM, mp4Type)
+        assertTrue(muxedH264.isMuxed)
+        assertTrue(muxedH264.isH264)
+        assertFalse(muxedH264.isVideoOnly)
+        assertTrue(videoOnly.isVideoOnly)
+        assertFalse(videoOnly.isMuxed)
+        assertEquals("https://www.youtube.com/", muxedH264.httpHeaders["Referer"])
+    }
+
+    @Test
+    fun testYouTubeQualityScorePrioritizesMuxed() {
+        val muxedOption = PlayableStreamOption(
+            qualityLabel = "720p Progressive (mp4)",
+            format = "mp4",
+            isMuxed = true,
+            videoUrl = "https://example.com/720p.mp4",
+            providerType = ProviderType.DIRECT,
+            headers = mapOf("User-Agent" to "TestUA", "Referer" to "https://www.youtube.com/")
+        )
+
+        val adaptiveOption = PlayableStreamOption(
+            qualityLabel = "1080p Adaptive (mp4)",
+            format = "mp4",
+            isMuxed = false,
+            videoUrl = "https://example.com/1080p.mp4",
+            providerType = ProviderType.DIRECT
+        )
+
+        val muxedScore = YouTubeExtractorHelper.parseQualityScore(muxedOption)
+        val adaptiveScore = YouTubeExtractorHelper.parseQualityScore(adaptiveOption)
+
+        // Muxed option should have higher priority score for initial standalone playback
+        assertTrue("Muxed score ($muxedScore) should exceed adaptive score ($adaptiveScore)", muxedScore > adaptiveScore)
+        assertEquals("TestUA", muxedOption.headers["User-Agent"])
     }
 }
+

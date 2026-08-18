@@ -132,12 +132,12 @@ object YouTubeExtractorHelper {
         emptyList()
     }
 
-    suspend fun resolveStream(urlOrId: String, context: Context? = null): ExtractionResult = withContext(Dispatchers.IO) {
-        val isArchive = urlOrId.contains("archive.org") || urlOrId.startsWith("archive_")
+    suspend fun resolveStream(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult = withContext(Dispatchers.IO) {
+        val isArchive = providerId == "archive_org" || providerId == "archive" || urlOrId.contains("archive.org") || urlOrId.startsWith("archive_") || urlOrId.startsWith("archive:")
         if (isArchive) {
             val archiveData = ArchiveOrgProvider.getStreamData(urlOrId)
             if (archiveData != null) {
-                Log.i(TAG, "Resolved via ArchiveOrgProvider")
+                Log.i(TAG, "Resolved via ArchiveOrgProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(archiveData)
             } else {
                 return@withContext ExtractionResult.Error(
@@ -152,7 +152,7 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isYouTube = urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
+        val isYouTube = providerId == "youtube" || urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
 
         if (isYouTube) {
             val videoId = when {
@@ -162,10 +162,10 @@ object YouTubeExtractorHelper {
             }
 
             val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.youtube.com/watch?v=$videoId"
+            com.example.util.PlaybackPipelineTracker.logExtractionStart(videoId, targetUrl)
             Log.i(TAG, "Resolving YouTube Video ID: '$videoId', Target URL: '$targetUrl'")
 
             // Step 1: NewPipe Extractor (Primary)
-            Log.i(TAG, "YouTube Resolution Step 1 (NewPipe Extractor): $targetUrl")
             try {
                 try {
                     NewPipe.init(DownloaderImpl.getInstance())
@@ -177,17 +177,24 @@ object YouTubeExtractorHelper {
                 val desc = streamInfo.description?.getContent() ?: ""
                 val thumb = streamInfo.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 
+                val progressiveStreams = streamInfo.videoStreams ?: emptyList()
+                val videoOnlyStreams = streamInfo.videoOnlyStreams ?: emptyList()
+                val audioStreams = streamInfo.audioStreams ?: emptyList()
+
+                com.example.util.PlaybackPipelineTracker.logNewpipeResult(
+                    progressiveCount = progressiveStreams.size,
+                    adaptiveCount = videoOnlyStreams.size
+                )
+
                 val ytHeaders = mapOf(
-                    "Referer" to "https://www.youtube.com/",
-                    "Origin" to "https://www.youtube.com",
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                 )
 
-                val bestAudioStream = streamInfo.audioStreams?.maxByOrNull { it.averageBitrate }
+                val bestAudioStream = audioStreams.maxByOrNull { it.averageBitrate }
                 val options = mutableListOf<PlayableStreamOption>()
 
-                // 1. Progressive streams (Video + Audio muxed)
-                streamInfo.videoStreams?.forEach { vStream ->
+                // 1. Progressive streams (Video + Audio muxed - H.264/MP4 preferred)
+                progressiveStreams.forEach { vStream ->
                     val vUrl = vStream.content
                     val resolution = vStream.resolution ?: "720p"
                     val formatName = vStream.format?.name ?: "mp4"
@@ -206,8 +213,8 @@ object YouTubeExtractorHelper {
                     }
                 }
 
-                // 2. Adaptive Video Streams (Paired with best audio stream)
-                streamInfo.videoOnlyStreams?.forEach { vStream ->
+                // 2. Adaptive Video Streams (Paired with best audio stream - fallback only)
+                videoOnlyStreams.forEach { vStream ->
                     val vUrl = vStream.content
                     val resolution = vStream.resolution ?: "1080p"
                     val formatName = vStream.format?.name ?: "mp4"
@@ -243,15 +250,27 @@ object YouTubeExtractorHelper {
                 }
 
                 if (options.isNotEmpty()) {
-                    // Sort options: 2160p -> 1440p -> 1080p -> 720p -> 480p -> 360p
+                    // Sort options: prefer progressive muxed streams, then high resolution
                     val sortedOptions = options.sortedWith(
-                        compareByDescending<PlayableStreamOption> { parseQualityScore(it.qualityLabel) }
+                        compareByDescending<PlayableStreamOption> { parseQualityScore(it) }
                     ).distinctBy { it.qualityLabel }
 
-                    // Select 1080p if available, else 720p, else top available
-                    val bestOption = sortedOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
-                        ?: sortedOptions.firstOrNull { it.qualityLabel.startsWith("720p") }
+                    // Priority: First prefer muxed MP4 progressive (720p, then 480p, then 360p, then any mp4 muxed)
+                    val muxedMp4Streams = sortedOptions.filter { it.isMuxed && it.format.equals("mp4", ignoreCase = true) && !it.videoUrl.isNullOrBlank() }
+                    val bestOption = muxedMp4Streams.firstOrNull { it.qualityLabel.startsWith("720p") }
+                        ?: muxedMp4Streams.firstOrNull { it.qualityLabel.startsWith("1080p") }
+                        ?: muxedMp4Streams.firstOrNull { it.qualityLabel.startsWith("480p") }
+                        ?: muxedMp4Streams.firstOrNull { it.qualityLabel.startsWith("360p") }
+                        ?: muxedMp4Streams.firstOrNull()
+                        ?: sortedOptions.firstOrNull { it.isMuxed && !it.videoUrl.isNullOrBlank() }
                         ?: sortedOptions.first()
+
+                    com.example.util.PlaybackPipelineTracker.logFormatSelected(
+                        label = bestOption.qualityLabel,
+                        isMuxed = bestOption.isMuxed,
+                        format = bestOption.format,
+                        urlSnippet = bestOption.videoUrl?.take(60) ?: "unknown"
+                    )
 
                     val streamData = StreamData(
                         videoId = videoId,
@@ -260,9 +279,9 @@ object YouTubeExtractorHelper {
                         channelName = uploader,
                         description = desc,
                         thumbnailUrl = thumb,
-                        progressiveStreams = streamInfo.videoStreams ?: emptyList(),
-                        videoOnlyStreams = streamInfo.videoOnlyStreams ?: emptyList(),
-                        audioStreams = streamInfo.audioStreams ?: emptyList(),
+                        progressiveStreams = progressiveStreams,
+                        videoOnlyStreams = videoOnlyStreams,
+                        audioStreams = audioStreams,
                         availableStreamOptions = sortedOptions,
                         selectedStreamOption = bestOption,
                         hlsUrl = streamInfo.hlsUrl,
@@ -277,11 +296,21 @@ object YouTubeExtractorHelper {
                 Log.w(TAG, "NewPipe extraction failed: ${e.message}")
             }
 
-            // Step 2: yt-dlp Fallback for YouTube
+            // Step 2: yt-dlp Fallback for YouTube ONLY if NewPipe failed
             if (context != null) {
                 Log.i(TAG, "YouTube Resolution Step 2 (yt-dlp fallback): $targetUrl")
                 val ytDlpResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
                 if (ytDlpResult is ExtractionResult.Success) {
+                    val primary = ytDlpResult.streamData.selectedStreamOption
+                        ?: ytDlpResult.streamData.availableStreamOptions.firstOrNull()
+                    if (primary != null) {
+                        com.example.util.PlaybackPipelineTracker.logFormatSelected(
+                            label = primary.qualityLabel,
+                            isMuxed = primary.isMuxed,
+                            format = primary.format,
+                            urlSnippet = primary.videoUrl?.take(60) ?: "unknown"
+                        )
+                    }
                     return@withContext ytDlpResult
                 }
             }
@@ -316,7 +345,8 @@ object YouTubeExtractorHelper {
         }
     }
 
-    private fun parseQualityScore(label: String): Long {
+    fun parseQualityScore(option: PlayableStreamOption): Long {
+        val label = option.qualityLabel
         val regex = Regex("(\\d{3,4})p")
         val match = regex.find(label)
         val height = match?.groupValues?.get(1)?.toIntOrNull() ?: when {
@@ -331,13 +361,13 @@ object YouTubeExtractorHelper {
             else -> 720
         }
         var score = height * 10_000L
-        if (label.contains("mp4", ignoreCase = true)) score += 500L
-        if (label.contains("Progressive", ignoreCase = true)) score += 200L
+        if (option.format.equals("mp4", ignoreCase = true) || label.contains("mp4", ignoreCase = true)) score += 2_000_000L
+        if (option.isMuxed) score += 50_000_000L // Highly prioritize standalone playable streams over adaptive video-only
         return score
     }
 
-    suspend fun fetchStreamData(urlOrId: String, context: Context? = null): ExtractionResult {
-        return resolveStream(urlOrId, context)
+    suspend fun fetchStreamData(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult {
+        return resolveStream(urlOrId, context, providerId)
     }
 
     suspend fun searchVideos(query: String, context: Context? = null): FeedResult = withContext(Dispatchers.IO) {

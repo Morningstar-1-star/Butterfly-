@@ -1815,8 +1815,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
                 _extractionResult.value = result
                 if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
-                    val primary = result.streamData.availableStreamOptions.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
-                        ?: result.streamData.selectedStreamOption
+                    val primary = result.streamData.selectedStreamOption
+                        ?: result.streamData.availableStreamOptions.firstOrNull { it.isMuxed && !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
+                        ?: result.streamData.availableStreamOptions.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
                     _selectedStreamOption.value = primary
                     _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
                 }
