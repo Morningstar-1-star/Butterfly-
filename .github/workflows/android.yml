@@ -1,4 +1,4 @@
-concurrency: name: Build Butterfly APK
+name: Build Butterfly APK
 
 on:
   workflow_dispatch:
@@ -12,19 +12,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.14'
+      - name: Repair Gradle Wrapper
+        run: |
+          rm -f gradle/wrapper/gradle-wrapper.jar
+          curl -L \
+            -o gradle/wrapper/gradle-wrapper.jar \
+            https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
 
       - name: Build APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
