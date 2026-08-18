@@ -32,38 +32,53 @@ object EpornerProvider {
         }
         .build()
 
-    private fun resolveDirectCdnUrl(url: String, headersMap: Map<String, String>): String {
-        if (!url.contains("/dwn/")) return url
+    private fun extractVideoId(raw: String): String {
+        val trimmed = raw.trim().removeSuffix("/")
+        if (trimmed.contains("video-")) {
+            val part = trimmed.substringAfter("video-").substringBefore("/")
+            val idMatch = Regex("^([a-zA-Z0-9]{4,15})").find(part)
+            if (idMatch != null) return idMatch.groupValues[1]
+            return part.substringBefore("-")
+        }
+        if (trimmed.contains("/dwn/")) {
+            val part = trimmed.substringAfter("/dwn/").substringBefore("/")
+            val idMatch = Regex("^([a-zA-Z0-9]{4,15})").find(part)
+            if (idMatch != null) return idMatch.groupValues[1]
+            return part
+        }
+        val lastSegment = trimmed.substringAfterLast("/")
+        val idMatch = Regex("([a-zA-Z0-9]{4,15})").find(lastSegment)
+        if (idMatch != null) return idMatch.groupValues[1]
+        return lastSegment
+    }
+
+    private fun resolveCdnDirectMp4Url(dwnUrl: String, headersMap: Map<String, String>): String? {
         return try {
+            val noRedirectClient = httpClient.newBuilder().followRedirects(false).build()
             val req = Request.Builder()
-                .url(url)
-                .head()
+                .url(dwnUrl)
                 .headers(okhttp3.Headers.Builder().apply { headersMap.forEach { (k, v) -> add(k, v) } }.build())
                 .build()
-            httpClient.newCall(req).execute().use { resp ->
-                val redirectLoc = resp.header("Location")
-                if (!redirectLoc.isNullOrBlank()) {
-                    if (redirectLoc.startsWith("/")) "https://www.eporner.com$redirectLoc" else redirectLoc
-                } else {
-                    resp.request.url.toString()
-                }
+            noRedirectClient.newCall(req).execute().use { resp ->
+                val loc = resp.header("Location")
+                if (!loc.isNullOrBlank()) {
+                    if (loc.startsWith("/")) "https://www.eporner.com$loc" else loc
+                } else null
             }
         } catch (e: Exception) {
-            url
+            null
         }
     }
 
     suspend fun getStreamData(urlOrId: String): StreamData? = withContext(Dispatchers.IO) {
-        val cleanInput = urlOrId.trim()
-        val videoId = when {
-            cleanInput.contains("video-") -> cleanInput.substringAfter("video-").substringBefore("/")
-            cleanInput.startsWith("http") -> cleanInput.substringAfterLast("/")
-            else -> cleanInput
+        val videoId = extractVideoId(urlOrId)
+        if (videoId.isBlank()) {
+            Log.e(TAG, "Failed to extract video ID from $urlOrId")
+            return@withContext null
         }
-        val targetUrl = when {
-            cleanInput.startsWith("http") -> cleanInput
-            else -> "https://www.eporner.com/video-$videoId/"
-        }
+
+        val targetUrl = "https://www.eporner.com/video-$videoId/"
+        val embedUrl = "https://www.eporner.com/embed/$videoId/"
 
         try {
             val epornerHeaders = mapOf(
@@ -97,62 +112,62 @@ object EpornerProvider {
                 Log.w(TAG, "API v2 lookup failed: ${e.message}")
             }
 
-            // 2. HTML Scrape
-            val req = Request.Builder()
-                .url(targetUrl)
-                .headers(okhttp3.Headers.Builder().apply { epornerHeaders.forEach { (k, v) -> add(k, v) } }.build())
-                .build()
-
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
-
-            if (!html.isNullOrBlank()) {
-                if (title == "Eporner Video") {
-                    val titleMatcher = Pattern.compile("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
-                    if (titleMatcher.find()) {
-                        title = titleMatcher.group(1) ?: title
-                    } else {
-                        val tMatch = Pattern.compile("<title>([^<]+)</title>", Pattern.CASE_INSENSITIVE).matcher(html)
-                        if (tMatch.find()) {
-                            title = tMatch.group(1)?.substringBefore("- EPORNER")?.trim() ?: title
+            // 2. Query XHR player config for direct MP4 sources
+            try {
+                val xhrReq = Request.Builder()
+                    .url("https://www.eporner.com/xhr/video/$videoId")
+                    .headers(okhttp3.Headers.Builder().apply { epornerHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                    .build()
+                val xhrResp = httpClient.newCall(xhrReq).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+                if (!xhrResp.isNullOrBlank()) {
+                    val json = org.json.JSONObject(xhrResp)
+                    val sources = json.optJSONObject("sources") ?: json.optJSONObject("mp4")
+                    if (sources != null) {
+                        val qualities = listOf("1080p", "720p", "480p", "360p", "240p")
+                        for (q in qualities) {
+                            val qObj = sources.optJSONObject(q)
+                            val src = qObj?.optString("src", "") ?: sources.optString(q, "")
+                            if (src.isNotBlank() && !seenUrls.contains(src)) {
+                                seenUrls.add(src)
+                                options.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = "$q Direct MP4",
+                                        format = "mp4",
+                                        isMuxed = true,
+                                        videoUrl = src,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = epornerHeaders
+                                    )
+                                )
+                            }
                         }
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "XHR player config lookup failed: ${e.message}")
+            }
 
-                if (thumb.isBlank()) {
-                    val thumbMatcher = Pattern.compile("<meta\\s+property=\"og:image\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
-                    if (thumbMatcher.find()) {
-                        thumb = thumbMatcher.group(1) ?: ""
-                    }
-                }
+            // 3. Resolve direct CDN Location headers from /dwn/ endpoints without following redirects
+            val dwnEndpoints = listOf(
+                "https://www.eporner.com/dwn/$videoId/1080p" to "1080p Direct MP4",
+                "https://www.eporner.com/dwn/$videoId/720p" to "720p Direct MP4",
+                "https://www.eporner.com/dwn/$videoId/480p" to "480p Direct MP4",
+                "https://www.eporner.com/dwn/$videoId" to "SD Direct MP4"
+            )
 
-                // Match both direct CDN mp4 and /dwn/ download links
-                val mp4Pattern = Pattern.compile("(https?://[^\"]+?\\.mp4[^\"]*|/dwn/[^\"]+)", Pattern.CASE_INSENSITIVE)
-                val matcher = mp4Pattern.matcher(html)
-
-                while (matcher.find()) {
-                    var rawStreamUrl = matcher.group(1)?.replace("&amp;", "&")?.replace("\\/", "/") ?: continue
-                    val streamUrl = if (rawStreamUrl.startsWith("/")) "https://www.eporner.com$rawStreamUrl" else rawStreamUrl
-                    if (seenUrls.contains(streamUrl)) continue
-                    seenUrls.add(streamUrl)
-
-                    val finalCdnUrl = resolveDirectCdnUrl(streamUrl, epornerHeaders)
-
-                    val qualityLabel = when {
-                        streamUrl.contains("1080p", ignoreCase = true) || streamUrl.contains("1080", ignoreCase = true) -> "1080p MP4"
-                        streamUrl.contains("720p", ignoreCase = true) || streamUrl.contains("720", ignoreCase = true) -> "720p MP4"
-                        streamUrl.contains("480p", ignoreCase = true) || streamUrl.contains("480", ignoreCase = true) -> "480p MP4"
-                        streamUrl.contains("360p", ignoreCase = true) || streamUrl.contains("360", ignoreCase = true) -> "360p MP4"
-                        else -> "HD MP4"
-                    }
-
+            for ((dwnUrl, label) in dwnEndpoints) {
+                val directCdnMp4 = resolveCdnDirectMp4Url(dwnUrl, epornerHeaders)
+                val finalUrl = directCdnMp4 ?: dwnUrl
+                if (!seenUrls.contains(finalUrl)) {
+                    seenUrls.add(finalUrl)
                     options.add(
                         PlayableStreamOption(
-                            qualityLabel = qualityLabel,
+                            qualityLabel = label,
                             format = "mp4",
                             isMuxed = true,
-                            videoUrl = finalCdnUrl,
+                            videoUrl = finalUrl,
                             providerType = ProviderType.DIRECT,
                             headers = epornerHeaders
                         )
@@ -160,19 +175,52 @@ object EpornerProvider {
                 }
             }
 
+            // 4. HTML Scrape fallback if needed
             if (options.isEmpty()) {
-                // Direct fallback link construction
-                val fallbackUrl = resolveDirectCdnUrl("https://www.eporner.com/dwn/$videoId", epornerHeaders)
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "720p MP4 Direct",
-                        format = "mp4",
-                        isMuxed = true,
-                        videoUrl = fallbackUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = epornerHeaders
-                    )
-                )
+                val pagesToScrape = listOf(targetUrl, embedUrl)
+                for (pUrl in pagesToScrape) {
+                    try {
+                        val req = Request.Builder()
+                            .url(pUrl)
+                            .headers(okhttp3.Headers.Builder().apply { epornerHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                            .build()
+
+                        val html = httpClient.newCall(req).execute().use { resp ->
+                            if (resp.isSuccessful) resp.body?.string() else null
+                        }
+
+                        if (!html.isNullOrBlank()) {
+                            val mp4Pattern = Pattern.compile("(https?://[^\"]+?\\.mp4[^\"]*)", Pattern.CASE_INSENSITIVE)
+                            val matcher = mp4Pattern.matcher(html)
+
+                            while (matcher.find()) {
+                                var streamUrl = matcher.group(1)?.replace("&amp;", "&")?.replace("\\/", "/") ?: continue
+                                if (seenUrls.contains(streamUrl)) continue
+                                seenUrls.add(streamUrl)
+
+                                val qualityLabel = when {
+                                    streamUrl.contains("1080p", ignoreCase = true) -> "1080p MP4"
+                                    streamUrl.contains("720p", ignoreCase = true) -> "720p MP4"
+                                    streamUrl.contains("480p", ignoreCase = true) -> "480p MP4"
+                                    else -> "HD MP4"
+                                }
+
+                                options.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = qualityLabel,
+                                        format = "mp4",
+                                        isMuxed = true,
+                                        videoUrl = streamUrl,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = epornerHeaders
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Scrape failed for $pUrl: ${e.message}")
+                    }
+                }
             }
 
             val sortedOptions = options.sortedByDescending { 
@@ -219,7 +267,8 @@ object EpornerProvider {
                 val video = videosArr.optJSONObject(i) ?: continue
                 val id = video.optString("id", "")
                 val title = video.optString("title", "Eporner Video")
-                val url = video.optString("url", "https://www.eporner.com/video-$id/")
+                val itemVideoId = if (id.isNotBlank()) id else extractVideoId(video.optString("url", ""))
+                val url = "https://www.eporner.com/video-$itemVideoId/"
                 val thumbObj = video.optJSONObject("default_thumb")
                 val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
                 val duration = video.optLong("length_sec", -1L)
@@ -259,7 +308,8 @@ object EpornerProvider {
                 val video = videosArr.optJSONObject(i) ?: continue
                 val id = video.optString("id", "")
                 val title = video.optString("title", "Eporner Video")
-                val url = video.optString("url", "https://www.eporner.com/video-$id/")
+                val itemVideoId = if (id.isNotBlank()) id else extractVideoId(video.optString("url", ""))
+                val url = "https://www.eporner.com/video-$itemVideoId/"
                 val thumbObj = video.optJSONObject("default_thumb")
                 val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
                 val duration = video.optLong("length_sec", -1L)

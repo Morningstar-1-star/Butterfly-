@@ -545,8 +545,11 @@ object GlobalPlayerManager {
                             defaultHeaders["Cookie"] = "age_verified=1"
                         }
                     }
-                    lowerTarget.contains("eporner.com") -> {
+                    lowerTarget.contains("eporner") || lowerTarget.contains("static-cluster") || streamData?.providerId == "eporner" -> {
                         defaultHeaders["Referer"] = "https://www.eporner.com/"
+                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                            defaultHeaders["Origin"] = "https://www.eporner.com"
+                        }
                     }
                     lowerTarget.contains("redtube.com") -> {
                         defaultHeaders["Referer"] = "https://www.redtube.com/"
