@@ -1671,23 +1671,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val ytDlpItems = mutableListOf<VideoItem>()
                 if (activeProv == "all") {
-                    val sources = listOf("dailymotion", "vimeo", "bilibili", "curiositystream")
-                    for (prov in sources) {
-                        try {
-                            ytDlpItems.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), "trending", 5, prov))
-                        } catch (e: Exception) {
-                            Log.e("MainViewModel", "Failed to fetch $prov", e)
-                        }
-                    }
+                    val sources = mutableListOf("dailymotion", "vimeo", "bilibili", "curiositystream")
                     if (adultEnabled) {
-                        val adultSources = listOf("pornhub", "xvideos", "eporner", "xhamster", "redtube", "youporn", "4tube", "beeg", "rule34video")
-                        for (prov in adultSources) {
-                            try {
-                                ytDlpItems.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), "popular", 3, prov))
-                            } catch (e: Exception) {
-                                Log.e("MainViewModel", "Failed to fetch $prov", e)
+                        sources.addAll(listOf("pornhub", "xvideos", "eporner", "xhamster", "redtube", "youporn", "4tube", "beeg", "rule34video"))
+                    }
+                    kotlinx.coroutines.supervisorScope {
+                        val deferreds = sources.map { prov ->
+                            async(Dispatchers.IO) {
+                                try {
+                                    val q = if (isAdultProviderId(prov)) "popular" else "trending"
+                                    com.example.extractor.YtDlpResolver.search(getApplication(), q, 3, prov)
+                                } catch (e: Exception) {
+                                    emptyList()
+                                }
                             }
                         }
+                        deferreds.awaitAll().forEach { ytDlpItems.addAll(it) }
                     }
                 } else if (activeProv != "youtube" && activeProv != "archive_org") {
                     val query = when (activeProv) {
