@@ -149,6 +149,77 @@ fun LibraryScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
+            // SOURCES / CHANNELS SUBSCRIPTIONS BAR (Like YouTube Subscriptions Tab)
+            val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+            var selectedChannelFilter by remember { mutableStateOf<String?>(null) }
+
+            val sourcesChannels = remember(adultContentEnabled) {
+                val list = mutableListOf(
+                    Triple("all", "All Sources", Icons.Default.VideoLibrary),
+                    Triple("youtube", "YouTube", Icons.Default.PlayCircle),
+                    Triple("archive_org", "Archive", Icons.Default.Archive),
+                    Triple("dailymotion", "Dailymotion", Icons.Default.OndemandVideo),
+                    Triple("bilibili", "Bilibili", Icons.Default.Animation),
+                    Triple("vimeo", "Vimeo", Icons.Default.Movie),
+                    Triple("curiositystream", "Curiosity", Icons.Default.School)
+                )
+                if (adultContentEnabled) {
+                    list.addAll(listOf(
+                        Triple("eporner", "Eporner", Icons.Default.LocalFireDepartment),
+                        Triple("pornhub", "Pornhub", Icons.Default.Whatshot),
+                        Triple("xvideos", "XVideos", Icons.Default.Tv),
+                        Triple("xhamster", "XHamster", Icons.Default.Explore)
+                    ))
+                }
+                list
+            }
+
+            androidx.compose.foundation.lazy.LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(sourcesChannels) { (id, name, icon) ->
+                    val isSelected = selectedChannelFilter == id || (id == "all" && selectedChannelFilter == null)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedChannelFilter = if (id == "all") null else id },
+                        label = { Text(name, fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            }
+
+            // FILTERED LIST BASED ON CHANNEL / SUBSCRIPTION & SEARCH
+            val filteredList = remember(savedList, searchQuery, selectedChannelFilter) {
+                var list = savedList
+                val filterVal: String = selectedChannelFilter ?: ""
+                if (filterVal.isNotBlank() && filterVal != "all") {
+                    list = list.filter {
+                        val provId = it.providerId ?: ""
+                        provId.equals(filterVal, ignoreCase = true) || provId.contains(filterVal, ignoreCase = true)
+                    }
+                }
+                if (searchQuery.isNotBlank()) {
+                    list = list.filter {
+                        it.title.contains(searchQuery, ignoreCase = true) ||
+                        it.uploaderName.contains(searchQuery, ignoreCase = true)
+                    }
+                }
+                list
+            }
+
             if (filteredList.isEmpty()) {
                 Box(
                     modifier = Modifier

@@ -190,9 +190,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPipMode.value = enabled
     }
 
-    fun isAdultProviderId(providerId: String?): Boolean = false
-    fun isAdultVideoItem(item: VideoItem): Boolean = false
-    fun isAdultSearchQuery(query: String): Boolean = false
+    private val adultProviderIds = setOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "eporner", "apijav")
+
+    fun isAdultProviderId(providerId: String?): Boolean {
+        if (providerId.isNullOrBlank()) return false
+        val lower = providerId.lowercase()
+        return adultProviderIds.any { lower.contains(it) }
+    }
+
+    fun isAdultVideoItem(item: VideoItem): Boolean {
+        if (isAdultProviderId(item.providerId)) return true
+        val text = "${item.title} ${item.uploaderName} ${item.description}".lowercase()
+        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "eporner", "apijav", "adult", "nsfw")
+        return adultKeywords.any { text.contains(it) }
+    }
+
+    fun isAdultSearchQuery(query: String): Boolean {
+        val q = query.lowercase()
+        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "eporner", "apijav", "adult", "nsfw")
+        return adultKeywords.any { q.contains(it) }
+    }
     fun isAdultDownload(entity: OfflineDownloadEntity): Boolean = false
     fun isDemoOrPlaceholderVideo(item: VideoItem): Boolean = false
 
@@ -1291,6 +1308,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun refreshProvidersList() {
         val activeId = _activeProviderId.value
         val enabledSet = _enabledProviderIds.value
+        val adultEnabled = _adultContentEnabled.value
         val uiList = mutableListOf<ProviderUiItem>()
 
         uiList.add(
@@ -1323,6 +1341,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDefault = (activeId == "archive_org")
             )
         )
+        uiList.add(
+            ProviderUiItem(
+                id = "dailymotion",
+                name = "Dailymotion",
+                description = "Dailymotion video platform via yt-dlp",
+                category = "Video",
+                isEnabled = enabledSet.contains("dailymotion"),
+                isDefault = (activeId == "dailymotion")
+            )
+        )
+        uiList.add(
+            ProviderUiItem(
+                id = "bilibili",
+                name = "Bilibili",
+                description = "Bilibili streaming catalog via yt-dlp",
+                category = "Video",
+                isEnabled = enabledSet.contains("bilibili"),
+                isDefault = (activeId == "bilibili")
+            )
+        )
+        uiList.add(
+            ProviderUiItem(
+                id = "vimeo",
+                name = "Vimeo",
+                description = "Vimeo video catalog via yt-dlp",
+                category = "Video",
+                isEnabled = enabledSet.contains("vimeo"),
+                isDefault = (activeId == "vimeo")
+            )
+        )
+        uiList.add(
+            ProviderUiItem(
+                id = "curiositystream",
+                name = "CuriosityStream",
+                description = "CuriosityStream documentaries via yt-dlp",
+                category = "Documentary",
+                isEnabled = enabledSet.contains("curiositystream"),
+                isDefault = (activeId == "curiositystream")
+            )
+        )
+
+        if (adultEnabled) {
+            val adultProviders = listOf(
+                Triple("eporner", "Eporner", "Eporner adult video catalog"),
+                Triple("pornhub", "Pornhub", "Pornhub adult video catalog"),
+                Triple("xvideos", "XVideos", "XVideos adult video catalog"),
+                Triple("4tube", "4tube", "4tube adult video catalog"),
+                Triple("beeg", "Beeg", "Beeg adult video catalog"),
+                Triple("rule34video", "Rule34Video", "Rule34Video adult animation catalog"),
+                Triple("redtube", "RedTube", "RedTube adult video catalog"),
+                Triple("xhamster", "XHamster", "XHamster adult video catalog"),
+                Triple("youporn", "YouPorn", "YouPorn adult video catalog")
+            )
+            for ((id, name, desc) in adultProviders) {
+                uiList.add(
+                    ProviderUiItem(
+                        id = id,
+                        name = name,
+                        description = desc,
+                        category = "18+",
+                        isEnabled = enabledSet.contains(id),
+                        isDefault = (activeId == id)
+                    )
+                )
+            }
+        }
+
         _availableProviders.value = uiList
     }
 
@@ -1527,9 +1612,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _feedError.value = null
             try {
-                val archiveResults = com.example.extractor.ArchiveOrgProvider.search(q, 1)
-                val ytItems = com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
-                val combined = (archiveResults + ytItems).distinctBy { it.id }
+                val adultEnabled = _adultContentEnabled.value
+                val activeProv = _activeProviderId.value
+
+                val archiveResults = if (activeProv == "all" || activeProv == "archive_org") {
+                    com.example.extractor.ArchiveOrgProvider.search(q, 1)
+                } else emptyList()
+
+                val ytItems = if (activeProv == "all" || activeProv == "youtube") {
+                    com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
+                } else emptyList()
+
+                val ytDlpResults = if (activeProv != "youtube" && activeProv != "archive_org") {
+                    com.example.extractor.YtDlpResolver.search(getApplication(), q, 25)
+                } else if (adultEnabled || !isAdultSearchQuery(q)) {
+                    com.example.extractor.YtDlpResolver.search(getApplication(), q, 10)
+                } else emptyList()
+
+                val combined = (archiveResults + ytItems + ytDlpResults)
+                    .distinctBy { it.id }
+                    .filter { adultEnabled || !isAdultVideoItem(it) }
+
                 _searchResults.value = combined
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Search failed", e)
@@ -1555,9 +1658,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _searchResults.value = emptyList()
             }
             try {
-                val ytItems = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
-                val archiveItems = com.example.extractor.ArchiveOrgProvider.getHome(1)
-                val combined = (ytItems + archiveItems).distinctBy { it.id }
+                val adultEnabled = _adultContentEnabled.value
+                val activeProv = _activeProviderId.value
+
+                val ytItems = if (activeProv == "all" || activeProv == "youtube") {
+                    com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
+                } else emptyList()
+
+                val archiveItems = if (activeProv == "all" || activeProv == "archive_org") {
+                    com.example.extractor.ArchiveOrgProvider.getHome(1)
+                } else emptyList()
+
+                val ytDlpItems = mutableListOf<VideoItem>()
+                if (activeProv == "all") {
+                    val sources = listOf("dailymotion", "vimeo", "bilibili", "curiositystream")
+                    for (prov in sources) {
+                        try {
+                            ytDlpItems.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), "trending", 5, prov))
+                        } catch (e: Exception) {
+                            Log.e("MainViewModel", "Failed to fetch $prov", e)
+                        }
+                    }
+                    if (adultEnabled) {
+                        val adultSources = listOf("pornhub", "xvideos", "eporner", "xhamster", "redtube", "youporn", "4tube", "beeg", "rule34video")
+                        for (prov in adultSources) {
+                            try {
+                                ytDlpItems.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), "popular", 3, prov))
+                            } catch (e: Exception) {
+                                Log.e("MainViewModel", "Failed to fetch $prov", e)
+                            }
+                        }
+                    }
+                } else if (activeProv != "youtube" && activeProv != "archive_org") {
+                    val query = when (activeProv) {
+                        "dailymotion" -> "trending"
+                        "vimeo" -> "staff picks"
+                        "bilibili" -> "anime"
+                        "curiositystream" -> "documentary"
+                        "pornhub" -> "trending"
+                        "xvideos" -> "popular"
+                        "eporner" -> "HD"
+                        "xhamster" -> "popular"
+                        "redtube" -> "trending"
+                        "youporn" -> "popular"
+                        "4tube" -> "video"
+                        "beeg" -> "popular"
+                        "rule34video" -> "animation"
+                        else -> "popular"
+                    }
+                    ytDlpItems.addAll(com.example.extractor.YtDlpResolver.search(getApplication(), query, 25, activeProv))
+                }
+
+                val combined = (ytItems + archiveItems + ytDlpItems)
+                    .distinctBy { it.id }
+                    .filter { adultEnabled || !isAdultVideoItem(it) }
+
                 _trendingVideos.value = if (forceRefresh) combined.shuffled() else combined
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed", e)

@@ -28,8 +28,13 @@ object YtDlpResolver {
         val u = url.lowercase().trim()
         return u.startsWith("http://") || u.startsWith("https://") ||
                 u.contains("youtube.com") || u.contains("youtu.be") ||
-                u.contains("vimeo.com") || u.contains("dailymotion.com") ||
-                u.contains("bilibili.com") || u.contains("tiktok.com") ||
+                u.contains("vimeo.com") || u.contains("dailymotion.com") || u.contains("dai.ly") ||
+                u.contains("bilibili.com") || u.contains("curiositystream.com") ||
+                u.contains("pornhub.com") || u.contains("phncdn.com") ||
+                u.contains("xvideos.com") || u.contains("4tube.com") ||
+                u.contains("beeg.com") || u.contains("rule34video.com") ||
+                u.contains("redtube.com") || u.contains("xhamster.com") ||
+                u.contains("youporn.com") || u.contains("tiktok.com") ||
                 u.contains("twitch.tv") || u.contains("soundcloud.com") ||
                 (url.length == 11 && !url.contains("/"))
     }
@@ -101,11 +106,11 @@ object YtDlpResolver {
 
     suspend fun extractStreamInfo(ctx: Context, targetUrl: String): YouTubeExtractorHelper.ExtractionResult = withContext(Dispatchers.IO) {
         try {
-            val isYouTube = targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be") || (targetUrl.length == 11 && !targetUrl.startsWith("http"))
+            val isYouTube = targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be") || (targetUrl.length == 11 && !targetUrl.startsWith("http") && !targetUrl.contains(" "))
             val videoUrl = when {
-                targetUrl.startsWith("http") -> targetUrl
-                targetUrl.length == 11 -> "https://www.youtube.com/watch?v=$targetUrl"
-                else -> targetUrl
+                targetUrl.startsWith("http://") || targetUrl.startsWith("https://") -> targetUrl
+                targetUrl.length == 11 && !targetUrl.contains(" ") -> "https://www.youtube.com/watch?v=$targetUrl"
+                else -> "ytsearch1:$targetUrl"
             }
 
             Log.i(TAG, "Executing yt-dlp stream extraction for: $videoUrl")
@@ -141,13 +146,51 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://vimeo.com/")
                     domainHeaders["Referer"] = "https://vimeo.com/"
                 }
-                lowerUrl.contains("dailymotion.com") -> {
+                lowerUrl.contains("dailymotion.com") || lowerUrl.contains("dai.ly") -> {
                     request.addOption("--add-header", "Referer: https://www.dailymotion.com/")
                     domainHeaders["Referer"] = "https://www.dailymotion.com/"
                 }
                 lowerUrl.contains("bilibili.com") -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
+                }
+                lowerUrl.contains("curiositystream.com") -> {
+                    request.addOption("--add-header", "Referer: https://curiositystream.com/")
+                    domainHeaders["Referer"] = "https://curiositystream.com/"
+                }
+                lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.pornhub.com/")
+                    request.addOption("--add-header", "Cookie: age_verified=1")
+                    domainHeaders["Referer"] = "https://www.pornhub.com/"
+                    domainHeaders["Cookie"] = "age_verified=1"
+                }
+                lowerUrl.contains("xvideos.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.xvideos.com/")
+                    domainHeaders["Referer"] = "https://www.xvideos.com/"
+                }
+                lowerUrl.contains("4tube.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.4tube.com/")
+                    domainHeaders["Referer"] = "https://www.4tube.com/"
+                }
+                lowerUrl.contains("beeg.com") -> {
+                    request.addOption("--add-header", "Referer: https://beeg.com/")
+                    domainHeaders["Referer"] = "https://beeg.com/"
+                }
+                lowerUrl.contains("rule34video.com") -> {
+                    request.addOption("--add-header", "Referer: https://rule34video.com/")
+                    domainHeaders["Referer"] = "https://rule34video.com/"
+                }
+                lowerUrl.contains("redtube.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.redtube.com/")
+                    domainHeaders["Referer"] = "https://www.redtube.com/"
+                }
+                lowerUrl.contains("xhamster.com") -> {
+                    request.addOption("--add-header", "Referer: https://xhamster.com/")
+                    domainHeaders["Referer"] = "https://xhamster.com/"
+                }
+                lowerUrl.contains("youporn.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.youporn.com/")
+                    domainHeaders["Referer"] = "https://www.youporn.com/"
                 }
                 lowerUrl.contains("tiktok.com") -> {
                     request.addOption("--add-header", "Referer: https://www.tiktok.com/")
@@ -413,7 +456,7 @@ object YtDlpResolver {
         search(ctx, "top news", limit)
     }
 
-    suspend fun search(ctx: Context, query: String, limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun search(ctx: Context, query: String, limit: Int = 25, providerId: String = "youtube"): List<VideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<VideoItem>()
         if (query.isBlank()) return@withContext list
         try {
@@ -423,10 +466,22 @@ object YtDlpResolver {
                 Log.w(TAG, "YoutubeDL init note: ${e.message}")
             }
 
-            val searchTarget = if (query.startsWith("http://") || query.startsWith("https://")) {
-                query
-            } else {
-                "ytsearch$limit:$query"
+            val searchTarget = when {
+                query.startsWith("http://") || query.startsWith("https://") -> query
+                providerId == "dailymotion" -> "https://www.dailymotion.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "vimeo" -> "https://vimeo.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "bilibili" -> "https://search.bilibili.com/all?keyword=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "curiositystream" -> "https://curiositystream.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "pornhub" -> "https://www.pornhub.com/video/search?search=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "xvideos" -> "https://www.xvideos.com/?k=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "4tube" -> "https://www.4tube.com/videos?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "beeg" -> "https://beeg.com/?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "rule34video" -> "https://rule34video.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}/"
+                providerId == "redtube" -> "https://www.redtube.com/?search=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "xhamster" -> "https://xhamster.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "youporn" -> "https://www.youporn.com/search/?query=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "eporner" -> "https://www.eporner.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}/"
+                else -> "ytsearch$limit:$query"
             }
 
             val request = YoutubeDLRequest(searchTarget)
@@ -448,10 +503,11 @@ object YtDlpResolver {
                             val id = json.optString("id", "")
                             val title = json.optString("title", "")
                             if (id.isNotBlank() && title.isNotBlank()) {
-                                val uploader = json.optString("uploader", json.optString("channel", "YouTube"))
+                                val uploader = json.optString("uploader", json.optString("channel", providerId.replaceFirstChar { it.uppercase() }))
                                 val duration = json.optLong("duration", -1L)
                                 val viewCount = json.optLong("view_count", -1L)
-                                val thumb = json.optString("thumbnail", "https://i.ytimg.com/vi/$id/hqdefault.jpg")
+                                val thumb = json.optString("thumbnail", "")
+                                val actualProvider = json.optString("extractor_key", json.optString("extractor", providerId)).lowercase()
                                 list.add(
                                     VideoItem(
                                         id = id,
@@ -460,7 +516,7 @@ object YtDlpResolver {
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = thumb,
-                                        providerId = "youtube"
+                                        providerId = if (actualProvider.contains("youtube")) "youtube" else providerId
                                     )
                                 )
                             }

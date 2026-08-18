@@ -152,6 +152,18 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isEporner = providerId == "eporner" || urlOrId.contains("eporner.com")
+        if (isEporner) {
+            val epornerData = EpornerProvider.getStreamData(urlOrId)
+            if (epornerData != null) {
+                Log.i(TAG, "Resolved via EpornerProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(epornerData)
+            } else if (context != null) {
+                Log.i(TAG, "EpornerProvider direct scraping failed, falling back to YtDlpResolver for $urlOrId")
+                return@withContext YtDlpResolver.extractStreamInfo(context, urlOrId)
+            }
+        }
+
         val isYouTube = providerId == "youtube" || urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
 
         if (isYouTube) {
