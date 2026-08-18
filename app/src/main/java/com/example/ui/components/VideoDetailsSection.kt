@@ -95,16 +95,15 @@ fun VideoDetailsSection(
     }
     var selectedCastMemberForSheet by remember { mutableStateOf<CastMember?>(null) }
 
-    val isTorrent = remember(streamData?.isTorrent, currentProviderId, currentTitle) {
+    val isTorrent = remember(currentProviderId, currentTitle) {
         val pid = (currentProviderId ?: "").lowercase()
-        val isJav = TMDBHelper.isJavOrAdultProvider(currentProviderId, currentTitle)
-        !isJav && ((streamData?.isTorrent == true) || pid.contains("torrent") || pid.contains("eztv") || pid.contains("yts") || pid.contains("unified"))
+        pid.contains("movie") || pid.contains("show") || pid.contains("cinema")
     }
 
     var rydData by remember(currentVideoId) { mutableStateOf<com.example.util.RYDVoteData?>(null) }
 
     LaunchedEffect(currentVideoId, currentTitle, isTorrent) {
-        if (isTorrent && currentTitle.isNotBlank()) {
+        if (currentTitle.isNotBlank() && (isTorrent || currentProviderId == "archive_org")) {
             mediaDetails = TMDBHelper.fetchMediaDetails(currentTitle, currentVideoId)
         } else {
             mediaDetails = null

@@ -390,7 +390,6 @@ fun HomeScreen(
                                     .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
-                                    .filter { !it.thumbnailUrl.isNullOrBlank() && it.thumbnailUrl != "null" }
                                     .distinctBy { "${it.providerId}_${it.id}" }
                             }
                             val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
@@ -398,7 +397,6 @@ fun HomeScreen(
                                     .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
-                                    .filter { !it.thumbnailUrl.isNullOrBlank() && it.thumbnailUrl != "null" }
                                     .distinctBy { "${it.providerId}_${it.id}" }
                             }
 

@@ -68,7 +68,6 @@ object TMDBHelper {
             .replace(Regex("(?i)episode\\s*\\d+.*"), " ")
             .replace(Regex("(?i)ep\\s*\\d+.*"), " ")
             .replace(Regex("(?i)720p|1080p|2160p|4k|hdr|hd|web-dl|webrip|bluray|x264|x265|hevc|dvdrip|aac|h264|h265"), " ")
-            .replace(Regex("(?i)torrents|multi-indexer|damilola|eporner"), " ")
             .replace(Regex("\\b(19|20)\\d{2}\\b"), " ")
             .replace(Regex("[_.-]"), " ")
             .replace(Regex("\\s+"), " ")
@@ -80,18 +79,7 @@ object TMDBHelper {
         return clean
     }
 
-    fun isJavOrAdultProvider(providerId: String?, title: String? = null): Boolean {
-        val pid = (providerId ?: "").lowercase()
-        val t = (title ?: "").lowercase()
-        return pid.contains("jav") || pid.contains("apijav") || pid.contains("porn") ||
-                pid.contains("hentai") || pid.contains("adult") || pid.contains("eporner") ||
-                t.contains("javinfo") || t.contains("apijav") || t.contains("missav")
-    }
-
     suspend fun fetchMediaDetails(rawTitle: String, videoId: String? = null): MediaDetailInfo = withContext(Dispatchers.IO) {
-        if (isJavOrAdultProvider(null, rawTitle)) {
-            return@withContext getLocalDetailsForTitle(rawTitle, rawTitle.lowercase())
-        }
         val cleanTitle = cleanTitleForSearch(rawTitle)
         val lower = cleanTitle.lowercase()
 
@@ -578,9 +566,6 @@ object TMDBHelper {
     private val tvSeasonsCache = ConcurrentHashMap<String, List<SeriesSeason>>()
 
     suspend fun fetchTvSeasonsAndEpisodes(streamData: StreamData): List<SeriesSeason> = withContext(Dispatchers.IO) {
-        if (isJavOrAdultProvider(streamData.providerId, streamData.title)) {
-            return@withContext emptyList()
-        }
         if (streamData.title.isBlank()) {
             return@withContext emptyList()
         }

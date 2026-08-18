@@ -113,7 +113,7 @@ fun ExploreScreen(
             val docuDeferred = async { TMDBHelper.fetchExploreCategoryMovies(99, "Documentary") }
             val aniListDeferred = async { TMDBHelper.fetchAniListTrendingAnime() }
             val jikanDeferred = async { TMDBHelper.fetchJikanTopAnime() }
-            val ytDeferred = async { try { com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending() } catch (e: Exception) { emptyList() } }
+            val ytDeferred = async { try { com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(context) } catch (e: Exception) { emptyList() } }
             val musicDeferred = async { emptyList<com.example.model.VideoItem>() }
             val shortsDeferred = async { emptyList<com.example.model.VideoItem>() }
             val dailymotionDeferred = async { emptyList<com.example.model.VideoItem>() }

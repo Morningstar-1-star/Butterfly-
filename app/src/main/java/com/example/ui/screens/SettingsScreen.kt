@@ -1535,39 +1535,15 @@ fun SettingsScreen(
                     ) {
                         Column {
                             Text(
-                                text = "Provider Sources & Plugins (${availableProviders.filter { it.id != "all" }.size})",
+                                text = "Provider Sources (${availableProviders.filter { it.id != "all" }.size})",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Toggle providers & run live diagnostic health checks",
+                                text = "Manage enabled content providers",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        var isTestingInSettings by remember { mutableStateOf(false) }
-                        val scope = rememberCoroutineScope()
-
-                        FilledTonalButton(
-                            onClick = {
-                                scope.launch {
-                                    isTestingInSettings = true
-                                    viewModel.runAllDiagnostics("IPX-800")
-                                    isTestingInSettings = false
-                                }
-                            },
-                            enabled = !isTestingInSettings,
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                if (isTestingInSettings) "Testing..." else "Test All",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

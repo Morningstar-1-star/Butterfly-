@@ -182,31 +182,21 @@ object ArchiveOrgProvider {
         }
 
         if (options.isEmpty()) {
-            val fallbackUrl = if (idOrUrl.startsWith("http://") || idOrUrl.startsWith("https://")) {
-                idOrUrl
+            if (idOrUrl.startsWith("http://") || idOrUrl.startsWith("https://")) {
+                options.add(
+                    PlayableStreamOption(
+                        qualityLabel = "Direct Video Stream",
+                        format = "mp4",
+                        isMuxed = true,
+                        videoUrl = idOrUrl,
+                        providerType = ProviderType.DIRECT,
+                        headers = mapOf("Referer" to "https://archive.org/")
+                    )
+                )
             } else {
-                "https://archive.org/download/$identifier/${identifier}.mp4"
+                Log.w(TAG, "No valid playable video files found in metadata for $identifier")
+                return@withContext null
             }
-            options.add(
-                PlayableStreamOption(
-                    qualityLabel = "Standard MP4 (720p)",
-                    format = "mp4",
-                    isMuxed = true,
-                    videoUrl = fallbackUrl,
-                    providerType = ProviderType.DIRECT,
-                    headers = mapOf("Referer" to "https://archive.org/")
-                )
-            )
-            options.add(
-                PlayableStreamOption(
-                    qualityLabel = "Fast MPEG-4 (512kb)",
-                    format = "mp4",
-                    isMuxed = true,
-                    videoUrl = "https://archive.org/download/$identifier/${identifier}_512kb.mp4",
-                    providerType = ProviderType.DIRECT,
-                    headers = mapOf("Referer" to "https://archive.org/")
-                )
-            )
         }
 
         StreamData(

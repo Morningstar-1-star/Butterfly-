@@ -67,7 +67,6 @@ fun VideoPlayerScreen(
     val watchPositionMsMap by viewModel.watchPositionMsMap.collectAsState()
     val userPlaylists by viewModel.userPlaylists.collectAsState()
     val serverScanState by viewModel.serverScanState.collectAsState()
-    val torrentReviewsResult by viewModel.torrentReviewsResult.collectAsState()
 
     val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
     val providerId = currentStreamData?.providerId
@@ -193,22 +192,12 @@ fun VideoPlayerScreen(
     }
 
     val activeProviderItem = availableProviders.firstOrNull { it.id == providerId }
-    val isJavOrAdult = remember(currentStreamData, providerId) {
-        com.example.util.TMDBHelper.isJavOrAdultProvider(currentStreamData?.providerId ?: providerId, currentStreamData?.title)
-    }
+    val isJavOrAdult = false
 
-    val isTorrentStream = remember(activeProviderItem, currentStreamData, selectedOption, isJavOrAdult) {
-        if (isJavOrAdult) false
-        else (activeProviderItem?.isTorrent == true) ||
-                (currentStreamData?.isTorrent == true) ||
-                (selectedOption?.isTorrent == true) ||
-                (currentStreamData?.providerId?.lowercase()?.contains("eztv") == true) ||
-                (currentStreamData?.providerId?.lowercase()?.contains("torrent") == true) ||
-                (currentStreamData?.providerId?.lowercase()?.contains("yts") == true)
-    }
+    val isTorrentStream = false
 
-    val isTvSeries = remember(currentStreamData, seasonsAndEpisodes, isJavOrAdult) {
-        if (currentStreamData == null || isJavOrAdult) false
+    val isTvSeries = remember(currentStreamData, seasonsAndEpisodes) {
+        if (currentStreamData == null) false
         else {
             val totalEpisodes = seasonsAndEpisodes.sumOf { it.episodes.size }
             totalEpisodes > 1
@@ -807,8 +796,7 @@ fun VideoPlayerScreen(
                                             com.example.ui.player.GlobalPlayerManager.seekTo(seconds * 1000L)
                                         },
                                         isTorrent = isTorrentStream,
-                                        isLoading = isCommentsLoading,
-                                        totalReviewsCountText = torrentReviewsResult?.let { "${it.totalCount}" }
+                                        isLoading = isCommentsLoading
                                     )
                                 }
                             }

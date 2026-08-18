@@ -145,18 +145,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         callback(true, null)
     }
     
-    private val _orionApiKey = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getOrionApiKey(application)
-    )
-    val orionApiKey: StateFlow<String> = _orionApiKey.asStateFlow()
-
     private val _reactionGroups = MutableStateFlow<List<com.example.util.ReactionGroup>>(emptyList())
     val reactionGroups: StateFlow<List<com.example.util.ReactionGroup>> = _reactionGroups.asStateFlow()
 
     private val _isLoadingReactions = MutableStateFlow(false)
     val isLoadingReactions: StateFlow<Boolean> = _isLoadingReactions.asStateFlow()
 
-    fun loadReactionsForCurrentVideo(title: String, uploaderName: String, isTorrent: Boolean) {
+    fun loadReactionsForCurrentVideo(title: String, uploaderName: String, isTorrent: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             _isLoadingReactions.value = true
             try {
@@ -168,61 +163,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isLoadingReactions.value = false
             }
         }
-    }
-
-    fun updateOrionApiKey(key: String) {
-        com.example.util.DebridSettingsManager.setOrionApiKey(getApplication(), key)
-        _orionApiKey.value = key.trim()
-    }
-
-    private val _cometUrl = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getCometEndpoint(application)
-    )
-    val cometUrl: StateFlow<String> = _cometUrl.asStateFlow()
-
-    fun updateCometUrl(url: String) {
-        com.example.util.DebridSettingsManager.setCometEndpoint(getApplication(), url)
-        _cometUrl.value = url.trim()
-    }
-
-    private val _mediaFusionUrl = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getMediaFusionEndpoint(application)
-    )
-    val mediaFusionUrl: StateFlow<String> = _mediaFusionUrl.asStateFlow()
-
-    fun updateMediaFusionUrl(url: String) {
-        com.example.util.DebridSettingsManager.setMediaFusionEndpoint(getApplication(), url)
-        _mediaFusionUrl.value = url.trim()
-    }
-
-    private val _zileanUrl = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getZileanEndpoint(application)
-    )
-    val zileanUrl: StateFlow<String> = _zileanUrl.asStateFlow()
-
-    fun updateZileanUrl(url: String) {
-        com.example.util.DebridSettingsManager.setZileanEndpoint(getApplication(), url)
-        _zileanUrl.value = url.trim()
-    }
-
-    private val _apijavUrl = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getApijavEndpoint(getApplication())
-    )
-    val apijavUrl: StateFlow<String> = _apijavUrl.asStateFlow()
-
-    fun updateApijavUrl(url: String) {
-        com.example.util.DebridSettingsManager.setApijavEndpoint(getApplication(), url)
-        _apijavUrl.value = url.trim()
-    }
-
-    private val _javinfoUrl = MutableStateFlow(
-        com.example.util.DebridSettingsManager.getJavInfoEndpoint(getApplication())
-    )
-    val javinfoUrl: StateFlow<String> = _javinfoUrl.asStateFlow()
-
-    fun updateJavinfoUrl(url: String) {
-        com.example.util.DebridSettingsManager.setJavInfoEndpoint(getApplication(), url)
-        _javinfoUrl.value = url.trim()
     }
 
     private val _failedSourceLogs = MutableStateFlow<List<com.example.model.FailedSourceLog>>(emptyList())
@@ -239,72 +179,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _failedSourceLogs.value = (_failedSourceLogs.value + log).takeLast(100)
     }
 
-    fun isAdultProviderId(providerId: String?): Boolean {
-        val pid = providerId?.lowercase() ?: return false
-        return pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") ||
-               pid.contains("hentai") || pid.contains("javinfo") || pid == "adult" || pid.contains("jav") ||
-               pid.contains("pornhub") || pid.contains("redtube") || pid.contains("xhamster")
-    }
-
-    fun isAdultVideoItem(item: VideoItem): Boolean {
-        if (isAdultProviderId(item.providerId)) return true
-        val uploader = item.uploaderName?.lowercase() ?: ""
-        val title = item.title.lowercase()
-        val id = item.id.lowercase()
-        val adultKeywords = listOf("18+", "jav", "porn", "hentai", "xxx", "nsfw", "erotic", "adult", "uncensored", "brazzers", "fc2")
-        return adultKeywords.any { uploader.contains(it) || title.contains(it) } ||
-               id.startsWith("jav_") || id.startsWith("adult_") || id.contains("apijav") || id.contains("eporner") ||
-               id.contains("pornhub") || id.contains("redtube") || id.contains("xhamster")
-    }
-
-    fun isDemoOrPlaceholderVideo(item: VideoItem): Boolean {
-        val t = item.title.lowercase()
-        val id = item.id.lowercase()
-        return t.contains("top stream") ||
-               t.contains("sample video") ||
-               t.contains("trending video 1") ||
-               t.contains("popular hd clip") ||
-               t.contains("drama highlights") ||
-               t.contains("meme video") ||
-               t.contains("animation remastered") ||
-               t.contains("indie band music") ||
-               t.contains("aesthetic video") ||
-               t.contains("bluesky video") ||
-               t.contains("weibo video") ||
-               t.contains("ok.ru popular") ||
-               t.contains("rutube top") ||
-               t.contains("bigo live") ||
-               t.contains("vk video popular") ||
-               t.contains("instagram reels trending") ||
-               t.contains("placeholder") ||
-               t.contains("demo") ||
-               id.endsWith("_h1") || id.endsWith("_h2") || id.endsWith("_h3") || id.endsWith("_s1") ||
-               id.startsWith("gag_") || id.startsWith("ng_") || id.startsWith("ms_") || id.startsWith("tb_") ||
-               id.startsWith("bsky_") || id.startsWith("wb_") || id.startsWith("ok_") || id.startsWith("rt_") ||
-               id.startsWith("bg_") || id.startsWith("viu_") || id.startsWith("vk_") || id.startsWith("ig_")
-    }
-
-    fun isAdultSearchQuery(query: String): Boolean {
-        val q = query.lowercase().trim()
-        if (q.isBlank()) return false
-        val adultKeywords = listOf(
-            "jav", "hentai", "porn", "xxx", "18+", "nsfw", "eporner", "pornhub", "redtube",
-            "xhamster", "javinfo", "apijav", "uncensored", "censored jav", "r18", "erotic",
-            "nude", "sex", "brazzers", "fc2", "ssis", "ipx", "stars-", "sone-", "mide-", "ssni-", "juq-"
-        )
-        if (adultKeywords.any { q.contains(it) }) return true
-        return _watchHistory.value.any { isAdultVideoItem(it) && (it.title.contains(q, ignoreCase = true) || q.contains(it.title, ignoreCase = true)) }
-    }
-
-    fun isAdultDownload(entity: OfflineDownloadEntity): Boolean {
-        val title = entity.title.lowercase()
-        val channel = entity.channelName.lowercase()
-        val id = entity.videoId.lowercase()
-        val adultKeywords = listOf("18+", "jav", "porn", "hentai", "xxx", "nsfw", "erotic", "adult", "uncensored", "brazzers")
-        return adultKeywords.any { title.contains(it) || channel.contains(it) } ||
-               id.startsWith("jav_") || id.startsWith("adult_") || isAdultProviderId(id)
-    }
-
     // Theme & Appearance Settings
     private val prefs = application.getSharedPreferences("app_settings_prefs", android.content.Context.MODE_PRIVATE)
 
@@ -316,16 +190,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
         prefs.edit().putBoolean("adult_content_enabled", enabled).apply()
-
-        if (!enabled) {
-            _trendingVideos.value = _trendingVideos.value.filterNot { isAdultVideoItem(it) }
-            _searchResults.value = _searchResults.value.filterNot { isAdultVideoItem(it) }
-            _recommendedVideos.value = _recommendedVideos.value.filterNot { isAdultVideoItem(it) }
-            if (isAdultProviderId(_activeProviderId.value)) {
-                _activeProviderId.value = "all"
-            }
-        }
-
         refreshProvidersList()
     }
 
@@ -368,6 +232,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPipMode.value = enabled
     }
 
+    fun isAdultProviderId(providerId: String?): Boolean = false
+    fun isAdultVideoItem(item: VideoItem): Boolean = false
+    fun isAdultSearchQuery(query: String): Boolean = false
+    fun isAdultDownload(entity: OfflineDownloadEntity): Boolean = false
+    fun isDemoOrPlaceholderVideo(item: VideoItem): Boolean = false
+
     private val _activeProviderId = MutableStateFlow("all")
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
@@ -379,18 +249,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableProviders = MutableStateFlow<List<ProviderUiItem>>(emptyList())
     val availableProviders: StateFlow<List<ProviderUiItem>> = _availableProviders.asStateFlow()
 
-    val providerDiagnosticsMap: StateFlow<Map<String, String>> = MutableStateFlow<Map<String, String>>(emptyMap()).asStateFlow()
-
-    fun runAllDiagnostics(testJavId: String = "IPX-800") {}
-
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
 
     private val _watchPositionMsMap = MutableStateFlow<Map<String, Long>>(emptyMap())
     val watchPositionMsMap: StateFlow<Map<String, Long>> = _watchPositionMsMap.asStateFlow()
-
-    data class TorrentReviewsResultStub(val totalCount: Int = 0)
-    val torrentReviewsResult: StateFlow<TorrentReviewsResultStub?> = MutableStateFlow(null).asStateFlow()
 
     private val _hiddenVideoIds = MutableStateFlow<Set<String>>(
         com.example.util.NotInterestedManager.getHiddenVideoIds(application)
@@ -410,14 +273,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun isBlockedVideo(item: VideoItem): Boolean {
         val vid = item.id.trim()
         val ch = item.uploaderName?.trim()?.lowercase() ?: ""
-        val embed = item.embedUrl ?: ""
         val hidden = _hiddenVideoIds.value
         val notInt = _notInterestedVideoIds.value
         val blockedChans = _notInterestedChannels.value
 
         if (vid.isNotEmpty() && (hidden.contains(vid) || notInt.contains(vid))) return true
         if (ch.isNotEmpty() && blockedChans.contains(ch)) return true
-        if (embed.isNotEmpty() && (hidden.any { it.isNotBlank() && embed.contains(it) } || notInt.any { it.isNotBlank() && embed.contains(it) })) return true
 
         // Filter out videos where watched fraction >= 85%
         val watchedFraction = _watchProgressMap.value[vid] ?: 0f
@@ -1557,154 +1418,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _availableProviders.value = uiList
     }
 
-    private fun getProviderRoleDescription(id: String): String {
-        return when (id) {
-            "all" -> "Aggregated feed combining all enabled content providers"
-            "youtube" -> "YouTube fast stream resolution, video search & channel metadata"
-            "jikan_anime" -> "MyAnimeList & Jikan API for anime catalog search, episode guides & artwork"
-            "dailymotion" -> "Dailymotion video discovery & embedded player stream resolver"
-            "vimeo" -> "Vimeo high-definition video discovery & stream resolver"
-            "twitch" -> "Twitch live streams, gaming highlights & clips"
-            "bilibili" -> "Bilibili popular videos, anime clips & media streams"
-            "tiktok" -> "TikTok vertical shorts feed, trending clips & geo-unlocked stream resolver"
-            "ninegag" -> "9GAG meme video clips & viral media feed"
-            "newgrounds" -> "Newgrounds classic flash animations & indie animation feed"
-            "myspace" -> "MySpace indie music video clips & artist media"
-            "tumblr" -> "Tumblr aesthetic video edits & blog media"
-            "bluesky" -> "Bluesky video posts & social media feed"
-            "weibo" -> "Weibo trending video clips & Asian social media"
-            "okru" -> "OK.ru Odnoklassniki video streams & user content"
-            "rutube" -> "Rutube popular shows & Russian video platform"
-            "bigo" -> "Bigo Live performance streams & broadcasting"
-            "viu" -> "Viu drama clips & Asian entertainment series"
-            "vk" -> "VKontakte video clips & community streams"
-            "instagram" -> "Instagram Reels vertical videos & viral clips"
-            "eporner" -> "Full HD adult video search & direct MP4 video stream provider"
-            "apijav_server" -> "apiJAV WordPress REST API video server endpoint"
-            "apijav_hentai" -> "apiJAV dedicated anime & hentai stream category provider"
-            "apijav_porn" -> "apiJAV main adult movie & scenes stream provider"
-            "javinfo" -> "Asian Cinema & JAV video code metadata & stream indexer"
-            "archive_org" -> "Internet Archive public domain movies, documentaries & video library"
-            "mega" -> "Mega.nz direct cloud storage video link stream resolver"
-            "telegram" -> "Telegram public channel direct video stream resolver"
-            "direct_mp4" -> "Direct .mp4 video URL player engine"
-            "direct_hls" -> "Direct .m3u8 HTTP Live Streaming player engine"
-            "rss_video" -> "Custom XML/RSS video feed parser"
-            "json" -> "Custom JSON playlist & feed engine"
-
-            "javinizer_go" -> "Go-based multi-source metadata fetcher querying R18 & MGStage catalog APIs"
-            "avm_engine" -> "Native adult scraper for FC2 Club and DMM CID adult database entries"
-            "javdex" -> "JavDB metadata indexer bypass with over18 session headers & cover art extractor"
-            "openaver" -> "Go adult content search engine pipeline for JavMenu & JavBooks API endpoints"
-            "mdcx" -> "Python metadata scraper module using AirAV barcode API & MGStage age-gate bypass"
-            "fss" -> "Arzon adult catalog parser & DMM metadata aggregator"
-            "javlibrary" -> "Core JAV catalog indexer for release dates, studios, actresses, and tags"
-            "jav321" -> "Japanese video code search scraper for studio & release metadata"
-            "javdb" -> "Community database indexer for JAV metadata, ratings, and cover art"
-            "javbus" -> "JAV catalog scraper & video metadata aggregator"
-            "javmenu" -> "Online JAV catalog & video page metadata scraper"
-            "airav" -> "Barcode & video code metadata API resolver"
-            "arzon" -> "Arzon adult DVD store detail page parser"
-            "gfriends" -> "Actresses high-res avatar artwork provider"
-
-            "javpy_resolver" -> "Python JavPy native stream resolver querying Avgle JAV API streams"
-            "missav_surrit" -> "Surrit HLS video stream extractor for MissAV video player"
-            "jable_tv" -> "Direct HLS .m3u8 video stream parser for Jable.tv"
-            "avgle_api" -> "Direct REST API resolver for Avgle embedded video streams"
-            "jav_trailers" -> "Official DMM PV preview trailer stream fetcher"
-            "supjav" -> "Supjav streaming video embed parser"
-            "javcl" -> "JavCL video embed link resolver"
-            "jav18" -> "Jav18 video stream link extractor"
-            "hanime_tv" -> "Anime & Hentai video stream resolver"
-            "iwara" -> "Iwara 3D animation video stream parser"
-            else -> "Media & Data Provider ($id)"
-        }
-    }
-
-    private fun getProviderCategoryName(id: String): String {
-        return when (id) {
-            "all" -> "Aggregator"
-            "youtube", "jikan_anime", "dailymotion", "vimeo", "twitch", "bilibili", "tiktok", "ninegag", "telegram", "newgrounds", "myspace", "tumblr", "bluesky", "weibo", "okru", "rutube", "bigo", "viu", "vk", "instagram", "archive_org", "mega", "direct_mp4", "direct_hls", "rss_video", "json" -> "Social & Video Platforms"
-            "eporner", "apijav_server", "apijav_hentai", "apijav_porn", "javinfo" -> "Adult Media Feeds"
-            "javinizer_go", "avm_engine", "javdex", "openaver", "mdcx", "fss", "javlibrary", "jav321", "javdb", "javbus", "javmenu", "airav", "arzon", "gfriends" -> "Repository Catalog Scrapers"
-            "javpy_resolver", "missav_surrit", "jable_tv", "avgle_api", "jav_trailers", "supjav", "javcl", "jav18", "hanime_tv", "iwara" -> "Stream Resolver Engines"
-            else -> "Plugins & Extensions"
-        }
-    }
-
-    private fun getReadableProviderName(id: String): String {
-        return when (id) {
-            "all" -> "All Sources"
-            "youtube" -> "YouTube"
-            "bilibili" -> "Bilibili"
-            "jikan_anime" -> "Anime (Jikan / MAL)"
-            "dailymotion" -> "Dailymotion"
-            "javinfo" -> "JavInfo API"
-            "apijav" -> "APIJAV Network"
-            "apijav_server" -> "APIJAV Server"
-            "apijav_hentai" -> "APIJAV Hentai"
-            "apijav_porn" -> "APIJAV Porn"
-            "eporner" -> "Eporner HD"
-            "peertube" -> "PeerTube"
-            "vimeo" -> "Vimeo"
-            "twitch" -> "Twitch"
-            "bilibili" -> "Bilibili"
-            "tiktok" -> "TikTok (Shorts)"
-            "ninegag" -> "9GAG"
-            "telegram" -> "Telegram"
-            "newgrounds" -> "Newgrounds"
-            "myspace" -> "MySpace"
-            "tumblr" -> "Tumblr"
-            "bluesky" -> "Bluesky"
-            "weibo" -> "Weibo"
-            "okru" -> "OK.ru (Odnoklassniki)"
-            "rutube" -> "Rutube"
-            "bigo" -> "Bigo Live"
-            "viu" -> "Viu"
-            "vk" -> "VK (VKontakte)"
-            "instagram" -> "Instagram Reels"
-            "archive_org" -> "Archive.org"
-            "ted" -> "TED Talks"
-            "nasa" -> "NASA TV"
-            "direct_mp4" -> "Direct MP4 Stream"
-            "direct_hls" -> "Direct HLS Stream"
-            "rss_video" -> "RSS Video Feed"
-            "json" -> "Custom JSON Feed"
-
-            "javinizer_go" -> "Javinizer-Go"
-            "avm_engine" -> "Adult Video Manager (AVM)"
-            "javdex" -> "Javdex"
-            "openaver" -> "OpenAver"
-            "mdcx" -> "MDCx Engine"
-            "fss" -> "Film Scraper System (FSS)"
-            "javlibrary" -> "JavLibrary"
-            "jav321" -> "Jav321"
-            "javdb" -> "JavDB"
-            "javbus" -> "JavBus"
-            "javmenu" -> "JavMenu"
-            "airav" -> "AirAV API"
-            "arzon" -> "Arzon Catalog"
-            "gfriends" -> "GFriends Avatars"
-
-            "javpy_resolver" -> "JavPy Stream Resolver"
-            "missav_surrit" -> "MissAV / Surrit"
-            "jable_tv" -> "Jable.tv"
-            "avgle_api" -> "Avgle API"
-            "jav_trailers" -> "DMM Free PV Trailers"
-            "supjav" -> "Supjav"
-            "javcl" -> "JavCL"
-            "jav18" -> "Jav18"
-            "hanime_tv" -> "Hanime.tv"
-            "iwara" -> "Iwara 3D"
-
-            "orion" -> "Orion Stremio"
-            "comet" -> "Comet Stremio"
-            "mediafusion" -> "MediaFusion Stremio"
-            "zilean" -> "Zilean DMM Indexer"
-            else -> id.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-        }
-    }
-
     private val videoCacheRepo = com.example.db.VideoCacheRepository(getApplication())
 
     private val searchPrefs = getApplication<Application>().getSharedPreferences("user_recent_searches", android.content.Context.MODE_PRIVATE)
@@ -1915,11 +1628,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _feedError.value = null
             try {
                 val archiveResults = com.example.extractor.ArchiveOrgProvider.search(q, 1)
-                val ytRes = YouTubeExtractorHelper.searchVideos(q)
-                val ytItems = when (ytRes) {
-                    is com.example.extractor.UrlParseResult.ParsedSearchResults -> ytRes.items
-                    else -> emptyList()
-                }
+                val ytItems = com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
                 val combined = (archiveResults + ytItems).distinctBy { it.id }
                 _searchResults.value = combined
             } catch (e: Exception) {
@@ -1946,7 +1655,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _searchResults.value = emptyList()
             }
             try {
-                val ytItems = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending()
+                val ytItems = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
                 val archiveItems = com.example.extractor.ArchiveOrgProvider.getHome(1)
                 val combined = (ytItems + archiveItems).distinctBy { it.id }
                 _trendingVideos.value = if (forceRefresh) combined.shuffled() else combined
@@ -1970,7 +1679,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (isSearchMode && q.isNotBlank()) {
                     currentSearchPage++
-                    val ytResults = com.example.extractor.YouTubeExtractorHelper.searchYouTube(q)
+                    val ytResults = com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
                     val archiveResults = com.example.extractor.ArchiveOrgProvider.search(q, currentSearchPage)
                     val currentList = _searchResults.value
                     val combined = (currentList + ytResults + archiveResults).distinctBy { it.id }
@@ -2032,7 +1741,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Query search for related content
                 if (providerId == "youtube" || vid.length == 11) {
-                    when (val res = YouTubeExtractorHelper.searchVideos(targetTerm)) {
+                    when (val res = YouTubeExtractorHelper.searchVideos(targetTerm, getApplication())) {
                         is com.example.model.FeedResult.Success -> {
                             val items = res.items.filter { it.id != vid }
                             discovered.addAll(items)
@@ -2062,7 +1771,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Fallback guarantee: query diverse topics so infinite scroll never ends
                 if (discovered.isEmpty()) {
                     val fallbackTopic = DIVERSE_TOPICS[playerRecsPage % DIVERSE_TOPICS.size]
-                    when (val res = YouTubeExtractorHelper.searchVideos(fallbackTopic)) {
+                    when (val res = YouTubeExtractorHelper.searchVideos(fallbackTopic, getApplication())) {
                         is com.example.model.FeedResult.Success -> {
                             discovered.addAll(res.items.filter { it.id != vid })
                         }
