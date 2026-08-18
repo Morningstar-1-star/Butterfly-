@@ -1671,22 +1671,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val ytDlpItems = mutableListOf<VideoItem>()
                 if (activeProv == "all") {
-                    val sources = mutableListOf("dailymotion", "vimeo", "bilibili", "curiositystream")
+                    val sources = mutableListOf("dailymotion", "vimeo")
                     if (adultEnabled) {
-                        sources.addAll(listOf("pornhub", "xvideos", "eporner", "xhamster", "redtube", "youporn", "4tube", "beeg", "rule34video"))
+                        sources.add("pornhub")
                     }
                     kotlinx.coroutines.supervisorScope {
                         val deferreds = sources.map { prov ->
                             async(Dispatchers.IO) {
                                 try {
-                                    val q = if (isAdultProviderId(prov)) "popular" else "trending"
-                                    com.example.extractor.YtDlpResolver.search(getApplication(), q, 3, prov)
+                                    kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                        com.example.extractor.YtDlpResolver.search(getApplication(), "trending", 5, prov)
+                                    } ?: emptyList()
                                 } catch (e: Exception) {
                                     emptyList()
                                 }
                             }
                         }
-                        deferreds.awaitAll().forEach { ytDlpItems.addAll(it) }
+                        deferreds.awaitAll().filterNotNull().forEach { ytDlpItems.addAll(it) }
                     }
                 } else if (activeProv != "youtube" && activeProv != "archive_org") {
                     val query = when (activeProv) {

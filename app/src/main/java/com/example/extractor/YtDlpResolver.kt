@@ -491,8 +491,8 @@ object YtDlpResolver {
             request.addOption("--ignore-errors")
             request.addOption("--user-agent", DEFAULT_USER_AGENT)
 
-            val response: YoutubeDLResponse? = try {
-                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+            val response = try {
+                kotlinx.coroutines.withTimeoutOrNull(6000L) {
                     YoutubeDL.getInstance().execute(request)
                 }
             } catch (e: Exception) {

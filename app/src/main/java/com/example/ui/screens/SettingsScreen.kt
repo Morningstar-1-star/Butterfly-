@@ -45,6 +45,78 @@ fun SettingsScreen(
     var isAppearanceExpanded by remember { mutableStateOf(true) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isHistoryExpanded by remember { mutableStateOf(false) }
+    var isDiagnosticsExpanded by remember { mutableStateOf(false) }
+
+    class ProviderDiag(
+        val id: String,
+        val name: String,
+        val isAdult: Boolean,
+        statusStr: String = "UNTESTED",
+        detailStr: String = ""
+    ) {
+        var status by mutableStateOf(statusStr)
+        var resultDetail by mutableStateOf(detailStr)
+    }
+
+    val diagnosticsList = remember {
+        mutableStateListOf(
+            ProviderDiag("youtube", "YouTube", false),
+            ProviderDiag("archive_org", "Internet Archive", false),
+            ProviderDiag("dailymotion", "Dailymotion", false),
+            ProviderDiag("bilibili", "Bilibili", false),
+            ProviderDiag("vimeo", "Vimeo", false),
+            ProviderDiag("curiositystream", "CuriosityStream", false),
+            ProviderDiag("pornhub", "Pornhub", true),
+            ProviderDiag("xvideos", "XVideos", true),
+            ProviderDiag("4tube", "4tube", true),
+            ProviderDiag("beeg", "Beeg", true),
+            ProviderDiag("rule34video", "Rule34Video", true),
+            ProviderDiag("redtube", "RedTube", true),
+            ProviderDiag("xhamster", "XHamster", true),
+            ProviderDiag("youporn", "YouPorn", true),
+            ProviderDiag("eporner", "Eporner", true)
+        )
+    }
+
+    fun testProvider(diag: ProviderDiag) {
+        diag.status = "TESTING"
+        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val start = System.currentTimeMillis()
+            try {
+                val success = when (diag.id) {
+                    "youtube" -> {
+                        val list = com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(context)
+                        list.isNotEmpty()
+                    }
+                    "archive_org" -> {
+                        val list = com.example.extractor.ArchiveOrgProvider.getHome(1)
+                        list.isNotEmpty()
+                    }
+                    "eporner" -> {
+                        val stream = com.example.extractor.EpornerProvider.getStreamData("12345")
+                        stream != null && (stream.availableStreamOptions.isNotEmpty() || stream.progressiveStreams.isNotEmpty() || stream.videoUrl.isNotBlank())
+                    }
+                    else -> {
+                        val list = com.example.extractor.YtDlpResolver.search(context, "test", 1, diag.id)
+                        list.isNotEmpty()
+                    }
+                }
+                val elapsed = System.currentTimeMillis() - start
+                val timeStr = String.format(java.util.Locale.US, "%.1fs", elapsed / 1000f)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    diag.status = if (success) "WORKING" else "FAILED"
+                    diag.resultDetail = if (success) timeStr else "No playable results"
+                }
+            } catch (e: Exception) {
+                val elapsed = System.currentTimeMillis() - start
+                val err = e.message ?: e.javaClass.simpleName
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    diag.status = "FAILED"
+                    diag.resultDetail = err
+                }
+            }
+        }
+    }
 
     // Playback Preferences State
     val playbackPrefs = remember { com.example.util.PlaybackPreferences.getInstance(context) }
@@ -324,7 +396,77 @@ fun SettingsScreen(
                 }
             }
 
-            // 4. ABOUT & EXTRACTOR INFO
+            // 4. SOURCE DIAGNOSTICS
+            item {
+                ExpandableSettingsCard(
+                    title = "Source Diagnostics",
+                    icon = Icons.Outlined.CheckCircle,
+                    isExpanded = isDiagnosticsExpanded,
+                    onToggleExpand = { isDiagnosticsExpanded = !isDiagnosticsExpanded },
+                    badgeText = "15 Sources"
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Test and inspect status of all platform extractors and resolvers.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        diagnosticsList.forEach { diag ->
+                            val isDisabled = diag.isAdult && !adultContentEnabled
+                            val statusDisplay = when {
+                                isDisabled -> "⚪ DISABLED"
+                                diag.status == "WORKING" -> "🟢 WORKING   ${diag.resultDetail}"
+                                diag.status == "TESTING" -> "🟡 TESTING..."
+                                diag.status == "FAILED" -> "🔴 FAILED    ${diag.resultDetail}"
+                                else -> "⚪ UNTESTED"
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        MaterialTheme.colorScheme.surface,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = diag.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = statusDisplay,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = when {
+                                            isDisabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            diag.status == "WORKING" -> Color(0xFF2E7D32)
+                                            diag.status == "FAILED" -> MaterialTheme.colorScheme.error
+                                            diag.status == "TESTING" -> Color(0xFFF57C00)
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                }
+                                Button(
+                                    onClick = { testProvider(diag) },
+                                    enabled = !isDisabled && diag.status != "TESTING",
+                                    modifier = Modifier.height(36.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                ) {
+                                    Text(text = "Test", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. ABOUT & EXTRACTOR INFO
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
