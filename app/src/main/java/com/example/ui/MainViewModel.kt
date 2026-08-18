@@ -880,25 +880,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val profile = com.example.engine.RecommendationPipelineEngine.buildTasteProfile(
-            watchHistory = historyEntities,
-            bookmarks = bookmarkEntities,
-            likedVideoIds = _likedVideoIds.value,
-            dislikedVideoIds = _dislikedVideoIds.value,
-            notInterestedChannels = _notInterestedChannels.value,
-            notInterestedVideoIds = _notInterestedVideoIds.value,
-            recentSearches = if (_searchQuery.value.isNotBlank()) listOf(_searchQuery.value) else emptyList()
-        )
-
-        val ranked = com.example.engine.RecommendationPipelineEngine.processPipeline(
-            candidates = allAvailable,
-            tasteProfile = profile,
-            watchHistory = historyEntities,
-            likedVideoIds = _likedVideoIds.value,
-            dislikedVideoIds = _dislikedVideoIds.value
-        ).filterNot { isBlockedVideo(it) }
-
-        return ranked.take(20)
+        val ranked = allAvailable.filterNot { isBlockedVideo(it) }
+        return ranked.distinctBy { it.id }.take(20)
     }
 
     private val _userPlaylists = MutableStateFlow<List<UserPlaylist>>(emptyList())

@@ -581,7 +581,7 @@ object TMDBHelper {
         if (isJavOrAdultProvider(streamData.providerId, streamData.title)) {
             return@withContext emptyList()
         }
-        if (!com.example.util.SeriesDataHelper.isLikelyTvSeries(streamData)) {
+        if (streamData.title.isBlank()) {
             return@withContext emptyList()
         }
         val rawTitle = streamData.title
@@ -761,11 +761,8 @@ object TMDBHelper {
             Log.e(TAG, "Error in fetchTvSeasonsAndEpisodes for $cleanTitle", e)
         }
 
-        // Fallback to SeriesDataHelper if offline or TMDB lookup fails
-        val fallback = SeriesDataHelper.generateSeasonsAndEpisodes(streamData)
-        val boundFallback = bindAvailableStreamOptionsToSeasons(fallback, streamData)
-        tvSeasonsCache[cacheKey] = boundFallback
-        return@withContext boundFallback
+        val fallback = emptyList<SeriesSeason>()
+        return@withContext fallback
     }
 
     private fun bindAvailableStreamOptionsToSeasons(

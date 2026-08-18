@@ -3,18 +3,23 @@ package com.example.extractor
 import android.content.Context
 import android.util.Log
 import com.example.model.*
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.yausername.youtubedl_android.YoutubeDLResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONArray
 import org.json.JSONObject
 
 object YtDlpResolver {
     private const val TAG = "YtDlpResolver"
-    private val httpClient = OkHttpClient()
 
-    fun prewarm(context: Context) {}
+    fun prewarm(context: Context) {
+        try {
+            YoutubeDL.getInstance().init(context)
+        } catch (e: Throwable) {
+            Log.w(TAG, "YoutubeDL prewarm init: ${e.message}")
+        }
+    }
 
     fun isYtDlpSupportedUrl(url: String): Boolean {
         return url.contains("youtube.com") || url.contains("youtu.be") || url.length == 11
@@ -22,71 +27,90 @@ object YtDlpResolver {
 
     suspend fun extractStreamInfo(ctx: Context, targetUrl: String): YouTubeExtractorHelper.ExtractionResult = withContext(Dispatchers.IO) {
         try {
-            val videoId = if (targetUrl.length == 11) targetUrl else targetUrl.substringAfter("v=").substringBefore("&")
-            Log.i(TAG, "Running yt-dlp / Piped API fallback for videoId: $videoId")
-            
-            val apiUrl = "https://pipedapi.kavin.rocks/streams/$videoId"
-            val req = Request.Builder().url(apiUrl).header("User-Agent", "Mozilla/5.0").build()
-            val resp = httpClient.newCall(req).execute()
-            if (!resp.isSuccessful) {
-                return@withContext YouTubeExtractorHelper.ExtractionResult.Error(
-                    ExtractorErrorDetails(
-                        errorType = ExtractorErrorType.NETWORK_ERROR,
-                        message = "Fallback API error: ${resp.code}",
-                        rawExceptionName = "HttpError",
-                        fullStackTrace = "",
-                        urlOrId = targetUrl,
-                        causeInfo = resp.message,
-                        technicalFixSuggestion = "Check network."
-                    )
-                )
+            val videoUrl = if (targetUrl.startsWith("http")) targetUrl else "https://www.youtube.com/watch?v=$targetUrl"
+            Log.i(TAG, "Executing real yt-dlp for video: $videoUrl")
+
+            try {
+                YoutubeDL.getInstance().init(ctx)
+            } catch (e: Throwable) {
+                Log.w(TAG, "YoutubeDL init note: ${e.message}")
             }
 
-            val bodyStr = resp.body?.string() ?: ""
-            val json = JSONObject(bodyStr)
+            val request = YoutubeDLRequest(videoUrl)
+            request.addOption("-f", "best[ext=mp4]/best")
+            request.addOption("--dump-json")
+            request.addOption("--no-playlist")
+
+            val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(request)
+            val jsonStr = response.out
+            if (jsonStr.isBlank()) {
+                throw IllegalStateException("yt-dlp returned empty output")
+            }
+
+            val json = JSONObject(jsonStr)
             val title = json.optString("title", "YouTube Video")
             val uploader = json.optString("uploader", "YouTube")
             val description = json.optString("description", "")
-            val thumbnail = json.optString("thumbnailUrl", "")
+            val thumbnail = json.optString("thumbnail", "")
 
-            val videoStreams = json.optJSONArray("videoStreams") ?: JSONArray()
             val options = mutableListOf<PlayableStreamOption>()
 
-            for (i in 0 until videoStreams.length()) {
-                val vs = videoStreams.optJSONObject(i) ?: continue
-                val urlStr = vs.optString("url", "")
-                if (urlStr.isBlank()) continue
-                val quality = vs.optString("quality", "720p")
-                val format = vs.optString("format", "mp4")
-                val isMuxed = vs.optBoolean("videoOnly", false) == false
+            val formats = json.optJSONArray("formats")
+            if (formats != null) {
+                for (i in 0 until formats.length()) {
+                    val fmt = formats.optJSONObject(i) ?: continue
+                    val url = fmt.optString("url", "")
+                    if (url.isBlank()) continue
+                    val note = fmt.optString("format_note", "720p")
+                    val ext = fmt.optString("ext", "mp4")
+                    val acodec = fmt.optString("acodec", "none")
+                    val vcodec = fmt.optString("vcodec", "none")
+                    val isMuxed = acodec != "none" && vcodec != "none"
 
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "yt-dlp Fallback $quality ($format)",
-                        format = format,
-                        isMuxed = isMuxed,
-                        videoUrl = urlStr,
-                        providerType = ProviderType.DIRECT,
-                        headers = mapOf("Referer" to "https://www.youtube.com/")
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = "yt-dlp $note ($ext)",
+                            format = ext,
+                            isMuxed = isMuxed,
+                            videoUrl = url,
+                            providerType = ProviderType.DIRECT,
+                            headers = mapOf("Referer" to "https://www.youtube.com/")
+                        )
                     )
-                )
+                }
+            }
+
+            if (options.isEmpty()) {
+                val directUrl = json.optString("url", "")
+                if (directUrl.isNotBlank()) {
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = "yt-dlp Best Direct Stream",
+                            format = "mp4",
+                            isMuxed = true,
+                            videoUrl = directUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = mapOf("Referer" to "https://www.youtube.com/")
+                        )
+                    )
+                }
             }
 
             if (options.isEmpty()) {
                 return@withContext YouTubeExtractorHelper.ExtractionResult.Error(
                     ExtractorErrorDetails(
                         errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
-                        message = "No streams found via fallback API",
-                        rawExceptionName = "NoStreams",
+                        message = "No streams found via yt-dlp",
+                        rawExceptionName = "NoStreamsException",
                         fullStackTrace = "",
                         urlOrId = targetUrl,
-                        causeInfo = "Empty stream array",
-                        technicalFixSuggestion = "Try another video."
+                        causeInfo = "yt-dlp returned empty format array",
+                        technicalFixSuggestion = "Check video URL or permissions."
                     )
                 )
             }
 
-            val bestOption = options.first()
+            val bestOption = options.firstOrNull { it.qualityLabel.contains("1080p") } ?: options.first()
             val streamData = StreamData(
                 videoId = targetUrl,
                 videoUrl = bestOption.videoUrl ?: "",
@@ -99,19 +123,19 @@ object YtDlpResolver {
                 providerId = "youtube",
                 providerType = ProviderType.DIRECT
             )
-            Log.i(TAG, "yt-dlp fallback success: selected ${bestOption.qualityLabel}")
+            Log.i(TAG, "yt-dlp success: extracted ${options.size} streams, selected: ${bestOption.qualityLabel}")
             YouTubeExtractorHelper.ExtractionResult.Success(streamData)
-        } catch (e: Exception) {
-            Log.e(TAG, "yt-dlp fallback exception: ${e.message}", e)
+        } catch (e: Throwable) {
+            Log.e(TAG, "yt-dlp execution failed: ${e.message}", e)
             YouTubeExtractorHelper.ExtractionResult.Error(
                 ExtractorErrorDetails(
                     errorType = ExtractorErrorType.NETWORK_ERROR,
-                    message = e.message ?: "Fallback failed",
+                    message = e.message ?: "yt-dlp failed",
                     rawExceptionName = e.javaClass.simpleName,
                     fullStackTrace = e.stackTraceToString(),
                     urlOrId = targetUrl,
                     causeInfo = e.message,
-                    technicalFixSuggestion = "Check connection."
+                    technicalFixSuggestion = "Verify connection or video status."
                 )
             )
         }
