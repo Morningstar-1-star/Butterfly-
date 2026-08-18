@@ -31,19 +31,31 @@ object ThumbnailOptimizer {
      */
     fun getOptimizedThumbnailUrl(rawUrl: String?, preferCompact: Boolean = false): String? {
         if (rawUrl.isNullOrBlank()) return null
-        val trimmed = rawUrl.trim()
+        var trimmed = rawUrl.trim()
+        if (trimmed.startsWith("//")) {
+            trimmed = "https:$trimmed"
+        }
 
         // 1. Optimize YouTube thumbnails (use reliable mqdefault.jpg for compact or hqdefault.jpg)
         if (trimmed.contains("i.ytimg.com") || trimmed.contains("img.youtube.com")) {
+            val vIdPattern = java.util.regex.Pattern.compile("/(vi|vi_webp)/([a-zA-Z0-9_-]{11})/")
+            val matcher = vIdPattern.matcher(trimmed)
+            if (matcher.find()) {
+                val vId = matcher.group(2)
+                if (!vId.isNullOrBlank()) {
+                    val quality = if (preferCompact) "mqdefault" else "hqdefault"
+                    return "https://i.ytimg.com/vi/$vId/$quality.jpg"
+                }
+            }
             if (preferCompact) {
-                if (trimmed.contains("/maxresdefault.jpg")) return trimmed.replace("/maxresdefault.jpg", "/mqdefault.jpg")
-                if (trimmed.contains("/sddefault.jpg")) return trimmed.replace("/sddefault.jpg", "/mqdefault.jpg")
-                if (trimmed.contains("/hqdefault.jpg")) return trimmed.replace("/hqdefault.jpg", "/mqdefault.jpg")
-                if (trimmed.contains("/hq720.jpg")) return trimmed.replace("/hq720.jpg", "/mqdefault.jpg")
+                if (trimmed.contains("/maxresdefault.")) return trimmed.replace(Regex("/maxresdefault\\.[a-z]+.*"), "/mqdefault.jpg")
+                if (trimmed.contains("/sddefault.")) return trimmed.replace(Regex("/sddefault\\.[a-z]+.*"), "/mqdefault.jpg")
+                if (trimmed.contains("/hqdefault.")) return trimmed.replace(Regex("/hqdefault\\.[a-z]+.*"), "/mqdefault.jpg")
+                if (trimmed.contains("/hq720.")) return trimmed.replace(Regex("/hq720\\.[a-z]+.*"), "/mqdefault.jpg")
             } else {
-                if (trimmed.contains("/maxresdefault.jpg")) return trimmed.replace("/maxresdefault.jpg", "/hqdefault.jpg")
-                if (trimmed.contains("/sddefault.jpg")) return trimmed.replace("/sddefault.jpg", "/hqdefault.jpg")
-                if (trimmed.contains("/hq720.jpg")) return trimmed.replace("/hq720.jpg", "/hqdefault.jpg")
+                if (trimmed.contains("/maxresdefault.")) return trimmed.replace(Regex("/maxresdefault\\.[a-z]+.*"), "/hqdefault.jpg")
+                if (trimmed.contains("/sddefault.")) return trimmed.replace(Regex("/sddefault\\.[a-z]+.*"), "/hqdefault.jpg")
+                if (trimmed.contains("/hq720.")) return trimmed.replace(Regex("/hq720\\.[a-z]+.*"), "/hqdefault.jpg")
             }
             return trimmed
         }

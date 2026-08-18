@@ -133,27 +133,31 @@ object EpornerProvider {
     suspend fun getHome(limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<VideoItem>()
         try {
-            val req = Request.Builder().url("https://www.eporner.com/").build()
-            val html = httpClient.newCall(req).execute().use { resp ->
+            val req = Request.Builder().url("https://www.eporner.com/api/v2/video/search/?order=top-weekly&per_page=$limit&thumbsize=big").build()
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return@withContext emptyList()
 
-            val pattern = Pattern.compile("<a\\s+href=\"(/video-([0-9a-zA-Z]+)/[^\"]+)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seenIds = mutableSetOf<String>()
-            while (matcher.find() && items.size < limit) {
-                val path = matcher.group(1) ?: continue
-                val videoId = matcher.group(2) ?: continue
-                val title = matcher.group(3) ?: "Eporner Video"
-                if (seenIds.contains(videoId)) continue
-                seenIds.add(videoId)
+            val json = org.json.JSONObject(jsonStr)
+            val videosArr = json.optJSONArray("videos") ?: return@withContext emptyList()
+            for (i in 0 until videosArr.length()) {
+                val video = videosArr.optJSONObject(i) ?: continue
+                val id = video.optString("id", "")
+                val title = video.optString("title", "Eporner Video")
+                val url = video.optString("url", "https://www.eporner.com/video-$id/")
+                val thumbObj = video.optJSONObject("default_thumb")
+                val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
+                val duration = video.optLong("length_sec", -1L)
+                val views = video.optLong("views", -1L)
 
                 items.add(
                     VideoItem(
-                        id = videoId,
+                        id = url,
                         title = title,
                         uploaderName = "Eporner",
-                        thumbnailUrl = "",
+                        durationSeconds = duration,
+                        viewCount = views,
+                        thumbnailUrl = thumb,
                         providerId = PROVIDER_ID
                     )
                 )
@@ -169,27 +173,31 @@ object EpornerProvider {
         if (query.isBlank()) return@withContext emptyList()
         try {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-            val req = Request.Builder().url("https://www.eporner.com/search/$encoded/").build()
-            val html = httpClient.newCall(req).execute().use { resp ->
+            val req = Request.Builder().url("https://www.eporner.com/api/v2/video/search/?query=$encoded&per_page=$limit&thumbsize=big").build()
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return@withContext emptyList()
 
-            val pattern = Pattern.compile("<a\\s+href=\"(/video-([0-9a-zA-Z]+)/[^\"]+)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seenIds = mutableSetOf<String>()
-            while (matcher.find() && items.size < limit) {
-                val path = matcher.group(1) ?: continue
-                val videoId = matcher.group(2) ?: continue
-                val title = matcher.group(3) ?: "Eporner Video"
-                if (seenIds.contains(videoId)) continue
-                seenIds.add(videoId)
+            val json = org.json.JSONObject(jsonStr)
+            val videosArr = json.optJSONArray("videos") ?: return@withContext emptyList()
+            for (i in 0 until videosArr.length()) {
+                val video = videosArr.optJSONObject(i) ?: continue
+                val id = video.optString("id", "")
+                val title = video.optString("title", "Eporner Video")
+                val url = video.optString("url", "https://www.eporner.com/video-$id/")
+                val thumbObj = video.optJSONObject("default_thumb")
+                val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
+                val duration = video.optLong("length_sec", -1L)
+                val views = video.optLong("views", -1L)
 
                 items.add(
                     VideoItem(
-                        id = videoId,
+                        id = url,
                         title = title,
                         uploaderName = "Eporner",
-                        thumbnailUrl = "",
+                        durationSeconds = duration,
+                        viewCount = views,
+                        thumbnailUrl = thumb,
                         providerId = PROVIDER_ID
                     )
                 )

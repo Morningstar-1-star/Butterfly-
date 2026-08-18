@@ -7,6 +7,7 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.YoutubeDLResponse
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -16,12 +17,28 @@ object YtDlpResolver {
     private const val DEFAULT_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-    fun prewarm(context: Context) {
-        try {
-            YoutubeDL.getInstance().init(context)
-        } catch (e: Throwable) {
-            Log.w(TAG, "YoutubeDL prewarm init note: ${e.message}")
+    @Volatile
+    private var isInitialized = false
+    private val initLock = Any()
+    private val processSemaphore = kotlinx.coroutines.sync.Semaphore(2)
+
+    fun ensureInitialized(ctx: Context) {
+        if (!isInitialized) {
+            synchronized(initLock) {
+                if (!isInitialized) {
+                    try {
+                        YoutubeDL.getInstance().init(ctx.applicationContext)
+                        isInitialized = true
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "YoutubeDL init note: ${e.message}")
+                    }
+                }
+            }
         }
+    }
+
+    fun prewarm(ctx: Context) {
+        ensureInitialized(ctx)
     }
 
     fun isYtDlpSupportedUrl(url: String): Boolean {
@@ -212,7 +229,10 @@ object YtDlpResolver {
                 }
             }
 
-            val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(request)
+            ensureInitialized(ctx)
+            val response: YoutubeDLResponse = processSemaphore.withPermit {
+                YoutubeDL.getInstance().execute(request)
+            }
             val jsonStr = response.out
             if (jsonStr.isBlank()) {
                 throw IllegalStateException("yt-dlp returned empty JSON output")
@@ -501,8 +521,11 @@ object YtDlpResolver {
             request.addOption("--ignore-errors")
             request.addOption("--user-agent", DEFAULT_USER_AGENT)
 
-            val response = try {
-                YoutubeDL.getInstance().execute(request)
+            ensureInitialized(ctx)
+            val response: YoutubeDLResponse? = try {
+                processSemaphore.withPermit {
+                    YoutubeDL.getInstance().execute(request)
+                }
             } catch (e: Exception) {
                 null
             }
@@ -515,16 +538,35 @@ object YtDlpResolver {
                         try {
                             val json = JSONObject(trimmed)
                             val id = json.optString("id", "")
+                            val webpageUrl = json.optString("webpage_url", json.optString("url", ""))
                             val title = json.optString("title", "")
-                            if (id.isNotBlank() && title.isNotBlank()) {
+                            if ((id.isNotBlank() || webpageUrl.isNotBlank()) && title.isNotBlank()) {
                                 val uploader = json.optString("uploader", json.optString("channel", providerId.replaceFirstChar { it.uppercase() }))
                                 val duration = json.optLong("duration", -1L)
                                 val viewCount = json.optLong("view_count", -1L)
                                 val thumb = json.optString("thumbnail", "")
                                 val actualProvider = json.optString("extractor_key", json.optString("extractor", providerId)).lowercase()
+
+                                val canonicalUrl = when {
+                                    webpageUrl.startsWith("http://") || webpageUrl.startsWith("https://") -> webpageUrl
+                                    id.startsWith("http://") || id.startsWith("https://") -> id
+                                    providerId == "dailymotion" -> "https://www.dailymotion.com/video/$id"
+                                    providerId == "vimeo" -> "https://vimeo.com/$id"
+                                    providerId == "bilibili" -> "https://www.bilibili.com/video/$id"
+                                    providerId == "pornhub" -> "https://www.pornhub.com/view_video.php?viewkey=$id"
+                                    providerId == "xvideos" -> "https://www.xvideos.com/video$id/_"
+                                    providerId == "redtube" -> "https://www.redtube.com/$id"
+                                    providerId == "youporn" -> "https://www.youporn.com/watch/$id/"
+                                    providerId == "xhamster" -> "https://xhamster.com/videos/$id"
+                                    providerId == "4tube" -> "https://www.4tube.com/videos/$id"
+                                    providerId == "beeg" -> "https://beeg.com/$id"
+                                    providerId == "rule34video" -> "https://rule34video.com/video/$id/"
+                                    else -> webpageUrl.ifBlank { id }
+                                }
+
                                 list.add(
                                     VideoItem(
-                                        id = id,
+                                        id = canonicalUrl,
                                         title = title,
                                         uploaderName = uploader,
                                         durationSeconds = duration,

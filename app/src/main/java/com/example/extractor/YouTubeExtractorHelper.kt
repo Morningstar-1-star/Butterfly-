@@ -37,31 +37,47 @@ object YouTubeExtractorHelper {
         data class Error(val errorDetails: ExtractorErrorDetails) : ExtractionResult()
     }
 
-    init {
-        try {
-            NewPipe.init(DownloaderImpl.getInstance())
-            Log.i(TAG, "NewPipe initialized successfully")
-        } catch (e: Exception) {
-            Log.w(TAG, "NewPipe initialization note: ${e.message}")
+    @Volatile
+    private var isNewPipeInitialized = false
+    private val initLock = Any()
+
+    fun ensureNewPipeInitialized() {
+        if (!isNewPipeInitialized) {
+            synchronized(initLock) {
+                if (!isNewPipeInitialized) {
+                    try {
+                        NewPipe.init(DownloaderImpl.getInstance())
+                        isNewPipeInitialized = true
+                        Log.i(TAG, "NewPipe initialized successfully")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "NewPipe initialization note: ${e.message}")
+                    }
+                }
+            }
         }
+    }
+
+    init {
+        ensureNewPipeInitialized()
     }
 
     suspend fun fetchYouTubeTrending(context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
         // Step 1: NewPipe Trending Kiosk
         try {
-            try { NewPipe.init(DownloaderImpl.getInstance()) } catch (ignored: Exception) {}
+            ensureNewPipeInitialized()
             val kioskInfo = org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(
                 ServiceList.YouTube,
                 "Trending"
             )
             val items = kioskInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
-                ?.map { item ->
+                ?.mapNotNull { item ->
                     val vId = when {
                         item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
                         item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
                         item.url.length == 11 -> item.url
-                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 } ?: "dQw4w9WgXcQ"
+                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 }
                     }
+                    if (vId.isNullOrBlank()) return@mapNotNull null
                     val rawThumb = item.thumbnails?.firstOrNull()?.url
                     val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
                     VideoItem(
@@ -79,10 +95,21 @@ object YouTubeExtractorHelper {
                 return@withContext items
             }
         } catch (e: Exception) {
-            Log.w(TAG, "NewPipe trending fetch failed: ${e.message}")
+            Log.w(TAG, "NewPipe trending kiosk fetch failed: ${e.message}")
         }
 
-        // Step 2: yt-dlp Trending Fallback
+        // Step 2: Fast NewPipe Search Fallback for "trending"
+        try {
+            val fastSearchItems = searchYouTube("trending music videos", context)
+            if (fastSearchItems.isNotEmpty()) {
+                Log.i(TAG, "Fetched ${fastSearchItems.size} trending videos via NewPipe search fallback")
+                return@withContext fastSearchItems
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "NewPipe fast search fallback failed: ${e.message}")
+        }
+
+        // Step 3: yt-dlp Trending Fallback
         if (context != null) {
             Log.i(TAG, "Attempting yt-dlp trending fallback")
             val ytdlItems = YtDlpResolver.fetchTrending(context)
@@ -100,17 +127,18 @@ object YouTubeExtractorHelper {
 
         // Step 1: NewPipe Search
         try {
-            try { NewPipe.init(DownloaderImpl.getInstance()) } catch (ignored: Exception) {}
+            ensureNewPipeInitialized()
             val searchExtractor = ServiceList.YouTube.getSearchExtractor(query)
             searchExtractor.fetchPage()
             val items = searchExtractor.initialPage?.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
-                ?.map { item ->
+                ?.mapNotNull { item ->
                     val vId = when {
                         item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
                         item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
                         item.url.length == 11 -> item.url
-                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 } ?: "dQw4w9WgXcQ"
+                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 }
                     }
+                    if (vId.isNullOrBlank()) return@mapNotNull null
                     val rawThumb = item.thumbnails?.firstOrNull()?.url
                     val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
                     VideoItem(
@@ -392,6 +420,84 @@ object YouTubeExtractorHelper {
 
     suspend fun fetchStreamData(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult {
         return resolveStream(urlOrId, context, providerId)
+    }
+
+    suspend fun fetchSearchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isBlank()) return@withContext emptyList()
+        val suggestions = mutableListOf<String>()
+
+        // 1. Fetch from Google / YouTube Suggest API
+        try {
+            val encoded = java.net.URLEncoder.encode(q, "UTF-8")
+            val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=$encoded"
+            val req = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                .build()
+
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            val jsonStr = client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+
+            if (!jsonStr.isNullOrBlank()) {
+                val jsonArr = org.json.JSONArray(jsonStr)
+                if (jsonArr.length() > 1) {
+                    val suggestionArr = jsonArr.optJSONArray(1)
+                    if (suggestionArr != null) {
+                        for (i in 0 until suggestionArr.length()) {
+                            val suggestion = suggestionArr.optString(i)
+                            if (suggestion.isNotBlank()) {
+                                suggestions.add(suggestion)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch suggestions from suggestqueries: ${e.message}")
+        }
+
+        // 2. Fallback to YouTube suggestqueries endpoint (client=youtube)
+        if (suggestions.isEmpty()) {
+            try {
+                val encoded = java.net.URLEncoder.encode(q, "UTF-8")
+                val url = "https://suggestqueries.google.com/complete/search?client=youtube&q=$encoded"
+                val req = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .build()
+
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val responseStr = client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+
+                if (!responseStr.isNullOrBlank()) {
+                    val pattern = java.util.regex.Pattern.compile("\\[\"([^\"]+)\",\\s*0\\]")
+                    val matcher = pattern.matcher(responseStr)
+                    while (matcher.find()) {
+                        val suggestion = matcher.group(1)
+                        if (!suggestion.isNullOrBlank()) {
+                            suggestions.add(suggestion)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Secondary YouTube suggestion fetch failed: ${e.message}")
+            }
+        }
+
+        return@withContext suggestions.distinct()
     }
 
     suspend fun searchVideos(query: String, context: Context? = null): FeedResult = withContext(Dispatchers.IO) {

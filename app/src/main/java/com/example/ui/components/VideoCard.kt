@@ -122,8 +122,21 @@ fun VideoCard(
 
     val seriesPillText: String? = null
 
-    val thumbnailImageRequest = remember(video.thumbnailUrl) {
-        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 100)
+    val effectiveThumbnailUrl = remember(video.thumbnailUrl, video.id, video.providerId) {
+        val raw = video.thumbnailUrl?.trim()
+        when {
+            !raw.isNullOrBlank() -> if (raw.startsWith("//")) "https:$raw" else raw
+            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
+            (video.providerId == "youtube" || video.providerId == "all") && video.id.contains("v=") -> {
+                val vId = video.id.substringAfter("v=").substringBefore("&")
+                "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+            }
+            else -> null
+        }
+    }
+
+    val thumbnailImageRequest = remember(effectiveThumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, effectiveThumbnailUrl, crossfadeMillis = 100)
     }
 
     Card(

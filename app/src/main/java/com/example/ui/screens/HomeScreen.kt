@@ -333,7 +333,7 @@ fun HomeScreen(
                             }
 
                             val pullRefreshState = rememberPullToRefreshState()
-                            val isRefreshingFeed = (isLoadingTrending || isSearching) && feedList.isNotEmpty()
+                            val isRefreshingFeed = isLoadingTrending || isSearching
 
                             PullToRefreshBox(
                                 isRefreshing = isRefreshingFeed,
