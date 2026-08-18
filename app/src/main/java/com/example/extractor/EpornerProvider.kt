@@ -32,6 +32,27 @@ object EpornerProvider {
         }
         .build()
 
+    private fun resolveDirectCdnUrl(url: String, headersMap: Map<String, String>): String {
+        if (!url.contains("/dwn/")) return url
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .head()
+                .headers(okhttp3.Headers.Builder().apply { headersMap.forEach { (k, v) -> add(k, v) } }.build())
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                val redirectLoc = resp.header("Location")
+                if (!redirectLoc.isNullOrBlank()) {
+                    if (redirectLoc.startsWith("/")) "https://www.eporner.com$redirectLoc" else redirectLoc
+                } else {
+                    resp.request.url.toString()
+                }
+            }
+        } catch (e: Exception) {
+            url
+        }
+    }
+
     suspend fun getStreamData(urlOrId: String): StreamData? = withContext(Dispatchers.IO) {
         val cleanInput = urlOrId.trim()
         val videoId = when {
@@ -116,6 +137,8 @@ object EpornerProvider {
                     if (seenUrls.contains(streamUrl)) continue
                     seenUrls.add(streamUrl)
 
+                    val finalCdnUrl = resolveDirectCdnUrl(streamUrl, epornerHeaders)
+
                     val qualityLabel = when {
                         streamUrl.contains("1080p", ignoreCase = true) || streamUrl.contains("1080", ignoreCase = true) -> "1080p MP4"
                         streamUrl.contains("720p", ignoreCase = true) || streamUrl.contains("720", ignoreCase = true) -> "720p MP4"
@@ -129,7 +152,7 @@ object EpornerProvider {
                             qualityLabel = qualityLabel,
                             format = "mp4",
                             isMuxed = true,
-                            videoUrl = streamUrl,
+                            videoUrl = finalCdnUrl,
                             providerType = ProviderType.DIRECT,
                             headers = epornerHeaders
                         )
@@ -139,7 +162,7 @@ object EpornerProvider {
 
             if (options.isEmpty()) {
                 // Direct fallback link construction
-                val fallbackUrl = "https://www.eporner.com/dwn/$videoId"
+                val fallbackUrl = resolveDirectCdnUrl("https://www.eporner.com/dwn/$videoId", epornerHeaders)
                 options.add(
                     PlayableStreamOption(
                         qualityLabel = "720p MP4 Direct",

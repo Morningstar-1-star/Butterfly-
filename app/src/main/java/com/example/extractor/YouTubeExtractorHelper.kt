@@ -204,6 +204,15 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isDailymotion = providerId == "dailymotion" || urlOrId.contains("dailymotion.com") || urlOrId.contains("dai.ly")
+        if (isDailymotion) {
+            val dmData = DailymotionProvider.getStreamData(urlOrId, context)
+            if (dmData != null) {
+                Log.i(TAG, "Resolved via DailymotionProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(dmData)
+            }
+        }
+
         val isYouTube = providerId == "youtube" || urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
 
         if (isYouTube) {
