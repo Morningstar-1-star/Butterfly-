@@ -142,6 +142,13 @@ object ThumbnailOptimizer {
             lowerUrl.contains("eporner.com") || lowerUrl.contains("static-web.eporner") -> {
                 builder.setHeader("Referer", "https://www.eporner.com/")
             }
+            lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
+                builder.setHeader("Referer", "https://www.pornhub.com/")
+                builder.setHeader("Cookie", "age_verified=1")
+            }
+            lowerUrl.contains("rule34video.com") || lowerUrl.contains("r34v.com") -> {
+                builder.setHeader("Referer", "https://rule34video.com/")
+            }
             lowerUrl.contains("archive.org") -> {
                 builder.setHeader("Referer", "https://archive.org/")
             }

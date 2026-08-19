@@ -352,32 +352,71 @@ object MultiSourceProvider {
     private fun parsePornhubHtml(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
         try {
-            val req = Request.Builder().url(targetUrl).header("Cookie", "age_verified=1").build()
+            val req = Request.Builder()
+                .url(targetUrl)
+                .header("Cookie", "age_verified=1; platform=pc")
+                .header("Referer", "https://www.pornhub.com/")
+                .build()
             val html = httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return list
 
-            val pattern = Pattern.compile("<a\\s+href=\"(/view_video\\.php\\?viewkey=([^\"]+))\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
+            // Parse block by block (videoBox or phimage containers)
+            val blockPattern = Pattern.compile("<li[^>]*class=\"[^\"]*(?:videoBox|pcVideoListItem)[^\"]*\"[^>]*>(.*?)</li>", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+            val blockMatcher = blockPattern.matcher(html)
             val seenKeys = mutableSetOf<String>()
 
-            val imgPattern = Pattern.compile("data-mediumthumbnail=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val imgMatcher = imgPattern.matcher(html)
-            val thumbs = mutableListOf<String>()
-            while (imgMatcher.find()) {
-                thumbs.add(imgMatcher.group(1) ?: "")
-            }
+            while (blockMatcher.find() && list.size < limit) {
+                val block = blockMatcher.group(1) ?: continue
 
-            var thumbIdx = 0
-            while (matcher.find() && list.size < limit) {
-                val href = matcher.group(1) ?: continue
-                val viewkey = matcher.group(2) ?: continue
-                val title = matcher.group(3) ?: "Pornhub Video"
-
+                // 1. Extract viewkey / link
+                val linkMatcher = Pattern.compile("href=\"(/view_video\\.php\\?viewkey=([a-zA-Z0-9_-]+))\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (!linkMatcher.find()) continue
+                val href = linkMatcher.group(1) ?: continue
+                val viewkey = linkMatcher.group(2) ?: continue
                 if (seenKeys.contains(viewkey)) continue
                 seenKeys.add(viewkey)
 
-                val thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
+                // 2. Extract title
+                var title = "Pornhub Video"
+                val titleMatcher = Pattern.compile("title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (titleMatcher.find()) {
+                    title = titleMatcher.group(1) ?: title
+                } else {
+                    val altMatcher = Pattern.compile("alt=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (altMatcher.find()) {
+                        title = altMatcher.group(1) ?: title
+                    }
+                }
+
+                // 3. Extract thumbnail
+                var thumb = ""
+                val thumbMatcher = Pattern.compile("(?:data-mediumthumbnail|data-thumb_url|data-src|data-image|src)=\"([^\"]*(?:phncdn|pornhub)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (thumbMatcher.find()) {
+                    thumb = thumbMatcher.group(1) ?: ""
+                }
+                if (thumb.isBlank()) {
+                    val genericImg = Pattern.compile("(?:data-mediumthumbnail|data-thumb_url|data-src|data-image|src)=\"(https?://[^\"]+?\\.(?:jpg|jpeg|webp|png)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (genericImg.find()) {
+                        thumb = genericImg.group(1) ?: ""
+                    }
+                }
+                if (thumb.startsWith("//")) {
+                    thumb = "https:$thumb"
+                }
+
+                // 4. Extract duration
+                var duration = -1L
+                val durationMatcher = Pattern.compile("<var class=\"duration\">([0-9:]+)</var>", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (durationMatcher.find()) {
+                    val durStr = durationMatcher.group(1) ?: ""
+                    val parts = durStr.split(":")
+                    if (parts.size == 2) {
+                        duration = (parts[0].toLongOrNull() ?: 0L) * 60L + (parts[1].toLongOrNull() ?: 0L)
+                    } else if (parts.size == 3) {
+                        duration = (parts[0].toLongOrNull() ?: 0L) * 3600L + (parts[1].toLongOrNull() ?: 0L) * 60L + (parts[2].toLongOrNull() ?: 0L)
+                    }
+                }
 
                 list.add(
                     VideoItem(
@@ -385,9 +424,33 @@ object MultiSourceProvider {
                         title = title,
                         uploaderName = "Pornhub",
                         thumbnailUrl = thumb,
+                        durationSeconds = duration,
                         providerId = "pornhub"
                     )
                 )
+            }
+
+            // Fallback general regex if block parsing found nothing
+            if (list.isEmpty()) {
+                val fallbackPattern = Pattern.compile("<a\\s+[^>]*href=\"(/view_video\\.php\\?viewkey=([a-zA-Z0-9_-]+))\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
+                val fallbackMatcher = fallbackPattern.matcher(html)
+                while (fallbackMatcher.find() && list.size < limit) {
+                    val href = fallbackMatcher.group(1) ?: continue
+                    val viewkey = fallbackMatcher.group(2) ?: continue
+                    val title = fallbackMatcher.group(3) ?: "Pornhub Video"
+                    if (seenKeys.contains(viewkey)) continue
+                    seenKeys.add(viewkey)
+
+                    list.add(
+                        VideoItem(
+                            id = "https://www.pornhub.com$href",
+                            title = title,
+                            uploaderName = "Pornhub",
+                            thumbnailUrl = "",
+                            providerId = "pornhub"
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Pornhub parse error: ${e.message}")
@@ -627,30 +690,107 @@ object MultiSourceProvider {
     private fun parseRule34Html(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
         try {
-            val req = Request.Builder().url(targetUrl).build()
+            val req = Request.Builder()
+                .url(targetUrl)
+                .header("Referer", "https://rule34video.com/")
+                .build()
             val html = httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return list
 
-            val pattern = Pattern.compile("<a\\s+[^>]*href=\"(https://rule34video\\.com/video/(\\d+)/[^\"]*)\"[^>]*>", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
+            // 1. Block-level parsing for item containers
+            val itemPattern = Pattern.compile("<div[^>]*class=\"[^\"]*(?:item|thumb|video-item)[^\"]*\"[^>]*>(.*?)</div>\\s*</div>", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+            val itemMatcher = itemPattern.matcher(html)
             val seen = mutableSetOf<String>()
 
-            while (matcher.find() && list.size < limit) {
-                val url = matcher.group(1) ?: continue
-                val id = matcher.group(2) ?: continue
+            while (itemMatcher.find() && list.size < limit) {
+                val block = itemMatcher.group(1) ?: continue
+
+                val linkMatcher = Pattern.compile("href=\"(https?://rule34video\\.com)?(/video/(\\d+)/[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (!linkMatcher.find()) continue
+                val rawPath = linkMatcher.group(2) ?: continue
+                val id = linkMatcher.group(3) ?: continue
                 if (seen.contains(id)) continue
                 seen.add(id)
 
+                val fullUrl = "https://rule34video.com$rawPath"
+
+                // Extract title
+                var title = "Rule34 Video #$id"
+                val titleMatcher = Pattern.compile("title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (titleMatcher.find()) {
+                    title = titleMatcher.group(1) ?: title
+                } else {
+                    val altMatcher = Pattern.compile("alt=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (altMatcher.find()) {
+                        title = altMatcher.group(1) ?: title
+                    }
+                }
+
+                // Extract thumbnail
+                var thumb = ""
+                val thumbMatcher = Pattern.compile("(?:data-original|data-src|data-thumb|src)=\"([^\"]*(?:contents/videos_screenshots|preview|thumb|screenshots)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (thumbMatcher.find()) {
+                    thumb = thumbMatcher.group(1) ?: ""
+                }
+                if (thumb.isBlank()) {
+                    val genericImg = Pattern.compile("(?:data-original|data-src|data-thumb|src)=\"([^\"]+?\\.(?:jpg|jpeg|webp|png)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (genericImg.find()) {
+                        thumb = genericImg.group(1) ?: ""
+                    }
+                }
+                if (thumb.startsWith("//")) {
+                    thumb = "https:$thumb"
+                } else if (thumb.startsWith("/")) {
+                    thumb = "https://rule34video.com$thumb"
+                }
+
+                // Extract duration
+                var duration = -1L
+                val durationMatcher = Pattern.compile("<span[^>]*class=\"[^\"]*duration[^\"]*\"[^>]*>([0-9:]+)</span>", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (durationMatcher.find()) {
+                    val durStr = durationMatcher.group(1) ?: ""
+                    val parts = durStr.split(":")
+                    if (parts.size == 2) {
+                        duration = (parts[0].toLongOrNull() ?: 0L) * 60L + (parts[1].toLongOrNull() ?: 0L)
+                    } else if (parts.size == 3) {
+                        duration = (parts[0].toLongOrNull() ?: 0L) * 3600L + (parts[1].toLongOrNull() ?: 0L) * 60L + (parts[2].toLongOrNull() ?: 0L)
+                    }
+                }
+
                 list.add(
                     VideoItem(
-                        id = url,
-                        title = "Rule34Video",
+                        id = fullUrl,
+                        title = title,
                         uploaderName = "Rule34Video",
-                        thumbnailUrl = "",
+                        thumbnailUrl = thumb,
+                        durationSeconds = duration,
                         providerId = "rule34video"
                     )
                 )
+            }
+
+            // Fallback general pattern if block parsing didn't collect enough
+            if (list.isEmpty()) {
+                val pattern = Pattern.compile("<a\\s+[^>]*href=\"(https://rule34video\\.com/video/(\\d+)/([^\"]*))\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
+                val matcher = pattern.matcher(html)
+                while (matcher.find() && list.size < limit) {
+                    val url = matcher.group(1) ?: continue
+                    val id = matcher.group(2) ?: continue
+                    val title = matcher.group(4) ?: "Rule34Video"
+                    if (seen.contains(id)) continue
+                    seen.add(id)
+
+                    list.add(
+                        VideoItem(
+                            id = url,
+                            title = title,
+                            uploaderName = "Rule34Video",
+                            thumbnailUrl = "https://rule34video.com/contents/videos_screenshots/${(id.toIntOrNull() ?: 0) / 1000 * 1000}/$id/preview.jpg",
+                            providerId = "rule34video"
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Rule34Video parse error: ${e.message}")
