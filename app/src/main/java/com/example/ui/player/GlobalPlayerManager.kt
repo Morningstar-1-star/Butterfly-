@@ -52,13 +52,10 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://www.dailymotion.com/")
                 builder.header("Origin", "https://www.dailymotion.com")
             }
-            urlStr.contains("youtube.com") || urlStr.contains("googlevideo.com") || urlStr.contains("youtu.be") -> {
-                builder.header("Referer", "https://www.youtube.com/")
-                builder.header("Origin", "https://www.youtube.com")
-            }
-            urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia") -> {
-                builder.header("Referer", "https://archive.org/")
-                builder.header("Accept", "*/*")
+            urlStr.contains("archive.org/download") || urlStr.contains("us.archive.org") -> {
+                if (request.header("Referer") == null) {
+                    builder.header("Referer", "https://archive.org/")
+                }
             }
             urlStr.contains("pornhub.com") || urlStr.contains("phncdn.com") -> {
                 builder.header("Referer", "https://www.pornhub.com/")
@@ -84,7 +81,6 @@ object GlobalPlayerManager {
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
         .addInterceptor(mediaHeaderInterceptor)
-        .addNetworkInterceptor(mediaHeaderInterceptor)
         .dns(object : okhttp3.Dns {
             override fun lookup(hostname: String): List<java.net.InetAddress> {
                 return try {
@@ -521,12 +517,6 @@ object GlobalPlayerManager {
             val hasReferer = defaultHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
             if (!hasReferer) {
                 when {
-                    lowerTarget.contains("youtube.com") || lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtu.be") -> {
-                        defaultHeaders["Referer"] = "https://www.youtube.com/"
-                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                            defaultHeaders["Origin"] = "https://www.youtube.com"
-                        }
-                    }
                     lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") || lowerTarget.contains("cdndirector") -> {
                         defaultHeaders["Referer"] = "https://www.dailymotion.com/"
                         if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
@@ -535,7 +525,6 @@ object GlobalPlayerManager {
                     }
                     lowerTarget.contains("archive.org") -> {
                         defaultHeaders["Referer"] = "https://archive.org/"
-                        defaultHeaders["Accept"] = "*/*"
                     }
                     lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
                         defaultHeaders["Referer"] = "https://www.pornhub.com/"

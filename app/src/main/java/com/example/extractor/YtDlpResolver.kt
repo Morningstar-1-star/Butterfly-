@@ -163,10 +163,7 @@ object YtDlpResolver {
             val lowerUrl = videoUrl.lowercase()
             when {
                 lowerUrl.contains("youtube.com") || lowerUrl.contains("youtu.be") -> {
-                    request.addOption("--add-header", "Referer: https://www.youtube.com/")
-                    request.addOption("--add-header", "Origin: https://www.youtube.com")
-                    domainHeaders["Referer"] = "https://www.youtube.com/"
-                    domainHeaders["Origin"] = "https://www.youtube.com"
+                    // Do not inject synthetic Referer/Origin for YouTube so googlevideo.com streams avoid 403 Forbidden
                 }
                 lowerUrl.contains("vimeo") || lowerUrl.contains("vimeocdn") -> {
                     request.addOption("--add-header", "Referer: https://vimeo.com/")

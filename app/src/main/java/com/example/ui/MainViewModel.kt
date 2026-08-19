@@ -1688,7 +1688,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(15000L) {
                                     com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1701,7 +1701,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(15000L) {
                                     com.example.extractor.ArchiveOrgProvider.search(q, 1)
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1714,7 +1714,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(10000L) {
                                     com.example.extractor.EpornerProvider.search(q, 25)
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1734,7 +1734,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     searchSources.forEach { prov ->
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(12000L) {
                                     com.example.extractor.MultiSourceProvider.search(getApplication(), prov, q, 15)
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1794,7 +1794,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(15000L) {
                                     com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1807,7 +1807,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(15000L) {
                                     com.example.extractor.ArchiveOrgProvider.getHome(1)
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1820,7 +1820,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(10000L) {
                                     com.example.extractor.EpornerProvider.getHome(25)
                                 } ?: emptyList()
                             } catch (e: Exception) {
@@ -1840,7 +1840,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     targetSources.forEach { prov ->
                         deferredList.add(async(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                kotlinx.coroutines.withTimeoutOrNull(12000L) {
                                     com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15)
                                 } ?: emptyList()
                             } catch (e: Exception) {

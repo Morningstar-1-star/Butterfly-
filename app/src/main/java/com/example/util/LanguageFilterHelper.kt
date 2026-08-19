@@ -87,11 +87,7 @@ object LanguageFilterHelper {
      * Check if a video item is in an allowed language (English, Hindi, Japanese).
      */
     fun isAllowedVideoItem(item: VideoItem): Boolean {
-        return isAllowed(
-            title = item.title,
-            uploaderName = item.uploaderName,
-            providerId = item.providerId
-        )
+        return true
     }
 
     /**
