@@ -65,8 +65,9 @@ object GlobalPlayerManager {
                 builder.header("Origin", "https://www.pornhub.com")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1")
             }
-            urlStr.contains("vimeo.com") -> {
+            urlStr.contains("vimeo") || urlStr.contains("vimeocdn") || urlStr.contains("akamaized") -> {
                 builder.header("Referer", "https://vimeo.com/")
+                builder.header("Origin", "https://vimeo.com")
             }
         }
 
@@ -560,8 +561,9 @@ object GlobalPlayerManager {
                     lowerTarget.contains("xvideos.com") -> {
                         defaultHeaders["Referer"] = "https://www.xvideos.com/"
                     }
-                    lowerTarget.contains("vimeo.com") -> {
+                    lowerTarget.contains("vimeo") || lowerTarget.contains("vimeocdn") || lowerTarget.contains("akamaized") || streamData?.providerId == "vimeo" -> {
                         defaultHeaders["Referer"] = "https://vimeo.com/"
+                        defaultHeaders["Origin"] = "https://vimeo.com"
                     }
                     lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
                         defaultHeaders["Referer"] = "https://upload18.org/"

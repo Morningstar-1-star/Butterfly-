@@ -160,8 +160,7 @@ fun LibraryScreen(
                     Triple("archive_org", "Archive", Icons.Default.Archive),
                     Triple("dailymotion", "Dailymotion", Icons.Default.OndemandVideo),
                     Triple("bilibili", "Bilibili", Icons.Default.Animation),
-                    Triple("vimeo", "Vimeo", Icons.Default.Movie),
-                    Triple("curiositystream", "Curiosity", Icons.Default.School)
+                    Triple("vimeo", "Vimeo", Icons.Default.Movie)
                 )
                 if (adultContentEnabled) {
                     list.addAll(listOf(

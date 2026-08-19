@@ -48,7 +48,6 @@ object YtDlpResolver {
             "vimeo.com",
             "dailymotion.com", "dai.ly",
             "bilibili.com",
-            "curiositystream.com",
             "pornhub.com", "phncdn.com",
             "xvideos.com",
             "4tube.com",
@@ -169,9 +168,11 @@ object YtDlpResolver {
                     domainHeaders["Referer"] = "https://www.youtube.com/"
                     domainHeaders["Origin"] = "https://www.youtube.com"
                 }
-                lowerUrl.contains("vimeo.com") -> {
+                lowerUrl.contains("vimeo") || lowerUrl.contains("vimeocdn") -> {
                     request.addOption("--add-header", "Referer: https://vimeo.com/")
+                    request.addOption("--add-header", "Origin: https://vimeo.com")
                     domainHeaders["Referer"] = "https://vimeo.com/"
+                    domainHeaders["Origin"] = "https://vimeo.com"
                 }
                 lowerUrl.contains("dailymotion.com") || lowerUrl.contains("dai.ly") -> {
                     request.addOption("--add-header", "Referer: https://www.dailymotion.com/")
@@ -180,10 +181,6 @@ object YtDlpResolver {
                 lowerUrl.contains("bilibili.com") -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
-                }
-                lowerUrl.contains("curiositystream.com") -> {
-                    request.addOption("--add-header", "Referer: https://curiositystream.com/")
-                    domainHeaders["Referer"] = "https://curiositystream.com/"
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
@@ -501,7 +498,6 @@ object YtDlpResolver {
                 providerId == "dailymotion" -> "dailymotion:search:$query"
                 providerId == "vimeo" -> "vimeo:search:$query"
                 providerId == "bilibili" -> "https://search.bilibili.com/all?keyword=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "curiositystream" -> "https://curiositystream.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "pornhub" -> "https://www.pornhub.com/video/search?search=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "xvideos" -> "https://www.xvideos.com/?k=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "4tube" -> "https://www.4tube.com/videos?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
@@ -544,7 +540,16 @@ object YtDlpResolver {
                                 val uploader = json.optString("uploader", json.optString("channel", providerId.replaceFirstChar { it.uppercase() }))
                                 val duration = json.optLong("duration", -1L)
                                 val viewCount = json.optLong("view_count", -1L)
-                                val thumb = json.optString("thumbnail", "")
+                                var thumb = json.optString("thumbnail", "")
+                                if (thumb.isBlank() && json.has("thumbnails")) {
+                                    val thumbsArr = json.optJSONArray("thumbnails")
+                                    if (thumbsArr != null && thumbsArr.length() > 0) {
+                                        val lastObj = thumbsArr.optJSONObject(thumbsArr.length() - 1)
+                                        if (lastObj != null) {
+                                            thumb = lastObj.optString("url", "")
+                                        }
+                                    }
+                                }
                                 val actualProvider = json.optString("extractor_key", json.optString("extractor", providerId)).lowercase()
 
                                 val canonicalUrl = when {

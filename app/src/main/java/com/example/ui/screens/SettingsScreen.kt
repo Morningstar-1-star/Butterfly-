@@ -65,7 +65,6 @@ fun SettingsScreen(
             ProviderDiag("dailymotion", "Dailymotion", false),
             ProviderDiag("bilibili", "Bilibili", false),
             ProviderDiag("vimeo", "Vimeo", false),
-            ProviderDiag("curiositystream", "CuriosityStream", false),
             ProviderDiag("eporner", "Eporner", false),
             ProviderDiag("pornhub", "Pornhub", true),
             ProviderDiag("xvideos", "XVideos", true),
@@ -163,7 +162,6 @@ fun SettingsScreen(
                             "dailymotion" -> "https://www.dailymotion.com/video/x8n2202"
                             "vimeo" -> "https://vimeo.com/76979871"
                             "bilibili" -> "https://www.bilibili.com/video/BV1xx411c7m9"
-                            "curiositystream" -> "https://curiositystream.com/video/1"
                             "pornhub" -> "https://www.pornhub.com/view_video.php?viewkey=ph5bc340904031a"
                             "xvideos" -> "https://www.xvideos.com/video.uuhbcpf9a4c/test"
                             "4tube" -> "https://www.4tube.com/videos/243681/test"

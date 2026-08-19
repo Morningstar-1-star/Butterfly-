@@ -30,23 +30,31 @@ object MultiSourceProvider {
         }
         .build()
 
-    suspend fun getHome(context: Context, providerId: String, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
-        val items = when (providerId.lowercase()) {
+    suspend fun getHome(context: Context, providerId: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
+        val pid = providerId.lowercase()
+
+        // 1. Try custom scrapers / APIs first
+        val customItems = when (pid) {
             "dailymotion" -> getDailymotionHome(limit)
             "vimeo" -> getVimeoHome(limit)
+            "bilibili" -> getBilibiliHome(page, limit)
             "pornhub" -> getPornhubHome(limit)
             "xvideos" -> getXVideosHome(limit)
             "xhamster" -> getXHamsterHome(limit)
             "redtube" -> getRedTubeHome(limit)
             "youporn" -> getYouPornHome(limit)
+            "beeg" -> getBeegHome(limit)
+            "4tube" -> parse4tubeHtml("https://www.4tube.com/", limit)
+            "rule34video" -> parseRule34Html("https://rule34video.com/", limit)
             else -> emptyList()
         }
 
-        if (items.isNotEmpty()) {
-            return@withContext items
+        if (customItems.isNotEmpty()) {
+            return@withContext customItems
         }
 
-        val fallbackQuery = when (providerId.lowercase()) {
+        // 2. Fallback to YtDlpResolver
+        val fallbackQuery = when (pid) {
             "dailymotion" -> "trending"
             "vimeo" -> "staff picks"
             "bilibili" -> "anime"
@@ -60,35 +68,181 @@ object MultiSourceProvider {
             "rule34video" -> "animation"
             else -> "popular"
         }
+
         try {
-            YtDlpResolver.search(context, fallbackQuery, limit, providerId)
+            YtDlpResolver.search(context, fallbackQuery, limit, pid)
         } catch (e: Exception) {
+            Log.w(TAG, "YtDlpResolver home search failed for $pid: ${e.message}")
             emptyList()
         }
     }
 
     suspend fun search(context: Context, providerId: String, query: String, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val items = when (providerId.lowercase()) {
+        val pid = providerId.lowercase()
+
+        val customItems = when (pid) {
             "dailymotion" -> searchDailymotion(query, limit)
             "vimeo" -> searchVimeo(query, limit)
+            "bilibili" -> searchBilibili(query, 1, limit)
             "pornhub" -> searchPornhub(query, limit)
             "xvideos" -> searchXVideos(query, limit)
             "xhamster" -> searchXHamster(query, limit)
             "redtube" -> searchRedTube(query, limit)
             "youporn" -> searchYouPorn(query, limit)
+            "4tube" -> parse4tubeHtml("https://www.4tube.com/search/${URLEncoder.encode(query, "UTF-8")}", limit)
+            "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/", limit)
             else -> emptyList()
         }
 
-        if (items.isNotEmpty()) {
-            return@withContext items
+        if (customItems.isNotEmpty()) {
+            return@withContext customItems
         }
 
         try {
-            YtDlpResolver.search(context, query, limit, providerId)
+            YtDlpResolver.search(context, query, limit, pid)
         } catch (e: Exception) {
+            Log.w(TAG, "YtDlpResolver search failed for $pid: ${e.message}")
             emptyList()
         }
+    }
+
+    // ------------------- BILIBILI -------------------
+    private fun getBilibiliHome(page: Int = 1, limit: Int = 20): List<VideoItem> {
+        val url = "https://api.bilibili.com/x/web-interface/popular?ps=$limit&pn=$page"
+        return parseBilibiliJsonApi(url)
+    }
+
+    private fun searchBilibili(query: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=$encoded&page=$page"
+        return parseBilibiliSearchJsonApi(url)
+    }
+
+    private fun parseBilibiliJsonApi(url: String): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Referer", "https://www.bilibili.com/")
+                .build()
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val jsonObj = JSONObject(jsonStr)
+            val dataObj = jsonObj.optJSONObject("data") ?: return list
+            val array = dataObj.optJSONArray("list") ?: return list
+
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val bvid = item.optString("bvid", "")
+                if (bvid.isBlank()) continue
+                val title = item.optString("title", "Bilibili Video")
+                var pic = item.optString("pic", "")
+                if (pic.startsWith("//")) pic = "https:$pic"
+                val owner = item.optJSONObject("owner")?.optString("name", "Bilibili") ?: "Bilibili"
+                val duration = item.optLong("duration", -1L)
+                val stat = item.optJSONObject("stat")
+                val viewCount = stat?.optLong("view", -1L) ?: -1L
+
+                list.add(
+                    VideoItem(
+                        id = "https://www.bilibili.com/video/$bvid",
+                        title = title,
+                        uploaderName = owner,
+                        durationSeconds = duration,
+                        viewCount = viewCount,
+                        thumbnailUrl = pic,
+                        providerId = "bilibili"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Bilibili parse error: ${e.message}")
+        }
+        return list
+    }
+
+    private fun parseBilibiliSearchJsonApi(url: String): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Referer", "https://www.bilibili.com/")
+                .build()
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val jsonObj = JSONObject(jsonStr)
+            val dataObj = jsonObj.optJSONObject("data") ?: return list
+            val array = dataObj.optJSONArray("result") ?: return list
+
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val bvid = item.optString("bvid", "")
+                if (bvid.isBlank()) continue
+                var title = item.optString("title", "Bilibili Video")
+                title = title.replace("<em class=\"keyword\">", "").replace("</em>", "")
+                var pic = item.optString("pic", "")
+                if (pic.startsWith("//")) pic = "https:$pic"
+                val author = item.optString("author", "Bilibili")
+                val play = item.optLong("play", -1L)
+
+                list.add(
+                    VideoItem(
+                        id = "https://www.bilibili.com/video/$bvid",
+                        title = title,
+                        uploaderName = author,
+                        durationSeconds = -1L,
+                        viewCount = play,
+                        thumbnailUrl = pic,
+                        providerId = "bilibili"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Bilibili search parse error: ${e.message}")
+        }
+        return list
+    }
+
+    // ------------------- BEEG -------------------
+    private fun getBeegHome(limit: Int): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder()
+                .url("https://api.beeg.com/api/v6/index/main/0/pc")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val array = JSONArray(jsonStr)
+            for (i in 0 until minOf(array.length(), limit)) {
+                val item = array.optJSONObject(i) ?: continue
+                val id = item.optString("id", "")
+                if (id.isBlank()) continue
+                val title = item.optString("title", "Beeg Video")
+                val thumb = "https://img.beeg.com/240x180/$id.jpg"
+                list.add(
+                    VideoItem(
+                        id = "https://beeg.com/$id",
+                        title = title,
+                        uploaderName = "Beeg",
+                        thumbnailUrl = thumb,
+                        providerId = "beeg"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Beeg parse error: ${e.message}")
+        }
+        return list
     }
 
     // ------------------- DAILYMOTION -------------------
@@ -430,6 +584,76 @@ object MultiSourceProvider {
             }
         } catch (e: Exception) {
             Log.w(TAG, "YouPorn parse error: ${e.message}")
+        }
+        return list
+    }
+
+    // ------------------- 4TUBE -------------------
+    private fun parse4tubeHtml(targetUrl: String, limit: Int): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder().url(targetUrl).build()
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val pattern = Pattern.compile("<a\\s+[^>]*href=\"(https://www\\.4tube\\.com/videos/(\\d+)/[^\"]*)\"[^>]*>", Pattern.CASE_INSENSITIVE)
+            val matcher = pattern.matcher(html)
+            val seen = mutableSetOf<String>()
+
+            while (matcher.find() && list.size < limit) {
+                val url = matcher.group(1) ?: continue
+                val id = matcher.group(2) ?: continue
+                if (seen.contains(id)) continue
+                seen.add(id)
+
+                list.add(
+                    VideoItem(
+                        id = url,
+                        title = "4tube Video",
+                        uploaderName = "4tube",
+                        thumbnailUrl = "",
+                        providerId = "4tube"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "4tube parse error: ${e.message}")
+        }
+        return list
+    }
+
+    // ------------------- RULE34VIDEO -------------------
+    private fun parseRule34Html(targetUrl: String, limit: Int): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder().url(targetUrl).build()
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val pattern = Pattern.compile("<a\\s+[^>]*href=\"(https://rule34video\\.com/video/(\\d+)/[^\"]*)\"[^>]*>", Pattern.CASE_INSENSITIVE)
+            val matcher = pattern.matcher(html)
+            val seen = mutableSetOf<String>()
+
+            while (matcher.find() && list.size < limit) {
+                val url = matcher.group(1) ?: continue
+                val id = matcher.group(2) ?: continue
+                if (seen.contains(id)) continue
+                seen.add(id)
+
+                list.add(
+                    VideoItem(
+                        id = url,
+                        title = "Rule34Video",
+                        uploaderName = "Rule34Video",
+                        thumbnailUrl = "",
+                        providerId = "rule34video"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Rule34Video parse error: ${e.message}")
         }
         return list
     }

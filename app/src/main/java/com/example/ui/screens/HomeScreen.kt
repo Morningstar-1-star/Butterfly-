@@ -563,13 +563,89 @@ fun HomeScreen(
                     )
                 }
 
-                // Tags Bar (Smart contextual category chips)
+                // Tags Bar (Smart contextual category chips & Direct Source Dropdown)
+                var isSourceMenuExpanded by remember { mutableStateOf(false) }
+                val activeProviderName = if (activeProviderId == "all") "All Sources" else (availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId)
+
                 LazyRow(
                     contentPadding = PaddingValues(start = 12.dp, top = 2.dp, end = 12.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    // DIRECT SOURCE SELECTOR DROPDOWN BUTTON (In front of all tags)
+                    item {
+                        Box {
+                            Surface(
+                                onClick = { isSourceMenuExpanded = true },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (activeProviderId != "all") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (activeProviderId != "all") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tune,
+                                        contentDescription = "Source Selector",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = activeProviderName,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Select Source",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = isSourceMenuExpanded,
+                                onDismissRequest = { isSourceMenuExpanded = false }
+                            ) {
+                                availableProviders.forEach { provider ->
+                                    val isSelected = (activeProviderId == provider.id)
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = provider.name,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        },
+                                        trailingIcon = {
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Selected",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.setActiveProvider(provider.id)
+                                            isSourceMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // CATEGORY TAG CHIPS
                     items(smartTagsList) { tag ->
                         val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
                         Surface(
