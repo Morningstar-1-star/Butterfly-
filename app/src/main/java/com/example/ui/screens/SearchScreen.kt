@@ -508,7 +508,7 @@ fun SearchScreen(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f), thickness = 1.dp)
 
         // CONTENT AREA
-        if (isSearching) {
+        if (isSearching && searchResults.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -526,6 +526,13 @@ fun SearchScreen(
                 }
             }
         } else if (searchResults.isNotEmpty()) {
+            if (isSearching) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            }
             val context = androidx.compose.ui.platform.LocalContext.current
             val baseResults = searchResults
                 .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }

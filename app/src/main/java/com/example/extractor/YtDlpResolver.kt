@@ -213,6 +213,10 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://www.youporn.com/")
                     domainHeaders["Referer"] = "https://www.youporn.com/"
                 }
+                lowerUrl.contains("eporner.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.eporner.com/")
+                    domainHeaders["Referer"] = "https://www.eporner.com/"
+                }
                 lowerUrl.contains("tiktok.com") -> {
                     request.addOption("--add-header", "Referer: https://www.tiktok.com/")
                     domainHeaders["Referer"] = "https://www.tiktok.com/"
@@ -260,8 +264,9 @@ object YtDlpResolver {
             if (formatsArray != null) {
                 for (i in 0 until formatsArray.length()) {
                     val fmt = formatsArray.optJSONObject(i) ?: continue
-                    val streamUrl = fmt.optString("url", "")
-                    if (streamUrl.isBlank()) continue
+                    val streamUrl = fmt.optString("url", "").trim()
+                    if (streamUrl.isBlank() || (!streamUrl.startsWith("http://", ignoreCase = true) && !streamUrl.startsWith("https://", ignoreCase = true))) continue
+                    if (streamUrl.endsWith(".html", ignoreCase = true) || streamUrl.endsWith(".htm", ignoreCase = true) || streamUrl.contains("/error_403", ignoreCase = true) || streamUrl.contains("/error_404", ignoreCase = true)) continue
 
                     val formatId = fmt.optString("format_id", "")
                     val ext = fmt.optString("ext", "mp4")
