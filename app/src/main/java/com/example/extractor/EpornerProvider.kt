@@ -159,15 +159,15 @@ object EpornerProvider {
 
             for ((dwnUrl, label) in dwnEndpoints) {
                 val directCdnMp4 = resolveCdnDirectMp4Url(dwnUrl, epornerHeaders)
-                val finalUrl = directCdnMp4 ?: dwnUrl
-                if (!seenUrls.contains(finalUrl)) {
-                    seenUrls.add(finalUrl)
+
+                if (directCdnMp4 != null && !seenUrls.contains(directCdnMp4)) {
+                    seenUrls.add(directCdnMp4)
                     options.add(
                         PlayableStreamOption(
                             qualityLabel = label,
                             format = "mp4",
                             isMuxed = true,
-                            videoUrl = finalUrl,
+                            videoUrl = directCdnMp4,
                             providerType = ProviderType.DIRECT,
                             headers = epornerHeaders
                         )
@@ -223,7 +223,7 @@ object EpornerProvider {
                 }
             }
 
-            val sortedOptions = options.sortedByDescending { 
+            val sortedOptions = options.sortedByDescending {
                 when {
                     it.qualityLabel.contains("1080p") -> 1080
                     it.qualityLabel.contains("720p") -> 720
@@ -232,7 +232,8 @@ object EpornerProvider {
                 }
             }
 
-            val bestOption = sortedOptions.first()
+            val bestOption = sortedOptions.firstOrNull()
+                ?: return@withContext null
 
             StreamData(
                 videoId = videoId,
