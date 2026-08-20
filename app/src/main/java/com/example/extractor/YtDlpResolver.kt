@@ -177,16 +177,12 @@ object YtDlpResolver {
                 }
                 lowerUrl.contains("bilibili.com") -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
-                    request.addOption("--add-header", "Origin: https://www.bilibili.com")
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
-                    domainHeaders["Origin"] = "https://www.bilibili.com"
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
-                    request.addOption("--add-header", "Origin: https://www.pornhub.com")
                     request.addOption("--add-header", "Cookie: age_verified=1")
                     domainHeaders["Referer"] = "https://www.pornhub.com/"
-                    domainHeaders["Origin"] = "https://www.pornhub.com"
                     domainHeaders["Cookie"] = "age_verified=1"
                 }
                 lowerUrl.contains("xvideos.com") -> {

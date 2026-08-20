@@ -76,12 +76,12 @@ fun LiquidGlassNavBar(
                 )
 
                 NavItem(
-                    label = "Settings",
-                    selectedIcon = Icons.Filled.Settings,
-                    unselectedIcon = Icons.Outlined.Settings,
-                    isSelected = (currentScreen == AppScreen.SETTINGS),
+                    label = "You",
+                    selectedIcon = Icons.Filled.AccountCircle,
+                    unselectedIcon = Icons.Outlined.AccountCircle,
+                    isSelected = (currentScreen == AppScreen.ACCOUNT),
                     modifier = Modifier.weight(1f),
-                    onClick = { onSelectScreen(AppScreen.SETTINGS) }
+                    onClick = { onSelectScreen(AppScreen.ACCOUNT) }
                 )
             }
         }

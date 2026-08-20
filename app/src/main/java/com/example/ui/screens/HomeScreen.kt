@@ -301,6 +301,19 @@ fun HomeScreen(
                             )
                         }
 
+                        AppScreen.ACCOUNT -> {
+                            AccountScreen(
+                                viewModel = viewModel,
+                                onSelectVideo = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                onOpenSettings = { viewModel.navigateToScreen(AppScreen.SETTINGS) },
+                                onOpenMoviesAndTv = { viewModel.navigateToScreen(AppScreen.LIBRARY) },
+                                topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
+                            )
+                        }
+
                         AppScreen.SETTINGS -> {
                             SettingsScreen(
                                 viewModel = viewModel,

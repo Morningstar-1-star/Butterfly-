@@ -448,6 +448,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _likedVideoIds = MutableStateFlow<Set<String>>(emptySet())
     val likedVideoIds: StateFlow<Set<String>> = _likedVideoIds.asStateFlow()
 
+    private val _likedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
+    val likedVideos: StateFlow<List<VideoItem>> = _likedVideos.asStateFlow()
+
     private val _dislikedVideoIds = MutableStateFlow<Set<String>>(emptySet())
     val dislikedVideoIds: StateFlow<Set<String>> = _dislikedVideoIds.asStateFlow()
 
@@ -935,6 +938,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun renamePlaylist(playlistId: String, newTitle: String) {
+        _userPlaylists.value = _userPlaylists.value.map { pl ->
+            if (pl.id == playlistId) {
+                val updated = pl.copy(title = newTitle)
+                viewModelScope.launch(Dispatchers.IO) {
+                    userDataDao.insertOrUpdatePlaylist(
+                        UserPlaylistEntity(id = playlistId, title = newTitle, videosJson = serializeVideos(updated.videos))
+                    )
+                }
+                updated
+            } else pl
+        }
+    }
+
     fun playNextInQueue() {
         val currentQueue = _playbackQueue.value
         if (currentQueue.isNotEmpty()) {
@@ -1244,6 +1261,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch {
                 userDataDao.getLikedVideosFlow().collect { likedEntities ->
                     _likedVideoIds.value = likedEntities.map { it.videoId }.toSet()
+                    _likedVideos.value = likedEntities.map { entity ->
+                        VideoItem(
+                            id = entity.videoId,
+                            title = entity.title,
+                            uploaderName = entity.channelName,
+                            thumbnailUrl = entity.thumbnailUrl,
+                            providerId = entity.providerId
+                        )
+                    }
                 }
             }
             launch {
