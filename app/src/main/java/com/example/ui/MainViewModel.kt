@@ -2168,7 +2168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val result = YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication())
+                val result = YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
                 if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
                 _extractionResult.value = result
                 if (result is YouTubeExtractorHelper.ExtractionResult.Success) {

@@ -66,6 +66,11 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://vimeo.com/")
                 builder.header("Origin", "https://vimeo.com")
             }
+            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn.bilivideo") -> {
+                builder.header("Referer", "https://www.bilibili.com/")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+            }
         }
 
         chain.proceed(builder.build())
@@ -497,76 +502,6 @@ object GlobalPlayerManager {
             val uriHost = try { Uri.parse(rawUrl).host ?: "unknown" } catch (_: Exception) { "unknown" }
             android.util.Log.i("GlobalPlayerManager", "[PLAYBACK_START] provider=${streamData?.providerId ?: "direct"}, videoId=${streamData?.videoId}, format=${streamOption?.format}, isMuxed=${streamOption?.isMuxed}, host=$uriHost, quality='${streamOption?.qualityLabel}', headersCount=${combinedHeaders.size}, headerKeys=${combinedHeaders.keys}")
 
-            val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            val defaultHeaders = mutableMapOf<String, String>()
-            var customUserAgentSet = false
-            combinedHeaders.forEach { (k, v) ->
-                if (k.equals("User-Agent", ignoreCase = true)) {
-                    dataSourceFactory.setUserAgent(v)
-                    customUserAgentSet = true
-                } else {
-                    defaultHeaders[k] = v
-                }
-            }
-            if (!customUserAgentSet) {
-                dataSourceFactory.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-            }
-
-            // Inject domain-specific referer & origin headers if not explicitly specified
-            val lowerTarget = rawUrl.lowercase()
-            val hasReferer = defaultHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
-            if (!hasReferer) {
-                when {
-                    lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") || lowerTarget.contains("cdndirector") -> {
-                        defaultHeaders["Referer"] = "https://www.dailymotion.com/"
-                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                            defaultHeaders["Origin"] = "https://www.dailymotion.com"
-                        }
-                    }
-                    lowerTarget.contains("archive.org") -> {
-                        defaultHeaders["Referer"] = "https://archive.org/"
-                    }
-                    lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
-                        defaultHeaders["Referer"] = "https://www.pornhub.com/"
-                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                            defaultHeaders["Origin"] = "https://www.pornhub.com"
-                        }
-                        if (!defaultHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
-                            defaultHeaders["Cookie"] = "age_verified=1"
-                        }
-                    }
-                    lowerTarget.contains("eporner") || lowerTarget.contains("static-cluster") || streamData?.providerId == "eporner" -> {
-                        defaultHeaders["Referer"] = "https://www.eporner.com/"
-                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                            defaultHeaders["Origin"] = "https://www.eporner.com"
-                        }
-                    }
-                    lowerTarget.contains("redtube.com") -> {
-                        defaultHeaders["Referer"] = "https://www.redtube.com/"
-                    }
-                    lowerTarget.contains("xhamster.com") -> {
-                        defaultHeaders["Referer"] = "https://xhamster.com/"
-                    }
-                    lowerTarget.contains("xvideos.com") -> {
-                        defaultHeaders["Referer"] = "https://www.xvideos.com/"
-                    }
-                    lowerTarget.contains("vimeo") || lowerTarget.contains("vimeocdn") || lowerTarget.contains("akamaized") || streamData?.providerId == "vimeo" -> {
-                        defaultHeaders["Referer"] = "https://vimeo.com/"
-                        defaultHeaders["Origin"] = "https://vimeo.com"
-                    }
-                    lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
-                        defaultHeaders["Referer"] = "https://upload18.org/"
-                        if (!defaultHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                            defaultHeaders["Origin"] = "https://upload18.org"
-                        }
-                    }
-                }
-            }
-
-            if (defaultHeaders.isNotEmpty()) {
-                dataSourceFactory.setDefaultRequestProperties(defaultHeaders)
-            }
-
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true)
                 .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
@@ -583,8 +518,91 @@ object GlobalPlayerManager {
                 }
             }
 
-            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
-                .setLoadErrorHandlingPolicy(errorHandlingPolicy)
+            fun createMediaSourceFactory(targetUrl: String, specificHeaders: Map<String, String>): androidx.media3.exoplayer.source.DefaultMediaSourceFactory {
+                val dsFactory = OkHttpDataSource.Factory(okHttpClient)
+                val headersMap = mutableMapOf<String, String>()
+                streamData?.headers?.let { headersMap.putAll(it) }
+                headersMap.putAll(specificHeaders)
+
+                var customUserAgentSet = false
+                val reqHeaders = mutableMapOf<String, String>()
+                headersMap.forEach { (k, v) ->
+                    if (k.equals("User-Agent", ignoreCase = true)) {
+                        dsFactory.setUserAgent(v)
+                        customUserAgentSet = true
+                    } else {
+                        reqHeaders[k] = v
+                    }
+                }
+                if (!customUserAgentSet) {
+                    dsFactory.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                }
+
+                // Inject domain-specific referer & origin headers if not explicitly specified
+                val lowerTarget = targetUrl.lowercase()
+                val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn.bilivideo") || streamData?.providerId == "bilibili"
+                if (isBilibiliStream) {
+                    reqHeaders["Referer"] = "https://www.bilibili.com/"
+                    reqHeaders.remove("Origin")
+                    reqHeaders.remove("origin")
+                } else {
+                    val hasReferer = reqHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
+                    if (!hasReferer) {
+                        when {
+                            lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") || lowerTarget.contains("cdndirector") -> {
+                                reqHeaders["Referer"] = "https://www.dailymotion.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.dailymotion.com"
+                                }
+                            }
+                            lowerTarget.contains("archive.org") -> {
+                                reqHeaders["Referer"] = "https://archive.org/"
+                            }
+                            lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
+                                reqHeaders["Referer"] = "https://www.pornhub.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.pornhub.com"
+                                }
+                                if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                                    reqHeaders["Cookie"] = "age_verified=1"
+                                }
+                            }
+                            lowerTarget.contains("eporner") || lowerTarget.contains("static-cluster") || streamData?.providerId == "eporner" -> {
+                                reqHeaders["Referer"] = "https://www.eporner.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.eporner.com"
+                                }
+                            }
+                            lowerTarget.contains("redtube.com") -> {
+                                reqHeaders["Referer"] = "https://www.redtube.com/"
+                            }
+                            lowerTarget.contains("xhamster.com") -> {
+                                reqHeaders["Referer"] = "https://xhamster.com/"
+                            }
+                            lowerTarget.contains("xvideos.com") -> {
+                                reqHeaders["Referer"] = "https://www.xvideos.com/"
+                            }
+                            lowerTarget.contains("vimeo") || lowerTarget.contains("vimeocdn") || lowerTarget.contains("akamaized") || streamData?.providerId == "vimeo" -> {
+                                reqHeaders["Referer"] = "https://vimeo.com/"
+                                reqHeaders["Origin"] = "https://vimeo.com"
+                            }
+                            lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
+                                reqHeaders["Referer"] = "https://upload18.org/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://upload18.org"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (reqHeaders.isNotEmpty()) {
+                    dsFactory.setDefaultRequestProperties(reqHeaders)
+                }
+
+                return androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory, extractorsFactory)
+                    .setLoadErrorHandlingPolicy(errorHandlingPolicy)
+            }
 
             fun sanitizeMediaUrl(rawUrl: String?): String? {
                 if (rawUrl.isNullOrBlank()) return null
@@ -642,9 +660,9 @@ object GlobalPlayerManager {
                     builder.setMimeType(MimeTypes.VIDEO_WEBM)
                 } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
                     builder.setMimeType(MimeTypes.AUDIO_WEBM)
-                } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a")) {
+                } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") || lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerFormat == "m4a" || lowerFormat == "audio" || lowerFormat == "aac" || lowerFormat == "mp3") {
                     builder.setMimeType(MimeTypes.AUDIO_MP4)
-                } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerFormat == "mp4") {
+                } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerFormat == "mp4" || lowerFormat == "m4s" || lowerFormat == "video") {
                     builder.setMimeType(MimeTypes.VIDEO_MP4)
                 }
 
@@ -674,6 +692,7 @@ object GlobalPlayerManager {
                 }
 
                 if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
+                    val mediaSourceFactory = createMediaSourceFactory(vUrl, streamOption.headers)
                     val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
                     if (item != null) {
                         val mediaSource = mediaSourceFactory.createMediaSource(item)
@@ -681,20 +700,25 @@ object GlobalPlayerManager {
                         mediaSourceSet = true
                     }
                 } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
-                    val videoItem = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
-                    val audioItem = buildMediaItem(aUrl)
+                    val videoSourceFactory = createMediaSourceFactory(vUrl, streamOption.headers)
+                    val audioHeaders = if (streamOption.audioHeaders.isNotEmpty()) streamOption.audioHeaders else streamOption.headers
+                    val audioSourceFactory = createMediaSourceFactory(aUrl, audioHeaders)
+
+                    val videoItem = buildMediaItem(vUrl, streamOption.format.ifEmpty { "video" }, subtitleConfigs)
+                    val audioItem = buildMediaItem(aUrl, "audio")
                     if (videoItem != null && audioItem != null) {
-                        val videoSource = mediaSourceFactory.createMediaSource(videoItem)
-                        val audioSource = mediaSourceFactory.createMediaSource(audioItem)
+                        val videoSource = videoSourceFactory.createMediaSource(videoItem)
+                        val audioSource = audioSourceFactory.createMediaSource(audioItem)
                         val mergedSource = MergingMediaSource(videoSource, audioSource)
                         player.setMediaSource(mergedSource)
                         mediaSourceSet = true
                     } else if (videoItem != null) {
-                        val videoSource = mediaSourceFactory.createMediaSource(videoItem)
+                        val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         player.setMediaSource(videoSource)
                         mediaSourceSet = true
                     }
                 } else if (!vUrl.isNullOrEmpty()) {
+                    val mediaSourceFactory = createMediaSourceFactory(vUrl, streamOption.headers)
                     val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
                     if (item != null) {
                         val mediaSource = mediaSourceFactory.createMediaSource(item)
@@ -709,6 +733,7 @@ object GlobalPlayerManager {
                 if (cleanHls != null) {
                     val item = buildMediaItem(cleanHls, "hls")
                     if (item != null) {
+                        val mediaSourceFactory = createMediaSourceFactory(cleanHls, streamData?.headers ?: emptyMap())
                         val mediaSource = mediaSourceFactory.createMediaSource(item)
                         player.setMediaSource(mediaSource)
                         mediaSourceSet = true
@@ -719,6 +744,7 @@ object GlobalPlayerManager {
                 if (cleanRaw != null) {
                     val item = buildMediaItem(cleanRaw, streamOption?.format)
                     if (item != null) {
+                        val mediaSourceFactory = createMediaSourceFactory(cleanRaw, streamOption?.headers ?: streamData?.headers ?: emptyMap())
                         val mediaSource = mediaSourceFactory.createMediaSource(item)
                         player.setMediaSource(mediaSource)
                         mediaSourceSet = true

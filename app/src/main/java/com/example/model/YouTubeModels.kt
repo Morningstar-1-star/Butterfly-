@@ -109,7 +109,8 @@ data class PlayableStreamOption(
     val videoUrl: String? = null,
     val audioUrl: String? = null,
     val providerType: ProviderType = ProviderType.OTHER,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    val audioHeaders: Map<String, String> = emptyMap()
 )
 
 data class CaptionOption(

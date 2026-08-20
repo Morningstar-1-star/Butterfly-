@@ -373,7 +373,8 @@ object YtDlpResolver {
                         videoUrl = fmt.url,
                         audioUrl = bestAudio?.url,
                         providerType = ProviderType.DIRECT,
-                        headers = fmt.httpHeaders
+                        headers = fmt.httpHeaders,
+                        audioHeaders = bestAudio?.httpHeaders ?: emptyMap()
                     )
                 )
             }

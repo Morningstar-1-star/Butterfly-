@@ -213,6 +213,18 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isBilibili = providerId == "bilibili" || urlOrId.contains("bilibili.com") || urlOrId.contains("b23.tv") || urlOrId.startsWith("BV", ignoreCase = true) || urlOrId.startsWith("av", ignoreCase = true)
+        if (isBilibili) {
+            val biliData = BilibiliProvider.getStreamData(urlOrId, context)
+            if (biliData != null) {
+                Log.i(TAG, "Resolved via BilibiliProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(biliData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Bilibili to YtDlpResolver for $urlOrId")
+                return@withContext YtDlpResolver.extractStreamInfo(context, urlOrId)
+            }
+        }
+
         val isYouTube = providerId == "youtube" || urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
 
         if (isYouTube) {
