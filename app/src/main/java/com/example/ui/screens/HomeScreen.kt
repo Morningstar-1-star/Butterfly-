@@ -81,6 +81,7 @@ fun HomeScreen(
     val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
     val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+    val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
 
     val userProfile by viewModel.userProfile.collectAsState()
     val globalActiveStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
@@ -289,6 +290,17 @@ fun HomeScreen(
                     label = "screen_transition"
                 ) { screen ->
                     when (screen) {
+                        AppScreen.EXPLORE -> {
+                            ExploreScreen(
+                                viewModel = viewModel,
+                                onSelectVideo = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
+                            )
+                        }
+
                         AppScreen.LIBRARY -> {
                             LibraryScreen(
                                 viewModel = viewModel,
@@ -308,7 +320,7 @@ fun HomeScreen(
                                     viewModel.playVideo(video.id, video.providerId)
                                 },
                                 onOpenSettings = { viewModel.navigateToScreen(AppScreen.SETTINGS) },
-                                onOpenMoviesAndTv = { viewModel.navigateToScreen(AppScreen.LIBRARY) },
+                                onOpenMoviesAndTv = { viewModel.navigateToScreen(AppScreen.EXPLORE) },
                                 topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
                                 bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
@@ -434,6 +446,7 @@ fun HomeScreen(
                                             VideoCard(
                                                 video = video,
                                                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                showProviderBadge = showThumbnailTags,
                                                 onClick = {
                                                     viewModel.playVideo(video.id, video.providerId)
                                                 },
@@ -557,6 +570,17 @@ fun HomeScreen(
                             }
                         },
                         actions = {
+                            if (currentScreen == AppScreen.ACCOUNT) {
+                                IconButton(onClick = {
+                                    viewModel.navigateToScreen(AppScreen.SETTINGS)
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Settings,
+                                        contentDescription = "Settings",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                             IconButton(onClick = {
                                 if (isSearchExpanded) {
                                     viewModel.clearSearch()
@@ -576,114 +600,116 @@ fun HomeScreen(
                     )
                 }
 
-                // Tags Bar (Smart contextual category chips & Direct Source Dropdown)
-                var isSourceMenuExpanded by remember { mutableStateOf(false) }
-                val activeProviderName = if (activeProviderId == "all") "All Sources" else (availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId)
+                // Tags Bar (Smart contextual category chips & Direct Source Dropdown) - ONLY ON HOME TAB
+                if (currentScreen == AppScreen.HOME) {
+                    var isSourceMenuExpanded by remember { mutableStateOf(false) }
+                    val activeProviderName = if (activeProviderId == "all") "All Sources" else (availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId)
 
-                LazyRow(
-                    contentPadding = PaddingValues(start = 12.dp, top = 2.dp, end = 12.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // DIRECT SOURCE SELECTOR DROPDOWN BUTTON (In front of all tags)
-                    item {
-                        Box {
-                            Surface(
-                                onClick = { isSourceMenuExpanded = true },
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (activeProviderId != "all") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (activeProviderId != "all") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    LazyRow(
+                        contentPadding = PaddingValues(start = 12.dp, top = 2.dp, end = 12.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // DIRECT SOURCE SELECTOR DROPDOWN BUTTON (In front of all tags)
+                        item {
+                            Box {
+                                Surface(
+                                    onClick = { isSourceMenuExpanded = true },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (activeProviderId != "all") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (activeProviderId != "all") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.height(36.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Tune,
-                                        contentDescription = "Source Selector",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = activeProviderName,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = "Select Source",
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Tune,
+                                            contentDescription = "Source Selector",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = activeProviderName,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Select Source",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
-                            }
 
-                            DropdownMenu(
-                                expanded = isSourceMenuExpanded,
-                                onDismissRequest = { isSourceMenuExpanded = false }
-                            ) {
-                                availableProviders.forEach { provider ->
-                                    val isSelected = (activeProviderId == provider.id)
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = provider.name,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                )
+                                DropdownMenu(
+                                    expanded = isSourceMenuExpanded,
+                                    onDismissRequest = { isSourceMenuExpanded = false }
+                                ) {
+                                    availableProviders.forEach { provider ->
+                                        val isSelected = (activeProviderId == provider.id)
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = provider.name,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            },
+                                            trailingIcon = {
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Selected",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                viewModel.setActiveProvider(provider.id)
+                                                isSourceMenuExpanded = false
                                             }
-                                        },
-                                        trailingIcon = {
-                                            if (isSelected) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = "Selected",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        },
-                                        onClick = {
-                                            viewModel.setActiveProvider(provider.id)
-                                            isSourceMenuExpanded = false
-                                        }
-                                    )
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    // CATEGORY TAG CHIPS
-                    items(smartTagsList) { tag ->
-                        val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
-                        Surface(
-                            onClick = {
-                                if (tag == "All") {
-                                    viewModel.clearSearch()
-                                } else {
-                                    viewModel.updateSearchQuery(tag)
-                                    viewModel.performSearch(tag)
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) selectedChipBg else unselectedChipBg,
-                            contentColor = if (isSelected) selectedChipFg else unselectedChipFg,
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                contentAlignment = Alignment.Center
+                        // CATEGORY TAG CHIPS
+                        items(smartTagsList) { tag ->
+                            val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
+                            Surface(
+                                onClick = {
+                                    if (tag == "All") {
+                                        viewModel.clearSearch()
+                                    } else {
+                                        viewModel.updateSearchQuery(tag)
+                                        viewModel.performSearch(tag)
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) selectedChipBg else unselectedChipBg,
+                                contentColor = if (isSelected) selectedChipFg else unselectedChipFg,
+                                modifier = Modifier.height(36.dp)
                             ) {
-                                Text(
-                                    text = tag,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
-                                )
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = tag,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }
@@ -884,6 +910,7 @@ fun ExploreContent(
 fun SubscriptionsContent(
     videos: List<VideoItem>,
     watchProgressMap: Map<String, Float> = emptyMap(),
+    showProviderBadge: Boolean = true,
     onSelectVideo: (VideoItem) -> Unit,
     onNotInterested: ((VideoItem) -> Unit)? = null,
     onChannelClick: ((String) -> Unit)? = null
@@ -945,6 +972,7 @@ fun SubscriptionsContent(
             VideoCard(
                 video = video,
                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                showProviderBadge = showProviderBadge,
                 onClick = { onSelectVideo(video) },
                 onNotInterested = onNotInterested,
                 onChannelClick = onChannelClick,

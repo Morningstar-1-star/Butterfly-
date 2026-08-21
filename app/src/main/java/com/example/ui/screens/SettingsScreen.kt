@@ -39,6 +39,7 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+    val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
 
@@ -65,7 +66,7 @@ fun SettingsScreen(
             ProviderDiag("dailymotion", "Dailymotion", false),
             ProviderDiag("bilibili", "Bilibili", false),
             ProviderDiag("vimeo", "Vimeo", false),
-            ProviderDiag("eporner", "Eporner", false),
+            ProviderDiag("eporner", "Eporner", true),
             ProviderDiag("pornhub", "Pornhub", true),
             ProviderDiag("xvideos", "XVideos", true),
             ProviderDiag("4tube", "4tube", true),
@@ -358,6 +359,15 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    SettingsSwitchRow(
+                        title = "Thumbnail Source Tags",
+                        subtitle = "Show provider badges (e.g. YouTube, Vimeo, Dailymotion, 18+) on video cards",
+                        checked = showThumbnailTags,
+                        onCheckedChange = { viewModel.setShowThumbnailTags(it) }
+                    )
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 

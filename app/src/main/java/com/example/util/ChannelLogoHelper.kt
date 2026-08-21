@@ -403,14 +403,108 @@ object ChannelLogoHelper {
                 subscriberCountText = "Official Partner"
             )
 
+            // Top Creators & Channels
+            combined.contains("mrbeast") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/fxGKYucJAVme-Yz4fsdCro6FCrNsBs0x6GcZNquNZP4b0ScG9P_AhXYtqSLQ5WZa8nA2qQDpjw=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "MrBeast",
+                brandShortText = "MB",
+                backgroundColor = Color(0xFF00A2FF),
+                textColor = Color.White,
+                subscriberCountText = "310M subscribers"
+            )
+
+            combined.contains("marques brownlee") || combined.contains("mkbhd") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHqqdM_5QDEtdSemgnYGSneaO_w=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "Marques Brownlee",
+                brandShortText = "MKBHD",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "19.2M subscribers"
+            )
+
+            combined.contains("pewdiepie") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/5o-5KMrHGupWwKGMBsqCdJbmTrGLkuSSZrstn290_VnxTopiUBuckWRLTB69q5PramWnIjyT0Q=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "PewDiePie",
+                brandShortText = "PDP",
+                backgroundColor = Color(0xFFD81B60),
+                textColor = Color.White,
+                subscriberCountText = "111M subscribers"
+            )
+
+            combined.contains("mark rober") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/ytc/AIdro_k6T6x8sLq6Xb1V4e0m4R0Gk3LqgWfP2G3N=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "Mark Rober",
+                brandShortText = "MR",
+                backgroundColor = Color(0xFF107C41),
+                textColor = Color.White,
+                subscriberCountText = "58.4M subscribers"
+            )
+
+            combined.contains("linus tech tips") || combined.contains("linustechtips") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/Vy6CVSmEcAE2oxgqLjnnN1tCo6UC6vi44_0PLj_GsmOgVvO13_8YxI_1=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "Linus Tech Tips",
+                brandShortText = "LTT",
+                backgroundColor = Color(0xFFFF6F00),
+                textColor = Color.White,
+                subscriberCountText = "15.8M subscribers"
+            )
+
+            combined.contains("veritasium") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/ytc/AIdro_ljb4k3r2iGq=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "Veritasium",
+                brandShortText = "VER",
+                backgroundColor = Color(0xFF0078D4),
+                textColor = Color.White,
+                subscriberCountText = "16.5M subscribers"
+            )
+
+            combined.contains("ign") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/H_2n9gqA1P4G7=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "IGN",
+                brandShortText = "IGN",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "18.1M subscribers"
+            )
+
+            combined.contains("kurzgesagt") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/ytc/AIdro_mDqYk1gWbF=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "Kurzgesagt – In a Nutshell",
+                brandShortText = "KG",
+                backgroundColor = Color(0xFF673AB7),
+                textColor = Color.White,
+                subscriberCountText = "23.0M subscribers"
+            )
+
+            combined.contains("t-series") || combined.contains("tseries") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/v_PwNTRNXaPZSTYYavvrZrPvdYICeoTvBWqn0SwaBoYTyFLyKnPIvdKnNxWTa3rKnW_GQ87Wd1s=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "T-Series",
+                brandShortText = "TS",
+                backgroundColor = Color(0xFFD81B60),
+                textColor = Color.White,
+                subscriberCountText = "270M subscribers"
+            )
+
+            combined.contains("ted") || combined.contains("ted-ed") || combined.contains("tedx") -> BrandLogoInfo(
+                logoUrls = listOf("https://yt3.googleusercontent.com/ytc/AIdro_l2v6bL=s176-c-k-c0x00ffffff-no-rj"),
+                brandName = "TED",
+                brandShortText = "TED",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "24.5M subscribers"
+            )
+
             // Dynamic Hash-derived branding for any YouTube channel / general creator
             else -> {
                 val hash = abs(cleanName.hashCode())
                 val palette = AVATAR_PALETTE[hash % AVATAR_PALETTE.size]
                 val initials = getInitials(cleanName)
 
+                val cleanHandle = cleanName.replace(Regex("[^a-zA-Z0-9_]"), "")
+                val fallbackAvatarUrl = if (cleanHandle.isNotBlank()) "https://unavatar.io/youtube/$cleanHandle" else null
+
                 BrandLogoInfo(
-                    logoUrls = emptyList(),
+                    logoUrls = if (fallbackAvatarUrl != null) listOf(fallbackAvatarUrl) else emptyList(),
                     brandName = cleanName,
                     brandShortText = initials,
                     backgroundColor = palette.first,

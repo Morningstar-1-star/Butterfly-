@@ -77,6 +77,7 @@ fun VideoDetailsSection(
     var isCaptionMenuExpanded by remember { mutableStateOf(false) }
     var selectedSubTab by remember { mutableStateOf(MediaSubTab.CAST_AND_CREW) }
     var zoomScreenshotUrl by remember { mutableStateOf<String?>(null) }
+    var selectedCastMemberForFilmography by remember { mutableStateOf<CastMember?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val currentVideoId = streamData?.videoId ?: previewItem?.id ?: ""
@@ -95,7 +96,7 @@ fun VideoDetailsSection(
     }
 
     LaunchedEffect(currentVideoId, currentTitle) {
-        if (currentTitle.isNotBlank() && currentProviderId == "archive_org") {
+        if (currentTitle.isNotBlank()) {
             mediaDetails = TMDBHelper.fetchMediaDetails(currentTitle, currentVideoId)
         } else {
             mediaDetails = null
@@ -229,10 +230,8 @@ fun VideoDetailsSection(
                         AsyncImage(
                             model = logoUrl,
                             contentDescription = displayChannelName,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(4.dp)
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         Text(
@@ -648,6 +647,110 @@ fun VideoDetailsSection(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                // Top Cast (Always visible directly in description without needing to click Show More)
+                val castList = mediaDetails?.cast ?: emptyList()
+                if (castList.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.People,
+                            contentDescription = null,
+                            tint = Color(0xFFFFC107),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Top Cast",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "${castList.size} actors",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(castList, key = { it.personId ?: it.name }) { member ->
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .width(96.dp)
+                                    .clickable { selectedCastMemberForFilmography = member },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .padding(8.dp)
+                                        .fillMaxWidth()
+                                ) {
+                                    val avatarUrl = member.avatarUrl
+                                    if (!avatarUrl.isNullOrBlank()) {
+                                        val imgReq = remember(avatarUrl) {
+                                            com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, avatarUrl, preferCompact = true)
+                                        }
+                                        AsyncImage(
+                                            model = imgReq ?: avatarUrl,
+                                            contentDescription = member.name,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(CircleShape)
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = member.name.take(1).uppercase(),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 18.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = member.name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (!member.role.isNullOrBlank()) {
+                                        Text(
+                                            text = member.role,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Detailed Metadata, Director, Box Office for Media
                 if (mediaDetails != null) {
                     val screenshots = mediaDetails?.screenshots ?: emptyList()
@@ -1000,6 +1103,18 @@ fun VideoDetailsSection(
                 }
             }
         }
+
+        // CAST FILMOGRAPHY BOTTOM SHEET
+        if (selectedCastMemberForFilmography != null) {
+            CastFilmographyBottomSheet(
+                castMember = selectedCastMemberForFilmography!!,
+                onDismiss = { selectedCastMemberForFilmography = null },
+                onWorkClick = { workTitle ->
+                    selectedCastMemberForFilmography = null
+                    onTagClick?.invoke(workTitle)
+                }
+            )
+        }
     }
 }
 
@@ -1095,4 +1210,287 @@ private fun ActionPill(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CastFilmographyBottomSheet(
+    castMember: CastMember,
+    onDismiss: () -> Unit,
+    onWorkClick: (String) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var filmography by remember(castMember.name) { mutableStateOf<List<com.example.model.CastFilmographyItem>>(emptyList()) }
+    var isLoading by remember(castMember.name) { mutableStateOf(true) }
+    var selectedFilter by remember { mutableStateOf("All") }
+
+    LaunchedEffect(castMember) {
+        isLoading = true
+        filmography = TMDBHelper.fetchFilmographyForPerson(castMember.name, castMember.personId)
+        isLoading = false
+    }
+
+    val filteredWorks = remember(filmography, selectedFilter) {
+        when (selectedFilter) {
+            "Movies" -> filmography.filter { it.mediaType.equals("movie", ignoreCase = true) }
+            "TV Series" -> filmography.filter { it.mediaType.equals("tv", ignoreCase = true) }
+            else -> filmography
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            ) {
+                BottomSheetDefaults.DragHandle()
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .padding(horizontal = 16.dp)
+        ) {
+            // CAST PROFILE HEADER
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val avatarUrl = castMember.avatarUrl
+                if (!avatarUrl.isNullOrBlank()) {
+                    val imgReq = remember(avatarUrl) {
+                        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, avatarUrl, preferCompact = true)
+                    }
+                    AsyncImage(
+                        model = imgReq ?: avatarUrl,
+                        contentDescription = castMember.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, Color(0xFFFFC107), CircleShape)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            .border(2.dp, Color(0xFFFFC107), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = castMember.name.take(1).uppercase(),
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = castMember.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (!castMember.role.isNullOrBlank()) {
+                        Text(
+                            text = "Starred as ${castMember.role}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFFFC107),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Text(
+                        text = if (filmography.isNotEmpty()) "${filmography.size} Known Works" else "Filmography & Works",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // FILTER CHIPS (All, Movies, TV Series)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("All", "Movies", "TV Series").forEach { filter ->
+                    val isSelected = selectedFilter == filter
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedFilter = filter },
+                        label = { Text(filter, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = Color(0xFFFFC107),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            } else if (filteredWorks.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Outlined.Movie,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No titles found for ${castMember.name}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(filteredWorks.size, key = { filteredWorks[it].id }) { idx ->
+                        val work = filteredWorks[idx]
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onWorkClick(work.title) },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            )
+                        ) {
+                            Column {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(0.72f)
+                                        .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                ) {
+                                    val poster = work.posterUrl ?: work.backdropUrl
+                                    if (!poster.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = poster,
+                                            contentDescription = work.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Movie,
+                                                contentDescription = null,
+                                                tint = Color.White.copy(alpha = 0.3f),
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // Rating & Type Badges overlay
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (work.mediaType.equals("tv", true)) "TV" else "MOVIE",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            modifier = Modifier
+                                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                        if (work.voteAverage > 0.0) {
+                                            Text(
+                                                text = "★ ${String.format("%.1f", work.voteAverage)}",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFFD700),
+                                                modifier = Modifier
+                                                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text(
+                                        text = work.title,
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (work.character.isNotBlank()) {
+                                        Text(
+                                            text = "as ${work.character}",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        text = work.releaseYear,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 

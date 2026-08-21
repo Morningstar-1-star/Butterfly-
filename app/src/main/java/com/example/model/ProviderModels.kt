@@ -2,6 +2,7 @@ package com.example.model
 
 enum class AppScreen {
     HOME,
+    EXPLORE,
     LIBRARY,
     ACCOUNT,
     PLAYER,

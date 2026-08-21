@@ -79,6 +79,7 @@ fun VideoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     watchProgressFraction: Float = 0f,
+    showProviderBadge: Boolean = true,
     onPlayNextInQueue: ((VideoItem) -> Unit)? = null,
     onSaveToWatchLater: ((VideoItem) -> Unit)? = null,
     onSaveToPlaylist: ((VideoItem) -> Unit)? = null,
@@ -213,7 +214,7 @@ fun VideoCard(
                     )
                 }
 
-                if (!video.providerId.isNullOrEmpty()) {
+                if (showProviderBadge && !video.providerId.isNullOrEmpty()) {
                     Text(
                         text = providerBadgeInfo.first,
                         color = Color.White,
@@ -292,10 +293,8 @@ fun VideoCard(
                         AsyncImage(
                             model = logoImageRequest,
                             contentDescription = video.uploaderName,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(4.dp)
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         Text(

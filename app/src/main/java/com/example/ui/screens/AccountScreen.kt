@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,12 +48,23 @@ fun AccountScreen(
     bottomPadding: Dp = 100.dp
 ) {
     val userProfile by viewModel.userProfile.collectAsState()
-    val watchHistory by viewModel.watchHistory.collectAsState()
-    val watchLaterList by viewModel.watchLaterList.collectAsState()
+    val rawWatchHistory by viewModel.watchHistory.collectAsState()
+    val rawWatchLaterList by viewModel.watchLaterList.collectAsState()
     val userPlaylists by viewModel.userPlaylists.collectAsState()
-    val likedVideos by viewModel.likedVideos.collectAsState()
+    val rawLikedVideos by viewModel.likedVideos.collectAsState()
     val downloads by viewModel.offlineDownloads.collectAsState()
     val watchProgressMap by viewModel.watchProgressMap.collectAsState()
+    val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+
+    val watchHistory = remember(rawWatchHistory, adultContentEnabled) {
+        if (adultContentEnabled) rawWatchHistory else rawWatchHistory.filter { !viewModel.isAdultVideoItem(it) }
+    }
+    val watchLaterList = remember(rawWatchLaterList, adultContentEnabled) {
+        if (adultContentEnabled) rawWatchLaterList else rawWatchLaterList.filter { !viewModel.isAdultVideoItem(it) }
+    }
+    val likedVideos = remember(rawLikedVideos, adultContentEnabled) {
+        if (adultContentEnabled) rawLikedVideos else rawLikedVideos.filter { !viewModel.isAdultVideoItem(it) }
+    }
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var selectedPlaylistForDetail by remember { mutableStateOf<UserPlaylist?>(null) }
@@ -60,8 +72,20 @@ fun AccountScreen(
     var showLikedVideosSheet by remember { mutableStateOf(false) }
     var showDownloadsSheet by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
+    var showMoviesAndTvSheet by remember { mutableStateOf(false) }
+    var showBadgesSheet by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
+
+    val savedMoviesAndTv = remember(watchLaterList) {
+        watchLaterList.filter { 
+            it.id.startsWith("movie_") || it.id.startsWith("tv_") || it.id.startsWith("anime_") ||
+            it.providerId in listOf("tmdb", "anilist", "jikan", "imdb") ||
+            it.uploaderName.contains("Movie", ignoreCase = true) ||
+            it.uploaderName.contains("Anime", ignoreCase = true) ||
+            it.uploaderName.contains("TV Series", ignoreCase = true)
+        }
+    }
 
     var videoForPlaylistPicker by remember { mutableStateOf<VideoItem?>(null) }
 
@@ -77,72 +101,6 @@ fun AccountScreen(
                 bottom = bottomPadding + 24.dp
             )
         ) {
-            // 1. TOP BAR: "Accounts" Pill + Action Icons (Notifications, Search, Settings)
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Accounts switch pill
-                    Surface(
-                        onClick = { showAccountsDialog = true },
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = "Accounts",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Switch Account",
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    // Action Icons: Notifications, Search, Settings
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        IconButton(onClick = { /* Notification indicator */ }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Notifications,
-                                contentDescription = "Notifications",
-                                tint = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                        IconButton(onClick = {
-                            viewModel.setSearchExpanded(true)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    }
-                }
-            }
-
             // 2. USER PROFILE HEADER
             item {
                 Row(
@@ -347,7 +305,20 @@ fun AccountScreen(
                         )
                     }
 
-                    // Item 4+: User Created Playlists
+                    // Item 4: Movies & TV (Saved from Explore)
+                    item {
+                        PlaylistCoverCard(
+                            title = "Movies & TV",
+                            subtitle = "Saved • Explore",
+                            videoCount = savedMoviesAndTv.size,
+                            thumbnailUrl = savedMoviesAndTv.firstOrNull()?.thumbnailUrl,
+                            icon = Icons.Outlined.Movie,
+                            badgeColor = Color(0xFFE50914),
+                            onClick = { showMoviesAndTvSheet = true }
+                        )
+                    }
+
+                    // Item 5+: User Created Playlists
                     items(userPlaylists, key = { it.id }) { playlist ->
                         PlaylistCoverCard(
                             title = playlist.title,
@@ -388,7 +359,8 @@ fun AccountScreen(
                     AccountMenuListItem(
                         icon = Icons.Outlined.Movie,
                         title = "Movies & TV",
-                        onClick = onOpenMoviesAndTv
+                        subtitle = if (savedMoviesAndTv.isNotEmpty()) "${savedMoviesAndTv.size} saved titles" else "Discover movies, series & anime",
+                        onClick = { showMoviesAndTvSheet = true }
                     )
 
                     AccountMenuListItem(
@@ -400,7 +372,8 @@ fun AccountScreen(
                     AccountMenuListItem(
                         icon = Icons.Outlined.MilitaryTech,
                         title = "Badges",
-                        onClick = { /* Badges */ }
+                        subtitle = "Personality meter & achievement trophies",
+                        onClick = { showBadgesSheet = true }
                     )
                 }
             }
@@ -813,6 +786,253 @@ fun AccountScreen(
                         }
                     }
                 )
+            }
+        }
+
+        // FULL MOVIES, TV & ANIME SHEET
+        if (showMoviesAndTvSheet) {
+            MoviesAndTvBottomSheet(
+                savedMedia = savedMoviesAndTv,
+                onDismiss = { showMoviesAndTvSheet = false },
+                onSelectVideo = { video ->
+                    showMoviesAndTvSheet = false
+                    onSelectVideo(video)
+                },
+                onExploreMore = {
+                    showMoviesAndTvSheet = false
+                    viewModel.navigateToScreen(AppScreen.EXPLORE)
+                },
+                onRemoveMedia = { video ->
+                    viewModel.removeFromWatchLater(video)
+                }
+            )
+        }
+
+        // BADGES & PERSONALITY METER SHEET
+        if (showBadgesSheet) {
+            com.example.ui.components.PersonalityBadgesSheet(
+                viewModel = viewModel,
+                onDismiss = { showBadgesSheet = false }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MoviesAndTvBottomSheet(
+    savedMedia: List<VideoItem>,
+    onDismiss: () -> Unit,
+    onSelectVideo: (VideoItem) -> Unit,
+    onExploreMore: () -> Unit,
+    onRemoveMedia: (VideoItem) -> Unit
+) {
+    val modalBottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var selectedFilter by remember { mutableStateOf("All") }
+
+    val filteredList = remember(savedMedia, selectedFilter) {
+        when (selectedFilter) {
+            "Movies" -> savedMedia.filter { it.id.startsWith("movie_") || it.uploaderName.contains("Movie", ignoreCase = true) }
+            "TV Series" -> savedMedia.filter { it.id.startsWith("tv_") || it.uploaderName.contains("TV Series", ignoreCase = true) }
+            "Anime" -> savedMedia.filter { it.id.startsWith("anime_") || it.uploaderName.contains("Anime", ignoreCase = true) || it.providerId in listOf("anilist", "jikan") }
+            else -> savedMedia
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = modalBottomSheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        modifier = Modifier.fillMaxHeight(0.85f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 24.dp)
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Saved Movies, TV & Anime",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${savedMedia.size} titles saved from Explore",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                FilledTonalButton(
+                    onClick = onExploreMore,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Explore More", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Filter Chips Row
+            val filterOptions = listOf("All", "Movies", "TV Series", "Anime")
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(filterOptions) { opt ->
+                    val isSelected = (selectedFilter == opt)
+                    Surface(
+                        onClick = { selectedFilter = opt },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                            Text(text = opt, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            if (filteredList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Outlined.Movie,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "No saved $selectedFilter yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Explore trending movies, popular series and anime in the Explore tab and tap Save to store them here.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Button(
+                            onClick = onExploreMore,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Explore, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Open Explore Tab")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(filteredList, key = { it.id }) { item ->
+                        Surface(
+                            onClick = { onSelectVideo(item) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Poster Thumbnail
+                                Box(
+                                    modifier = Modifier
+                                        .width(70.dp)
+                                        .height(98.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                ) {
+                                    AsyncImage(
+                                        model = item.thumbnailUrl,
+                                        contentDescription = item.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = item.uploaderName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+
+                                    if (!item.description.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = item.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { onRemoveMedia(item) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.BookmarkRemove,
+                                        contentDescription = "Remove from Saved",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

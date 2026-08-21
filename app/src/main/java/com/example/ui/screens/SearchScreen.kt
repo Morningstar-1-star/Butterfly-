@@ -82,6 +82,7 @@ fun SearchScreen(
     val searchFilter by viewModel.searchFilter.collectAsState()
     val availableProviders by viewModel.availableProviders.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+    val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
@@ -641,6 +642,7 @@ fun SearchScreen(
                     items(filteredResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
                         VideoCard(
                             video = video,
+                            showProviderBadge = showThumbnailTags,
                             onClick = { onSelectVideo(video) },
                             onNotInterested = { v -> viewModel.markNotInterested(v) },
                             onPlayNextInQueue = { v -> viewModel.addToQueue(v) },

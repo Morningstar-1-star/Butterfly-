@@ -67,6 +67,15 @@ fun LiquidGlassNavBar(
                 )
 
                 NavItem(
+                    label = "Explore",
+                    selectedIcon = Icons.Filled.Explore,
+                    unselectedIcon = Icons.Outlined.Explore,
+                    isSelected = (currentScreen == AppScreen.EXPLORE),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelectScreen(AppScreen.EXPLORE) }
+                )
+
+                NavItem(
                     label = "Library",
                     selectedIcon = Icons.Filled.VideoLibrary,
                     unselectedIcon = Icons.Outlined.VideoLibrary,

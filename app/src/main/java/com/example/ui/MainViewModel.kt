@@ -148,18 +148,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val adultContentEnabled: StateFlow<Boolean> = _adultContentEnabled.asStateFlow()
 
+    private val _showThumbnailTags = MutableStateFlow(
+        settingsPrefs.getBoolean("show_thumbnail_tags", true)
+    )
+    val showThumbnailTags: StateFlow<Boolean> = _showThumbnailTags.asStateFlow()
+
+    fun setShowThumbnailTags(show: Boolean) {
+        _showThumbnailTags.value = show
+        settingsPrefs.edit().putBoolean("show_thumbnail_tags", show).apply()
+    }
+
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
         settingsPrefs.edit().putBoolean("adult_content_enabled", enabled).apply()
         val currentSet = _enabledProviderIds.value.toMutableSet()
-        val adultIds = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
+        val adultIds = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
         if (enabled) {
             currentSet.addAll(adultIds)
         } else {
             currentSet.removeAll(adultIds)
+            if (isAdultProviderId(_activeProviderId.value)) {
+                _activeProviderId.value = "all"
+            }
         }
         _enabledProviderIds.value = currentSet
         refreshProvidersList()
+        loadTrending(forceRefresh = true)
     }
 
     private val _themeMode = MutableStateFlow(ThemeMode.AMOLED_DARK)
@@ -201,7 +215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPipMode.value = enabled
     }
 
-    private val adultProviderIds = setOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav")
+    private val adultProviderIds = setOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav")
 
     fun isAdultProviderId(providerId: String?): Boolean {
         if (providerId.isNullOrBlank()) return false
@@ -212,13 +226,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun isAdultVideoItem(item: VideoItem): Boolean {
         if (isAdultProviderId(item.providerId)) return true
         val text = "${item.title} ${item.uploaderName} ${item.description}".lowercase()
-        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw")
+        val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
         return adultKeywords.any { text.contains(it) }
     }
 
     fun isAdultSearchQuery(query: String): Boolean {
         val q = query.lowercase()
-        val adultKeywords = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw")
+        val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
         return adultKeywords.any { q.contains(it) }
     }
     fun isAdultDownload(entity: OfflineDownloadEntity): Boolean = false
@@ -228,9 +242,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
-        val set = mutableSetOf("all", "youtube", "archive_org", "dailymotion", "bilibili", "vimeo", "eporner")
+        val set = mutableSetOf("all", "youtube", "archive_org", "dailymotion", "bilibili", "vimeo")
         if (settingsPrefs.getBoolean("adult_content_enabled", false)) {
-            set.addAll(listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn"))
+            set.addAll(listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn"))
         }
         set
     }())
@@ -774,6 +788,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (t: Throwable) {
                     Log.e("MainViewModel", "Error adding to Watch Later", t)
                 }
+            }
+        }
+    }
+
+    fun isExploreMediaSaved(mediaId: String): Boolean {
+        return _watchLaterList.value.any { it.id == mediaId }
+    }
+
+    fun toggleSaveExploreMedia(item: com.example.model.ExploreMediaItem) {
+        val isAlreadySaved = isExploreMediaSaved(item.id)
+        if (isAlreadySaved) {
+            _watchLaterList.value = _watchLaterList.value.filterNot { it.id == item.id }
+            viewModelScope.launch(Dispatchers.IO) {
+                userDataDao.deleteBookmark(item.id)
+            }
+        } else {
+            val videoItem = VideoItem(
+                id = item.id,
+                title = item.title,
+                uploaderName = "${item.mediaType.label} • ${if (item.releaseYear.isNotBlank()) item.releaseYear else "Popular"}",
+                thumbnailUrl = item.posterUrl ?: item.backdropUrl,
+                providerId = item.source.name.lowercase(),
+                description = item.overview
+            )
+            _watchLaterList.value = listOf(videoItem) + _watchLaterList.value.filterNot { it.id == item.id }
+            viewModelScope.launch(Dispatchers.IO) {
+                userDataDao.insertBookmark(
+                    BookmarkEntity(
+                        videoId = videoItem.id,
+                        title = videoItem.title,
+                        channelName = videoItem.uploaderName,
+                        thumbnailUrl = videoItem.thumbnailUrl,
+                        providerId = videoItem.providerId
+                    )
+                )
             }
         }
     }
@@ -1412,38 +1461,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDefault = (activeId == "vimeo")
             )
         )
-        uiList.add(
-            ProviderUiItem(
-                id = "eporner",
-                name = "Eporner",
-                description = "Eporner video catalog via yt-dlp",
-                category = "Video",
-                isEnabled = enabledSet.contains("eporner"),
-                isDefault = (activeId == "eporner")
-            )
-        )
-
-        val adultProviders = listOf(
-            Triple("pornhub", "Pornhub", "Pornhub video catalog via yt-dlp"),
-            Triple("xvideos", "XVideos", "XVideos video catalog via yt-dlp"),
-            Triple("4tube", "4tube", "4tube video catalog via yt-dlp"),
-            Triple("beeg", "Beeg", "Beeg video catalog via yt-dlp"),
-            Triple("rule34video", "Rule34Video", "Rule34Video animation catalog via yt-dlp"),
-            Triple("redtube", "RedTube", "RedTube video catalog via yt-dlp"),
-            Triple("xhamster", "XHamster", "XHamster video catalog via yt-dlp"),
-            Triple("youporn", "YouPorn", "YouPorn video catalog via yt-dlp")
-        )
-        for ((id, name, desc) in adultProviders) {
+        if (adultEnabled) {
             uiList.add(
                 ProviderUiItem(
-                    id = id,
-                    name = name,
-                    description = desc,
+                    id = "eporner",
+                    name = "Eporner",
+                    description = "Eporner video catalog via yt-dlp",
                     category = "18+",
-                    isEnabled = enabledSet.contains(id),
-                    isDefault = (activeId == id)
+                    isEnabled = enabledSet.contains("eporner"),
+                    isDefault = (activeId == "eporner")
                 )
             )
+
+            val adultProviders = listOf(
+                Triple("pornhub", "Pornhub", "Pornhub video catalog via yt-dlp"),
+                Triple("xvideos", "XVideos", "XVideos video catalog via yt-dlp"),
+                Triple("4tube", "4tube", "4tube video catalog via yt-dlp"),
+                Triple("beeg", "Beeg", "Beeg video catalog via yt-dlp"),
+                Triple("rule34video", "Rule34Video", "Rule34Video animation catalog via yt-dlp"),
+                Triple("redtube", "RedTube", "RedTube video catalog via yt-dlp"),
+                Triple("xhamster", "XHamster", "XHamster video catalog via yt-dlp"),
+                Triple("youporn", "YouPorn", "YouPorn video catalog via yt-dlp")
+            )
+            for ((id, name, desc) in adultProviders) {
+                uiList.add(
+                    ProviderUiItem(
+                        id = id,
+                        name = name,
+                        description = desc,
+                        category = "18+",
+                        isEnabled = enabledSet.contains(id),
+                        isDefault = (activeId == id)
+                    )
+                )
+            }
         }
 
         _availableProviders.value = uiList
@@ -1859,7 +1910,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 3. Eporner
-                    if ((activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
+                    if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         deferredList.add(async(Dispatchers.IO) {
                             try {
                                 kotlinx.coroutines.withTimeoutOrNull(10000L) {
@@ -1875,7 +1926,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
 
                     val targetSources = when {
-                        activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) }
+                        activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
                         else -> listOf(activeProv)
                     }
 
@@ -1891,10 +1942,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         })
                     }
 
-                    deferredList.awaitAll().filterNotNull().forEach { combinedItems.addAll(it) }
+                    deferredList.awaitAll().filterNotNull().forEach { itemsFromSource ->
+                        combinedItems.addAll(itemsFromSource.shuffled())
+                    }
                 }
 
-                val combined = combinedItems
+                val filtered = combinedItems
                     .distinctBy { it.id }
                     .filter {
                         if (activeProv != "all") {
@@ -1904,7 +1957,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                _trendingVideos.value = combined
+                // Balance and interleave sources for rich diversity on the home screen
+                val groupedByProvider = filtered.groupBy { it.providerId }
+                val balancedList = mutableListOf<VideoItem>()
+                var index = 0
+                var hasMore = true
+                while (hasMore) {
+                    hasMore = false
+                    for ((_, providerItems) in groupedByProvider) {
+                        if (index < providerItems.size) {
+                            balancedList.add(providerItems[index])
+                            hasMore = true
+                        }
+                    }
+                    index++
+                }
+
+                _trendingVideos.value = if (balancedList.isNotEmpty()) balancedList else filtered
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed", e)
                 _trendingVideos.value = emptyList()
@@ -1923,6 +1992,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val q = _searchQuery.value
                 val isSearchMode = _searchResults.value.isNotEmpty() || q.isNotBlank()
                 val activeProv = _activeProviderId.value
+                val adultEnabled = _adultContentEnabled.value
+                val enabledSet = _enabledProviderIds.value
 
                 val newItems = mutableListOf<VideoItem>()
 
@@ -1934,14 +2005,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (activeProv == "all" || activeProv == "archive_org") {
                         newItems.addAll(com.example.extractor.ArchiveOrgProvider.search(q, currentSearchPage))
                     }
-                    if (activeProv == "all" || activeProv == "eporner") {
+                    if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         newItems.addAll(com.example.extractor.EpornerProvider.search(q, 25))
                     }
                     if (activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner") {
                         val prov = if (activeProv == "all") "vimeo" else activeProv
-                        newItems.addAll(com.example.extractor.MultiSourceProvider.search(getApplication(), prov, q, 15))
+                        if (adultEnabled || !isAdultProviderId(prov)) {
+                            newItems.addAll(com.example.extractor.MultiSourceProvider.search(getApplication(), prov, q, 15))
+                        }
                     }
-                    val filtered = if (activeProv != "all") newItems.filter { it.providerId == activeProv } else newItems
+                    val filtered = newItems.filter {
+                        if (activeProv != "all") {
+                            it.providerId == activeProv
+                        } else {
+                            adultEnabled || !isAdultVideoItem(it)
+                        }
+                    }
                     val currentList = _searchResults.value
                     val combined = (currentList + filtered).distinctBy { it.id }
                     _searchResults.value = combined
@@ -1953,14 +2032,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (activeProv == "all" || activeProv == "archive_org") {
                         newItems.addAll(com.example.extractor.ArchiveOrgProvider.getHome(currentTrendingPage))
                     }
-                    if (activeProv == "all" || activeProv == "eporner") {
+                    if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         newItems.addAll(com.example.extractor.EpornerProvider.getHome(25))
                     }
                     if (activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner") {
                         val prov = if (activeProv == "all") "vimeo" else activeProv
-                        newItems.addAll(com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15))
+                        if (adultEnabled || !isAdultProviderId(prov)) {
+                            newItems.addAll(com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15))
+                        }
                     }
-                    val filtered = if (activeProv != "all") newItems.filter { it.providerId == activeProv } else newItems
+                    val filtered = newItems.filter {
+                        if (activeProv != "all") {
+                            it.providerId == activeProv
+                        } else {
+                            adultEnabled || !isAdultVideoItem(it)
+                        }
+                    }
                     val currentList = _trendingVideos.value
                     val combined = (currentList + filtered).distinctBy { it.id }
                     _trendingVideos.value = combined
@@ -2203,6 +2290,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?: result.streamData.availableStreamOptions.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
                     _selectedStreamOption.value = primary
                     _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
+                    if (!result.streamData.channelAvatarUrl.isNullOrBlank()) {
+                        _activeVideoItem.value = _activeVideoItem.value?.copy(
+                            uploaderAvatarUrl = result.streamData.channelAvatarUrl
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) return@launch

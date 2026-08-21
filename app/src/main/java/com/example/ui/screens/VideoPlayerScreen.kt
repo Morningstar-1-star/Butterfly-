@@ -86,6 +86,7 @@ fun VideoPlayerScreen(
     val activeVideoItem by viewModel.activeVideoItem.collectAsState()
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
 
     val currentVideoItem = remember(currentStreamData, activeVideoId, activeVideoItem, trendingVideos, searchResults) {
         if (currentStreamData != null) {
@@ -412,6 +413,7 @@ fun VideoPlayerScreen(
                                 ) {
                                     VideoCard(
                                         video = video,
+                                        showProviderBadge = showThumbnailTags,
                                         onClick = {
                                             viewModel.playVideo(video.id, video.providerId)
                                         },

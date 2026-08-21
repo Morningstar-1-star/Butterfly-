@@ -175,7 +175,11 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://www.dailymotion.com/")
                     domainHeaders["Referer"] = "https://www.dailymotion.com/"
                 }
-                lowerUrl.contains("bilibili.com") -> {
+                lowerUrl.contains("archive.org") -> {
+                    request.addOption("--add-header", "Referer: https://archive.org/")
+                    domainHeaders["Referer"] = "https://archive.org/"
+                }
+                lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
                 }
@@ -242,6 +246,22 @@ object YtDlpResolver {
             val uploader = json.optString("uploader", json.optString("channel", json.optString("extractor", "Online Video")))
             val description = json.optString("description", "")
             val thumbnail = json.optString("thumbnail", "")
+            val channelAvatar = json.optString("channel_avatar", json.optString("uploader_avatar", json.optString("avatar", ""))).ifBlank {
+                var foundAvatar = ""
+                val thumbs = json.optJSONArray("thumbnails")
+                if (thumbs != null) {
+                    for (t in 0 until thumbs.length()) {
+                        val thumbObj = thumbs.optJSONObject(t) ?: continue
+                        val idStr = thumbObj.optString("id", "")
+                        val u = thumbObj.optString("url", "")
+                        if (idStr.contains("avatar", ignoreCase = true) && u.isNotBlank()) {
+                            foundAvatar = u
+                            break
+                        }
+                    }
+                }
+                foundAvatar
+            }.ifBlank { null }
 
             // Parse top-level http_headers
             val topHeaders = mutableMapOf<String, String>()
@@ -294,6 +314,11 @@ object YtDlpResolver {
                                 fmtHeaders[hk] = hv
                             }
                         }
+                    }
+                    if (lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv")) {
+                        fmtHeaders.remove("Origin")
+                        fmtHeaders.remove("origin")
+                        fmtHeaders["Referer"] = "https://www.bilibili.com/"
                     }
 
                     parsedFormats.add(
@@ -437,6 +462,7 @@ object YtDlpResolver {
                 videoUrl = bestOption.videoUrl ?: "",
                 title = title,
                 channelName = uploader,
+                channelAvatarUrl = channelAvatar,
                 description = description,
                 thumbnailUrl = thumbnail,
                 availableStreamOptions = distinctOptions,
@@ -541,6 +567,7 @@ object YtDlpResolver {
                             val title = json.optString("title", "")
                             if ((id.isNotBlank() || webpageUrl.isNotBlank()) && title.isNotBlank()) {
                                 val uploader = json.optString("uploader", json.optString("channel", providerId.replaceFirstChar { it.uppercase() }))
+                                val uploaderAvatar = json.optString("uploader_avatar", json.optString("channel_avatar", json.optString("avatar", ""))).ifBlank { null }
                                 val duration = json.optLong("duration", -1L)
                                 val viewCount = json.optLong("view_count", -1L)
                                 var thumb = json.optString("thumbnail", "")
@@ -577,6 +604,7 @@ object YtDlpResolver {
                                         id = canonicalUrl,
                                         title = title,
                                         uploaderName = uploader,
+                                        uploaderAvatarUrl = uploaderAvatar,
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = thumb,

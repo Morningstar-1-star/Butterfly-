@@ -161,7 +161,17 @@ object BilibiliProvider {
                         if (audioArr != null) {
                             for (i in 0 until audioArr.length()) {
                                 val aItem = audioArr.optJSONObject(i) ?: continue
-                                val aUrl = aItem.optString("baseUrl", aItem.optString("base_url", ""))
+                                var aUrl = aItem.optString("baseUrl", aItem.optString("base_url", ""))
+                                val aBackup = aItem.optJSONArray("backupUrl") ?: aItem.optJSONArray("backup_url")
+                                if (aUrl.contains("mcdn") && aBackup != null && aBackup.length() > 0) {
+                                    for (b in 0 until aBackup.length()) {
+                                        val cand = aBackup.optString(b, "")
+                                        if (cand.isNotBlank() && !cand.contains("mcdn")) {
+                                            aUrl = cand
+                                            break
+                                        }
+                                    }
+                                }
                                 val aId = aItem.optInt("id", 0)
                                 if (aUrl.isNotBlank() && (bestAudioUrl.isBlank() || aId > bestAudioId)) {
                                     bestAudioUrl = aUrl
@@ -174,7 +184,17 @@ object BilibiliProvider {
                         if (videoArr != null) {
                             for (i in 0 until videoArr.length()) {
                                 val vItem = videoArr.optJSONObject(i) ?: continue
-                                val vUrl = vItem.optString("baseUrl", vItem.optString("base_url", ""))
+                                var vUrl = vItem.optString("baseUrl", vItem.optString("base_url", ""))
+                                val vBackup = vItem.optJSONArray("backupUrl") ?: vItem.optJSONArray("backup_url")
+                                if (vUrl.contains("mcdn") && vBackup != null && vBackup.length() > 0) {
+                                    for (b in 0 until vBackup.length()) {
+                                        val cand = vBackup.optString(b, "")
+                                        if (cand.isNotBlank() && !cand.contains("mcdn")) {
+                                            vUrl = cand
+                                            break
+                                        }
+                                    }
+                                }
                                 if (vUrl.isBlank()) continue
 
                                 val qnId = vItem.optInt("id", 0)

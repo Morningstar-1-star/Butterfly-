@@ -62,6 +62,8 @@ object YouTubeExtractorHelper {
     }
 
     suspend fun fetchYouTubeTrending(context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
+        val combinedTrending = mutableListOf<VideoItem>()
+
         // Step 1: NewPipe Trending Kiosk
         try {
             ensureNewPipeInitialized()
@@ -80,10 +82,18 @@ object YouTubeExtractorHelper {
                     if (vId.isNullOrBlank()) return@mapNotNull null
                     val rawThumb = item.thumbnails?.firstOrNull()?.url
                     val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                    val uploaderAvatar = try {
+                        item.uploaderAvatars?.firstOrNull()?.url
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
                     VideoItem(
                         id = vId,
                         title = item.name ?: "YouTube Video",
                         uploaderName = item.uploaderName ?: "YouTube",
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatar,
                         viewCount = item.viewCount,
                         durationSeconds = item.duration,
                         thumbnailUrl = thumb,
@@ -92,34 +102,48 @@ object YouTubeExtractorHelper {
                 } ?: emptyList()
             if (items.isNotEmpty()) {
                 Log.i(TAG, "Fetched ${items.size} trending videos via NewPipe Kiosk")
-                return@withContext items
+                combinedTrending.addAll(items)
             }
         } catch (e: Exception) {
             Log.w(TAG, "NewPipe trending kiosk fetch failed: ${e.message}")
         }
 
-        // Step 2: Fast NewPipe Search Fallback for "trending"
-        try {
-            val fastSearchItems = searchYouTube("trending music videos", context)
-            if (fastSearchItems.isNotEmpty()) {
-                Log.i(TAG, "Fetched ${fastSearchItems.size} trending videos via NewPipe search fallback")
-                return@withContext fastSearchItems
+        // Step 2: Dynamic Multi-Topic Trending Expansion (Shuffled & Fresh across genres)
+        val dynamicTrendingTopics = listOf(
+            "latest viral trending videos",
+            "official music videos 2026 top hits",
+            "official movie trailers 4K",
+            "trending anime episodes and scenes",
+            "popular gaming highlights and gameplay",
+            "trending science documentary deep dive",
+            "mrbeast mark rober mkbhd latest",
+            "top global entertainment news and podcast"
+        ).shuffled().take(2)
+
+        for (topic in dynamicTrendingTopics) {
+            try {
+                val topicResults = searchYouTube(topic, context).take(10)
+                combinedTrending.addAll(topicResults)
+            } catch (e: Exception) {
+                Log.w(TAG, "Dynamic topic search failed for '$topic': ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "NewPipe fast search fallback failed: ${e.message}")
         }
 
-        // Step 3: yt-dlp Trending Fallback
-        if (context != null) {
+        // Step 3: yt-dlp Trending Fallback if still low
+        if (combinedTrending.size < 8 && context != null) {
             Log.i(TAG, "Attempting yt-dlp trending fallback")
-            val ytdlItems = YtDlpResolver.fetchTrending(context)
-            if (ytdlItems.isNotEmpty()) {
-                Log.i(TAG, "Fetched ${ytdlItems.size} trending videos via yt-dlp fallback")
-                return@withContext ytdlItems
+            try {
+                val ytdlItems = YtDlpResolver.fetchTrending(context)
+                if (ytdlItems.isNotEmpty()) {
+                    Log.i(TAG, "Fetched ${ytdlItems.size} trending videos via yt-dlp fallback")
+                    combinedTrending.addAll(ytdlItems)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "yt-dlp fallback error: ${e.message}")
             }
         }
 
-        emptyList()
+        combinedTrending.distinctBy { it.id }.shuffled()
     }
 
     suspend fun searchYouTube(query: String, context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -141,10 +165,18 @@ object YouTubeExtractorHelper {
                     if (vId.isNullOrBlank()) return@mapNotNull null
                     val rawThumb = item.thumbnails?.firstOrNull()?.url
                     val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                    val uploaderAvatar = try {
+                        item.uploaderAvatars?.firstOrNull()?.url
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
                     VideoItem(
                         id = vId,
                         title = item.name ?: "YouTube Video",
                         uploaderName = item.uploaderName ?: "YouTube",
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatar,
                         viewCount = item.viewCount,
                         durationSeconds = item.duration,
                         thumbnailUrl = thumb,
@@ -175,21 +207,28 @@ object YouTubeExtractorHelper {
     suspend fun resolveStream(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult = withContext(Dispatchers.IO) {
         val isArchive = providerId == "archive_org" || providerId == "archive" || urlOrId.contains("archive.org") || urlOrId.startsWith("archive_") || urlOrId.startsWith("archive:")
         if (isArchive) {
-            val archiveData = ArchiveOrgProvider.getStreamData(urlOrId)
+            val archiveData = ArchiveOrgProvider.getStreamData(urlOrId, context)
             if (archiveData != null) {
                 Log.i(TAG, "Resolved via ArchiveOrgProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(archiveData)
-            } else {
-                return@withContext ExtractionResult.Error(
-                    ExtractorErrorDetails(
-                        errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
-                        message = "Archive.org video could not be loaded",
-                        rawExceptionName = "ArchiveExtractionException",
-                        fullStackTrace = "",
-                        urlOrId = urlOrId
-                    )
-                )
+            } else if (context != null) {
+                val cleanId = ArchiveOrgProvider.extractId(urlOrId)
+                val archiveUrl = if (urlOrId.startsWith("http")) urlOrId else "https://archive.org/details/$cleanId"
+                Log.i(TAG, "Routing Archive.org to YtDlpResolver fallback for $archiveUrl")
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, archiveUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ytdlResult
+                }
             }
+            return@withContext ExtractionResult.Error(
+                ExtractorErrorDetails(
+                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                    message = "Archive.org video could not be loaded",
+                    rawExceptionName = "ArchiveExtractionException",
+                    fullStackTrace = "",
+                    urlOrId = urlOrId
+                )
+            )
         }
 
         val isEporner = providerId == "eporner" || urlOrId.contains("eporner.com")
@@ -221,7 +260,8 @@ object YouTubeExtractorHelper {
                 return@withContext ExtractionResult.Success(biliData)
             } else if (context != null) {
                 Log.i(TAG, "Routing Bilibili to YtDlpResolver for $urlOrId")
-                return@withContext YtDlpResolver.extractStreamInfo(context, urlOrId)
+                val fullBiliUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.bilibili.com/video/$urlOrId"
+                return@withContext YtDlpResolver.extractStreamInfo(context, fullBiliUrl)
             }
         }
 
@@ -249,6 +289,23 @@ object YouTubeExtractorHelper {
                 val uploader = streamInfo.uploaderName ?: "YouTube"
                 val desc = streamInfo.description?.getContent() ?: ""
                 val thumb = streamInfo.thumbnails?.firstOrNull()?.url ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                val uploaderAvatar = try {
+                    streamInfo.uploaderAvatars?.firstOrNull()?.url
+                } catch (e: Exception) {
+                    null
+                }
+                val subCountText = try {
+                    val count = streamInfo.uploaderSubscriberCount
+                    if (count > 0L) {
+                        if (count >= 1_000_000L) "${String.format("%.1f", count / 1_000_000.0)}M subscribers"
+                        else if (count >= 1_000L) "${count / 1_000L}K subscribers"
+                        else "$count subscribers"
+                    } else {
+                        null
+                    }
+                } catch (e: Exception) {
+                    null
+                }
 
                 val progressiveStreams = streamInfo.videoStreams ?: emptyList()
                 val videoOnlyStreams = streamInfo.videoOnlyStreams ?: emptyList()
@@ -350,6 +407,8 @@ object YouTubeExtractorHelper {
                         videoUrl = bestOption.videoUrl ?: "",
                         title = title,
                         channelName = uploader,
+                        channelAvatarUrl = uploaderAvatar,
+                        subscriberCountText = subCountText,
                         description = desc,
                         thumbnailUrl = thumb,
                         progressiveStreams = progressiveStreams,

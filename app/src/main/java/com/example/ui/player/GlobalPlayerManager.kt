@@ -44,6 +44,11 @@ object GlobalPlayerManager {
         }
 
         when {
+            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos-") -> {
+                builder.header("Referer", "https://www.bilibili.com/")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+            }
             urlStr.contains("eporner") || urlStr.contains("static-cluster") || urlStr.contains("dwn") || urlStr.contains("eporner-cdn") -> {
                 builder.header("Referer", "https://www.eporner.com/")
                 builder.header("Origin", "https://www.eporner.com")
@@ -52,7 +57,7 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://www.dailymotion.com/")
                 builder.header("Origin", "https://www.dailymotion.com")
             }
-            urlStr.contains("archive.org/download") || urlStr.contains("us.archive.org") -> {
+            urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia60") || urlStr.contains("ia80") || urlStr.contains("ia90") -> {
                 if (request.header("Referer") == null) {
                     builder.header("Referer", "https://archive.org/")
                 }
@@ -62,14 +67,9 @@ object GlobalPlayerManager {
                 builder.header("Origin", "https://www.pornhub.com")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1")
             }
-            urlStr.contains("vimeo") || urlStr.contains("vimeocdn") || urlStr.contains("akamaized") -> {
+            urlStr.contains("vimeo.com") || urlStr.contains("vimeocdn.com") || (urlStr.contains("vimeo") && !urlStr.contains("bili")) -> {
                 builder.header("Referer", "https://vimeo.com/")
                 builder.header("Origin", "https://vimeo.com")
-            }
-            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn.bilivideo") -> {
-                builder.header("Referer", "https://www.bilibili.com/")
-                builder.removeHeader("Origin")
-                builder.removeHeader("origin")
             }
         }
 
@@ -540,7 +540,7 @@ object GlobalPlayerManager {
 
                 // Inject domain-specific referer & origin headers if not explicitly specified
                 val lowerTarget = targetUrl.lowercase()
-                val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn.bilivideo") || streamData?.providerId == "bilibili"
+                val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos-") || streamData?.providerId == "bilibili"
                 if (isBilibiliStream) {
                     reqHeaders["Referer"] = "https://www.bilibili.com/"
                     reqHeaders.remove("Origin")
@@ -555,7 +555,7 @@ object GlobalPlayerManager {
                                     reqHeaders["Origin"] = "https://www.dailymotion.com"
                                 }
                             }
-                            lowerTarget.contains("archive.org") -> {
+                            lowerTarget.contains("archive.org") || lowerTarget.contains("us.archive.org") || lowerTarget.contains("ia60") || lowerTarget.contains("ia80") || lowerTarget.contains("ia90") || streamData?.providerId == "archive_org" || streamData?.providerId == "archive" -> {
                                 reqHeaders["Referer"] = "https://archive.org/"
                             }
                             lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
@@ -582,7 +582,7 @@ object GlobalPlayerManager {
                             lowerTarget.contains("xvideos.com") -> {
                                 reqHeaders["Referer"] = "https://www.xvideos.com/"
                             }
-                            lowerTarget.contains("vimeo") || lowerTarget.contains("vimeocdn") || lowerTarget.contains("akamaized") || streamData?.providerId == "vimeo" -> {
+                            lowerTarget.contains("vimeo.com") || lowerTarget.contains("vimeocdn.com") || (streamData?.providerId == "vimeo" && !isBilibiliStream) -> {
                                 reqHeaders["Referer"] = "https://vimeo.com/"
                                 reqHeaders["Origin"] = "https://vimeo.com"
                             }
