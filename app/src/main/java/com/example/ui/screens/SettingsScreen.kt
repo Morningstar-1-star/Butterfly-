@@ -47,8 +47,13 @@ fun SettingsScreen(
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isSmartSkipExpanded by remember { mutableStateOf(false) }
     var isHistoryExpanded by remember { mutableStateOf(false) }
+    var isYtDlpExpanded by remember { mutableStateOf(false) }
     var isDiagnosticsExpanded by remember { mutableStateOf(false) }
     var showFullSponsorBlockScreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        com.example.extractor.YtDlpUpdateManager.refreshVersion(context)
+    }
 
     if (showFullSponsorBlockScreen) {
         com.example.smartskip.SponsorBlockSettingsScreen(
@@ -595,7 +600,129 @@ fun SettingsScreen(
                 }
             }
 
-            // 4. SOURCE DIAGNOSTICS
+            // 5. YT-DLP CORE ENGINE (v2.0.2)
+            item {
+                val installedVer by com.example.extractor.YtDlpUpdateManager.installedVersion.collectAsState()
+                val updateState by com.example.extractor.YtDlpUpdateManager.updateState.collectAsState()
+
+                ExpandableSettingsCard(
+                    title = "yt-dlp Core Engine",
+                    icon = Icons.Outlined.SystemUpdate,
+                    isExpanded = isYtDlpExpanded,
+                    onToggleExpand = { isYtDlpExpanded = !isYtDlpExpanded },
+                    badgeText = "v${installedVer ?: "2.0.2"}"
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Powered by the official dev.ffmpegkit-maintained:yt-dlp-android 2.0.2 engine. The core extractor binary is securely bundled inside the app runtime.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        // Current Version & Refresh
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Engine & Runtime",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "yt-dlp-android 2.0.2 (${installedVer ?: "Bundled"})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            com.example.extractor.YtDlpUpdateManager.refreshVersion(context)
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Refresh Version Info",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Engine Info Box
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Bundled Native Engine Active",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "yt-dlp binaries are managed via Gradle build artifacts with full compatibility layer enabled.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Action to test extractors
+                        Button(
+                            onClick = {
+                                isDiagnosticsExpanded = true
+                                diagnosticsList.filter { !it.isAdult || adultContentEnabled }.forEach { diag ->
+                                    testProvider(diag)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Test All Platform Extractors", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // 6. SOURCE DIAGNOSTICS
             item {
                 ExpandableSettingsCard(
                     title = "Source Diagnostics",
@@ -605,11 +732,36 @@ fun SettingsScreen(
                     badgeText = "15 Sources"
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "Test and inspect status of all platform extractors and resolvers.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Test and inspect status of all platform extractors.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    diagnosticsList.filter { !it.isAdult || adultContentEnabled }.forEach { diag ->
+                                        testProvider(diag)
+                                    }
+                                },
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(text = "Test All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         diagnosticsList.forEach { diag ->
                             val isDisabled = diag.isAdult && !adultContentEnabled

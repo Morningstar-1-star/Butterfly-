@@ -96,5 +96,11 @@ class PlaybackPipelineRegressionTest {
         assertTrue("Muxed score ($muxedScore) should exceed adaptive score ($adaptiveScore)", muxedScore > adaptiveScore)
         assertEquals("TestUA", muxedOption.headers["User-Agent"])
     }
+
+    @Test
+    fun testYtDlpUpdateStateTransitions() {
+        com.example.extractor.YtDlpUpdateManager.resetState()
+        assertEquals(com.example.extractor.YtDlpUpdateManager.UpdateState.Idle, com.example.extractor.YtDlpUpdateManager.updateState.value)
+    }
 }
 

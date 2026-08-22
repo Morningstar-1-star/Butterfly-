@@ -68,6 +68,14 @@ class MainApplication : Application() {
             .build()
         Coil.setImageLoader(imageLoader)
 
+        // Initialize yt-dlp engine
+        try {
+            dev.ffmpegkit_maintained.ytdlp.YtDlp.init(this)
+            Log.i("MainApplication", "yt-dlp engine initialized successfully")
+        } catch (e: Throwable) {
+            Log.w("MainApplication", "yt-dlp init note: ${e.message}")
+        }
+
         // Pre-warm yt-dlp asynchronously on app startup so video extraction starts instantly
         applicationScope.launch {
             try {

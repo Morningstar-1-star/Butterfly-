@@ -110,8 +110,8 @@ dependencies {
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)
 
-  implementation(libs.youtubedl.android.library)
-  implementation(libs.youtubedl.android.ffmpeg)
+  implementation(libs.yt.dlp.android)
+  implementation(libs.yt.dlp.android.compat)
 
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

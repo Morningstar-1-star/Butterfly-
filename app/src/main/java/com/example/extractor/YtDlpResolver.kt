@@ -3,9 +3,9 @@ package com.example.extractor
 import android.content.Context
 import android.util.Log
 import com.example.model.*
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.yausername.youtubedl_android.YoutubeDLResponse
+import dev.ffmpegkit_maintained.ytdlp.YtDlp
+import dev.ffmpegkit_maintained.ytdlp.YtDlpRequest
+import dev.ffmpegkit_maintained.ytdlp.YtDlpResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -27,10 +27,11 @@ object YtDlpResolver {
             synchronized(initLock) {
                 if (!isInitialized) {
                     try {
-                        YoutubeDL.getInstance().init(ctx.applicationContext)
+                        YtDlp.init(ctx.applicationContext)
                         isInitialized = true
+                        Log.i(TAG, "yt-dlp-android initialized successfully")
                     } catch (e: Throwable) {
-                        Log.w(TAG, "YoutubeDL init note: ${e.message}")
+                        Log.w(TAG, "yt-dlp-android init note: ${e.message}")
                     }
                 }
             }
@@ -141,13 +142,9 @@ object YtDlpResolver {
 
             Log.i(TAG, "Executing yt-dlp stream extraction for: $videoUrl")
 
-            try {
-                YoutubeDL.getInstance().init(ctx)
-            } catch (e: Throwable) {
-                Log.w(TAG, "YoutubeDL init note: ${e.message}")
-            }
+            ensureInitialized(ctx)
 
-            val request = YoutubeDLRequest(videoUrl)
+            val request = YtDlpRequest(videoUrl)
             request.addOption("--dump-json")
             request.addOption("--no-playlist")
             request.addOption("--ignore-errors")
@@ -232,10 +229,10 @@ object YtDlpResolver {
             }
 
             ensureInitialized(ctx)
-            val response: YoutubeDLResponse = processSemaphore.withPermit {
-                YoutubeDL.getInstance().execute(request)
+            val response: YtDlpResponse = processSemaphore.withPermit {
+                YtDlp.execute(request, null)
             }
-            val jsonStr = response.out
+            val jsonStr = response.output
             if (jsonStr.isBlank()) {
                 throw IllegalStateException("yt-dlp returned empty JSON output")
             }
@@ -516,11 +513,7 @@ object YtDlpResolver {
         val list = mutableListOf<VideoItem>()
         if (query.isBlank()) return@withContext list
         try {
-            try {
-                YoutubeDL.getInstance().init(ctx)
-            } catch (e: Throwable) {
-                Log.w(TAG, "YoutubeDL init note: ${e.message}")
-            }
+            ensureInitialized(ctx)
 
             val searchTarget = when {
                 query.startsWith("http://") || query.startsWith("https://") -> query
@@ -539,7 +532,7 @@ object YtDlpResolver {
                 else -> "ytsearch$limit:$query"
             }
 
-            val request = YoutubeDLRequest(searchTarget)
+            val request = YtDlpRequest(searchTarget)
             request.addOption("--dump-json")
             request.addOption("--flat-playlist")
             request.addOption("--no-warnings")
@@ -547,14 +540,14 @@ object YtDlpResolver {
             request.addOption("--user-agent", DEFAULT_USER_AGENT)
 
             ensureInitialized(ctx)
-            val response: YoutubeDLResponse? = try {
+            val response: YtDlpResponse? = try {
                 processSemaphore.withPermit {
-                    YoutubeDL.getInstance().execute(request)
+                    YtDlp.execute(request, null)
                 }
             } catch (e: Exception) {
                 null
             }
-            val output = response?.out ?: ""
+            val output = response?.output ?: ""
             if (output.isNotBlank()) {
                 val lines = output.lines()
                 for (line in lines) {

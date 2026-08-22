@@ -104,8 +104,8 @@ newpipe-extractor = { group = "com.github.teamnewpipe", name = "NewPipeExtractor
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 nanojson = { group = "com.grack", name = "nanojson", version.ref = "nanojson" }
-youtubedl-android-library = { group = "io.github.junkfood02.youtubedl-android", name = "library", version = "0.18.1" }
-youtubedl-android-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version = "0.18.1" }
+yt-dlp-android = { group = "dev.ffmpegkit-maintained", name = "yt-dlp-android", version = "2.0.2" }
+yt-dlp-android-compat = { group = "dev.ffmpegkit-maintained", name = "yt-dlp-android-compat", version = "2.0.2" }
 
 
 [plugins]
