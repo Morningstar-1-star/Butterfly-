@@ -45,8 +45,18 @@ fun SettingsScreen(
 
     var isAppearanceExpanded by remember { mutableStateOf(true) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
+    var isSmartSkipExpanded by remember { mutableStateOf(false) }
     var isHistoryExpanded by remember { mutableStateOf(false) }
     var isDiagnosticsExpanded by remember { mutableStateOf(false) }
+    var showFullSponsorBlockScreen by remember { mutableStateOf(false) }
+
+    if (showFullSponsorBlockScreen) {
+        com.example.smartskip.SponsorBlockSettingsScreen(
+            onBackClick = { showFullSponsorBlockScreen = false },
+            modifier = modifier
+        )
+        return
+    }
 
     class ProviderDiag(
         val id: String,
@@ -429,7 +439,94 @@ fun SettingsScreen(
                 }
             }
 
-            // 3. HISTORY & DATA
+            // 3. SMART SKIP / SPONSORBLOCK
+            item {
+                val smartSkipPrefs = remember(context) { com.example.smartskip.SmartSkipPreferences.getInstance(context) }
+                val isSmartSkipOn by smartSkipPrefs.isSmartSkipEnabled.collectAsState()
+                val showNotice by smartSkipPrefs.skipNotification.collectAsState()
+
+                ExpandableSettingsCard(
+                    title = "Smart Skip / SponsorBlock",
+                    icon = Icons.Outlined.FastForward,
+                    isExpanded = isSmartSkipExpanded,
+                    onToggleExpand = { isSmartSkipExpanded = !isSmartSkipExpanded },
+                    badgeText = if (isSmartSkipOn) "Active (4 Sources)" else "Disabled"
+                ) {
+                    SettingsSwitchRow(
+                        title = "Enable Smart Skip",
+                        subtitle = "Automatically skip or show skip buttons for sponsors, intros, outros, and recaps across all supported platforms",
+                        checked = isSmartSkipOn,
+                        onCheckedChange = { smartSkipPrefs.setMasterEnabled(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    SettingsSwitchRow(
+                        title = "Show Skip Notification",
+                        subtitle = "Display a small toast notification when a segment is automatically skipped",
+                        checked = showNotice,
+                        onCheckedChange = { smartSkipPrefs.setSkipNotification(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                    Text(
+                        text = "Supported Sources",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("YouTube (SponsorBlock)", "Bilibili", "Anime (AniSkip)", "Movies/TV (IntroDB)").forEach { src ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = src,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = { showFullSponsorBlockScreen = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Configure Segments & Advanced Rules",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+
+            // 4. HISTORY & DATA
             item {
                 ExpandableSettingsCard(
                     title = "History & Storage",

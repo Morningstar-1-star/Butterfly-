@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -79,9 +80,18 @@ fun UniversalVideoPlayer(
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showSubtitleSheet by remember { mutableStateOf(false) }
+    var showVideoEffectsSheet by remember { mutableStateOf(false) }
+    var showSponsorBlockSheet by remember { mutableStateOf(false) }
     var showSpeedSubMenu by remember { mutableStateOf(false) }
     var showQualitySubMenu by remember { mutableStateOf(false) }
     var showAudioTrackSubMenu by remember { mutableStateOf(false) }
+
+    val smartSkipSegments by com.example.smartskip.SmartSkipPlayerEngine.activeSegments.collectAsState()
+    val currentPromptSegment by com.example.smartskip.SmartSkipPlayerEngine.currentPromptSegment.collectAsState()
+    val skipNotificationText by com.example.smartskip.SmartSkipPlayerEngine.skipNotificationText.collectAsState()
+    val skipNotificationCategory by com.example.smartskip.SmartSkipPlayerEngine.skipNotificationCategory.collectAsState()
+    val isSkipAnimating by com.example.smartskip.SmartSkipPlayerEngine.isSkipAnimating.collectAsState()
 
     val audioTracks by GlobalPlayerManager.audioTracks.collectAsState()
     val speedOptions = remember { listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f) }
@@ -107,6 +117,9 @@ fun UniversalVideoPlayer(
         val targetSpeed = playbackPrefs.getEffectiveSpeed(isMusic)
         playbackSpeed = targetSpeed
         GlobalPlayerManager.setPlaybackSpeed(targetSpeed)
+
+        // Restore video effects for current video
+        com.example.effects.VideoEffectsManager.onVideoChanged(videoId ?: activeStreamData?.videoId)
     }
 
     // Gesture Controls State
@@ -355,6 +368,13 @@ fun UniversalVideoPlayer(
                 modifier = Modifier.fillMaxSize()
             )
 
+            // Real-time GPU Video Effects Overlay
+            val videoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
+            VideoEffectsOverlay(
+                config = videoEffectsConfig,
+                modifier = Modifier.fillMaxSize()
+            )
+
             // Glowing Loading / Buffering Indicator
             AnimatedVisibility(
                 visible = showLoadingIndicator,
@@ -418,6 +438,9 @@ fun UniversalVideoPlayer(
                     }
                 }
             }
+
+            // Real-Time Subtitles & AI Live Captions Overlay
+            SubtitleOverlay()
 
             // Top Header (Title + Actions Toolbar)
             AnimatedVisibility(
@@ -513,7 +536,7 @@ fun UniversalVideoPlayer(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Quick Playback Speed Button / Badge
+                        // Playback Speed Button / Badge
                         Surface(
                             onClick = {
                                 GlobalPlayerManager.showControls()
@@ -542,6 +565,28 @@ fun UniversalVideoPlayer(
                                     color = Color.White
                                 )
                             }
+                        }
+
+                        // Subtitles & AI Captions CC Button
+                        val subMode by GlobalPlayerManager.subtitleMode.collectAsState()
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                showSubtitleSheet = true
+                            },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    if (subMode != GlobalPlayerManager.SubtitleMode.OFF) Color(0xFF00E5FF).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ClosedCaption,
+                                contentDescription = "Subtitles & AI Live Captions",
+                                tint = if (subMode != GlobalPlayerManager.SubtitleMode.OFF) Color(0xFF00E5FF) else Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
 
                         // Settings Gear Icon
@@ -698,6 +743,7 @@ fun UniversalVideoPlayer(
                         currentPositionMs = currentPosMs,
                         durationMs = totalDurMs,
                         bufferedPositionMs = bufferedPosMs,
+                        segments = smartSkipSegments,
                         onSeekStarted = { GlobalPlayerManager.showControls() },
                         onSeekScrubbing = { /* Scrubbing */ },
                         onSeekFinished = { targetMs ->
@@ -1274,9 +1320,269 @@ fun UniversalVideoPlayer(
                                 color = Color.LightGray
                             )
                         }
+
+                        // 4. Subtitles & AI Live Captions
+                        val currentSubMode by GlobalPlayerManager.subtitleMode.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showSettingsSheet = false
+                                    showSubtitleSheet = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ClosedCaption,
+                                    contentDescription = "Subtitles",
+                                    tint = Color.White
+                                )
+                                Text(
+                                    text = "Subtitles & AI Live Captions",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = when (currentSubMode) {
+                                    GlobalPlayerManager.SubtitleMode.OFF -> "Off"
+                                    GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER -> "External Subtitle"
+                                    GlobalPlayerManager.SubtitleMode.BILIBILI_TRANSLATED -> "Bilibili Translated"
+                                    GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL -> "Bilibili Original"
+                                    GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS -> "Whisper AI Live"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 5. Video Effects & Filters
+                        val videoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showSettingsSheet = false
+                                    showVideoEffectsSheet = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Video Effects & Filters",
+                                    tint = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else Color.White
+                                )
+                                Text(
+                                    text = "Video Effects & Filters",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = if (!videoEffectsConfig.isEnabled) "Off"
+                                else if (videoEffectsConfig.selectedPreset != com.example.effects.PresetFilter.NONE) videoEffectsConfig.selectedPreset.displayName
+                                else "Active",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else Color.LightGray,
+                                fontWeight = if (videoEffectsConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+
+                        // 6. Smart Skip / SponsorBlock
+                        val smartSkipPrefs = remember(context) { com.example.smartskip.SmartSkipPreferences.getInstance(context) }
+                        val isSmartSkipOn by smartSkipPrefs.isSmartSkipEnabled.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showSettingsSheet = false
+                                    showSponsorBlockSheet = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FastForward,
+                                    contentDescription = "Smart Skip / SponsorBlock",
+                                    tint = if (isSmartSkipOn) Color(0xFF00E676) else Color.White
+                                )
+                                Text(
+                                    text = "Smart Skip / SponsorBlock",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = if (isSmartSkipOn) "Enabled (${smartSkipSegments.size} segments)" else "Off",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isSmartSkipOn) Color(0xFF00E676) else Color.LightGray,
+                                fontWeight = if (isSmartSkipOn) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        if (showSubtitleSheet) {
+            SubtitleSettingsSheet(
+                onDismiss = { showSubtitleSheet = false }
+            )
+        }
+
+        if (showVideoEffectsSheet) {
+            VideoEffectsSettingsSheet(
+                onDismiss = { showVideoEffectsSheet = false }
+            )
+        }
+
+        if (showSponsorBlockSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showSponsorBlockSheet = false },
+                containerColor = MaterialTheme.colorScheme.background,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
+            ) {
+                com.example.smartskip.SponsorBlockSettingsScreen(
+                    onBackClick = { showSponsorBlockSheet = false },
+                    modifier = Modifier.fillMaxHeight(0.9f)
+                )
+            }
+        }
+
+        // Smart Skip Floating Prompt (Manual 'Show button' mode)
+        AnimatedVisibility(
+            visible = currentPromptSegment != null,
+            enter = fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
+            exit = fadeOut() + androidx.compose.animation.slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 72.dp)
+        ) {
+            currentPromptSegment?.let { segment ->
+                Surface(
+                    onClick = {
+                        com.example.smartskip.SmartSkipPlayerEngine.performManualSkip(context)
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.Black.copy(alpha = 0.88f),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, segment.category.color),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(segment.category.color)
+                        )
+                        Text(
+                            text = "Skip ${segment.category.shortName}",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.FastForward,
+                            contentDescription = "Skip",
+                            tint = segment.category.color,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        IconButton(
+                            onClick = { com.example.smartskip.SmartSkipPlayerEngine.dismissPrompt() },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Smart Skip Notification Toast (e.g. 'Skipped: Sponsor / Intro / Recap')
+        AnimatedVisibility(
+            visible = skipNotificationText != null,
+            enter = fadeIn() + androidx.compose.animation.slideInVertically { -it / 2 },
+            exit = fadeOut() + androidx.compose.animation.slideOutVertically { -it / 2 },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 56.dp)
+        ) {
+            val catColor = skipNotificationCategory?.color ?: MaterialTheme.colorScheme.primary
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.88f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, catColor.copy(alpha = 0.7f)),
+                shadowElevation = 6.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(catColor)
+                    )
+                    Text(
+                        text = skipNotificationText ?: "",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Icons.Default.FastForward,
+                        contentDescription = null,
+                        tint = catColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        // Skip Animation Visual Pulse Effect
+        AnimatedVisibility(
+            visible = isSkipAnimating,
+            enter = fadeIn(androidx.compose.animation.core.tween(100)),
+            exit = fadeOut(androidx.compose.animation.core.tween(250)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(3.dp, (skipNotificationCategory?.color ?: Color(0xFF00E676)).copy(alpha = 0.6f))
+            )
         }
 
         // Gesture & Seek Overlay Notice

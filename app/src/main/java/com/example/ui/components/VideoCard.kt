@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.PlaylistPlay
+import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.WatchLater
 import androidx.compose.material3.Card
@@ -81,6 +82,7 @@ fun VideoCard(
     watchProgressFraction: Float = 0f,
     showProviderBadge: Boolean = true,
     onPlayNextInQueue: ((VideoItem) -> Unit)? = null,
+    onAddToQueue: ((VideoItem) -> Unit)? = null,
     onSaveToWatchLater: ((VideoItem) -> Unit)? = null,
     onSaveToPlaylist: ((VideoItem) -> Unit)? = null,
     onDownload: ((VideoItem) -> Unit)? = null,
@@ -406,6 +408,18 @@ fun VideoCard(
                         scope.launch { sheetState.hide() }.invokeOnCompletion {
                             showBottomSheet = false
                             onPlayNextInQueue?.invoke(video)
+                            Toast.makeText(context, "Playing next in queue", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+
+                VideoOptionMenuItem(
+                    icon = Icons.Outlined.PlaylistAdd,
+                    label = "Play last in queue",
+                    onClick = {
+                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                            showBottomSheet = false
+                            onAddToQueue?.invoke(video)
                             Toast.makeText(context, "Added to queue", Toast.LENGTH_SHORT).show()
                         }
                     }

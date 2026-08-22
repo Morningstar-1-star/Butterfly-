@@ -514,6 +514,10 @@ fun ExploreScreen(
                     viewModel.updateSearchQuery(query)
                     viewModel.performSearch(query)
                     viewModel.navigateToScreen(AppScreen.HOME)
+                },
+                onSelectRelatedMedia = { related ->
+                    selectedMediaForDetails = related
+                    resolvedMediaDetails = null
                 }
             )
         }
@@ -867,27 +871,29 @@ fun MediaDetailsBottomSheet(
     isSaved: Boolean,
     onDismiss: () -> Unit,
     onToggleSave: () -> Unit,
-    onPlayTrailerOrSearch: (String) -> Unit
+    onPlayTrailerOrSearch: (String) -> Unit,
+    onSelectRelatedMedia: (ExploreMediaItem) -> Unit = {}
 ) {
     val modalBottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var selectedScreenshotUrl by remember { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = modalBottomSheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        modifier = Modifier.fillMaxHeight(0.9f)
+        modifier = Modifier.fillMaxHeight(0.92f)
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 40.dp)
+            contentPadding = PaddingValues(bottom = 48.dp)
         ) {
-            // Backdrop Header
+            // 1. BACKDROP & HERO HEADER
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp)
+                        .height(220.dp)
                 ) {
                     AsyncImage(
                         model = item.backdropUrl ?: item.posterUrl,
@@ -903,7 +909,7 @@ fun MediaDetailsBottomSheet(
                                 Brush.verticalGradient(
                                     listOf(
                                         Color.Transparent,
-                                        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.9f),
+                                        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.8f),
                                         MaterialTheme.colorScheme.surfaceContainerLow
                                     )
                                 )
@@ -918,7 +924,7 @@ fun MediaDetailsBottomSheet(
                         },
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(54.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary)
                     ) {
@@ -926,13 +932,13 @@ fun MediaDetailsBottomSheet(
                             imageVector = Icons.Filled.PlayArrow,
                             contentDescription = "Play Trailer",
                             tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
             }
 
-            // Title & Primary Metadata
+            // 2. TITLE & PRIMARY METADATA
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                     Text(
@@ -942,17 +948,27 @@ fun MediaDetailsBottomSheet(
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
+                    if (!item.tagline.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "\"${item.tagline}\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     if (!item.originalTitle.isNullOrBlank() && item.originalTitle != item.title) {
                         Text(
                             text = item.originalTitle,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Meta Chips Row (Type, Year, Rating, IMDb ID)
+                    // Meta Chips Row (Type, Year, Rating, Runtime, Director, IMDb ID)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1010,6 +1026,45 @@ fun MediaDetailsBottomSheet(
                             }
                         }
 
+                        // Runtime
+                        if (!item.runtimeText.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Outlined.Schedule, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = item.runtimeText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
+                        // Director / Studio
+                        val creatorName = item.director ?: item.studio
+                        if (!creatorName.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ) {
+                                Text(
+                                    text = creatorName,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
                         // IMDb ID Badge
                         if (!item.imdbId.isNullOrBlank()) {
                             Surface(
@@ -1029,7 +1084,7 @@ fun MediaDetailsBottomSheet(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Action Buttons Row (Save to Movies & TV + Watch Trailer + Search Videos)
+                    // Action Buttons Row (Save to Movies & TV + Watch Trailer + Search)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1057,17 +1112,20 @@ fun MediaDetailsBottomSheet(
                         }
 
                         OutlinedButton(
-                            onClick = { onPlayTrailerOrSearch("${item.title} trailer") },
+                            onClick = {
+                                val q = if (!item.trailerYoutubeId.isNullOrBlank()) item.trailerYoutubeId else "${item.title} trailer"
+                                onPlayTrailerOrSearch(q)
+                            },
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(imageVector = Icons.Filled.PlayCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "Trailer", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(text = "Play Trailer", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Genres Row
                     if (item.genres.isNotEmpty()) {
@@ -1112,7 +1170,143 @@ fun MediaDetailsBottomSheet(
                 }
             }
 
-            // Cast & Characters Section
+            // 3. CLIPS & TRAILERS GALLERY
+            if (item.clipsAndTrailers.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Clips & Trailers (${item.clipsAndTrailers.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(item.clipsAndTrailers) { clip ->
+                                Column(
+                                    modifier = Modifier
+                                        .width(200.dp)
+                                        .clickable { onPlayTrailerOrSearch(clip.key.ifBlank { "${item.title} ${clip.name}" }) }
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(112.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                    ) {
+                                        if (!clip.thumbnailUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = clip.thumbnailUrl,
+                                                contentDescription = clip.name,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        // Play Icon Overlay
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.25f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayCircleFilled,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        }
+
+                                        // Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color.Black.copy(alpha = 0.75f),
+                                            contentColor = Color.White,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(6.dp)
+                                        ) {
+                                            Text(
+                                                text = clip.type,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = clip.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
+
+            // 4. SCREENSHOTS & STILLS GALLERY
+            if (item.screenshots.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Screenshots & Stills",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                        )
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(item.screenshots) { screenshotUrl ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(220.dp)
+                                        .height(125.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                        .clickable { selectedScreenshotUrl = screenshotUrl }
+                                ) {
+                                    AsyncImage(
+                                        model = screenshotUrl,
+                                        contentDescription = "Screenshot",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
+
+            // 5. CAST & CHARACTERS SECTION
             if (item.cast.isNotEmpty()) {
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -1121,7 +1315,7 @@ fun MediaDetailsBottomSheet(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                         )
 
                         LazyRow(
@@ -1133,7 +1327,183 @@ fun MediaDetailsBottomSheet(
                                 CastMemberItem(member = member)
                             }
                         }
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
+                }
+            }
+
+            // 6. AUDIENCE REVIEWS & COMMENTS (IMDb / TMDB / AniList)
+            if (item.reviews.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Audience Reviews & Comments (${item.reviews.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item.reviews.forEach { review ->
+                                Card(
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(32.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (!review.authorAvatarUrl.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = review.authorAvatarUrl,
+                                                            contentDescription = review.author,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            text = review.author.take(1).uppercase(),
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 14.sp,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                        )
+                                                    }
+                                                }
+
+                                                Column {
+                                                    Text(
+                                                        text = review.author,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        text = review.source + (if (!review.createdAt.isNullOrBlank()) " • ${review.createdAt}" else ""),
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            if (review.rating != null && review.rating > 0) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFFFFB300),
+                                                    contentColor = Color.Black
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Icon(imageVector = Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(10.dp))
+                                                        Spacer(modifier = Modifier.width(2.dp))
+                                                        Text(
+                                                            text = String.format("%.1f", review.rating),
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Text(
+                                            text = review.content,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                                            lineHeight = 18.sp,
+                                            maxLines = 6,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
+
+            // 7. RELATED & RECOMMENDED CONTENT
+            if (item.relatedContent.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Related & More Like This",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                        )
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(item.relatedContent) { related ->
+                                ExplorePosterCard(
+                                    item = related,
+                                    isSaved = false,
+                                    onCardClick = { onSelectRelatedMedia(related) },
+                                    onSaveClick = {}
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Screenshot Fullscreen Zoom Dialog
+    if (selectedScreenshotUrl != null) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { selectedScreenshotUrl = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black)
+            ) {
+                AsyncImage(
+                    model = selectedScreenshotUrl,
+                    contentDescription = "Full Screenshot",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+                IconButton(
+                    onClick = { selectedScreenshotUrl = null },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                ) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }
             }
         }

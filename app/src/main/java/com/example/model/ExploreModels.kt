@@ -14,6 +14,25 @@ enum class ExploreSource(val label: String) {
     JIKAN("MyAnimeList")
 }
 
+data class MediaClipItem(
+    val id: String,
+    val name: String,
+    val type: String = "Trailer", // Trailer, Teaser, Clip, Featurette, Opening, Ending
+    val site: String = "YouTube",
+    val key: String,
+    val thumbnailUrl: String? = null
+)
+
+data class MediaReviewItem(
+    val id: String,
+    val author: String,
+    val authorAvatarUrl: String? = null,
+    val rating: Double? = null,
+    val content: String,
+    val createdAt: String? = null,
+    val source: String = "IMDb / TMDB"
+)
+
 data class ExploreMediaItem(
     val id: String,
     val title: String,
@@ -34,7 +53,14 @@ data class ExploreMediaItem(
     val imdbId: String? = null,
     val tmdbId: String? = null,
     val isSaved: Boolean = false,
-    val cast: List<CastMember> = emptyList()
+    val cast: List<CastMember> = emptyList(),
+    val screenshots: List<String> = emptyList(),
+    val clipsAndTrailers: List<MediaClipItem> = emptyList(),
+    val reviews: List<MediaReviewItem> = emptyList(),
+    val relatedContent: List<ExploreMediaItem> = emptyList(),
+    val runtimeText: String? = null,
+    val director: String? = null,
+    val tagline: String? = null
 ) {
     val displayRating: String
         get() = if (rating > 0.0) String.format("%.1f", rating) else "N/A"

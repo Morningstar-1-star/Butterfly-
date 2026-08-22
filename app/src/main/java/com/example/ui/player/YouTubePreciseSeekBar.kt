@@ -51,6 +51,7 @@ fun YouTubePreciseSeekBar(
     onSeekScrubbing: (scrubPositionMs: Long) -> Unit,
     onSeekFinished: (finalPositionMs: Long) -> Unit,
     modifier: Modifier = Modifier,
+    segments: List<com.example.smartskip.SkipSegment> = emptyList(),
     activeColor: Color = Color(0xFFFF0033),
     bufferedColor: Color = Color.White.copy(alpha = 0.55f),
     inactiveColor: Color = Color.White.copy(alpha = 0.25f),
@@ -165,6 +166,23 @@ fun YouTubePreciseSeekBar(
                     size = Size(canvasWidth, barHeight),
                     cornerRadius = cornerRadius
                 )
+
+                // 1.5 Smart Skip / SponsorBlock Segments on Seekbar Track
+                if (safeDuration > 0 && segments.isNotEmpty()) {
+                    for (seg in segments) {
+                        val segStartFrac = (seg.startMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+                        val segEndFrac = (seg.endMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+                        val segStartX = segStartFrac * canvasWidth
+                        val segWidth = ((segEndFrac - segStartFrac) * canvasWidth).coerceAtLeast(3.dp.toPx())
+
+                        drawRoundRect(
+                            color = seg.category.color.copy(alpha = 0.9f),
+                            topLeft = Offset(segStartX, centerY - (barHeight / 2f)),
+                            size = Size(segWidth, barHeight),
+                            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                        )
+                    }
+                }
 
                 // 2. Buffered progress track
                 if (bufferedFraction > 0f) {

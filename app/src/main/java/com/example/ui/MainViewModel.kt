@@ -274,6 +274,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val notInterestedVideoIds: StateFlow<Set<String>> = _notInterestedVideoIds.asStateFlow()
 
+    private val _appOpenStreak = MutableStateFlow<Int>(
+        settingsPrefs.getInt("app_open_streak_days", 1)
+    )
+    val appOpenStreak: StateFlow<Int> = _appOpenStreak.asStateFlow()
+
+    private val _longestAppStreak = MutableStateFlow<Int>(
+        settingsPrefs.getInt("longest_app_streak_days", 1)
+    )
+    val longestAppStreak: StateFlow<Int> = _longestAppStreak.asStateFlow()
+
     fun isBlockedVideo(item: VideoItem): Boolean {
         val vid = item.id.trim()
         val ch = item.uploaderName?.trim()?.lowercase() ?: ""
@@ -760,11 +770,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val userPlaylists: StateFlow<List<UserPlaylist>> = _userPlaylists.asStateFlow()
 
     fun addToQueue(video: VideoItem) {
-        _playbackQueue.value = _playbackQueue.value + video
+        if (_activeVideoId.value == null) {
+            playVideo(video.id, video.providerId)
+        } else {
+            // Append to end of queue without duplicates
+            _playbackQueue.value = _playbackQueue.value.filterNot { it.id == video.id } + video
+        }
+    }
+
+    fun playNextInQueue(video: VideoItem) {
+        if (_activeVideoId.value == null) {
+            playVideo(video.id, video.providerId)
+        } else {
+            // Insert at front of queue without duplicates
+            _playbackQueue.value = listOf(video) + _playbackQueue.value.filterNot { it.id == video.id }
+        }
+    }
+
+    fun playFromQueue(video: VideoItem) {
+        _playbackQueue.value = _playbackQueue.value.filterNot { it.id == video.id }
+        playVideo(video.id, video.providerId)
     }
 
     fun removeFromQueue(video: VideoItem) {
-        _playbackQueue.value = _playbackQueue.value.filter { it.id != video.id }
+        _playbackQueue.value = _playbackQueue.value.filterNot { it.id == video.id }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val list = _playbackQueue.value.toMutableList()
+        if (fromIndex in list.indices && toIndex in list.indices) {
+            val item = list.removeAt(fromIndex)
+            list.add(toIndex, item)
+            _playbackQueue.value = list
+        }
     }
 
     fun clearQueue() {
@@ -1007,6 +1045,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val nextVideo = currentQueue.first()
             _playbackQueue.value = currentQueue.drop(1)
             playVideo(nextVideo.id, nextVideo.providerId)
+        } else {
+            val curId = _activeVideoId.value
+            val candidate = _playerRecommendations.value.firstOrNull { it.id != curId && !isBlockedVideo(it) }
+                ?: _trendingVideos.value.firstOrNull { it.id != curId && !isBlockedVideo(it) }
+            if (candidate != null) {
+                playVideo(candidate.id, candidate.providerId)
+            }
         }
     }
 
@@ -1278,6 +1323,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val lastDate = settingsPrefs.getString("last_app_open_date", null)
+        val currentStreak = settingsPrefs.getInt("app_open_streak_days", 1)
+        val longestStreak = settingsPrefs.getInt("longest_app_streak_days", 1)
+        if (lastDate != today) {
+            val yesterday = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(System.currentTimeMillis() - 86400000L))
+            val newStreak = if (lastDate == yesterday) currentStreak + 1 else 1
+            val newLongest = maxOf(longestStreak, newStreak)
+            settingsPrefs.edit()
+                .putString("last_app_open_date", today)
+                .putInt("app_open_streak_days", newStreak)
+                .putInt("longest_app_streak_days", newLongest)
+                .apply()
+            _appOpenStreak.value = newStreak
+            _longestAppStreak.value = newLongest
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             launch {
                 userDataDao.getWatchHistoryFlow().collect { historyEntities ->

@@ -35,6 +35,8 @@ import com.example.model.AppScreen
 import com.example.model.UserPlaylist
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
+import com.example.ui.components.AvatarCustomizerSheet
+import com.example.ui.components.BuiltinAvatarPresets
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +57,7 @@ fun AccountScreen(
     val downloads by viewModel.offlineDownloads.collectAsState()
     val watchProgressMap by viewModel.watchProgressMap.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
+    val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
 
     val watchHistory = remember(rawWatchHistory, adultContentEnabled) {
         if (adultContentEnabled) rawWatchHistory else rawWatchHistory.filter { !viewModel.isAdultVideoItem(it) }
@@ -75,6 +78,7 @@ fun AccountScreen(
     var showMoviesAndTvSheet by remember { mutableStateOf(false) }
     var showBadgesSheet by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
+    var showAvatarPickerSheet by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
 
     val savedMoviesAndTv = remember(watchLaterList) {
@@ -97,80 +101,133 @@ fun AccountScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                top = topPadding + 8.dp,
+                top = topPadding + 16.dp,
                 bottom = bottomPadding + 24.dp
             )
         ) {
-            // 2. USER PROFILE HEADER
+            // 1. USER PROFILE HEADER WITH INLINE SETTINGS BUTTON
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showEditProfileDialog = true }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Profile Avatar
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        Color(0xFF2C3E50),
-                                        Color(0xFF000000)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
+                    // Profile Info & Avatar (Clickable to edit profile or change 3D avatar)
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (!userProfile.avatarUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = userProfile.avatarUrl,
-                                contentDescription = "User Avatar",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                        // Profile Avatar with Neon Ring & 3D Cartoon Model / Custom Logo
+                        Box(
+                            modifier = Modifier
+                                .size(74.dp)
+                                .clickable { showAvatarPickerSheet = true }
+                        ) {
+                            val activeModel = BuiltinAvatarPresets.models.find { it.id == userProfile.avatarPreset }
+                            val ringGradient = if (activeModel != null) {
+                                Brush.linearGradient(activeModel.gradientColors)
+                            } else {
+                                Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFFFF007F), Color(0xFFFFD600)))
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                                    .background(ringGradient)
+                                    .padding(2.5.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF12121A)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!userProfile.avatarUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = userProfile.avatarUrl,
+                                        contentDescription = "User Avatar",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else if (activeModel != null) {
+                                    AsyncImage(
+                                        model = activeModel.imageUrl,
+                                        contentDescription = activeModel.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    // Default Lucifer 3D demon character placeholder
+                                    Icon(
+                                        imageVector = Icons.Filled.AccountCircle,
+                                        contentDescription = "Profile Avatar",
+                                        tint = Color.White.copy(alpha = 0.9f),
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                }
+                            }
+
+                            // Camera / 3D Customizer Badge Overlay
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF00E5FF),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF12121A)),
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .align(Alignment.BottomEnd)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.PhotoCamera,
+                                        contentDescription = "Change 3D Avatar or Upload Logo",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showEditProfileDialog = true }
+                        ) {
+                            Text(
+                                text = userProfile.name.ifBlank { "Lucifer" },
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
                             )
-                        } else {
-                            // Default Lucifer anime character avatar placeholder
-                            Icon(
-                                imageVector = Icons.Filled.AccountCircle,
-                                contentDescription = "Profile Avatar",
-                                tint = Color.White.copy(alpha = 0.9f),
-                                modifier = Modifier.size(56.dp)
-                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${userProfile.handle.ifBlank { "@lucifer4982" }} • View channel",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                                    contentDescription = "View Channel",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp).padding(start = 2.dp)
+                                )
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Column(
-                        modifier = Modifier.weight(1f)
+                    // Settings Button aligned right in the same top row
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        Text(
-                            text = userProfile.name.ifBlank { "Lucifer" },
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { showEditProfileDialog = true }
-                        ) {
-                            Text(
-                                text = "${userProfile.handle.ifBlank { "@lucifer4982" }} • View channel",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                                contentDescription = "View Channel",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp).padding(start = 2.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -208,7 +265,8 @@ fun AccountScreen(
                                 video = video,
                                 progressFraction = watchProgressMap[video.id] ?: 0.3f,
                                 onClick = { onSelectVideo(video) },
-                                onPlayNext = { viewModel.addToQueue(video) },
+                                onPlayNext = { viewModel.playNextInQueue(video) },
+                                onAddToQueue = { viewModel.addToQueue(video) },
                                 onSaveToWatchLater = { viewModel.addToWatchLater(video) },
                                 onSaveToPlaylist = { videoForPlaylistPicker = video },
                                 onRemoveFromHistory = { viewModel.removeFromWatchHistory(video) }
@@ -371,8 +429,8 @@ fun AccountScreen(
 
                     AccountMenuListItem(
                         icon = Icons.Outlined.MilitaryTech,
-                        title = "Badges",
-                        subtitle = "Personality meter & achievement trophies",
+                        title = "Badges & Achievements",
+                        subtitle = "Personality, Hall of Fame, Hall of Shame & Trophies",
                         onClick = { showBadgesSheet = true }
                     )
                 }
@@ -441,6 +499,69 @@ fun AccountScreen(
                 title = { Text("Channel Details", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Avatar preview & change button
+                        Surface(
+                            onClick = {
+                                showEditProfileDialog = false
+                                showAvatarPickerSheet = true
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1E1E2C)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!userProfile.avatarUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = userProfile.avatarUrl,
+                                            contentDescription = "Avatar",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Filled.AccountCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "3D Cartoon Model / Logo",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Tap to pick 3D model or upload from gallery",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF00E5FF)
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Filled.PhotoCamera,
+                                    contentDescription = "Edit",
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { nameInput = it },
@@ -474,7 +595,8 @@ fun AccountScreen(
                             name = nameInput,
                             handle = handleInput,
                             bio = bioInput,
-                            avatarUrl = userProfile.avatarUrl
+                            avatarUrl = userProfile.avatarUrl,
+                            avatarPreset = userProfile.avatarPreset
                         )
                         showEditProfileDialog = false
                     }) {
@@ -485,6 +607,23 @@ fun AccountScreen(
                     TextButton(onClick = { showEditProfileDialog = false }) {
                         Text("Cancel")
                     }
+                }
+            )
+        }
+
+        // AVATAR CUSTOMIZER & 3D MODEL / GALLERY PICKER SHEET
+        if (showAvatarPickerSheet) {
+            AvatarCustomizerSheet(
+                userProfile = userProfile,
+                onDismiss = { showAvatarPickerSheet = false },
+                onAvatarSelected = { avatarUrl, presetId ->
+                    viewModel.updateUserProfile(
+                        name = userProfile.name,
+                        handle = userProfile.handle,
+                        bio = userProfile.bio,
+                        avatarUrl = avatarUrl,
+                        avatarPreset = presetId
+                    )
                 }
             )
         }
@@ -1079,6 +1218,7 @@ private fun HistoryVideoCard(
     progressFraction: Float,
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
+    onAddToQueue: (() -> Unit)? = null,
     onSaveToWatchLater: () -> Unit,
     onSaveToPlaylist: () -> Unit,
     onRemoveFromHistory: () -> Unit,
@@ -1184,6 +1324,14 @@ private fun HistoryVideoCard(
                         leadingIcon = { Icon(Icons.Outlined.QueuePlayNext, null) },
                         onClick = {
                             onPlayNext()
+                            menuExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Play last in queue") },
+                        leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, null) },
+                        onClick = {
+                            onAddToQueue?.invoke()
                             menuExpanded = false
                         }
                     )

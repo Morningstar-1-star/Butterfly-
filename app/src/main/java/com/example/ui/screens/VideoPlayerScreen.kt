@@ -5,8 +5,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -14,11 +17,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import com.example.extractor.YouTubeExtractorHelper
@@ -78,6 +84,7 @@ fun VideoPlayerScreen(
     }
 
     val playbackEnded by GlobalPlayerManager.playbackEnded.collectAsState()
+    val playbackQueue by viewModel.playbackQueue.collectAsState()
     var isUpNextActive by remember { mutableStateOf(false) }
     var autoPlayCountdown by remember { mutableStateOf(5) }
 
@@ -155,6 +162,15 @@ fun VideoPlayerScreen(
         viewModel.loadMorePlayerRecommendations(currentStreamData)
     }
 
+    LaunchedEffect(playbackEnded) {
+        if (playbackEnded) {
+            val currentQueue = viewModel.playbackQueue.value
+            if (currentQueue.isNotEmpty()) {
+                viewModel.playNextInQueue()
+            }
+        }
+    }
+
     if (isLandscape) {
         Box(
             modifier = Modifier
@@ -199,7 +215,10 @@ fun VideoPlayerScreen(
                 },
                 onBackClick = onBackClick,
                 onNextClick = {
-                    if (landscapeVideos.isNotEmpty()) {
+                    val currentQueue = viewModel.playbackQueue.value
+                    if (currentQueue.isNotEmpty()) {
+                        viewModel.playNextInQueue()
+                    } else if (landscapeVideos.isNotEmpty()) {
                         val nextVid = landscapeVideos.first()
                         viewModel.playVideo(nextVid.id, nextVid.providerId)
                     } else {
@@ -280,7 +299,10 @@ fun VideoPlayerScreen(
                         },
                         onBackClick = onBackClick,
                         onNextClick = {
-                            if (landscapeVideos.isNotEmpty()) {
+                            val currentQueue = viewModel.playbackQueue.value
+                            if (currentQueue.isNotEmpty()) {
+                                viewModel.playNextInQueue()
+                            } else if (landscapeVideos.isNotEmpty()) {
                                 val nextVid = landscapeVideos.first()
                                 viewModel.playVideo(nextVid.id, nextVid.providerId)
                             } else {
@@ -392,6 +414,18 @@ fun VideoPlayerScreen(
                             )
                         }
 
+                        // YouTube Queue Section (Temporary Session Playlist)
+                        if (playbackQueue.isNotEmpty()) {
+                            item {
+                                QueueSection(
+                                    queue = playbackQueue,
+                                    onPlayItem = { video -> viewModel.playFromQueue(video) },
+                                    onRemoveItem = { video -> viewModel.removeFromQueue(video) },
+                                    onClearQueue = { viewModel.clearQueue() }
+                                )
+                            }
+                        }
+
                         // Related Videos Header
                         item {
                             Text(
@@ -419,7 +453,8 @@ fun VideoPlayerScreen(
                                         },
                                         onChannelClick = { channelName -> viewModel.openChannel(channelName) },
                                         onNotInterested = { v -> viewModel.markNotInterested(v) },
-                                        onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                                        onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                                        onAddToQueue = { v -> viewModel.addToQueue(v) },
                                         onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
                                         onDownload = { v -> viewModel.showDownloadSheet(v) }
                                     )
@@ -644,5 +679,187 @@ fun VideoPlayerScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun QueueSection(
+    queue: List<VideoItem>,
+    onPlayItem: (VideoItem) -> Unit,
+    onRemoveItem: (VideoItem) -> Unit,
+    onClearQueue: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QueueMusic,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Queue • ${queue.size} video${if (queue.size > 1) "s" else ""}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "Temporary",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = onClearQueue,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear Queue",
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Clear", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Queued items in a horizontal scrollable row
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                itemsIndexed(queue, key = { index, item -> "queue_${item.id}_$index" }) { index, item ->
+                    Card(
+                        onClick = { onPlayItem(item) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        modifier = Modifier.width(180.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                AsyncImage(
+                                    model = item.thumbnailUrl ?: "https://i.ytimg.com/vi/${item.id}/hqdefault.jpg",
+                                    contentDescription = item.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                if (index == 0) {
+                                    Surface(
+                                        shape = RoundedCornerShape(bottomEnd = 6.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.align(Alignment.TopStart)
+                                    ) {
+                                        Text(
+                                            text = "Playing next",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { onRemoveItem(item) },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(24.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+
+                                if (item.formattedDuration.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color.Black.copy(alpha = 0.8f),
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(4.dp)
+                                    ) {
+                                        Text(
+                                            text = item.formattedDuration,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(
+                                text = item.title,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Text(
+                                text = item.uploaderName,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

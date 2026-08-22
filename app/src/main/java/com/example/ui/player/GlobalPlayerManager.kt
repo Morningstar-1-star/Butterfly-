@@ -28,6 +28,7 @@ import okhttp3.OkHttpClient
 
 object GlobalPlayerManager {
 
+    private var appContext: Context? = null
     private var exoPlayerInstance: ExoPlayer? = null
     private var scope = CoroutineScope(Dispatchers.Main)
     private var progressTrackerJob: Job? = null
@@ -136,6 +137,94 @@ object GlobalPlayerManager {
     private val _audioTracks = MutableStateFlow<List<com.example.model.AudioTrackOption>>(emptyList())
     val audioTracks: StateFlow<List<com.example.model.AudioTrackOption>> = _audioTracks.asStateFlow()
 
+    // Subtitles & Real-time AI Captioning
+    enum class SubtitleMode {
+        OFF,
+        BILIBILI_ORIGINAL,
+        BILIBILI_TRANSLATED,
+        EXTERNAL_PROVIDER,
+        AI_LIVE_CAPTIONS
+    }
+
+    private val _subtitleMode = MutableStateFlow(SubtitleMode.OFF)
+    val subtitleMode: StateFlow<SubtitleMode> = _subtitleMode.asStateFlow()
+
+    private val _bilibiliSubtitleTracks = MutableStateFlow<List<CaptionOption>>(emptyList())
+    val bilibiliSubtitleTracks: StateFlow<List<CaptionOption>> = _bilibiliSubtitleTracks.asStateFlow()
+
+    private val _selectedSubtitleTrack = MutableStateFlow<CaptionOption?>(null)
+    val selectedSubtitleTrack: StateFlow<CaptionOption?> = _selectedSubtitleTrack.asStateFlow()
+
+    private val _bilibiliCues = MutableStateFlow<List<com.example.util.SubtitleCue>>(emptyList())
+    val bilibiliCues: StateFlow<List<com.example.util.SubtitleCue>> = _bilibiliCues.asStateFlow()
+
+    private val _targetCaptionLanguage = MutableStateFlow("en")
+    val targetCaptionLanguage: StateFlow<String> = _targetCaptionLanguage.asStateFlow()
+
+    private val _currentActiveSubtitleText = MutableStateFlow("")
+    val currentActiveSubtitleText: StateFlow<String> = _currentActiveSubtitleText.asStateFlow()
+
+    private val _currentActiveTranslatedText = MutableStateFlow("")
+    val currentActiveTranslatedText: StateFlow<String> = _currentActiveTranslatedText.asStateFlow()
+
+    fun setSubtitleMode(mode: SubtitleMode, context: Context? = null) {
+        _subtitleMode.value = mode
+        if (mode == SubtitleMode.AI_LIVE_CAPTIONS) {
+            com.example.util.AiCaptionEngine.setEnabled(true, context)
+        } else {
+            com.example.util.AiCaptionEngine.setEnabled(false, context)
+        }
+    }
+
+    fun setTargetCaptionLanguage(langCode: String) {
+        _targetCaptionLanguage.value = langCode
+        com.example.subtitles.SubtitleManager.setSelectedLanguage(langCode)
+        com.example.util.AiCaptionEngine.setLanguages(
+            source = com.example.util.AiCaptionEngine.captionState.value.sourceLanguage,
+            target = langCode
+        )
+        // If Bilibili cues are loaded, re-translate them
+        val cues = _bilibiliCues.value
+        if (cues.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val translated = com.example.util.SubtitleTranslator.translateCues(cues, targetLang = langCode)
+                _bilibiliCues.value = translated
+            }
+        }
+    }
+
+    fun selectBilibiliSubtitleTrack(option: CaptionOption?) {
+        _selectedSubtitleTrack.value = option
+        if (option == null) {
+            _bilibiliCues.value = emptyList()
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val req = okhttp3.Request.Builder()
+                    .url(option.url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Referer", "https://www.bilibili.com/")
+                    .build()
+                val jsonStr = okHttpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+                if (!jsonStr.isNullOrBlank()) {
+                    val rawCues = com.example.util.SubtitleTranslator.parseBilibiliSubtitleJson(jsonStr)
+                    val targetLang = _targetCaptionLanguage.value
+                    val translatedCues = com.example.util.SubtitleTranslator.translateCues(rawCues, targetLang = targetLang)
+                    _bilibiliCues.value = translatedCues
+                    if (_subtitleMode.value == SubtitleMode.OFF) {
+                        _subtitleMode.value = SubtitleMode.BILIBILI_TRANSLATED
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("GlobalPlayerManager", "Failed to load Bilibili subtitle JSON: ${e.message}")
+            }
+        }
+    }
+
     private val _areControlsVisible = MutableStateFlow(true)
     val areControlsVisible: StateFlow<Boolean> = _areControlsVisible.asStateFlow()
 
@@ -229,6 +318,7 @@ object GlobalPlayerManager {
     }
 
     fun getExoPlayer(context: Context): ExoPlayer {
+        appContext = context.applicationContext
         val existing = exoPlayerInstance
         return if (existing == null) {
             val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
@@ -346,6 +436,28 @@ object GlobalPlayerManager {
         } else if (cur >= 0) {
             _currentPositionMs.value = cur
         }
+
+        com.example.util.AiCaptionEngine.updateCurrentPlaybackPosition(cur)
+        com.example.subtitles.SubtitleManager.updatePlaybackPosition(cur)
+        appContext?.let { ctx ->
+            com.example.smartskip.SmartSkipPlayerEngine.onPlaybackPositionUpdate(ctx, cur)
+        }
+
+        val posSec = cur / 1000f
+        val cues = _bilibiliCues.value
+        if (cues.isNotEmpty() && _subtitleMode.value != SubtitleMode.OFF && _subtitleMode.value != SubtitleMode.AI_LIVE_CAPTIONS && _subtitleMode.value != SubtitleMode.EXTERNAL_PROVIDER) {
+            val activeCue = cues.find { posSec >= it.fromSeconds && posSec <= it.toSeconds }
+            if (activeCue != null) {
+                _currentActiveSubtitleText.value = activeCue.text
+                _currentActiveTranslatedText.value = activeCue.translatedText ?: activeCue.text
+            } else {
+                _currentActiveSubtitleText.value = ""
+                _currentActiveTranslatedText.value = ""
+            }
+        } else if (_subtitleMode.value == SubtitleMode.EXTERNAL_PROVIDER) {
+            _currentActiveSubtitleText.value = com.example.subtitles.SubtitleManager.currentActiveOriginalText.value
+            _currentActiveTranslatedText.value = com.example.subtitles.SubtitleManager.currentActiveTranslatedText.value
+        }
     }
 
     private fun updateAudioTracks(tracks: androidx.media3.common.Tracks) {
@@ -453,6 +565,14 @@ object GlobalPlayerManager {
         _playbackEnded.value = false
         if (streamData != null) {
             _activeStreamData.value = streamData
+            _bilibiliSubtitleTracks.value = streamData.captionOptions
+            if (streamData.captionOptions.isNotEmpty()) {
+                val firstOption = streamData.captionOptions.first()
+                selectBilibiliSubtitleTrack(firstOption)
+            } else {
+                _selectedSubtitleTrack.value = null
+                _bilibiliCues.value = emptyList()
+            }
         }
         _playerError.value = null
 
@@ -773,6 +893,36 @@ object GlobalPlayerManager {
 
             // Save to Room Database for offline access and zero-buffering preloading
             val ctx = context.applicationContext
+
+            // Smart Skip / SponsorBlock segment resolution
+            if (streamData != null) {
+                com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
+                    context = ctx,
+                    videoId = streamData.videoId,
+                    durationMs = _durationMs.value,
+                    title = streamData.title,
+                    channelName = streamData.channelName,
+                    providerId = streamData.providerId
+                )
+            }
+
+            // Trigger External Subtitle discovery with strict fallback order: Embedded -> Bilibili -> External -> Cached -> Whisper.cpp
+            if (streamData != null) {
+                com.example.subtitles.SubtitleManager.resolveSubtitlesForPlayback(
+                    context = ctx,
+                    streamData = streamData,
+                    onUsableSubtitleFound = { item ->
+                        android.util.Log.i("GlobalPlayerManager", "Subtitle auto-resolved from: ${item.providerName} (${item.languageCode})")
+                        if (_subtitleMode.value == SubtitleMode.OFF) {
+                            _subtitleMode.value = if (item.providerId == "bilibili") SubtitleMode.BILIBILI_TRANSLATED else SubtitleMode.EXTERNAL_PROVIDER
+                        }
+                    },
+                    onFallbackToWhisper = {
+                        android.util.Log.i("GlobalPlayerManager", "No external/bilibili subtitles available. Whisper fallback ready.")
+                    }
+                )
+            }
+
             scope.launch(Dispatchers.IO) {
                 try {
                     val videoRepo = com.example.db.VideoCacheRepository(ctx)
@@ -858,6 +1008,7 @@ object GlobalPlayerManager {
         _isPlaying.value = false
         _firstFrameRendered.value = false
         _playerError.value = null
+        com.example.smartskip.SmartSkipPlayerEngine.reset()
         exoPlayerInstance?.let { player ->
             try {
                 player.playWhenReady = false

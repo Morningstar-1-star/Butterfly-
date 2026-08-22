@@ -296,7 +296,7 @@ fun HomeScreen(
                                 onSelectVideo = { video ->
                                     viewModel.playVideo(video.id, video.providerId)
                                 },
-                                topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
+                                topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                                 bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
@@ -308,7 +308,7 @@ fun HomeScreen(
                                     viewModel.playVideo(video.id, video.providerId)
                                 },
                                 onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
-                                topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
+                                topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                                 bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
@@ -321,7 +321,7 @@ fun HomeScreen(
                                 },
                                 onOpenSettings = { viewModel.navigateToScreen(AppScreen.SETTINGS) },
                                 onOpenMoviesAndTv = { viewModel.navigateToScreen(AppScreen.EXPLORE) },
-                                topPadding = if (!isSearchExpanded) topBarPaddingDp else 0.dp,
+                                topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                                 bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                             )
                         }
@@ -450,7 +450,8 @@ fun HomeScreen(
                                                 onClick = {
                                                     viewModel.playVideo(video.id, video.providerId)
                                                 },
-                                                onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                                                onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                                                onAddToQueue = { v -> viewModel.addToQueue(v) },
                                                 onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
                                                 onSaveToPlaylist = { v ->
                                                     val userPls = viewModel.userPlaylists.value
@@ -496,8 +497,8 @@ fun HomeScreen(
             }
         }
 
-        // LAYER 2: YOUTUBE-STYLE COLLAPSIBLE TOP BAR OVERLAY
-        if (!isSearchExpanded) {
+        // LAYER 2: YOUTUBE-STYLE COLLAPSIBLE TOP BAR OVERLAY (ONLY ON HOME SCREEN)
+        if (!isSearchExpanded && currentScreen == AppScreen.HOME) {
             // Status bar solid background shield
             Box(
                 modifier = Modifier
@@ -772,6 +773,7 @@ fun HomeScreen(
             ) {
                 LiquidGlassNavBar(
                     currentScreen = currentScreen,
+                    userProfile = userProfile,
                     onSelectScreen = { screen ->
                         isSearchExpanded = false
                         viewModel.navigateToScreen(screen)

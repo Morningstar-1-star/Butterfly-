@@ -1,11 +1,7 @@
 package com.example.util
 
 import android.util.Log
-import com.example.model.CastMember
-import com.example.model.ExploreMediaItem
-import com.example.model.ExploreMediaType
-import com.example.model.ExploreSection
-import com.example.model.ExploreSource
+import com.example.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -604,15 +600,11 @@ object ExploreMediaHelper {
     // ==================== FULL MEDIA DETAILS RESOLVER ====================
 
     suspend fun resolveFullMediaDetails(item: ExploreMediaItem): ExploreMediaItem = withContext(Dispatchers.IO) {
-        if (item.cast.isNotEmpty() && !item.trailerYoutubeId.isNullOrBlank()) {
-            return@withContext item
-        }
-
         try {
-            if (item.source == ExploreSource.TMDB || item.tmdbId != null) {
+            if (item.source == ExploreSource.TMDB || item.tmdbId != null || (!item.id.startsWith("anime_") && item.id.contains("_"))) {
                 val tmdbId = item.tmdbId ?: item.id.substringAfter("_")
                 val typeStr = if (item.mediaType == ExploreMediaType.TV) "tv" else "movie"
-                val detailUrl = "https://api.themoviedb.org/3/$typeStr/$tmdbId?api_key=$TMDB_API_KEY&append_to_response=credits,videos,external_ids"
+                val detailUrl = "https://api.themoviedb.org/3/$typeStr/$tmdbId?api_key=$TMDB_API_KEY&append_to_response=credits,videos,images,reviews,recommendations,similar,external_ids"
 
                 val req = Request.Builder().url(detailUrl).header("User-Agent", "Mozilla/5.0").build()
                 val resp = client.newCall(req).execute()
@@ -620,12 +612,42 @@ object ExploreMediaHelper {
                 if (body != null) {
                     val json = JSONObject(body)
                     val imdbId = json.optJSONObject("external_ids")?.optString("imdb_id")?.takeIf { it.isNotBlank() }
+                    val tagline = json.optString("tagline").takeIf { it.isNotBlank() }
+
+                    // Runtime
+                    val runtimeMins = if (item.mediaType == ExploreMediaType.MOVIE) {
+                        json.optInt("runtime", 0)
+                    } else {
+                        json.optJSONArray("episode_run_time")?.optInt(0, 0) ?: 0
+                    }
+                    val runtimeText = if (runtimeMins > 0) {
+                        val hours = runtimeMins / 60
+                        val mins = runtimeMins % 60
+                        if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                    } else null
+
+                    // Director / Creator
+                    var director: String? = null
+                    val crewArr = json.optJSONObject("credits")?.optJSONArray("crew")
+                    if (crewArr != null) {
+                        for (cr in 0 until crewArr.length()) {
+                            val cObj = crewArr.getJSONObject(cr)
+                            val job = cObj.optString("job")
+                            if (job.equals("Director", ignoreCase = true) || job.equals("Creator", ignoreCase = true) || job.equals("Executive Producer", ignoreCase = true)) {
+                                director = cObj.optString("name")
+                                break
+                            }
+                        }
+                    }
+                    if (director.isNullOrBlank() && json.has("created_by")) {
+                        director = json.optJSONArray("created_by")?.optJSONObject(0)?.optString("name")
+                    }
 
                     // Credits / Cast
                     val castList = mutableListOf<CastMember>()
                     val castArr = json.optJSONObject("credits")?.optJSONArray("cast")
                     if (castArr != null) {
-                        for (c in 0 until minOf(castArr.length(), 16)) {
+                        for (c in 0 until minOf(castArr.length(), 18)) {
                             val castObj = castArr.getJSONObject(c)
                             val name = castObj.optString("name")
                             val character = castObj.optString("character")
@@ -636,25 +658,378 @@ object ExploreMediaHelper {
                         }
                     }
 
-                    // Trailer
+                    // Videos / Trailers / Clips
+                    val clipsList = mutableListOf<MediaClipItem>()
                     var trailerKey: String? = item.trailerYoutubeId
                     val videoResults = json.optJSONObject("videos")?.optJSONArray("results")
-                    if (videoResults != null && trailerKey == null) {
+                    if (videoResults != null) {
                         for (v in 0 until videoResults.length()) {
                             val vidObj = videoResults.getJSONObject(v)
-                            val site = vidObj.optString("site")
-                            val type = vidObj.optString("type")
-                            if (site.equals("YouTube", ignoreCase = true) && (type.equals("Trailer", ignoreCase = true) || type.equals("Teaser", ignoreCase = true))) {
-                                trailerKey = vidObj.optString("key")
-                                break
+                            val site = vidObj.optString("site", "YouTube")
+                            val type = vidObj.optString("type", "Trailer")
+                            val key = vidObj.optString("key", "")
+                            val name = vidObj.optString("name", "Clip")
+                            val vidId = vidObj.optString("id", "")
+
+                            if (key.isNotBlank()) {
+                                val thumb = "https://i.ytimg.com/vi/$key/hqdefault.jpg"
+                                clipsList.add(
+                                    MediaClipItem(
+                                        id = vidId.ifBlank { key },
+                                        name = name,
+                                        type = type,
+                                        site = site,
+                                        key = key,
+                                        thumbnailUrl = thumb
+                                    )
+                                )
+                                if (trailerKey == null && (type.equals("Trailer", ignoreCase = true) || type.equals("Teaser", ignoreCase = true))) {
+                                    trailerKey = key
+                                }
                             }
+                        }
+                    }
+
+                    // Screenshots / Backdrops
+                    val screenshots = mutableListOf<String>()
+                    val backdropsArr = json.optJSONObject("images")?.optJSONArray("backdrops")
+                    if (backdropsArr != null) {
+                        for (b in 0 until minOf(backdropsArr.length(), 12)) {
+                            val bObj = backdropsArr.getJSONObject(b)
+                            val fPath = bObj.optString("file_path", "")
+                            if (fPath.isNotBlank()) {
+                                screenshots.add("$TMDB_BACKDROP_BASE$fPath")
+                            }
+                        }
+                    }
+
+                    // User Reviews & Comments from IMDb / TMDB
+                    val reviewsList = mutableListOf<MediaReviewItem>()
+                    val reviewsArr = json.optJSONObject("reviews")?.optJSONArray("results")
+                    if (reviewsArr != null) {
+                        for (r in 0 until minOf(reviewsArr.length(), 8)) {
+                            val rObj = reviewsArr.getJSONObject(r)
+                            val author = rObj.optString("author", "User")
+                            val content = rObj.optString("content", "").trim()
+                            val rId = rObj.optString("id", "")
+                            val createdAt = rObj.optString("created_at", "").take(10)
+                            val authorDetails = rObj.optJSONObject("author_details")
+                            val rawRating = authorDetails?.optDouble("rating", -1.0) ?: -1.0
+                            val rating = if (rawRating > 0) rawRating else null
+                            val avatarPath = authorDetails?.optString("avatar_path", "")
+                            val avatarUrl = when {
+                                avatarPath.isNullOrBlank() -> null
+                                avatarPath.startsWith("/http") -> avatarPath.substring(1)
+                                avatarPath.startsWith("http") -> avatarPath
+                                else -> "$TMDB_IMAGE_BASE$avatarPath"
+                            }
+
+                            if (content.isNotBlank()) {
+                                reviewsList.add(
+                                    MediaReviewItem(
+                                        id = rId,
+                                        author = author,
+                                        authorAvatarUrl = avatarUrl,
+                                        rating = rating,
+                                        content = content,
+                                        createdAt = createdAt,
+                                        source = "IMDb / TMDB"
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Related & Recommended Content
+                    val relatedList = mutableListOf<ExploreMediaItem>()
+                    val recsArr = json.optJSONObject("recommendations")?.optJSONArray("results")
+                        ?: json.optJSONObject("similar")?.optJSONArray("results")
+                    if (recsArr != null) {
+                        for (rc in 0 until minOf(recsArr.length(), 10)) {
+                            val rcObj = recsArr.getJSONObject(rc)
+                            val rcId = rcObj.optInt("id", 0)
+                            if (rcId <= 0) continue
+                            val rcTitle = rcObj.optString("title").ifBlank { rcObj.optString("name") }
+                            if (rcTitle.isBlank()) continue
+                            val rcPoster = rcObj.optString("poster_path").takeIf { it.isNotBlank() }?.let { "$TMDB_IMAGE_BASE$it" }
+                            val rcBackdrop = rcObj.optString("backdrop_path").takeIf { it.isNotBlank() }?.let { "$TMDB_BACKDROP_BASE$it" }
+                            val rcRating = rcObj.optDouble("vote_average", 0.0)
+                            val rcYear = rcObj.optString("release_date").ifBlank { rcObj.optString("first_air_date") }.take(4)
+                            val rcType = if (item.mediaType == ExploreMediaType.TV) ExploreMediaType.TV else ExploreMediaType.MOVIE
+
+                            relatedList.add(
+                                ExploreMediaItem(
+                                    id = "${if (rcType == ExploreMediaType.TV) "tv" else "movie"}_$rcId",
+                                    title = rcTitle,
+                                    mediaType = rcType,
+                                    source = ExploreSource.TMDB,
+                                    posterUrl = rcPoster,
+                                    backdropUrl = rcBackdrop,
+                                    rating = rcRating,
+                                    ratingSource = "TMDB",
+                                    releaseYear = rcYear,
+                                    overview = rcObj.optString("overview"),
+                                    tmdbId = rcId.toString()
+                                )
+                            )
                         }
                     }
 
                     return@withContext item.copy(
                         imdbId = imdbId ?: item.imdbId,
+                        tagline = tagline ?: item.tagline,
+                        runtimeText = runtimeText ?: item.runtimeText,
+                        director = director ?: item.director,
                         cast = castList.ifEmpty { item.cast },
-                        trailerYoutubeId = trailerKey ?: item.trailerYoutubeId
+                        trailerYoutubeId = trailerKey ?: item.trailerYoutubeId,
+                        screenshots = screenshots.ifEmpty { item.screenshots },
+                        clipsAndTrailers = clipsList.ifEmpty { item.clipsAndTrailers },
+                        reviews = reviewsList.ifEmpty { item.reviews },
+                        relatedContent = relatedList.ifEmpty { item.relatedContent }
+                    )
+                }
+            } else if (item.source == ExploreSource.ANILIST || item.id.contains("anilist")) {
+                // AniList detailed query
+                val aniListId = item.id.substringAfterLast("_").toIntOrNull()
+                if (aniListId != null) {
+                    val query = """
+                        query {
+                          Media(id: $aniListId) {
+                            id
+                            idMal
+                            description(asHtml: false)
+                            episodes
+                            duration
+                            status
+                            genres
+                            averageScore
+                            bannerImage
+                            trailer {
+                              id
+                              site
+                            }
+                            studios(isMain: true) {
+                              nodes {
+                                name
+                              }
+                            }
+                            characters(perPage: 12) {
+                              edges {
+                                role
+                                node {
+                                  name { full }
+                                  image { medium }
+                                }
+                              }
+                            }
+                            reviews(perPage: 6, sort: [RATING_DESC]) {
+                              nodes {
+                                id
+                                summary
+                                body(asHtml: false)
+                                score
+                                createdAt
+                                user {
+                                  name
+                                  avatar { medium }
+                                }
+                              }
+                            }
+                            recommendations(perPage: 8, sort: [RATING_DESC]) {
+                              nodes {
+                                mediaRecommendation {
+                                  id
+                                  title { english romaji }
+                                  coverImage { large }
+                                  averageScore
+                                  seasonYear
+                                  episodes
+                                }
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent()
+
+                    val bodyJson = JSONObject()
+                    bodyJson.put("query", query)
+                    val req = Request.Builder()
+                        .url("https://graphql.anilist.co")
+                        .post(bodyJson.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                        .header("User-Agent", "Mozilla/5.0")
+                        .build()
+                    val resp = client.newCall(req).execute()
+                    val body = resp.body?.string()
+                    if (body != null) {
+                        val mediaObj = JSONObject(body).optJSONObject("data")?.optJSONObject("Media")
+                        if (mediaObj != null) {
+                            val durationMins = mediaObj.optInt("duration", 0)
+                            val durationText = if (durationMins > 0) "${durationMins}m / ep" else null
+                            val studio = mediaObj.optJSONObject("studios")?.optJSONArray("nodes")?.optJSONObject(0)?.optString("name")
+                            val trailerId = mediaObj.optJSONObject("trailer")?.optString("id")?.takeIf { it.isNotBlank() && it != "null" }
+                            val banner = mediaObj.optString("bannerImage").takeIf { it.isNotBlank() && it != "null" }
+
+                            // Characters / Cast
+                            val castList = mutableListOf<CastMember>()
+                            val charEdges = mediaObj.optJSONObject("characters")?.optJSONArray("edges")
+                            if (charEdges != null) {
+                                for (c in 0 until charEdges.length()) {
+                                    val edge = charEdges.getJSONObject(c)
+                                    val charName = edge.optJSONObject("node")?.optJSONObject("name")?.optString("full") ?: ""
+                                    val role = edge.optString("role", "Main")
+                                    val img = edge.optJSONObject("node")?.optJSONObject("image")?.optString("medium")
+                                    if (charName.isNotBlank()) {
+                                        castList.add(CastMember(name = charName, role = role, avatarUrl = img))
+                                    }
+                                }
+                            }
+
+                            // Reviews
+                            val reviewsList = mutableListOf<MediaReviewItem>()
+                            val reviewNodes = mediaObj.optJSONObject("reviews")?.optJSONArray("nodes")
+                            if (reviewNodes != null) {
+                                for (rv in 0 until reviewNodes.length()) {
+                                    val rNode = reviewNodes.getJSONObject(rv)
+                                    val rId = rNode.optInt("id", 0).toString()
+                                    val userObj = rNode.optJSONObject("user")
+                                    val author = userObj?.optString("name", "AniList User") ?: "AniList User"
+                                    val avatar = userObj?.optJSONObject("avatar")?.optString("medium")
+                                    val score = rNode.optInt("score", 0).toDouble() / 10.0
+                                    val summary = rNode.optString("summary", "")
+                                    val rBody = rNode.optString("body", "").trim()
+                                    val fullContent = if (summary.isNotBlank()) "$summary\n\n$rBody" else rBody
+
+                                    reviewsList.add(
+                                        MediaReviewItem(
+                                            id = rId,
+                                            author = author,
+                                            authorAvatarUrl = avatar,
+                                            rating = if (score > 0) score else null,
+                                            content = fullContent.take(1200),
+                                            source = "AniList"
+                                        )
+                                    )
+                                }
+                            }
+
+                            // Recommendations
+                            val recsList = mutableListOf<ExploreMediaItem>()
+                            val recNodes = mediaObj.optJSONObject("recommendations")?.optJSONArray("nodes")
+                            if (recNodes != null) {
+                                for (rc in 0 until recNodes.length()) {
+                                    val rMedia = recNodes.getJSONObject(rc).optJSONObject("mediaRecommendation") ?: continue
+                                    val recId = rMedia.optInt("id", 0)
+                                    if (recId <= 0) continue
+                                    val titleObj = rMedia.optJSONObject("title")
+                                    val recTitle = titleObj?.optString("english")?.takeIf { it.isNotBlank() && it != "null" }
+                                        ?: titleObj?.optString("romaji") ?: "Anime #$recId"
+                                    val recPoster = rMedia.optJSONObject("coverImage")?.optString("large")
+                                    val recScore = rMedia.optInt("averageScore", 0).toDouble() / 10.0
+                                    val recYear = rMedia.optInt("seasonYear", 0).takeIf { it > 0 }?.toString() ?: "2024"
+                                    val eps = rMedia.optInt("episodes", 0).takeIf { it > 0 }
+
+                                    recsList.add(
+                                        ExploreMediaItem(
+                                            id = "anime_anilist_$recId",
+                                            title = recTitle,
+                                            mediaType = ExploreMediaType.ANIME,
+                                            source = ExploreSource.ANILIST,
+                                            posterUrl = recPoster,
+                                            rating = recScore,
+                                            ratingSource = "AniList",
+                                            releaseYear = recYear,
+                                            episodesCount = eps
+                                        )
+                                    )
+                                }
+                            }
+
+                            // Clips / Trailer
+                            val clips = mutableListOf<MediaClipItem>()
+                            if (!trailerId.isNullOrBlank()) {
+                                clips.add(
+                                    MediaClipItem(
+                                        id = trailerId,
+                                        name = "${item.title} - Official Trailer",
+                                        type = "Trailer",
+                                        site = "YouTube",
+                                        key = trailerId,
+                                        thumbnailUrl = "https://i.ytimg.com/vi/$trailerId/hqdefault.jpg"
+                                    )
+                                )
+                            }
+
+                            return@withContext item.copy(
+                                runtimeText = durationText ?: item.runtimeText,
+                                studio = studio ?: item.studio,
+                                trailerYoutubeId = trailerId ?: item.trailerYoutubeId,
+                                backdropUrl = banner ?: item.backdropUrl,
+                                cast = castList.ifEmpty { item.cast },
+                                reviews = reviewsList.ifEmpty { item.reviews },
+                                relatedContent = recsList.ifEmpty { item.relatedContent },
+                                clipsAndTrailers = clips.ifEmpty { item.clipsAndTrailers },
+                                screenshots = if (!banner.isNullOrBlank()) listOf(banner) else item.screenshots
+                            )
+                        }
+                    }
+                }
+            } else if (item.source == ExploreSource.JIKAN || item.id.contains("jikan")) {
+                // Jikan / MyAnimeList reviews & pictures
+                val malId = item.id.substringAfterLast("_").toIntOrNull()
+                if (malId != null) {
+                    val reviewsUrl = "https://api.jikan.moe/v4/anime/$malId/reviews"
+                    val reviewsReq = Request.Builder().url(reviewsUrl).header("User-Agent", "Mozilla/5.0").build()
+                    val rResp = client.newCall(reviewsReq).execute()
+                    val rBody = rResp.body?.string()
+                    val reviewsList = mutableListOf<MediaReviewItem>()
+                    if (rBody != null) {
+                        val rArr = JSONObject(rBody).optJSONArray("data")
+                        if (rArr != null) {
+                            for (rv in 0 until minOf(rArr.length(), 6)) {
+                                val rvObj = rArr.getJSONObject(rv)
+                                val userObj = rvObj.optJSONObject("user")
+                                val author = userObj?.optString("username", "MAL Reviewer") ?: "MAL Reviewer"
+                                val avatar = userObj?.optJSONObject("images")?.optJSONObject("jpg")?.optString("image_url")
+                                val score = rvObj.optDouble("score", 0.0)
+                                val reviewText = rvObj.optString("review", "").trim()
+
+                                if (reviewText.isNotBlank()) {
+                                    reviewsList.add(
+                                        MediaReviewItem(
+                                            id = "mal_rv_$rv",
+                                            author = author,
+                                            authorAvatarUrl = avatar,
+                                            rating = if (score > 0) score else null,
+                                            content = reviewText.take(1200),
+                                            source = "MyAnimeList"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Screenshots / Pictures from Jikan
+                    val picsUrl = "https://api.jikan.moe/v4/anime/$malId/pictures"
+                    val picsReq = Request.Builder().url(picsUrl).header("User-Agent", "Mozilla/5.0").build()
+                    val pResp = client.newCall(picsReq).execute()
+                    val pBody = pResp.body?.string()
+                    val screenshots = mutableListOf<String>()
+                    if (pBody != null) {
+                        val pArr = JSONObject(pBody).optJSONArray("data")
+                        if (pArr != null) {
+                            for (p in 0 until minOf(pArr.length(), 8)) {
+                                val pObj = pArr.getJSONObject(p)
+                                val jpgObj = pObj.optJSONObject("jpg")
+                                val pUrl = jpgObj?.optString("large_image_url") ?: jpgObj?.optString("image_url")
+                                if (!pUrl.isNullOrBlank()) screenshots.add(pUrl)
+                            }
+                        }
+                    }
+
+                    return@withContext item.copy(
+                        reviews = reviewsList.ifEmpty { item.reviews },
+                        screenshots = screenshots.ifEmpty { item.screenshots }
                     )
                 }
             }

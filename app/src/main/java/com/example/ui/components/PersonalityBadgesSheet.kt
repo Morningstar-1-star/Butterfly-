@@ -25,7 +25,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,10 +39,12 @@ import com.example.model.*
 import com.example.ui.MainViewModel
 import com.example.util.PersonalityBadgeEngine
 
-enum class BadgesSubTab {
-    PERSONALITY_METER,
-    GENRE_BADGES,
-    ACHIEVEMENTS
+enum class BadgesSubTab(val label: String, val icon: ImageVector) {
+    PERSONALITY_METER("Personality", Icons.Outlined.Psychology),
+    HALL_OF_FAME("Hall of Fame", Icons.Outlined.EmojiEvents),
+    HALL_OF_SHAME("Hall of Shame", Icons.Outlined.MoodBad),
+    GENRE_BADGES("Genres", Icons.Outlined.MilitaryTech),
+    ACHIEVEMENTS("Trophies", Icons.Outlined.WorkspacePremium)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,22 +57,31 @@ fun PersonalityBadgesSheet(
     val watchProgressMap by viewModel.watchProgressMap.collectAsState()
     val watchLaterList by viewModel.watchLaterList.collectAsState()
     val likedVideoIds by viewModel.likedVideoIds.collectAsState()
+    val dislikedVideoIds by viewModel.dislikedVideoIds.collectAsState()
+    val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
     val playlists by viewModel.userPlaylists.collectAsState()
     val userProfile by viewModel.userProfile.collectAsState()
+    val appStreak by viewModel.appOpenStreak.collectAsState()
+    val longestStreak by viewModel.longestAppStreak.collectAsState()
 
-    val profile = remember(watchHistory, watchProgressMap, watchLaterList, likedVideoIds, playlists) {
+    val profile = remember(watchHistory, watchProgressMap, watchLaterList, likedVideoIds, dislikedVideoIds, notInterestedVideoIds, playlists, appStreak, longestStreak) {
         PersonalityBadgeEngine.calculateProfile(
             watchHistory = watchHistory,
             watchProgressMap = watchProgressMap,
             watchLaterList = watchLaterList,
             likedVideoIds = likedVideoIds,
-            playlists = playlists
+            dislikedVideoIds = dislikedVideoIds,
+            notInterestedVideoIds = notInterestedVideoIds,
+            playlists = playlists,
+            dailyStreak = appStreak,
+            longestStreak = longestStreak
         )
     }
 
     var selectedTab by remember { mutableStateOf(BadgesSubTab.PERSONALITY_METER) }
     var selectedGenreBadgeForDetail by remember { mutableStateOf<GenreBadge?>(null) }
     var selectedAchievementForDetail by remember { mutableStateOf<MilestoneAchievement?>(null) }
+    var selectedFameShameBadgeForDetail by remember { mutableStateOf<FameShameBadge?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -168,42 +181,51 @@ fun PersonalityBadgesSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // TAB SELECTOR (Personality Meter, Genre Badges, Achievements)
-            TabRow(
+            // TAB SELECTOR (ScrollableTabRow for the 5 sub-tabs)
+            ScrollableTabRow(
                 selectedTabIndex = selectedTab.ordinal,
                 containerColor = Color.Transparent,
+                edgePadding = 0.dp,
                 divider = {}
             ) {
-                Tab(
-                    selected = selectedTab == BadgesSubTab.PERSONALITY_METER,
-                    onClick = { selectedTab = BadgesSubTab.PERSONALITY_METER },
-                    text = {
-                        Text(
-                            text = "Personality Meter",
-                            fontWeight = if (selectedTab == BadgesSubTab.PERSONALITY_METER) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTab == BadgesSubTab.GENRE_BADGES,
-                    onClick = { selectedTab = BadgesSubTab.GENRE_BADGES },
-                    text = {
-                        Text(
-                            text = "Genre Badges",
-                            fontWeight = if (selectedTab == BadgesSubTab.GENRE_BADGES) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTab == BadgesSubTab.ACHIEVEMENTS,
-                    onClick = { selectedTab = BadgesSubTab.ACHIEVEMENTS },
-                    text = {
-                        Text(
-                            text = "Achievements",
-                            fontWeight = if (selectedTab == BadgesSubTab.ACHIEVEMENTS) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                )
+                BadgesSubTab.values().forEach { tab ->
+                    Tab(
+                        selected = selectedTab == tab,
+                        onClick = { selectedTab = tab },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = tab.icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (selectedTab == tab) {
+                                        when (tab) {
+                                            BadgesSubTab.HALL_OF_FAME -> Color(0xFFFFD700)
+                                            BadgesSubTab.HALL_OF_SHAME -> Color(0xFFFF5252)
+                                            else -> MaterialTheme.colorScheme.primary
+                                        }
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = tab.label,
+                                    fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selectedTab == tab) {
+                                        when (tab) {
+                                            BadgesSubTab.HALL_OF_FAME -> Color(0xFFFFD700)
+                                            BadgesSubTab.HALL_OF_SHAME -> Color(0xFFFF5252)
+                                            else -> MaterialTheme.colorScheme.primary
+                                        }
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -212,6 +234,18 @@ fun PersonalityBadgesSheet(
             when (selectedTab) {
                 BadgesSubTab.PERSONALITY_METER -> {
                     PersonalityMeterContent(profile = profile)
+                }
+                BadgesSubTab.HALL_OF_FAME -> {
+                    HallOfFameContent(
+                        hallOfFame = profile.hallOfFame,
+                        onBadgeClick = { selectedFameShameBadgeForDetail = it }
+                    )
+                }
+                BadgesSubTab.HALL_OF_SHAME -> {
+                    HallOfShameContent(
+                        hallOfShame = profile.hallOfShame,
+                        onBadgeClick = { selectedFameShameBadgeForDetail = it }
+                    )
                 }
                 BadgesSubTab.GENRE_BADGES -> {
                     GenreBadgesContent(
@@ -244,6 +278,14 @@ fun PersonalityBadgesSheet(
             onDismiss = { selectedAchievementForDetail = null }
         )
     }
+
+    // DETAIL DIALOG FOR FAME / SHAME BADGE
+    selectedFameShameBadgeForDetail?.let { badge ->
+        FameShameBadgeDetailDialog(
+            badge = badge,
+            onDismiss = { selectedFameShameBadgeForDetail = null }
+        )
+    }
 }
 
 @Composable
@@ -267,12 +309,73 @@ fun PersonalityMeterContent(profile: PersonalityProfile) {
                     modifier = Modifier.weight(1f)
                 )
                 MetricCard(
-                    title = "Badges Unlocked",
+                    title = "Badges & Trophies",
                     value = "${profile.totalBadgesUnlocked}",
                     subtitle = "Level ${profile.globalLevel} Explorer",
                     icon = Icons.Outlined.MilitaryTech,
                     modifier = Modifier.weight(1f)
                 )
+            }
+        }
+
+        // CIRCADIAN VIEWING RHYTHM (Time of Day Breakdown)
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.Schedule,
+                            contentDescription = null,
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Circadian Viewing Rhythm",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = profile.circadianStat.dominantTimeDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Multi-color Circadian Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    ) {
+                        Box(modifier = Modifier.weight(profile.circadianStat.morningPercent.coerceAtLeast(1f)).fillMaxHeight().background(Color(0xFFFFB300)))
+                        Box(modifier = Modifier.weight(profile.circadianStat.afternoonPercent.coerceAtLeast(1f)).fillMaxHeight().background(Color(0xFFFF7043)))
+                        Box(modifier = Modifier.weight(profile.circadianStat.eveningPercent.coerceAtLeast(1f)).fillMaxHeight().background(Color(0xFFAB47BC)))
+                        Box(modifier = Modifier.weight(profile.circadianStat.nightPercent.coerceAtLeast(1f)).fillMaxHeight().background(Color(0xFF1E88E5)))
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        CircadianLegendItem(label = "Morning 🌅", percent = profile.circadianStat.morningPercent.toInt(), color = Color(0xFFFFB300))
+                        CircadianLegendItem(label = "Midday ☀️", percent = profile.circadianStat.afternoonPercent.toInt(), color = Color(0xFFFF7043))
+                        CircadianLegendItem(label = "Prime 🌆", percent = profile.circadianStat.eveningPercent.toInt(), color = Color(0xFFAB47BC))
+                        CircadianLegendItem(label = "Night 🦉", percent = profile.circadianStat.nightPercent.toInt(), color = Color(0xFF1E88E5))
+                    }
+                }
             }
         }
 
@@ -351,6 +454,601 @@ fun PersonalityMeterContent(profile: PersonalityProfile) {
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CircadianLegendItem(label: String, percent: Int, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "$percent%",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * HALL OF FAME: Top Creators, Livestream records, Positivity index, Streaks & Glory Badges
+ */
+@Composable
+fun HallOfFameContent(
+    hallOfFame: HallOfFameData,
+    onBadgeClick: (FameShameBadge) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // TOP CREATOR STAN HERO BANNER
+        item {
+            val topCreator = hallOfFame.topCreators.firstOrNull()
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF1E1B10)
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "👑 HALL OF FAME",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFD700),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "Top Creator Royalty",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFFD700).copy(alpha = 0.8f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF332A00))
+                                .border(2.dp, Color(0xFFFFD700), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!topCreator?.avatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = topCreator?.avatarUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Text("⭐", fontSize = 24.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = topCreator?.creatorName ?: "Featured Creator",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${topCreator?.stanTitle ?: "Dedicated Viewer"} • ${topCreator?.videoCount ?: 0} videos (${topCreator?.totalMinutes ?: 0}m)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFFFD700),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // FAME METRICS ROW: Positivity & Streak & Streams
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MetricCard(
+                    title = "Positive Energy",
+                    value = "${hallOfFame.positivityScorePercent}%",
+                    subtitle = "${hallOfFame.likesGiven} likes given",
+                    icon = Icons.Outlined.ThumbUp,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricCard(
+                    title = "Daily Streak",
+                    value = "${hallOfFame.dailyStreakDays} Days",
+                    subtitle = "Record: ${hallOfFame.longestStreakDays} d",
+                    icon = Icons.Outlined.LocalFireDepartment,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // TOP CREATORS LEADERBOARD
+        if (hallOfFame.topCreators.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.Star,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Most Watched Creators",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        hallOfFame.topCreators.forEachIndexed { idx, creator ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "#${idx + 1}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (idx == 0) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(28.dp)
+                                )
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = creator.creatorName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${creator.stanTitle} • ${creator.favoriteGenre}",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Text(
+                                    text = "${creator.videoCount} vids (${creator.totalMinutes}m)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // HALL OF FAME TROPHY BADGES
+        item {
+            Text(
+                text = "Glory Badges & Honors",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        items(hallOfFame.fameBadges, key = { it.id }) { badge ->
+            FameShameBadgeCard(
+                badge = badge,
+                onClick = { onBadgeClick(badge) }
+            )
+        }
+    }
+}
+
+/**
+ * HALL OF SHAME: Guilty pleasures, 3 AM Doomscrolling, Watch Later Graveyard, Quick Skips & Roast
+ */
+@Composable
+fun HallOfShameContent(
+    hallOfShame: HallOfShameData,
+    onBadgeClick: (FameShameBadge) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // ROAST & SHAME SCORE HERO BANNER
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF200F15)
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "💀 HALL OF SHAME",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFF5252),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "Guilty Pleasures & Chaos",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFF5252).copy(alpha = 0.8f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = hallOfShame.shameRankTitle,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "\"${hallOfShame.roastQuote}\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontStyle = FontStyle.Italic,
+                        color = Color(0xFFFF8A80)
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Shame Index Progress Bar
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Chaos & Shame Index",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = "${hallOfShame.shameScorePercent}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFF5252)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { hallOfShame.shameScorePercent / 100f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = Color(0xFFFF5252),
+                            trackColor = Color(0xFF3E1B24)
+                        )
+                    }
+                }
+            }
+        }
+
+        // GUILTY PLEASURE HABIT STATS
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MetricCard(
+                    title = "3 AM Vampire",
+                    value = "${hallOfShame.lateNightVideoCount}",
+                    subtitle = "${hallOfShame.lateNightMinutes}m after dark",
+                    icon = Icons.Outlined.NightsStay,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricCard(
+                    title = "Watch Later Hoard",
+                    value = "${hallOfShame.watchLaterHoardedCount}",
+                    subtitle = "Unwatched in graveyard",
+                    icon = Icons.Outlined.Inventory2,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MetricCard(
+                    title = "Goldfish Skips",
+                    value = "${hallOfShame.quickSkipCount}",
+                    subtitle = "Skipped in <20 secs",
+                    icon = Icons.Outlined.FastForward,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricCard(
+                    title = "Skeptical Dislikes",
+                    value = "${hallOfShame.dislikesGiven + hallOfShame.notInterestedCount}",
+                    subtitle = "Banished videos",
+                    icon = Icons.Outlined.ThumbDown,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // CURSED BADGES LIST
+        item {
+            Text(
+                text = "Cursed Relics & Habits",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        items(hallOfShame.shameBadges, key = { it.id }) { badge ->
+            FameShameBadgeCard(
+                badge = badge,
+                onClick = { onBadgeClick(badge) }
+            )
+        }
+    }
+}
+
+@Composable
+fun FameShameBadgeCard(
+    badge: FameShameBadge,
+    onClick: () -> Unit
+) {
+    val isUnlocked = badge.isUnlocked
+    val isShame = badge.isShame
+    val primaryTint = if (isShame) Color(0xFFFF5252) else Color(0xFFFFD700)
+
+    val cardBg = if (isUnlocked) {
+        if (isShame) Color(0xFF221118) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+    }
+
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = if (isUnlocked) androidx.compose.foundation.BorderStroke(1.dp, primaryTint.copy(alpha = 0.3f)) else null
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isUnlocked) primaryTint.copy(alpha = 0.15f)
+                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                    )
+                    .border(
+                        1.5.dp,
+                        if (isUnlocked) primaryTint else Color.Gray.copy(alpha = 0.3f),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = badge.iconEmoji,
+                    fontSize = 22.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = badge.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isUnlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = badge.tier,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = primaryTint
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = badge.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = primaryTint.copy(alpha = 0.9f)
+                )
+
+                Text(
+                    text = badge.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            if (isUnlocked) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Unlocked",
+                    tint = primaryTint,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Text(
+                    text = "+${badge.xpReward} XP",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = primaryTint
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FameShameBadgeDetailDialog(
+    badge: FameShameBadge,
+    onDismiss: () -> Unit
+) {
+    val isShame = badge.isShame
+    val primaryTint = if (isShame) Color(0xFFFF5252) else Color(0xFFFFD700)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(primaryTint.copy(alpha = 0.15f))
+                        .border(2.5.dp, primaryTint, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = badge.iconEmoji,
+                        fontSize = 34.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = badge.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "${badge.tier} • ${badge.subtitle}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = primaryTint
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = badge.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                if (!badge.roastOrGloryQuote.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = primaryTint.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "\"${badge.roastOrGloryQuote}\"",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontStyle = FontStyle.Italic,
+                            color = primaryTint,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Stat: ${badge.statText}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryTint),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isShame) "I Accept My Sins" else "Claim Glory",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -589,7 +1287,7 @@ fun MetricCard(
     title: String,
     value: String,
     subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     modifier: Modifier = Modifier
 ) {
     Card(

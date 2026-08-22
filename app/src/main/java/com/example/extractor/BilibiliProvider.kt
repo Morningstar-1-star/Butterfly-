@@ -104,7 +104,20 @@ object BilibiliProvider {
             val dataObj = metaJson.optJSONObject("data") ?: return@withContext null
             val resolvedBvid = dataObj.optString("bvid", bvid)
             val resolvedAid = dataObj.optLong("aid", 0L)
-            val title = dataObj.optString("title", "Bilibili Video")
+            val rawTitle = dataObj.optString("title", "Bilibili Video")
+            // Clean up HTML tags if any (e.g. <em class="keyword">)
+            val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
+            val translatedEnglishTitle = try {
+                com.example.util.SubtitleTranslator.translateText(cleanTitle, targetLang = "en", sourceLang = "zh")
+            } catch (e: Exception) {
+                cleanTitle
+            }
+            val title = if (translatedEnglishTitle.isNotBlank() && translatedEnglishTitle != cleanTitle) {
+                translatedEnglishTitle
+            } else {
+                cleanTitle
+            }
+
             var pic = dataObj.optString("pic", "")
             if (pic.startsWith("//")) pic = "https:$pic"
             val desc = dataObj.optString("desc", "")
@@ -126,6 +139,73 @@ object BilibiliProvider {
             if (cid == 0L) {
                 Log.w(TAG, "Could not determine CID for $resolvedBvid")
                 return@withContext null
+            }
+
+            // Extract Bilibili official & AI subtitles
+            val captionOptions = mutableListOf<com.example.model.CaptionOption>()
+            try {
+                // 1. From view metadata
+                val subtitleObj = dataObj.optJSONObject("subtitle")
+                val subList = subtitleObj?.optJSONArray("list")
+                if (subList != null) {
+                    for (i in 0 until subList.length()) {
+                        val sItem = subList.optJSONObject(i) ?: continue
+                        var sUrl = sItem.optString("subtitle_url", "")
+                        if (sUrl.startsWith("//")) sUrl = "https:$sUrl"
+                        val sLan = sItem.optString("lan", "zh-CN")
+                        val sDoc = sItem.optString("lan_doc", "Chinese Subtitle")
+                        val sType = sItem.optInt("type", 0)
+                        val label = if (sType == 1) "$sDoc (Bilibili AI)" else sDoc
+                        if (sUrl.isNotBlank()) {
+                            captionOptions.add(
+                                com.example.model.CaptionOption(
+                                    languageName = label,
+                                    languageCode = sLan,
+                                    format = "json",
+                                    url = sUrl
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // 2. From player/v2 API
+                val playerV2Url = "https://api.bilibili.com/x/player/v2?bvid=$resolvedBvid&cid=$cid"
+                val p2Req = Request.Builder()
+                    .url(playerV2Url)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Referer", REFERER)
+                    .build()
+                val p2JsonStr = httpClient.newCall(p2Req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+                if (!p2JsonStr.isNullOrBlank()) {
+                    val p2Json = JSONObject(p2JsonStr)
+                    val p2Data = p2Json.optJSONObject("data")
+                    val p2Subtitle = p2Data?.optJSONObject("subtitle")
+                    val p2SubtitlesArr = p2Subtitle?.optJSONArray("subtitles")
+                    if (p2SubtitlesArr != null) {
+                        for (i in 0 until p2SubtitlesArr.length()) {
+                            val sItem = p2SubtitlesArr.optJSONObject(i) ?: continue
+                            var sUrl = sItem.optString("subtitle_url", "")
+                            if (sUrl.startsWith("//")) sUrl = "https:$sUrl"
+                            val sLan = sItem.optString("lan", "zh-CN")
+                            val sDoc = sItem.optString("lan_doc", "Chinese Subtitle")
+                            if (sUrl.isNotBlank() && captionOptions.none { it.url == sUrl }) {
+                                captionOptions.add(
+                                    com.example.model.CaptionOption(
+                                        languageName = "$sDoc (Player Track)",
+                                        languageCode = sLan,
+                                        format = "json",
+                                        url = sUrl
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error extracting Bilibili subtitles: ${e.message}")
             }
 
             val biliHeaders = mapOf(
@@ -314,6 +394,7 @@ object BilibiliProvider {
                 thumbnailUrl = pic,
                 viewCount = viewCount,
                 likeCount = likeCount,
+                captionOptions = captionOptions,
                 availableStreamOptions = distinctOptions,
                 selectedStreamOption = selectedOption,
                 providerId = PROVIDER_ID,

@@ -139,7 +139,19 @@ object MultiSourceProvider {
                 val item = array.optJSONObject(i) ?: continue
                 val bvid = item.optString("bvid", "")
                 if (bvid.isBlank()) continue
-                val title = item.optString("title", "Bilibili Video")
+                val rawTitle = item.optString("title", "Bilibili Video")
+                val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
+                val translatedTitle = try {
+                    com.example.util.SubtitleTranslator.translateTextSync(cleanTitle, targetLang = "en", sourceLang = "zh")
+                } catch (e: Exception) {
+                    cleanTitle
+                }
+                val finalTitle = if (translatedTitle.isNotBlank() && translatedTitle != cleanTitle) {
+                    translatedTitle
+                } else {
+                    cleanTitle
+                }
+
                 var pic = item.optString("pic", "")
                 if (pic.startsWith("//")) pic = "https:$pic"
                 val owner = item.optJSONObject("owner")?.optString("name", "Bilibili") ?: "Bilibili"
@@ -150,7 +162,7 @@ object MultiSourceProvider {
                 list.add(
                     VideoItem(
                         id = "https://www.bilibili.com/video/$bvid",
-                        title = title,
+                        title = finalTitle,
                         uploaderName = owner,
                         durationSeconds = duration,
                         viewCount = viewCount,
@@ -185,8 +197,19 @@ object MultiSourceProvider {
                 val item = array.optJSONObject(i) ?: continue
                 val bvid = item.optString("bvid", "")
                 if (bvid.isBlank()) continue
-                var title = item.optString("title", "Bilibili Video")
-                title = title.replace("<em class=\"keyword\">", "").replace("</em>", "")
+                val rawTitle = item.optString("title", "Bilibili Video")
+                val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
+                val translatedTitle = try {
+                    com.example.util.SubtitleTranslator.translateTextSync(cleanTitle, targetLang = "en", sourceLang = "zh")
+                } catch (e: Exception) {
+                    cleanTitle
+                }
+                val finalTitle = if (translatedTitle.isNotBlank() && translatedTitle != cleanTitle) {
+                    translatedTitle
+                } else {
+                    cleanTitle
+                }
+
                 var pic = item.optString("pic", "")
                 if (pic.startsWith("//")) pic = "https:$pic"
                 val author = item.optString("author", "Bilibili")
@@ -195,7 +218,7 @@ object MultiSourceProvider {
                 list.add(
                     VideoItem(
                         id = "https://www.bilibili.com/video/$bvid",
-                        title = title,
+                        title = finalTitle,
                         uploaderName = author,
                         durationSeconds = -1L,
                         viewCount = play,

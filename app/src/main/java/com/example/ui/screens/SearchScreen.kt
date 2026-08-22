@@ -645,7 +645,8 @@ fun SearchScreen(
                             showProviderBadge = showThumbnailTags,
                             onClick = { onSelectVideo(video) },
                             onNotInterested = { v -> viewModel.markNotInterested(v) },
-                            onPlayNextInQueue = { v -> viewModel.addToQueue(v) },
+                            onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                            onAddToQueue = { v -> viewModel.addToQueue(v) },
                             onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
                             onDownload = { v -> viewModel.showDownloadSheet(v) },
                             onChannelClick = { ch -> viewModel.openChannel(ch) }
