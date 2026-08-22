@@ -42,7 +42,8 @@ object MultiSourceProvider {
             "xvideos" -> getXVideosHome(limit)
             "xhamster" -> getXHamsterHome(limit)
             "redtube" -> getRedTubeHome(limit)
-            "youporn" -> getYouPornHome(limit)
+            "youporn" -> getYouPornHome(page, limit)
+            "hotstar", "jiohotstar" -> HotstarProvider.getHome(page, limit)
             "beeg" -> getBeegHome(limit)
             "4tube" -> parse4tubeHtml("https://www.4tube.com/", limit)
             "rule34video" -> parseRule34Html("https://rule34video.com/", limit)
@@ -58,6 +59,7 @@ object MultiSourceProvider {
             "dailymotion" -> "trending"
             "vimeo" -> "staff picks"
             "bilibili" -> "anime"
+            "hotstar", "jiohotstar" -> "movies"
             "pornhub" -> "trending"
             "xvideos" -> "popular"
             "xhamster" -> "popular"
@@ -90,6 +92,8 @@ object MultiSourceProvider {
             "xhamster" -> searchXHamster(query, limit)
             "redtube" -> searchRedTube(query, limit)
             "youporn" -> searchYouPorn(query, limit)
+            "hotstar", "jiohotstar" -> HotstarProvider.search(query, 1, limit)
+            "beeg" -> BeegProvider.search(query, limit)
             "4tube" -> parse4tubeHtml("https://www.4tube.com/search/${URLEncoder.encode(query, "UTF-8")}", limit)
             "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/", limit)
             else -> emptyList()
@@ -235,37 +239,7 @@ object MultiSourceProvider {
 
     // ------------------- BEEG -------------------
     private fun getBeegHome(limit: Int): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder()
-                .url("https://api.beeg.com/api/v6/index/main/0/pc")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .build()
-            val jsonStr = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val array = JSONArray(jsonStr)
-            for (i in 0 until minOf(array.length(), limit)) {
-                val item = array.optJSONObject(i) ?: continue
-                val id = item.optString("id", "")
-                if (id.isBlank()) continue
-                val title = item.optString("title", "Beeg Video")
-                val thumb = "https://img.beeg.com/240x180/$id.jpg"
-                list.add(
-                    VideoItem(
-                        id = "https://beeg.com/$id",
-                        title = title,
-                        uploaderName = "Beeg",
-                        thumbnailUrl = thumb,
-                        providerId = "beeg"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Beeg parse error: ${e.message}")
-        }
-        return list
+        return BeegProvider.getHome(limit)
     }
 
     // ------------------- DAILYMOTION -------------------
@@ -321,41 +295,7 @@ object MultiSourceProvider {
 
     // ------------------- VIMEO -------------------
     private fun getVimeoHome(limit: Int): List<VideoItem> {
-        val url = "https://vimeo.com/api/v2/channel/staffpicks/videos.json"
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder().url(url).build()
-            val jsonStr = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val jsonArray = JSONArray(jsonStr)
-            for (i in 0 until minOf(jsonArray.length(), limit)) {
-                val item = jsonArray.optJSONObject(i) ?: continue
-                val id = item.optLong("id", 0L)
-                val videoUrl = item.optString("url", "https://vimeo.com/$id")
-                val title = item.optString("title", "Vimeo Video")
-                val uploader = item.optString("user_name", "Vimeo")
-                val thumb = item.optString("thumbnail_large", item.optString("thumbnail_medium", ""))
-                val duration = item.optLong("duration", -1L)
-                val views = item.optLong("stats_number_of_plays", -1L)
-
-                list.add(
-                    VideoItem(
-                        id = videoUrl,
-                        title = title,
-                        uploaderName = uploader,
-                        durationSeconds = duration,
-                        viewCount = views,
-                        thumbnailUrl = thumb,
-                        providerId = "vimeo"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Vimeo home error: ${e.message}")
-        }
-        return list
+        return VimeoProvider.getHome(limit)
     }
 
     private fun searchVimeo(query: String, limit: Int): List<VideoItem> {
@@ -374,212 +314,125 @@ object MultiSourceProvider {
 
     private fun parsePornhubHtml(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder()
-                .url(targetUrl)
-                .header("Cookie", "age_verified=1; platform=pc")
-                .header("Referer", "https://www.pornhub.com/")
-                .build()
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
+        val urlsToTry = listOf(
+            targetUrl,
+            "https://www.pornhub.com/video?o=ht",
+            "https://www.pornhub.com/video?o=mv",
+            "https://www.pornhub.com/"
+        ).distinct()
 
-            // Parse block by block (videoBox or phimage containers)
-            val blockPattern = Pattern.compile("<li[^>]*class=\"[^\"]*(?:videoBox|pcVideoListItem)[^\"]*\"[^>]*>(.*?)</li>", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
-            val blockMatcher = blockPattern.matcher(html)
-            val seenKeys = mutableSetOf<String>()
+        for (url in urlsToTry) {
+            try {
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("Cookie", "age_verified=1; platform=pc")
+                    .header("Referer", "https://www.pornhub.com/")
+                    .build()
 
-            while (blockMatcher.find() && list.size < limit) {
-                val block = blockMatcher.group(1) ?: continue
+                val pornhubClient = httpClient.newBuilder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+                    .build()
 
-                // 1. Extract viewkey / link
-                val linkMatcher = Pattern.compile("href=\"(/view_video\\.php\\?viewkey=([a-zA-Z0-9_-]+))\"", Pattern.CASE_INSENSITIVE).matcher(block)
-                if (!linkMatcher.find()) continue
-                val href = linkMatcher.group(1) ?: continue
-                val viewkey = linkMatcher.group(2) ?: continue
-                if (seenKeys.contains(viewkey)) continue
-                seenKeys.add(viewkey)
-
-                // 2. Extract title
-                var title = "Pornhub Video"
-                val titleMatcher = Pattern.compile("title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
-                if (titleMatcher.find()) {
-                    title = titleMatcher.group(1) ?: title
-                } else {
-                    val altMatcher = Pattern.compile("alt=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
-                    if (altMatcher.find()) {
-                        title = altMatcher.group(1) ?: title
-                    }
+                val (code, bodyStr) = pornhubClient.newCall(req).execute().use { resp ->
+                    Pair(resp.code, if (resp.isSuccessful) resp.body?.string() else null)
                 }
 
-                // 3. Extract thumbnail
-                var thumb = ""
-                val thumbMatcher = Pattern.compile("(?:data-mediumthumbnail|data-thumb_url|data-src|data-image|src)=\"([^\"]*(?:phncdn|pornhub)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
-                if (thumbMatcher.find()) {
-                    thumb = thumbMatcher.group(1) ?: ""
-                }
-                if (thumb.isBlank()) {
-                    val genericImg = Pattern.compile("(?:data-mediumthumbnail|data-thumb_url|data-src|data-image|src)=\"(https?://[^\"]+?\\.(?:jpg|jpeg|webp|png)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
-                    if (genericImg.find()) {
-                        thumb = genericImg.group(1) ?: ""
-                    }
-                }
-                if (thumb.startsWith("//")) {
-                    thumb = "https:$thumb"
-                }
+                println("PORNHUB FETCH URL=$url CODE=$code LENGTH=${bodyStr?.length ?: 0}")
 
-                // 4. Extract duration
-                var duration = -1L
-                val durationMatcher = Pattern.compile("<var class=\"duration\">([0-9:]+)</var>", Pattern.CASE_INSENSITIVE).matcher(block)
-                if (durationMatcher.find()) {
-                    val durStr = durationMatcher.group(1) ?: ""
-                    val parts = durStr.split(":")
-                    if (parts.size == 2) {
-                        duration = (parts[0].toLongOrNull() ?: 0L) * 60L + (parts[1].toLongOrNull() ?: 0L)
-                    } else if (parts.size == 3) {
-                        duration = (parts[0].toLongOrNull() ?: 0L) * 3600L + (parts[1].toLongOrNull() ?: 0L) * 60L + (parts[2].toLongOrNull() ?: 0L)
-                    }
-                }
+                if (bodyStr.isNullOrEmpty()) continue
 
-                list.add(
-                    VideoItem(
-                        id = "https://www.pornhub.com$href",
-                        title = title,
-                        uploaderName = "Pornhub",
-                        thumbnailUrl = thumb,
-                        durationSeconds = duration,
-                        providerId = "pornhub"
-                    )
-                )
-            }
+                val seenKeys = mutableSetOf<String>()
+                val vkPattern = Pattern.compile("(?:data-video-vkey=\"|href=\"/view_video\\.php\\?viewkey=)([a-zA-Z0-9_-]+)", Pattern.CASE_INSENSITIVE)
+                val vkMatcher = vkPattern.matcher(bodyStr)
 
-            // Fallback general regex if block parsing found nothing
-            if (list.isEmpty()) {
-                val fallbackPattern = Pattern.compile("<a\\s+[^>]*href=\"(/view_video\\.php\\?viewkey=([a-zA-Z0-9_-]+))\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-                val fallbackMatcher = fallbackPattern.matcher(html)
-                while (fallbackMatcher.find() && list.size < limit) {
-                    val href = fallbackMatcher.group(1) ?: continue
-                    val viewkey = fallbackMatcher.group(2) ?: continue
-                    val title = fallbackMatcher.group(3) ?: "Pornhub Video"
+                while (vkMatcher.find() && list.size < limit) {
+                    val viewkey = vkMatcher.group(1) ?: continue
                     if (seenKeys.contains(viewkey)) continue
                     seenKeys.add(viewkey)
 
+                    val startIdx = vkMatcher.start()
+                    val blockStart = (startIdx - 150).coerceAtLeast(0)
+                    val blockEnd = (startIdx + 1500).coerceAtMost(bodyStr.length)
+                    val block = bodyStr.substring(blockStart, blockEnd)
+
+                    // 1. Extract title
+                    var title = "Pornhub Video"
+                    val titleMatcher = Pattern.compile("(?:title|alt|data-title)=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    while (titleMatcher.find()) {
+                        val candidate = titleMatcher.group(1) ?: continue
+                        if (candidate.isNotBlank() && !candidate.contains("Pornhub", ignoreCase = true) && candidate.length > 3) {
+                            title = candidate
+                            break
+                        }
+                    }
+
+                    // 2. Extract thumbnail
+                    var thumb = ""
+                    val thumbMatcher = Pattern.compile("(?:data-mediumthumbnail|data-thumb_url|data-src|data-image|data-poster|src)=\"([^\"]*(?:phncdn|pornhub|jpg|jpeg|webp|png)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (thumbMatcher.find()) {
+                        thumb = thumbMatcher.group(1) ?: ""
+                    }
+                    if (thumb.startsWith("//")) {
+                        thumb = "https:$thumb"
+                    }
+
+                    // 3. Extract duration
+                    var duration = -1L
+                    val durationMatcher = Pattern.compile("(?:<var class=\"duration\">|data-duration=\"|<span class=\"duration\">)([0-9:]+)", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (durationMatcher.find()) {
+                        val durStr = durationMatcher.group(1) ?: ""
+                        val parts = durStr.split(":")
+                        if (parts.size == 2) {
+                            duration = (parts[0].toLongOrNull() ?: 0L) * 60L + (parts[1].toLongOrNull() ?: 0L)
+                        } else if (parts.size == 3) {
+                            duration = (parts[0].toLongOrNull() ?: 0L) * 3600L + (parts[1].toLongOrNull() ?: 0L) * 60L + (parts[2].toLongOrNull() ?: 0L)
+                        }
+                    }
+
                     list.add(
                         VideoItem(
-                            id = "https://www.pornhub.com$href",
+                            id = "https://www.pornhub.com/view_video.php?viewkey=$viewkey",
                             title = title,
                             uploaderName = "Pornhub",
-                            thumbnailUrl = "",
+                            thumbnailUrl = thumb,
+                            durationSeconds = duration,
                             providerId = "pornhub"
                         )
                     )
                 }
+
+                if (list.isNotEmpty()) {
+                    println("PORNHUB PARSED ${list.size} ITEMS FROM $url")
+                    break
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pornhub parse error for $url: ${e.message}")
+                println("PORNHUB PARSE EXCEPTION FOR $url: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Pornhub parse error: ${e.message}")
         }
         return list
     }
 
     // ------------------- XVIDEOS -------------------
     private fun getXVideosHome(limit: Int): List<VideoItem> {
-        return parseXVideosHtml("https://www.xvideos.com/new/1", limit)
+        return XVideosProvider.getHome(limit)
     }
 
     private fun searchXVideos(query: String, limit: Int): List<VideoItem> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        return parseXVideosHtml("https://www.xvideos.com/?k=$encoded", limit)
-    }
-
-    private fun parseXVideosHtml(targetUrl: String, limit: Int): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder().url(targetUrl).build()
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val pattern = Pattern.compile("<a\\s+href=\"(/video(\\d+)/[^\"]+)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seenIds = mutableSetOf<String>()
-
-            val thumbPattern = Pattern.compile("data-src=\"(https://[^\"]+?\\.jpg[^\"]*)\"", Pattern.CASE_INSENSITIVE)
-            val thumbMatcher = thumbPattern.matcher(html)
-            val thumbs = mutableListOf<String>()
-            while (thumbMatcher.find()) {
-                thumbs.add(thumbMatcher.group(1) ?: "")
-            }
-
-            var thumbIdx = 0
-            while (matcher.find() && list.size < limit) {
-                val path = matcher.group(1) ?: continue
-                val videoId = matcher.group(2) ?: continue
-                val title = matcher.group(3) ?: "XVideos"
-
-                if (seenIds.contains(videoId)) continue
-                seenIds.add(videoId)
-
-                val thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
-
-                list.add(
-                    VideoItem(
-                        id = "https://www.xvideos.com$path",
-                        title = title,
-                        uploaderName = "XVideos",
-                        thumbnailUrl = thumb,
-                        providerId = "xvideos"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "XVideos parse error: ${e.message}")
-        }
-        return list
+        return XVideosProvider.search(query, limit)
     }
 
     // ------------------- XHAMSTER -------------------
     private fun getXHamsterHome(limit: Int): List<VideoItem> {
-        return parseXHamsterHtml("https://xhamster.com/trending", limit)
+        return XHamsterProvider.getHome(limit)
     }
 
     private fun searchXHamster(query: String, limit: Int): List<VideoItem> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        return parseXHamsterHtml("https://xhamster.com/search/$encoded", limit)
-    }
-
-    private fun parseXHamsterHtml(targetUrl: String, limit: Int): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder().url(targetUrl).build()
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val pattern = Pattern.compile("<a\\s+href=\"(https://xhamster\\.com/videos/[^\"]+)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seen = mutableSetOf<String>()
-
-            while (matcher.find() && list.size < limit) {
-                val videoUrl = matcher.group(1) ?: continue
-                val title = matcher.group(2) ?: "XHamster Video"
-
-                if (seen.contains(videoUrl)) continue
-                seen.add(videoUrl)
-
-                list.add(
-                    VideoItem(
-                        id = videoUrl,
-                        title = title,
-                        uploaderName = "XHamster",
-                        thumbnailUrl = "",
-                        providerId = "xhamster"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "XHamster parse error: ${e.message}")
-        }
-        return list
+        return XHamsterProvider.search(query, limit)
     }
 
     // ------------------- REDTUBE -------------------
@@ -629,49 +482,12 @@ object MultiSourceProvider {
     }
 
     // ------------------- YOUPORN -------------------
-    private fun getYouPornHome(limit: Int): List<VideoItem> {
-        return parseYouPornHtml("https://www.youporn.com/most_viewed/", limit)
+    private fun getYouPornHome(page: Int = 1, limit: Int = 30): List<VideoItem> {
+        return YouPornProvider.getHome(page, limit)
     }
 
-    private fun searchYouPorn(query: String, limit: Int): List<VideoItem> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        return parseYouPornHtml("https://www.youporn.com/search/?query=$encoded", limit)
-    }
-
-    private fun parseYouPornHtml(targetUrl: String, limit: Int): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder().url(targetUrl).build()
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val pattern = Pattern.compile("<a\\s+href=\"(/watch/(\\d+)/[^\"]*)\"[^>]*title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seen = mutableSetOf<String>()
-
-            while (matcher.find() && list.size < limit) {
-                val path = matcher.group(1) ?: continue
-                val id = matcher.group(2) ?: continue
-                val title = matcher.group(3) ?: "YouPorn Video"
-
-                if (seen.contains(id)) continue
-                seen.add(id)
-
-                list.add(
-                    VideoItem(
-                        id = "https://www.youporn.com$path",
-                        title = title,
-                        uploaderName = "YouPorn",
-                        thumbnailUrl = "",
-                        providerId = "youporn"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "YouPorn parse error: ${e.message}")
-        }
-        return list
+    private fun searchYouPorn(query: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        return YouPornProvider.search(query, page, limit)
     }
 
     // ------------------- 4TUBE -------------------

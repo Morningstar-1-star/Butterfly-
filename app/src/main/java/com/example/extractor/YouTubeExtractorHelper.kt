@@ -243,12 +243,103 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isPornhub = providerId == "pornhub" || urlOrId.contains("pornhub.com") || urlOrId.contains("phncdn.com")
+        if (isPornhub) {
+            val pornhubData = PornhubProvider.getStreamData(urlOrId, context)
+            if (pornhubData != null) {
+                Log.i(TAG, "Resolved via PornhubProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(pornhubData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Pornhub to YtDlpResolver for $urlOrId")
+                val fullPhUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.pornhub.com/view_video.php?viewkey=$urlOrId"
+                return@withContext YtDlpResolver.extractStreamInfo(context, fullPhUrl)
+            }
+        }
+
+        val isRule34 = providerId == "rule34video" || urlOrId.contains("rule34video.com")
+        if (isRule34) {
+            val r34Data = Rule34VideoProvider.getStreamData(urlOrId, context)
+            if (r34Data != null) {
+                Log.i(TAG, "Resolved via Rule34VideoProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(r34Data)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Rule34Video to YtDlpResolver for $urlOrId")
+                return@withContext YtDlpResolver.extractStreamInfo(context, urlOrId)
+            }
+        }
+
         val isDailymotion = providerId == "dailymotion" || urlOrId.contains("dailymotion.com") || urlOrId.contains("dai.ly")
         if (isDailymotion) {
             val dmData = DailymotionProvider.getStreamData(urlOrId, context)
             if (dmData != null) {
                 Log.i(TAG, "Resolved via DailymotionProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(dmData)
+            }
+        }
+
+        val isVimeo = providerId == "vimeo" || urlOrId.contains("vimeo.com")
+        if (isVimeo) {
+            val vimeoData = VimeoProvider.getStreamData(urlOrId, context)
+            if (vimeoData != null) {
+                Log.i(TAG, "Resolved via VimeoProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(vimeoData)
+            }
+        }
+
+        val isHotstar = providerId == "hotstar" || providerId == "jiohotstar" || urlOrId.contains("hotstar.com") || urlOrId.contains("jiohotstar.com")
+        if (isHotstar) {
+            val hotstarData = HotstarProvider.getStreamData(urlOrId, context)
+            if (hotstarData != null) {
+                Log.i(TAG, "Resolved via HotstarProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(hotstarData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Hotstar to YtDlpResolver fallback for $urlOrId")
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, urlOrId)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ytdlResult
+                }
+            }
+        }
+
+        val isXHamster = providerId == "xhamster" || urlOrId.contains("xhamster.com") || urlOrId.contains("xhcdn.com")
+        if (isXHamster) {
+            val xhData = XHamsterProvider.getStreamData(urlOrId, context)
+            if (xhData != null) {
+                Log.i(TAG, "Resolved via XHamsterProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(xhData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing xHamster to YtDlpResolver fallback for $urlOrId")
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, urlOrId)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ytdlResult
+                }
+            }
+        }
+
+        val isXVideos = providerId == "xvideos" || urlOrId.contains("xvideos.com")
+        if (isXVideos) {
+            val xvData = XVideosProvider.getStreamData(urlOrId, context)
+            if (xvData != null) {
+                Log.i(TAG, "Resolved via XVideosProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(xvData)
+            }
+        }
+
+        val isYouPorn = providerId == "youporn" || urlOrId.contains("youporn.com")
+        if (isYouPorn) {
+            val ypData = YouPornProvider.getStreamData(urlOrId, context)
+            if (ypData != null) {
+                Log.i(TAG, "Resolved via YouPornProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(ypData)
+            }
+        }
+
+        val isBeeg = providerId == "beeg" || urlOrId.contains("beeg.com")
+        if (isBeeg) {
+            val beegData = BeegProvider.getStreamData(urlOrId, context)
+            if (beegData != null) {
+                Log.i(TAG, "Resolved via BeegProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(beegData)
             }
         }
 

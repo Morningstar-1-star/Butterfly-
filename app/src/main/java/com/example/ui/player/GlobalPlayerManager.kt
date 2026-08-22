@@ -66,11 +66,25 @@ object GlobalPlayerManager {
             urlStr.contains("pornhub.com") || urlStr.contains("phncdn.com") -> {
                 builder.header("Referer", "https://www.pornhub.com/")
                 builder.header("Origin", "https://www.pornhub.com")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc")
+            }
+            urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {
+                builder.header("Referer", "https://www.youporn.com/")
+                builder.header("Origin", "https://www.youporn.com")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc")
+            }
+            urlStr.contains("xhamster.com") || urlStr.contains("xhcdn.com") -> {
+                builder.header("Referer", "https://xhamster.com/")
+                builder.header("Origin", "https://xhamster.com")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc")
             }
             urlStr.contains("vimeo.com") || urlStr.contains("vimeocdn.com") || (urlStr.contains("vimeo") && !urlStr.contains("bili")) -> {
                 builder.header("Referer", "https://vimeo.com/")
                 builder.header("Origin", "https://vimeo.com")
+            }
+            urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("jiohotstar") -> {
+                builder.header("Referer", "https://www.hotstar.com/")
+                builder.header("Origin", "https://www.hotstar.com")
             }
         }
 
@@ -696,6 +710,15 @@ object GlobalPlayerManager {
                             lowerTarget.contains("redtube.com") -> {
                                 reqHeaders["Referer"] = "https://www.redtube.com/"
                             }
+                            lowerTarget.contains("youporn.com") || lowerTarget.contains("ypncdn.com") || streamData?.providerId == "youporn" -> {
+                                reqHeaders["Referer"] = "https://www.youporn.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.youporn.com"
+                                }
+                                if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                                    reqHeaders["Cookie"] = "age_verified=1; platform=pc"
+                                }
+                            }
                             lowerTarget.contains("xhamster.com") -> {
                                 reqHeaders["Referer"] = "https://xhamster.com/"
                             }
@@ -705,6 +728,10 @@ object GlobalPlayerManager {
                             lowerTarget.contains("vimeo.com") || lowerTarget.contains("vimeocdn.com") || (streamData?.providerId == "vimeo" && !isBilibiliStream) -> {
                                 reqHeaders["Referer"] = "https://vimeo.com/"
                                 reqHeaders["Origin"] = "https://vimeo.com"
+                            }
+                            lowerTarget.contains("hotstar.com") || lowerTarget.contains("hotstar-cdn") || lowerTarget.contains("jiohotstar") || streamData?.providerId == "hotstar" -> {
+                                reqHeaders["Referer"] = "https://www.hotstar.com/"
+                                reqHeaders["Origin"] = "https://www.hotstar.com"
                             }
                             lowerTarget.contains("helvid") || lowerTarget.contains("upload18") || lowerTarget.contains("apijav") -> {
                                 reqHeaders["Referer"] = "https://upload18.org/"
@@ -772,7 +799,7 @@ object GlobalPlayerManager {
 
                 val builder = MediaItem.Builder().setUri(uri)
 
-                if (lowerFormat == "hls" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
+                if (lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
                     builder.setMimeType(MimeTypes.APPLICATION_M3U8)
                 } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
                     builder.setMimeType(MimeTypes.APPLICATION_MPD)

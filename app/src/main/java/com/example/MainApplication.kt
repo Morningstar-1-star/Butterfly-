@@ -76,14 +76,19 @@ class MainApplication : Application() {
             Log.w("MainApplication", "yt-dlp init note: ${e.message}")
         }
 
-        // Pre-warm yt-dlp asynchronously on app startup so video extraction starts instantly
+        // Pre-warm yt-dlp asynchronously and check for background engine updates on app startup
         applicationScope.launch {
             try {
                 Log.d("MainApplication", "Pre-warming YtDlpResolver...")
                 YtDlpResolver.prewarm(this@MainApplication)
                 Log.d("MainApplication", "YtDlpResolver pre-warmed successfully")
+
+                // Background automatic update check
+                if (com.example.extractor.YtDlpUpdateManager.isAutoUpdateEnabled.value) {
+                    com.example.extractor.YtDlpUpdateManager.checkForUpdates(this@MainApplication, isManual = false)
+                }
             } catch (e: Throwable) {
-                Log.e("MainApplication", "Error pre-warming YtDlpResolver", e)
+                Log.e("MainApplication", "Error during yt-dlp startup routine", e)
             }
         }
     }

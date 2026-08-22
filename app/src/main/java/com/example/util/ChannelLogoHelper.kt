@@ -273,6 +273,17 @@ object ChannelLogoHelper {
                 subscriberCountText = "52.0M subscribers"
             )
 
+            combined.contains("hotstar") || combined.contains("jiohotstar") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/200px-Disney%2B_Hotstar_logo.svg.png"
+                ),
+                brandName = if (name.contains("hotstar", ignoreCase = true)) cleanName else "JioHotstar",
+                brandShortText = "HOTSTAR",
+                backgroundColor = Color(0xFF0F1014),
+                textColor = Color(0xFF0078FF),
+                subscriberCountText = "Official Stream • Verified"
+            )
+
             combined.contains("warner") || combined.contains("wb") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Warner_Bros_logo.svg/200px-Warner_Bros_logo.svg.png"

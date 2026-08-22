@@ -242,7 +242,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
-        val set = mutableSetOf("all", "youtube", "archive_org", "dailymotion", "bilibili", "vimeo")
+        val set = mutableSetOf("all", "youtube", "archive_org", "dailymotion", "bilibili", "vimeo", "hotstar")
         if (settingsPrefs.getBoolean("adult_content_enabled", false)) {
             set.addAll(listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn"))
         }
@@ -1435,6 +1435,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setActiveProvider(providerId: String) {
         _activeProviderId.value = providerId
+        if (isAdultProviderId(providerId)) {
+            _adultContentEnabled.value = true
+            try {
+                settingsPrefs.edit().putBoolean("adult_content_enabled", true).apply()
+            } catch (_: Exception) {}
+        }
         if (!_enabledProviderIds.value.contains(providerId)) {
             _enabledProviderIds.value = _enabledProviderIds.value + providerId
         }
@@ -1521,6 +1527,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 category = "Video",
                 isEnabled = enabledSet.contains("vimeo"),
                 isDefault = (activeId == "vimeo")
+            )
+        )
+        uiList.add(
+            ProviderUiItem(
+                id = "hotstar",
+                name = "Hotstar",
+                description = "Hotstar & JioHotstar streaming catalog via yt-dlp",
+                category = "Video",
+                isEnabled = enabledSet.contains("hotstar"),
+                isDefault = (activeId == "hotstar")
             )
         )
         if (adultEnabled) {
@@ -1888,7 +1904,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 4. MultiSource providers
-                    val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
+                    val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "hotstar", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
 
                     val searchSources = when {
                         activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
@@ -1985,7 +2001,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 4. MultiSource providers
-                    val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
+                    val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "hotstar", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
 
                     val targetSources = when {
                         activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
@@ -2263,6 +2279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("beeg.com", ignoreCase = true) -> "beeg"
                 cleanIdOrUrl.contains("bilibili.com", ignoreCase = true) -> "bilibili"
                 cleanIdOrUrl.contains("vimeo.com", ignoreCase = true) -> "vimeo"
+                cleanIdOrUrl.contains("hotstar.com", ignoreCase = true) || cleanIdOrUrl.contains("jiohotstar.com", ignoreCase = true) -> "hotstar"
                 cleanIdOrUrl.contains("bitchute.com", ignoreCase = true) -> "bitchute"
                 cleanIdOrUrl.contains("rumble.com", ignoreCase = true) -> "rumble"
                 cleanIdOrUrl.contains("tiktok.com", ignoreCase = true) -> "tiktok"

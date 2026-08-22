@@ -336,17 +336,18 @@ fun HomeScreen(
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                            val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
+                            val isSpecificAdultSource = viewModel.isAdultProviderId(activeProviderId)
+                            val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled, activeProviderId) {
                                 rawFeed
                                     .filterNot { viewModel.isBlockedVideo(it) }
-                                    .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                                    .filter { adultContentEnabled || isSpecificAdultSource || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
                                     .distinctBy { "${it.providerId}_${it.id}" }
                             }
-                            val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled) {
+                            val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled, activeProviderId) {
                                 rawFeed
                                     .filterNot { viewModel.isBlockedVideo(it) }
-                                    .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                                    .filter { adultContentEnabled || isSpecificAdultSource || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
                                     .distinctBy { "${it.providerId}_${it.id}" }
                             }

@@ -155,6 +155,9 @@ object ThumbnailOptimizer {
             lowerUrl.contains("dailymotion.com") || lowerUrl.contains("dmcdn.net") -> {
                 builder.setHeader("Referer", "https://www.dailymotion.com/")
             }
+            lowerUrl.contains("hotstar.com") || lowerUrl.contains("hotstar-cdn") || lowerUrl.contains("jiohotstar") -> {
+                builder.setHeader("Referer", "https://www.hotstar.com/")
+            }
         }
 
         return builder.build()

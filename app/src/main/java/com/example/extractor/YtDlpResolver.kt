@@ -42,6 +42,29 @@ object YtDlpResolver {
         ensureInitialized(ctx)
     }
 
+    suspend fun getEngineVersion(ctx: Context): String = withContext(Dispatchers.IO) {
+        ensureInitialized(ctx)
+        try {
+            val request = YtDlpRequest("https://www.youtube.com")
+            request.addOption("--version")
+            val response = processSemaphore.withPermit {
+                YtDlp.execute(request, null)
+            }
+            val output = response.output.trim()
+            val versionMatch = Regex("""\d{4}\.\d{2}\.\d{2}.*""").find(output)
+            if (versionMatch != null) {
+                versionMatch.value
+            } else if (output.isNotBlank()) {
+                output.lines().firstOrNull { it.isNotBlank() } ?: "2024.12.13"
+            } else {
+                "2024.12.13"
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to retrieve yt-dlp engine version: ${e.message}")
+            "2024.12.13"
+        }
+    }
+
     fun isYtDlpSupportedUrl(url: String): Boolean {
         val u = url.lowercase().trim()
         val supportedDomains = listOf(
@@ -59,6 +82,7 @@ object YtDlpResolver {
             "youporn.com",
             "eporner.com",
             "archive.org",
+            "hotstar.com", "jiohotstar.com",
             "tiktok.com",
             "twitch.tv",
             "soundcloud.com"
@@ -217,6 +241,12 @@ object YtDlpResolver {
                 lowerUrl.contains("eporner.com") -> {
                     request.addOption("--add-header", "Referer: https://www.eporner.com/")
                     domainHeaders["Referer"] = "https://www.eporner.com/"
+                }
+                lowerUrl.contains("hotstar.com") || lowerUrl.contains("jiohotstar.com") -> {
+                    request.addOption("--add-header", "Referer: https://www.hotstar.com/")
+                    request.addOption("--add-header", "Origin: https://www.hotstar.com")
+                    domainHeaders["Referer"] = "https://www.hotstar.com/"
+                    domainHeaders["Origin"] = "https://www.hotstar.com"
                 }
                 lowerUrl.contains("tiktok.com") -> {
                     request.addOption("--add-header", "Referer: https://www.tiktok.com/")
@@ -528,6 +558,7 @@ object YtDlpResolver {
                 providerId == "redtube" -> "https://www.redtube.com/?search=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "xhamster" -> "https://xhamster.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "youporn" -> "https://www.youporn.com/search/?query=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                providerId == "hotstar" || providerId == "jiohotstar" -> "https://www.hotstar.com/in/explore?search_query=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 providerId == "eporner" -> "https://www.eporner.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}/"
                 else -> "ytsearch$limit:$query"
             }
@@ -585,6 +616,7 @@ object YtDlpResolver {
                                     providerId == "xvideos" -> "https://www.xvideos.com/video$id/_"
                                     providerId == "redtube" -> "https://www.redtube.com/$id"
                                     providerId == "youporn" -> "https://www.youporn.com/watch/$id/"
+                                    providerId == "hotstar" || providerId == "jiohotstar" -> if (id.startsWith("http")) id else "https://www.hotstar.com/in/movies/content/$id"
                                     providerId == "xhamster" -> "https://xhamster.com/videos/$id"
                                     providerId == "4tube" -> "https://www.4tube.com/videos/$id"
                                     providerId == "beeg" -> "https://beeg.com/$id"

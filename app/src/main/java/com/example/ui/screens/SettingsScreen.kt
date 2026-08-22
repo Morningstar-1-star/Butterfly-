@@ -600,21 +600,25 @@ fun SettingsScreen(
                 }
             }
 
-            // 5. YT-DLP CORE ENGINE (v2.0.2)
+            // 5. YT-DLP CORE ENGINE
             item {
                 val installedVer by com.example.extractor.YtDlpUpdateManager.installedVersion.collectAsState()
+                val wrapperVer by com.example.extractor.YtDlpUpdateManager.wrapperVersion.collectAsState()
+                val engineVer by com.example.extractor.YtDlpUpdateManager.engineVersion.collectAsState()
+                val remoteVer by com.example.extractor.YtDlpUpdateManager.latestRemoteVersion.collectAsState()
                 val updateState by com.example.extractor.YtDlpUpdateManager.updateState.collectAsState()
+                val isAutoUpdate by com.example.extractor.YtDlpUpdateManager.isAutoUpdateEnabled.collectAsState()
 
                 ExpandableSettingsCard(
                     title = "yt-dlp Core Engine",
                     icon = Icons.Outlined.SystemUpdate,
                     isExpanded = isYtDlpExpanded,
                     onToggleExpand = { isYtDlpExpanded = !isYtDlpExpanded },
-                    badgeText = "v${installedVer ?: "2.0.2"}"
+                    badgeText = "v$wrapperVer"
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            text = "Powered by the official dev.ffmpegkit-maintained:yt-dlp-android 2.0.2 engine. The core extractor binary is securely bundled inside the app runtime.",
+                            text = "Powered by dev.ffmpegkit-maintained:yt-dlp-android (yt-dlp core engine). Serves as the universal extraction engine and YouTube fallback resolver.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -634,17 +638,24 @@ fun SettingsScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Engine & Runtime",
+                                        text = "Android wrapper: $wrapperVer",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "yt-dlp-android 2.0.2 (${installedVer ?: "Bundled"})",
+                                        text = "Installed engine: ${engineVer ?: "2024.12.13"}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.SemiBold
                                     )
+                                    if (!remoteVer.isNullOrBlank() && remoteVer != "Checking...") {
+                                        Text(
+                                            text = "Latest upstream release: $remoteVer",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                                 IconButton(
                                     onClick = {
@@ -662,41 +673,124 @@ fun SettingsScreen(
                             }
                         }
 
-                        // Engine Info Box
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFF2E7D32),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Bundled Native Engine Active",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "yt-dlp binaries are managed via Gradle build artifacts with full compatibility layer enabled.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                        // Auto-update switch
+                        SettingsSwitchRow(
+                            title = "Auto-Check Updates on Launch",
+                            subtitle = "Silently check and refresh yt-dlp core engine on application startup",
+                            checked = isAutoUpdate,
+                            onCheckedChange = { com.example.extractor.YtDlpUpdateManager.setAutoUpdateEnabled(it) }
+                        )
+
+                        // Update state feedback banner
+                        when (val state = updateState) {
+                            is com.example.extractor.YtDlpUpdateManager.UpdateState.Updating -> {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "Checking and updating yt-dlp engine...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
                                 }
                             }
+                            is com.example.extractor.YtDlpUpdateManager.UpdateState.Success -> {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = state.message,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                            is com.example.extractor.YtDlpUpdateManager.UpdateState.Error -> {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ErrorOutline,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = state.errorMessage,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                }
+                            }
+                            else -> {}
+                        }
+
+                        // Manual Update Button
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    com.example.extractor.YtDlpUpdateManager.checkForUpdates(context, isManual = true)
+                                }
+                            },
+                            enabled = updateState !is com.example.extractor.YtDlpUpdateManager.UpdateState.Updating,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (updateState is com.example.extractor.YtDlpUpdateManager.UpdateState.Updating) "Updating yt-dlp..." else "Update yt-dlp Engine",
+                                fontWeight = FontWeight.Bold
+                            )
                         }
 
                         // Action to test extractors
-                        Button(
+                        OutlinedButton(
                             onClick = {
                                 isDiagnosticsExpanded = true
                                 diagnosticsList.filter { !it.isAdult || adultContentEnabled }.forEach { diag ->
@@ -704,10 +798,6 @@ fun SettingsScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
