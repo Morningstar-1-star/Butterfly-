@@ -45,6 +45,12 @@ object GlobalPlayerManager {
         }
 
         when {
+            urlStr.contains("googlevideo.com") || urlStr.contains("youtube.com") || urlStr.contains("youtu.be") || urlStr.contains("ytimg.com") -> {
+                builder.removeHeader("Referer")
+                builder.removeHeader("referer")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+            }
             urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos-") -> {
                 builder.header("Referer", "https://www.bilibili.com/")
                 builder.removeHeader("Origin")
@@ -66,7 +72,14 @@ object GlobalPlayerManager {
             urlStr.contains("pornhub.com") || urlStr.contains("phncdn.com") -> {
                 builder.header("Referer", "https://www.pornhub.com/")
                 builder.header("Origin", "https://www.pornhub.com")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+            }
+            urlStr.contains("beeg.com") || urlStr.contains("externulls.com") -> {
+                builder.header("Referer", "https://beeg.com/")
+                builder.header("Origin", "https://beeg.com")
+            }
+            urlStr.contains("xvideos.com") || urlStr.contains("xv-cdn.com") -> {
+                builder.header("Referer", "https://www.xvideos.com/")
             }
             urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {
                 builder.header("Referer", "https://www.youporn.com/")
@@ -82,7 +95,7 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://vimeo.com/")
                 builder.header("Origin", "https://vimeo.com")
             }
-            urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("jiohotstar") -> {
+            urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("jiohotstar") || urlStr.contains("starott.com") || urlStr.contains("hs-cdn") -> {
                 builder.header("Referer", "https://www.hotstar.com/")
                 builder.header("Origin", "https://www.hotstar.com")
             }
@@ -180,6 +193,20 @@ object GlobalPlayerManager {
 
     private val _currentActiveTranslatedText = MutableStateFlow("")
     val currentActiveTranslatedText: StateFlow<String> = _currentActiveTranslatedText.asStateFlow()
+
+    private val _isLoopEnabled = MutableStateFlow(false)
+    val isLoopEnabled: StateFlow<Boolean> = _isLoopEnabled.asStateFlow()
+
+    private val _videoAspectRatio = MutableStateFlow(16f / 9f)
+    val videoAspectRatio: StateFlow<Float> = _videoAspectRatio.asStateFlow()
+
+    fun setLoopVideo(enabled: Boolean, context: Context? = null) {
+        _isLoopEnabled.value = enabled
+        exoPlayerInstance?.repeatMode = if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        context?.let { ctx ->
+            com.example.util.PlaybackPreferences.getInstance(ctx).setLoopVideoEnabled(enabled)
+        }
+    }
 
     fun setSubtitleMode(mode: SubtitleMode, context: Context? = null) {
         _subtitleMode.value = mode
@@ -356,7 +383,20 @@ object GlobalPlayerManager {
                 .setLoadControl(loadControl)
                 .build()
             player.playWhenReady = true
+            val isLooping = com.example.util.PlaybackPreferences.getInstance(context.applicationContext).loopVideoEnabled.value
+            _isLoopEnabled.value = isLooping
+            player.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             player.addListener(object : Player.Listener {
+                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                    if (videoSize.width > 0 && videoSize.height > 0) {
+                        val pixelRatio = if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f
+                        val ratio = (videoSize.width.toFloat() * pixelRatio) / videoSize.height.toFloat()
+                        if (ratio in 0.4f..2.5f) {
+                            _videoAspectRatio.value = ratio
+                        }
+                    }
+                }
+
                 override fun onRenderedFirstFrame() {
                     _firstFrameRendered.value = true
                     com.example.util.PlaybackPipelineTracker.logFirstFrame(player.duration)
@@ -674,8 +714,15 @@ object GlobalPlayerManager {
 
                 // Inject domain-specific referer & origin headers if not explicitly specified
                 val lowerTarget = targetUrl.lowercase()
+                val isGoogleVideoStream = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") || lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com")
                 val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos-") || streamData?.providerId == "bilibili"
-                if (isBilibiliStream) {
+
+                if (isGoogleVideoStream) {
+                    reqHeaders.remove("Referer")
+                    reqHeaders.remove("referer")
+                    reqHeaders.remove("Origin")
+                    reqHeaders.remove("origin")
+                } else if (isBilibiliStream) {
                     reqHeaders["Referer"] = "https://www.bilibili.com/"
                     reqHeaders.remove("Origin")
                     reqHeaders.remove("origin")
@@ -729,7 +776,7 @@ object GlobalPlayerManager {
                                 reqHeaders["Referer"] = "https://vimeo.com/"
                                 reqHeaders["Origin"] = "https://vimeo.com"
                             }
-                            lowerTarget.contains("hotstar.com") || lowerTarget.contains("hotstar-cdn") || lowerTarget.contains("jiohotstar") || streamData?.providerId == "hotstar" -> {
+                            (lowerTarget.contains("hotstar.com") || lowerTarget.contains("hotstar-cdn") || lowerTarget.contains("jiohotstar") || lowerTarget.contains("starott.com") || (streamData?.providerId == "hotstar")) && !isGoogleVideoStream -> {
                                 reqHeaders["Referer"] = "https://www.hotstar.com/"
                                 reqHeaders["Origin"] = "https://www.hotstar.com"
                             }
@@ -1017,6 +1064,19 @@ object GlobalPlayerManager {
             _progressFraction.value = (target.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
         }
         exoPlayerInstance?.seekTo(target)
+    }
+
+    fun seekForward(deltaMs: Long = 10000L) {
+        val cur = _currentPositionMs.value
+        val dur = _durationMs.value
+        val target = if (dur > 0) (cur + deltaMs).coerceAtMost(dur) else cur + deltaMs
+        seekTo(target)
+    }
+
+    fun seekBackward(deltaMs: Long = 10000L) {
+        val cur = _currentPositionMs.value
+        val target = (cur - deltaMs).coerceAtLeast(0L)
+        seekTo(target)
     }
 
     fun setPlaybackSpeed(speed: Float) {

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -76,6 +77,9 @@ fun HomeScreen(
 
     val watchProgressMap by viewModel.watchProgressMap.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
+    val searchDrivenRecommendations by viewModel.searchDrivenRecommendations.collectAsState()
+    val latestSearchIntent by viewModel.latestSearchIntent.collectAsState()
     val recommendedVideos by viewModel.recommendedVideos.collectAsState()
     val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
     val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
@@ -301,6 +305,34 @@ fun HomeScreen(
                             )
                         }
 
+                        AppScreen.SUBSCRIPTIONS -> {
+                            SubscriptionsScreen(
+                                viewModel = viewModel,
+                                onSelectVideo = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                onChannelClick = { chName, avatarUrl ->
+                                    viewModel.openChannel(chName, avatarUrl)
+                                },
+                                onOpenSearch = { isSearchExpanded = true },
+                                onOpenSettings = { viewModel.navigateToScreen(AppScreen.SETTINGS) },
+                                topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
+                            )
+                        }
+
+                        AppScreen.CHANNEL -> {
+                            ChannelScreen(
+                                viewModel = viewModel,
+                                onSelectVideo = { video ->
+                                    viewModel.playVideo(video.id, video.providerId)
+                                },
+                                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+                                topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+                                bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
+                            )
+                        }
+
                         AppScreen.LIBRARY -> {
                             LibraryScreen(
                                 viewModel = viewModel,
@@ -338,11 +370,16 @@ fun HomeScreen(
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
                             val isSpecificAdultSource = viewModel.isAdultProviderId(activeProviderId)
                             val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled, activeProviderId) {
-                                rawFeed
+                                val filtered = rawFeed
                                     .filterNot { viewModel.isBlockedVideo(it) }
                                     .filter { adultContentEnabled || isSpecificAdultSource || !viewModel.isAdultVideoItem(it) }
                                     .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
                                     .distinctBy { "${it.providerId}_${it.id}" }
+                                if (searchResults.isNotEmpty()) {
+                                    filtered
+                                } else {
+                                    viewModel.rankFeedWithRecommendations(filtered)
+                                }
                             }
                             val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled, activeProviderId) {
                                 rawFeed
@@ -443,7 +480,11 @@ fun HomeScreen(
                                             }
                                         }
                                     } else {
-                                        items(feedList, key = { "${it.providerId}_${it.id}" }) { video ->
+                                        val showSearchRecsShelf = searchResults.isEmpty() && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank()
+                                        val shelfInsertIndex = 2.coerceAtMost(feedList.size)
+
+                                        // Render first batch of feed items before the shelf
+                                        items(feedList.take(shelfInsertIndex), key = { "${it.providerId}_${it.id}" }) { video ->
                                             VideoCard(
                                                 video = video,
                                                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
@@ -477,6 +518,65 @@ fun HomeScreen(
                                                 },
                                                 modifier = Modifier.fillMaxWidth()
                                             )
+                                        }
+
+                                        // CONTEXTUAL SEARCH-DRIVEN RECOMMENDATIONS SHELF
+                                        if (showSearchRecsShelf) {
+                                            item(key = "search_recommendations_shelf") {
+                                                SearchDrivenRecommendationsShelf(
+                                                    searchQuery = latestSearchIntent!!,
+                                                    videos = searchDrivenRecommendations,
+                                                    showProviderBadge = showThumbnailTags,
+                                                    onSelectVideo = { video ->
+                                                        viewModel.playVideo(video.id, video.providerId)
+                                                    },
+                                                    onOpenSearch = { query ->
+                                                        viewModel.updateSearchQuery(query)
+                                                        viewModel.performSearch(query)
+                                                        viewModel.setSearchExpanded(true)
+                                                    },
+                                                    modifier = Modifier.padding(vertical = 12.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Render remaining feed items after the shelf
+                                        if (feedList.size > shelfInsertIndex) {
+                                            items(feedList.drop(shelfInsertIndex), key = { "${it.providerId}_${it.id}" }) { video ->
+                                                VideoCard(
+                                                    video = video,
+                                                    watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                    showProviderBadge = showThumbnailTags,
+                                                    onClick = {
+                                                        viewModel.playVideo(video.id, video.providerId)
+                                                    },
+                                                    onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                                                    onAddToQueue = { v -> viewModel.addToQueue(v) },
+                                                    onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                                    onSaveToPlaylist = { v ->
+                                                        val userPls = viewModel.userPlaylists.value
+                                                        if (userPls.isNotEmpty()) {
+                                                            viewModel.addToPlaylist(userPls.first().id, v)
+                                                        } else {
+                                                            viewModel.createPlaylist("Favorites")
+                                                            val updated = viewModel.userPlaylists.value
+                                                            if (updated.isNotEmpty()) {
+                                                                viewModel.addToPlaylist(updated.first().id, v)
+                                                            }
+                                                        }
+                                                    },
+                                                    onDownload = { v ->
+                                                        viewModel.showDownloadSheet(v)
+                                                    },
+                                                    onNotInterested = { v ->
+                                                        viewModel.markNotInterested(v)
+                                                    },
+                                                    onChannelClick = { ch ->
+                                                        viewModel.openChannel(ch)
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
                                         }
 
                                         if (isLoadingMore) {
@@ -515,8 +615,8 @@ fun HomeScreen(
                 ?: trendingVideos.firstOrNull()?.title 
                 ?: searchQuery
 
-            val smartTagsList = remember(activeContextTitle, searchQuery) {
-                buildSmartTags(activeContextTitle, searchQuery)
+            val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches) {
+                buildSmartTags(activeContextTitle, searchQuery, recentSearches)
             }
 
             val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme() || MaterialTheme.colorScheme.background.run { (red * 0.299 + green * 0.587 + blue * 0.114) < 0.5 }
@@ -605,43 +705,45 @@ fun HomeScreen(
                 // Tags Bar (Smart contextual category chips & Direct Source Dropdown) - ONLY ON HOME TAB
                 if (currentScreen == AppScreen.HOME) {
                     var isSourceMenuExpanded by remember { mutableStateOf(false) }
-                    val activeProviderName = if (activeProviderId == "all") "All Sources" else (availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId)
+                    val activeProviderName = if (activeProviderId == "all") "Sources" else (availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId)
 
                     LazyRow(
                         contentPadding = PaddingValues(start = 12.dp, top = 2.dp, end = 12.dp, bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // DIRECT SOURCE SELECTOR DROPDOWN BUTTON (In front of all tags)
+                        // DIRECT SOURCE SELECTOR DROPDOWN BUTTON (Ultra-compact, sleek filter chip)
                         item {
                             Box {
                                 Surface(
                                     onClick = { isSourceMenuExpanded = true },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (activeProviderId != "all") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                    contentColor = if (activeProviderId != "all") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.height(36.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (activeProviderId != "all") selectedChipBg else unselectedChipBg,
+                                    contentColor = if (activeProviderId != "all") selectedChipFg else unselectedChipFg,
+                                    modifier = Modifier.height(32.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Tune,
                                             contentDescription = "Source Selector",
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
-                                        Text(
-                                            text = activeProviderName,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        if (activeProviderId != "all") {
+                                            Text(
+                                                text = activeProviderName,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
                                         Icon(
                                             imageVector = Icons.Default.ArrowDropDown,
                                             contentDescription = "Select Source",
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
                                     }
                                 }
@@ -697,18 +799,18 @@ fun HomeScreen(
                                         viewModel.performSearch(tag)
                                     }
                                 },
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 color = if (isSelected) selectedChipBg else unselectedChipBg,
                                 contentColor = if (isSelected) selectedChipFg else unselectedChipFg,
-                                modifier = Modifier.height(36.dp)
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Box(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = tag,
-                                        fontSize = 14.sp,
+                                        fontSize = 13.sp,
                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
                                     )
                                 }
@@ -719,28 +821,20 @@ fun HomeScreen(
             }
         }
 
-        // LAYER 3: PERSISTENT FLOATING MINI PLAYER OVERLAY
+        // LAYER 3: PERSISTENT FLOATING PIP MINI PLAYER OVERLAY (YouTube Style)
         val activeStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
         val playingStreamData = activeStreamData ?: currentStreamData
+        val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
         AnimatedVisibility(
             visible = (playingStreamData != null && currentScreen != AppScreen.PLAYER && !isSearchExpanded),
             enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
-                    slideInVertically(
-                        initialOffsetY = { (it * 0.4f).toInt() },
-                        animationSpec = tween(160, easing = FastOutSlowInEasing)
-                    ),
+                    scaleIn(initialScale = 0.9f, animationSpec = tween(160, easing = FastOutSlowInEasing)),
             exit = fadeOut(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
-                   slideOutVertically(
-                       targetOffsetY = { (it * 0.4f).toInt() },
-                       animationSpec = tween(120, easing = FastOutSlowInEasing)
-                   ),
+                   scaleOut(targetScale = 0.9f, animationSpec = tween(120, easing = FastOutSlowInEasing)),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = bottomBarPaddingDp + 12.dp, end = 8.dp, start = 8.dp)
-                .graphicsLayer {
-                    translationY = animatedBottomBarOffsetPx
-                }
+                .fillMaxSize()
+                .zIndex(92f)
         ) {
             if (playingStreamData != null) {
                 LiquidGlassMiniPlayer(
@@ -756,7 +850,9 @@ fun HomeScreen(
                         com.example.ui.player.GlobalPlayerManager.stopAndClear()
                         viewModel.closeVideo()
                     },
-                    onNext = { viewModel.playNextInQueue() }
+                    onNext = { viewModel.playNextInQueue() },
+                    bottomBarPaddingDp = bottomBarPaddingDp,
+                    statusBarPaddingDp = statusBarTopPadding
                 )
             }
         }
@@ -828,18 +924,18 @@ fun HomeScreen(
             )
         }
 
-        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH, MINIMAL TRANSITION
+        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH YOUTUBE-STYLE SLIDE-UP
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.PLAYER),
-            enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
+            enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
                     slideInVertically(
-                        initialOffsetY = { (it * 0.06f).toInt() },
-                        animationSpec = tween(160, easing = FastOutSlowInEasing)
+                        initialOffsetY = { (it * 0.35f).toInt() },
+                        animationSpec = tween(220, easing = FastOutSlowInEasing)
                     ),
-            exit = fadeOut(animationSpec = tween(140, easing = FastOutSlowInEasing)) +
+            exit = fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
                    slideOutVertically(
-                       targetOffsetY = { (it * 0.06f).toInt() },
-                       animationSpec = tween(140, easing = FastOutSlowInEasing)
+                       targetOffsetY = { (it * 0.35f).toInt() },
+                       animationSpec = tween(180, easing = FastOutSlowInEasing)
                    ),
             modifier = Modifier.fillMaxSize().zIndex(100f)
         ) {
@@ -985,13 +1081,33 @@ fun SubscriptionsContent(
     }
 }
 
-private fun buildSmartTags(activeTitle: String?, currentQuery: String?): List<String> {
+private fun buildSmartTags(
+    activeTitle: String?,
+    currentQuery: String?,
+    recentSearches: List<String> = emptyList()
+): List<String> {
     val tags = mutableListOf<String>()
     tags.add("All")
 
-    val combined = "${activeTitle ?: ""} ${currentQuery ?: ""}".lowercase()
+    // 1. Elevate top recent searches & topics directly into smart tag chips
+    for (search in recentSearches.take(4)) {
+        val clean = search.trim()
+        if (clean.length in 3..25 && !setOf("all", "video", "movies", "show", "watch").contains(clean.lowercase())) {
+            val formatted = clean.split(" ").joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
+            if (!tags.contains(formatted)) {
+                tags.add(formatted)
+            }
+        }
+    }
 
-    // Smart contextual rules based on active video / movie / show / query
+    val combined = "${activeTitle ?: ""} ${currentQuery ?: ""} ${recentSearches.take(3).joinToString(" ")}".lowercase()
+
+    // Smart contextual rules based on active video / movie / show / query / recent searches
+    if (combined.contains("hotstar") || combined.contains("jiohotstar") || combined.contains("disney")) {
+        tags.addAll(listOf("Hotstar Specials", "Serials", "Movies", "Anupamaa", "RadhaKrishn", "StarPlus", "Cricket", "Comedy"))
+    }
     if (combined.contains("spider") || combined.contains("venom")) {
         tags.addAll(listOf("Spider-Man", "Marvel", "Sony", "Tom Holland", "Venom", "Peter Parker", "Superhero"))
     }
@@ -1044,4 +1160,214 @@ private fun buildSmartTags(activeTitle: String?, currentQuery: String?): List<St
     }
 
     return tags.distinct()
+}
+
+@Composable
+fun SearchDrivenRecommendationsShelf(
+    searchQuery: String,
+    videos: List<VideoItem>,
+    modifier: Modifier = Modifier,
+    showProviderBadge: Boolean = true,
+    onSelectVideo: (VideoItem) -> Unit,
+    onOpenSearch: (String) -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp)
+        ) {
+            // Header: Sparkle + "Because you searched for..." + View All
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFF5A623).copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFFF5A623),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Because you searched for",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "\"$searchQuery\"",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = { onOpenSearch(searchQuery) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "See all",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Horizontal Carousel of Related Videos
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(videos, key = { "shelf_${it.providerId}_${it.id}" }) { video ->
+                    SearchRecommendationShelfCard(
+                        video = video,
+                        showProviderBadge = showProviderBadge,
+                        onClick = { onSelectVideo(video) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SearchRecommendationShelfCard(
+    video: VideoItem,
+    showProviderBadge: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(220.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Thumbnail
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color(0xFF1E1E22))
+            ) {
+                coil.compose.AsyncImage(
+                    model = video.thumbnailUrl,
+                    contentDescription = video.title,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Duration badge
+                if (video.formattedDuration.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                            .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = video.formattedDuration,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // Provider badge
+                if (showProviderBadge && !video.providerId.isNullOrBlank()) {
+                    val pid = video.providerId.lowercase()
+                    val badgeName = when {
+                        pid.contains("tmdb") -> "TMDB"
+                        pid.contains("archive") -> "Archive"
+                        pid.contains("anime") -> "Anime"
+                        pid.contains("youtube") -> "YouTube"
+                        else -> pid.uppercase()
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(Color(0xFF1A1A1E).copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeName,
+                            color = Color(0xFFF5A623),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Info
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = video.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = video.uploaderName,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
 }

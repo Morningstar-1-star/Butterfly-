@@ -17,6 +17,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,6 +52,7 @@ import com.example.model.CaptionOption
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,6 +89,10 @@ fun UniversalVideoPlayer(
     var showSpeedSubMenu by remember { mutableStateOf(false) }
     var showQualitySubMenu by remember { mutableStateOf(false) }
     var showAudioTrackSubMenu by remember { mutableStateOf(false) }
+    var showAdditionalSettingsSubMenu by remember { mutableStateOf(false) }
+
+    val isAmbientModeEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
+    val isLoopVideoEnabled by GlobalPlayerManager.isLoopEnabled.collectAsState()
 
     val smartSkipSegments by com.example.smartskip.SmartSkipPlayerEngine.activeSegments.collectAsState()
     val currentPromptSegment by com.example.smartskip.SmartSkipPlayerEngine.currentPromptSegment.collectAsState()
@@ -123,11 +130,19 @@ fun UniversalVideoPlayer(
     }
 
     // Gesture Controls State
+    val coroutineScope = rememberCoroutineScope()
     var brightnessLevel by remember { mutableFloatStateOf(0.7f) }
     var volumeLevel by remember { mutableFloatStateOf(0.7f) }
     var gestureNoticeText by remember { mutableStateOf<String?>(null) }
     var gestureNoticeIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
     var seekNoticeText by remember { mutableStateOf<String?>(null) }
+
+    // Clean Double-Tap Seek & Play/Pause Feedback States
+    var doubleTapSeekDirection by remember { mutableStateOf<String?>(null) }
+    var doubleTapAccumulatedSeconds by remember { mutableIntStateOf(0) }
+    var doubleTapSeekJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var centerPlayPauseFeedback by remember { mutableStateOf<Boolean?>(null) }
+    var centerPlayPauseJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     var accumulatedDx by remember { mutableFloatStateOf(0f) }
     var accumulatedDy by remember { mutableFloatStateOf(0f) }
@@ -244,22 +259,64 @@ fun UniversalVideoPlayer(
                     },
                     onDoubleTap = { offset ->
                         val totalWidth = size.width
-                        val left30Boundary = totalWidth * 0.30f
-                        val right30Boundary = totalWidth * 0.70f
-                        val seekMs = seekSecs * 1000L
+                        val leftBoundary = totalWidth * 0.35f
+                        val rightBoundary = totalWidth * 0.65f
+                        val stepSecs = seekSecs
 
-                        if (offset.x < left30Boundary) {
-                            gestureNoticeText = "◄◄ ${seekSecs}s Rewind"
-                            gestureNoticeIcon = Icons.Default.FastRewind
-                            GlobalPlayerManager.seekTo(exoPlayer.currentPosition - seekMs)
-                            GlobalPlayerManager.showControls()
-                        } else if (offset.x > right30Boundary) {
-                            gestureNoticeText = "${seekSecs}s Forward ►►"
-                            gestureNoticeIcon = Icons.Default.FastForward
-                            GlobalPlayerManager.seekTo(exoPlayer.currentPosition + seekMs)
-                            GlobalPlayerManager.showControls()
+                        if (offset.x < leftBoundary) {
+                            val newSeconds = if (doubleTapSeekDirection == "LEFT") {
+                                doubleTapAccumulatedSeconds + stepSecs
+                            } else {
+                                stepSecs
+                            }
+                            doubleTapSeekDirection = "LEFT"
+                            doubleTapAccumulatedSeconds = newSeconds
+
+                            val seekMs = stepSecs * 1000L
+                            val targetPos = (exoPlayer.currentPosition - seekMs).coerceAtLeast(0L)
+                            GlobalPlayerManager.seekTo(targetPos)
+
+                            doubleTapSeekJob?.cancel()
+                            doubleTapSeekJob = coroutineScope.launch {
+                                delay(650)
+                                doubleTapSeekDirection = null
+                                doubleTapAccumulatedSeconds = 0
+                            }
+                        } else if (offset.x > rightBoundary) {
+                            val newSeconds = if (doubleTapSeekDirection == "RIGHT") {
+                                doubleTapAccumulatedSeconds + stepSecs
+                            } else {
+                                stepSecs
+                            }
+                            doubleTapSeekDirection = "RIGHT"
+                            doubleTapAccumulatedSeconds = newSeconds
+
+                            val seekMs = stepSecs * 1000L
+                            val targetPos = exoPlayer.currentPosition + seekMs
+                            GlobalPlayerManager.seekTo(targetPos)
+
+                            doubleTapSeekJob?.cancel()
+                            doubleTapSeekJob = coroutineScope.launch {
+                                delay(650)
+                                doubleTapSeekDirection = null
+                                doubleTapAccumulatedSeconds = 0
+                            }
                         } else {
-                            GlobalPlayerManager.toggleControlsVisibility()
+                            // Center Double Tap: Play / Pause toggle with clean animation
+                            val isCurrentlyPlaying = GlobalPlayerManager.isPlaying.value
+                            if (isCurrentlyPlaying) {
+                                GlobalPlayerManager.pause()
+                                centerPlayPauseFeedback = false
+                            } else {
+                                GlobalPlayerManager.play()
+                                centerPlayPauseFeedback = true
+                            }
+
+                            centerPlayPauseJob?.cancel()
+                            centerPlayPauseJob = coroutineScope.launch {
+                                delay(600)
+                                centerPlayPauseFeedback = null
+                            }
                         }
                     }
                 )
@@ -903,6 +960,7 @@ fun UniversalVideoPlayer(
                     showSpeedSubMenu = false
                     showQualitySubMenu = false
                     showAudioTrackSubMenu = false
+                    showAdditionalSettingsSubMenu = false
                 },
                 containerColor = Color(0xFF1E1E1E),
                 contentColor = Color.White
@@ -922,17 +980,19 @@ fun UniversalVideoPlayer(
                                 showQualitySubMenu -> "Video Quality"
                                 showSpeedSubMenu -> "Playback Speed"
                                 showAudioTrackSubMenu -> "Audio Track & Language"
+                                showAdditionalSettingsSubMenu -> "Additional settings"
                                 else -> "Settings"
                             },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        if (showSpeedSubMenu || showQualitySubMenu || showAudioTrackSubMenu) {
+                        if (showSpeedSubMenu || showQualitySubMenu || showAudioTrackSubMenu || showAdditionalSettingsSubMenu) {
                             TextButton(onClick = {
                                 showSpeedSubMenu = false
                                 showQualitySubMenu = false
                                 showAudioTrackSubMenu = false
+                                showAdditionalSettingsSubMenu = false
                             }) {
                                 Text("Back", color = MaterialTheme.colorScheme.primary)
                             }
@@ -1166,6 +1226,134 @@ fun UniversalVideoPlayer(
                                         color = Color.White
                                     )
                                 }
+                            }
+                        }
+                    } else if (showAdditionalSettingsSubMenu) {
+                        // Additional Settings Sub-menu (Ambient Mode, Loop Video, etc.)
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        ) {
+                            // 1. Ambient Mode Toggle
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable {
+                                        playbackPrefs.setAmbientModeEnabled(!isAmbientModeEnabled)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isAmbientModeEnabled) Color(0xFFFF9800).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WbIncandescent,
+                                            contentDescription = "Ambient mode",
+                                            tint = if (isAmbientModeEnabled) Color(0xFFFFB74D) else Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Ambient mode",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Subtly casts lighting effect matching video colors around the player",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.LightGray.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Switch(
+                                    checked = isAmbientModeEnabled,
+                                    onCheckedChange = {
+                                        playbackPrefs.setAmbientModeEnabled(it)
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = Color(0xFFFF9800),
+                                        uncheckedThumbColor = Color.LightGray,
+                                        uncheckedTrackColor = Color.DarkGray
+                                    )
+                                )
+                            }
+
+                            // 2. Loop Video Toggle
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable {
+                                        GlobalPlayerManager.setLoopVideo(!isLoopVideoEnabled, context)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isLoopVideoEnabled) Color(0xFF2196F3).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Repeat,
+                                            contentDescription = "Loop video",
+                                            tint = if (isLoopVideoEnabled) Color(0xFF64B5F6) else Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Loop video",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Continuously repeat playback of the current video",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.LightGray.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Switch(
+                                    checked = isLoopVideoEnabled,
+                                    onCheckedChange = {
+                                        GlobalPlayerManager.setLoopVideo(it, context)
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = Color(0xFF2196F3),
+                                        uncheckedThumbColor = Color.LightGray,
+                                        uncheckedTrackColor = Color.DarkGray
+                                    )
+                                )
                             }
                         }
                     } else {
@@ -1440,6 +1628,41 @@ fun UniversalVideoPlayer(
                                 fontWeight = if (isSmartSkipOn) FontWeight.Bold else FontWeight.Normal
                             )
                         }
+
+                        // 7. Additional Settings (Ambient Mode, Loop, etc.)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showAdditionalSettingsSubMenu = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Additional settings",
+                                    tint = Color.White
+                                )
+                                Text(
+                                    text = "Additional settings",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = "Ambient (${if (isAmbientModeEnabled) "On" else "Off"}) • Loop (${if (isLoopVideoEnabled) "On" else "Off"})",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.LightGray,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
                     }
                 }
             }
@@ -1585,7 +1808,135 @@ fun UniversalVideoPlayer(
             )
         }
 
-        // Gesture & Seek Overlay Notice
+        // Ultra-Clean Double-Tap Left (Rewind) Indicator
+        AnimatedVisibility(
+            visible = doubleTapSeekDirection == "LEFT",
+            enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.8f, animationSpec = tween(120)),
+            exit = fadeOut(tween(200)) + scaleOut(targetScale = 1.06f, animationSpec = tween(200)),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = if (isLandscape) 48.dp else 24.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.60f))
+                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy((-3).dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .graphicsLayer(scaleX = -1f)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.75f),
+                            modifier = Modifier
+                                .size(13.dp)
+                                .graphicsLayer(scaleX = -1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${doubleTapAccumulatedSeconds}s",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.4.sp
+                    )
+                }
+            }
+        }
+
+        // Ultra-Clean Double-Tap Right (Forward) Indicator
+        AnimatedVisibility(
+            visible = doubleTapSeekDirection == "RIGHT",
+            enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.8f, animationSpec = tween(120)),
+            exit = fadeOut(tween(200)) + scaleOut(targetScale = 1.06f, animationSpec = tween(200)),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = if (isLandscape) 48.dp else 24.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.60f))
+                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy((-3).dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.75f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${doubleTapAccumulatedSeconds}s",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.4.sp
+                    )
+                }
+            }
+        }
+
+        // Ultra-Clean Center Double-Tap Play / Pause Indicator
+        AnimatedVisibility(
+            visible = centerPlayPauseFeedback != null,
+            enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.75f, animationSpec = tween(120)),
+            exit = fadeOut(tween(220)) + scaleOut(targetScale = 1.20f, animationSpec = tween(220)),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.68f))
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (centerPlayPauseFeedback == true) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    contentDescription = if (centerPlayPauseFeedback == true) "Play" else "Pause",
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+        }
+
+        // Gesture & Seek Overlay Notice (for brightness/volume swipe and scrub)
         val activeNoticeText = gestureNoticeText ?: seekNoticeText
         AnimatedVisibility(
             visible = activeNoticeText != null,

@@ -206,9 +206,10 @@ object YtDlpResolver {
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
-                    request.addOption("--add-header", "Cookie: age_verified=1")
+                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                    request.addOption("--geo-bypass")
                     domainHeaders["Referer"] = "https://www.pornhub.com/"
-                    domainHeaders["Cookie"] = "age_verified=1"
+                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US"
                 }
                 lowerUrl.contains("xvideos.com") -> {
                     request.addOption("--add-header", "Referer: https://www.xvideos.com/")
@@ -245,6 +246,8 @@ object YtDlpResolver {
                 lowerUrl.contains("hotstar.com") || lowerUrl.contains("jiohotstar.com") -> {
                     request.addOption("--add-header", "Referer: https://www.hotstar.com/")
                     request.addOption("--add-header", "Origin: https://www.hotstar.com")
+                    request.addOption("--extractor-args", "hotstar:vcodec=h264")
+                    request.addOption("--geo-bypass")
                     domainHeaders["Referer"] = "https://www.hotstar.com/"
                     domainHeaders["Origin"] = "https://www.hotstar.com"
                 }
@@ -328,6 +331,10 @@ object YtDlpResolver {
                     val acodec = fmt.optString("acodec", "none")
                     val note = fmt.optString("format_note", "")
                     val protocol = fmt.optString("protocol", "https")
+
+                    if (note.contains("drm", ignoreCase = true) || note.contains("encrypted", ignoreCase = true) || vcodec.contains("drm", ignoreCase = true)) {
+                        continue
+                    }
 
                     val fmtHeaders = mutableMapOf<String, String>()
                     fmtHeaders.putAll(topHeaders)
@@ -530,122 +537,16 @@ object YtDlpResolver {
     }
 
     suspend fun fetchTrending(ctx: Context, limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
-        val primary = search(ctx, "trending videos", limit)
-        if (primary.isNotEmpty()) return@withContext primary
-
-        val fallback = search(ctx, "popular music videos", limit)
-        if (fallback.isNotEmpty()) return@withContext fallback
-
-        search(ctx, "top news", limit)
+        YouTubeExtractorHelper.fetchYouTubeTrending(ctx)
     }
 
     suspend fun search(ctx: Context, query: String, limit: Int = 25, providerId: String = "youtube"): List<VideoItem> = withContext(Dispatchers.IO) {
-        val list = mutableListOf<VideoItem>()
-        if (query.isBlank()) return@withContext list
-        try {
-            ensureInitialized(ctx)
-
-            val searchTarget = when {
-                query.startsWith("http://") || query.startsWith("https://") -> query
-                providerId == "dailymotion" -> "dailymotion:search:$query"
-                providerId == "vimeo" -> "vimeo:search:$query"
-                providerId == "bilibili" -> "https://search.bilibili.com/all?keyword=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "pornhub" -> "https://www.pornhub.com/video/search?search=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "xvideos" -> "https://www.xvideos.com/?k=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "4tube" -> "https://www.4tube.com/videos?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "beeg" -> "https://beeg.com/?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "rule34video" -> "https://rule34video.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}/"
-                providerId == "redtube" -> "https://www.redtube.com/?search=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "xhamster" -> "https://xhamster.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "youporn" -> "https://www.youporn.com/search/?query=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "hotstar" || providerId == "jiohotstar" -> "https://www.hotstar.com/in/explore?search_query=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                providerId == "eporner" -> "https://www.eporner.com/search/${java.net.URLEncoder.encode(query, "UTF-8")}/"
-                else -> "ytsearch$limit:$query"
-            }
-
-            val request = YtDlpRequest(searchTarget)
-            request.addOption("--dump-json")
-            request.addOption("--flat-playlist")
-            request.addOption("--no-warnings")
-            request.addOption("--ignore-errors")
-            request.addOption("--user-agent", DEFAULT_USER_AGENT)
-
-            ensureInitialized(ctx)
-            val response: YtDlpResponse? = try {
-                processSemaphore.withPermit {
-                    YtDlp.execute(request, null)
-                }
-            } catch (e: Exception) {
-                null
-            }
-            val output = response?.output ?: ""
-            if (output.isNotBlank()) {
-                val lines = output.lines()
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-                        try {
-                            val json = JSONObject(trimmed)
-                            val id = json.optString("id", "")
-                            val webpageUrl = json.optString("webpage_url", json.optString("url", ""))
-                            val title = json.optString("title", "")
-                            if ((id.isNotBlank() || webpageUrl.isNotBlank()) && title.isNotBlank()) {
-                                val uploader = json.optString("uploader", json.optString("channel", providerId.replaceFirstChar { it.uppercase() }))
-                                val uploaderAvatar = json.optString("uploader_avatar", json.optString("channel_avatar", json.optString("avatar", ""))).ifBlank { null }
-                                val duration = json.optLong("duration", -1L)
-                                val viewCount = json.optLong("view_count", -1L)
-                                var thumb = json.optString("thumbnail", "")
-                                if (thumb.isBlank() && json.has("thumbnails")) {
-                                    val thumbsArr = json.optJSONArray("thumbnails")
-                                    if (thumbsArr != null && thumbsArr.length() > 0) {
-                                        val lastObj = thumbsArr.optJSONObject(thumbsArr.length() - 1)
-                                        if (lastObj != null) {
-                                            thumb = lastObj.optString("url", "")
-                                        }
-                                    }
-                                }
-                                val actualProvider = json.optString("extractor_key", json.optString("extractor", providerId)).lowercase()
-
-                                val canonicalUrl = when {
-                                    webpageUrl.startsWith("http://") || webpageUrl.startsWith("https://") -> webpageUrl
-                                    id.startsWith("http://") || id.startsWith("https://") -> id
-                                    providerId == "dailymotion" -> "https://www.dailymotion.com/video/$id"
-                                    providerId == "vimeo" -> "https://vimeo.com/$id"
-                                    providerId == "bilibili" -> "https://www.bilibili.com/video/$id"
-                                    providerId == "pornhub" -> "https://www.pornhub.com/view_video.php?viewkey=$id"
-                                    providerId == "xvideos" -> "https://www.xvideos.com/video$id/_"
-                                    providerId == "redtube" -> "https://www.redtube.com/$id"
-                                    providerId == "youporn" -> "https://www.youporn.com/watch/$id/"
-                                    providerId == "hotstar" || providerId == "jiohotstar" -> if (id.startsWith("http")) id else "https://www.hotstar.com/in/movies/content/$id"
-                                    providerId == "xhamster" -> "https://xhamster.com/videos/$id"
-                                    providerId == "4tube" -> "https://www.4tube.com/videos/$id"
-                                    providerId == "beeg" -> "https://beeg.com/$id"
-                                    providerId == "rule34video" -> "https://rule34video.com/video/$id/"
-                                    else -> webpageUrl.ifBlank { id }
-                                }
-
-                                list.add(
-                                    VideoItem(
-                                        id = canonicalUrl,
-                                        title = title,
-                                        uploaderName = uploader,
-                                        uploaderAvatarUrl = uploaderAvatar,
-                                        durationSeconds = duration,
-                                        viewCount = viewCount,
-                                        thumbnailUrl = thumb,
-                                        providerId = if (actualProvider.contains("youtube")) "youtube" else providerId
-                                    )
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed parsing yt-dlp item: ${e.message}")
-                        }
-                    }
-                }
-            }
-        } catch (e: Throwable) {
-            Log.w(TAG, "yt-dlp search failed for '$query': ${e.message}")
+        if (query.isBlank()) return@withContext emptyList()
+        val pid = providerId.lowercase()
+        if (pid == "youtube") {
+            YouTubeExtractorHelper.searchYouTube(query, ctx)
+        } else {
+            MultiSourceProvider.search(ctx, pid, query, limit)
         }
-        list
     }
 }

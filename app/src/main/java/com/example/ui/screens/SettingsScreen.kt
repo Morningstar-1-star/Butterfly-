@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,9 +51,64 @@ fun SettingsScreen(
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isSmartSkipExpanded by remember { mutableStateOf(false) }
     var isHistoryExpanded by remember { mutableStateOf(false) }
+    var isDataBackupExpanded by remember { mutableStateOf(false) }
     var isYtDlpExpanded by remember { mutableStateOf(false) }
     var isDiagnosticsExpanded by remember { mutableStateOf(false) }
     var showFullSponsorBlockScreen by remember { mutableStateOf(false) }
+
+    var showPasteImportDialog by remember { mutableStateOf(false) }
+    var pasteJsonInput by remember { mutableStateOf("") }
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val jsonStr = viewModel.exportUserDataJson()
+                    context.contentResolver.openOutputStream(uri)?.use { os ->
+                        os.write(jsonStr.toByteArray(Charsets.UTF_8))
+                    }
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "Profile & Watch Data saved successfully!", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val jsonStr = context.contentResolver.openInputStream(uri)?.use { isStream ->
+                        isStream.bufferedReader().use { it.readText() }
+                    } ?: ""
+
+                    if (jsonStr.isNotBlank()) {
+                        val summary = viewModel.importUserDataJson(jsonStr)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(
+                                context,
+                                "Imported ${summary.historyCount} history items, ${summary.likedCount} liked & ${summary.playlistCount} playlists!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         com.example.extractor.YtDlpUpdateManager.refreshVersion(context)
@@ -600,7 +659,85 @@ fun SettingsScreen(
                 }
             }
 
-            // 5. YT-DLP CORE ENGINE
+            // 5. PROFILE DATA & BACKUP (IMPORT / EXPORT)
+            item {
+                ExpandableSettingsCard(
+                    title = "Profile Data & Backup",
+                    icon = Icons.Outlined.Backup,
+                    isExpanded = isDataBackupExpanded,
+                    onToggleExpand = { isDataBackupExpanded = !isDataBackupExpanded },
+                    badgeText = "Import/Export"
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Export or import your watch history, playlists, liked videos, watch later, blocklists, and AI recommendation taste profiles.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                                    createDocumentLauncher.launch("butterfly_profile_backup_$timestamp.json")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Export File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = { openDocumentLauncher.launch("*/*") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Import File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val jsonStr = viewModel.exportUserDataJson()
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Butterfly User Profile", jsonStr)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Profile JSON copied to Clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Copy JSON", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { showPasteImportDialog = true },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Paste JSON", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. YT-DLP CORE ENGINE
             item {
                 val installedVer by com.example.extractor.YtDlpUpdateManager.installedVersion.collectAsState()
                 val wrapperVer by com.example.extractor.YtDlpUpdateManager.wrapperVersion.collectAsState()
@@ -997,6 +1134,64 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearSearchDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showPasteImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteImportDialog = false },
+            title = { Text("Paste Profile JSON", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Paste your exported JSON backup data below to restore watch history, playlists, liked videos, and AI recommendation taste profiles.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedTextField(
+                        value = pasteJsonInput,
+                        onValueChange = { pasteJsonInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        placeholder = { Text("Paste JSON string here...") },
+                        maxLines = 10
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val input = pasteJsonInput.trim()
+                        if (input.isNotBlank()) {
+                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val summary = viewModel.importUserDataJson(input)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        showPasteImportDialog = false
+                                        pasteJsonInput = ""
+                                        Toast.makeText(
+                                            context,
+                                            "Successfully imported ${summary.historyCount} history items & ${summary.playlistCount} playlists!",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                } catch (e: Exception) {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        Toast.makeText(context, "Invalid JSON format: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text("Import & Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteImportDialog = false }) {
                     Text("Cancel")
                 }
             }

@@ -28,6 +28,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -205,8 +206,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _channelVideos = MutableStateFlow<List<VideoItem>>(emptyList())
     val channelVideos: StateFlow<List<VideoItem>> = _channelVideos.asStateFlow()
 
+    private val _channelDetails = MutableStateFlow<com.example.model.ChannelDetails?>(null)
+    val channelDetails: StateFlow<com.example.model.ChannelDetails?> = _channelDetails.asStateFlow()
+
     private val _isChannelLoading = MutableStateFlow(false)
     val isChannelLoading: StateFlow<Boolean> = _isChannelLoading.asStateFlow()
+
+    private val _subscriptionVideos = MutableStateFlow<List<VideoItem>>(emptyList())
+    val subscriptionVideos: StateFlow<List<VideoItem>> = _subscriptionVideos.asStateFlow()
+
+    private val _isSubscriptionLoading = MutableStateFlow(false)
+    val isSubscriptionLoading: StateFlow<Boolean> = _isSubscriptionLoading.asStateFlow()
 
     private val _isPipMode = MutableStateFlow(false)
     val isPipMode: StateFlow<Boolean> = _isPipMode.asStateFlow()
@@ -303,6 +313,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _activeSearchSanitizedResult = MutableStateFlow<com.example.util.SmartSearchSanitizer.CleanQueryResult?>(null)
+    val activeSearchSanitizedResult: StateFlow<com.example.util.SmartSearchSanitizer.CleanQueryResult?> = _activeSearchSanitizedResult.asStateFlow()
 
     private val _searchSuggestions = MutableStateFlow<List<SearchSuggestionItem>>(emptyList())
     val searchSuggestions: StateFlow<List<SearchSuggestionItem>> = _searchSuggestions.asStateFlow()
@@ -552,6 +565,114 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateRecommendedVideosAsync()
     }
 
+    /**
+     * Serializes all user watch history, bookmarks, liked videos, playlists,
+     * dislike preferences, and blocklists into a portable JSON string.
+     */
+    fun exportUserDataJson(): String {
+        val historyEntities = _watchHistory.value.map { video ->
+            WatchHistoryEntity(
+                videoId = video.id,
+                title = video.title ?: video.id,
+                channelName = video.uploaderName ?: "",
+                thumbnailUrl = video.thumbnailUrl,
+                providerId = video.providerId ?: "youtube",
+                progressFraction = _watchProgressMap.value[video.id] ?: 0.5f
+            )
+        }
+
+        val bookmarkEntities = _watchLaterList.value.map { video ->
+            BookmarkEntity(
+                videoId = video.id,
+                title = video.title ?: video.id,
+                channelName = video.uploaderName ?: "",
+                thumbnailUrl = video.thumbnailUrl,
+                providerId = video.providerId ?: "youtube"
+            )
+        }
+
+        val likedEntities = _likedVideos.value.map { video ->
+            LikedVideoEntity(
+                videoId = video.id,
+                title = video.title ?: video.id,
+                channelName = video.uploaderName ?: "",
+                thumbnailUrl = video.thumbnailUrl,
+                providerId = video.providerId ?: "youtube"
+            )
+        }
+
+        val playlistEntities = _userPlaylists.value.map { pl ->
+            UserPlaylistEntity(
+                id = pl.id,
+                title = pl.title,
+                createdAt = System.currentTimeMillis(),
+                videosJson = serializeVideos(pl.videos)
+            )
+        }
+
+        val backupData = com.example.util.UserDataBackupManager.BackupData(
+            watchHistory = historyEntities,
+            bookmarks = bookmarkEntities,
+            likedVideos = likedEntities,
+            dislikedVideoIds = _dislikedVideoIds.value.toList(),
+            playlists = playlistEntities,
+            hiddenVideoIds = _hiddenVideoIds.value.toList(),
+            notInterestedVideoIds = _notInterestedVideoIds.value.toList(),
+            notInterestedChannels = _notInterestedChannels.value.toList(),
+            recentSearches = _recentSearches.value,
+            watchProgressMap = _watchProgressMap.value
+        )
+
+        return com.example.util.UserDataBackupManager.exportToJson(backupData)
+    }
+
+    /**
+     * Imports user profile JSON string, updating Room database, SharedPreferences, and live ViewModel state.
+     */
+    suspend fun importUserDataJson(jsonString: String): com.example.util.UserDataBackupManager.ImportSummary = withContext(Dispatchers.IO) {
+        val backup = com.example.util.UserDataBackupManager.importFromJson(jsonString)
+
+        // 1. Save to Room DB
+        backup.watchHistory.forEach { userDataDao.insertWatchHistory(it) }
+        backup.bookmarks.forEach { userDataDao.insertBookmark(it) }
+        backup.likedVideos.forEach { userDataDao.insertLikedVideo(it) }
+        backup.playlists.forEach { userDataDao.insertOrUpdatePlaylist(it) }
+
+        // 2. Update SharedPreferences blocklists
+        val updatedHidden = (_hiddenVideoIds.value + backup.hiddenVideoIds + backup.notInterestedVideoIds).toSet()
+        val updatedBlockedChans = (_notInterestedChannels.value + backup.notInterestedChannels).toSet()
+
+        prefs.edit()
+            .putStringSet("hidden_video_ids", updatedHidden)
+            .putStringSet("blocked_channels", updatedBlockedChans)
+            .apply()
+
+        // 3. Update State Flows in memory
+        _hiddenVideoIds.value = updatedHidden
+        _notInterestedVideoIds.value = (_notInterestedVideoIds.value + backup.notInterestedVideoIds).toSet()
+        _notInterestedChannels.value = updatedBlockedChans
+        _dislikedVideoIds.value = (_dislikedVideoIds.value + backup.dislikedVideoIds).toSet()
+        _watchProgressMap.value = _watchProgressMap.value + backup.watchProgressMap
+
+        if (backup.recentSearches.isNotEmpty()) {
+            val combinedSearches = (_recentSearches.value + backup.recentSearches).distinct()
+            _recentSearches.value = combinedSearches
+            saveRecentSearches(combinedSearches)
+        }
+
+        // 4. Trigger AI recommendation engine re-calculation
+        updateRecommendedVideosAsync()
+
+        com.example.util.UserDataBackupManager.ImportSummary(
+            historyCount = backup.watchHistory.size,
+            bookmarkCount = backup.bookmarks.size,
+            likedCount = backup.likedVideos.size,
+            playlistCount = backup.playlists.size,
+            blockedChannelsCount = backup.notInterestedChannels.size,
+            hiddenCount = backup.hiddenVideoIds.size
+        )
+    }
+
     private val _isSearchExpanded = MutableStateFlow(false)
     val isSearchExpanded: StateFlow<Boolean> = _isSearchExpanded.asStateFlow()
 
@@ -560,6 +681,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!expanded) {
             _searchQuery.value = ""
             _searchResults.value = emptyList()
+            _activeSearchSanitizedResult.value = null
         }
     }
 
@@ -567,6 +689,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _searchQuery.value = ""
         _searchResults.value = emptyList()
         _isSearchExpanded.value = false
+        _activeSearchSanitizedResult.value = null
     }
 
     private val _recommendedVideos = MutableStateFlow<List<VideoItem>>(emptyList())
@@ -731,39 +854,144 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Smart Circadian & Persona Recommendation Engine Pipeline:
+     * Smart Multi-Signal Recommendation Engine Pipeline:
      * Ranks videos using multi-signal taste vectors, completion ratios,
-     * channel affinity, time-of-day circadian learning, and channel diversity caps.
+     * search intent & search tokens, channel affinity, time-of-day circadian learning, and channel diversity caps.
      */
     fun getRecommendedVideos(): List<VideoItem> {
-        val allAvailable = (_trendingVideos.value + _searchResults.value)
+        val allAvailable = (_trendingVideos.value + _searchResults.value + _searchDrivenRecommendations.value)
             .distinctBy { (it.providerId ?: "") + "_" + it.id }
             .filterNot { isBlockedVideo(it) }
         if (allAvailable.isEmpty()) return emptyList()
 
-        val historyEntities = _watchHistory.value.map { video ->
-            WatchHistoryEntity(
-                videoId = video.id,
-                title = video.title ?: video.id,
-                channelName = video.uploaderName ?: "",
-                thumbnailUrl = video.thumbnailUrl,
-                providerId = video.providerId ?: "general",
-                progressFraction = _watchProgressMap.value[video.id] ?: 0.5f
-            )
-        }
+        val tasteVector = com.example.recommendation.SmartRecommendationEngine.computeTasteVector(
+            watchHistory = _watchHistory.value,
+            watchProgressMap = _watchProgressMap.value,
+            likedVideoIds = _likedVideoIds.value,
+            dislikedVideoIds = _dislikedVideoIds.value,
+            bookmarks = _watchLaterList.value,
+            notInterestedChannels = _notInterestedChannels.value,
+            recentSearches = _recentSearches.value
+        )
 
-        val bookmarkEntities = _watchLaterList.value.map { video ->
-            com.example.db.BookmarkEntity(
-                videoId = video.id,
-                title = video.title ?: video.id,
-                channelName = video.uploaderName ?: "",
-                thumbnailUrl = video.thumbnailUrl,
-                providerId = video.providerId
-            )
-        }
+        val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+            candidates = allAvailable,
+            tasteVector = tasteVector,
+            activeVideo = _activeVideoItem.value,
+            blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value,
+            blockedChannels = _notInterestedChannels.value
+        )
 
-        val ranked = allAvailable.filterNot { isBlockedVideo(it) }
-        return ranked.distinctBy { it.id }.take(20)
+        return ranked.take(25)
+    }
+
+    /**
+     * Re-ranks any candidate video list (e.g. Home Feed or Search) using the user's live taste vector with search intent awareness.
+     */
+    fun rankFeedWithRecommendations(rawList: List<VideoItem>): List<VideoItem> {
+        if (rawList.isEmpty()) return emptyList()
+        val tasteVector = com.example.recommendation.SmartRecommendationEngine.computeTasteVector(
+            watchHistory = _watchHistory.value,
+            watchProgressMap = _watchProgressMap.value,
+            likedVideoIds = _likedVideoIds.value,
+            dislikedVideoIds = _dislikedVideoIds.value,
+            bookmarks = _watchLaterList.value,
+            notInterestedChannels = _notInterestedChannels.value,
+            recentSearches = _recentSearches.value
+        )
+
+        return com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+            candidates = rawList,
+            tasteVector = tasteVector,
+            activeVideo = null,
+            blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value,
+            blockedChannels = _notInterestedChannels.value
+        )
+    }
+
+    // Contextual Search-Driven Recommendations for Home Screen
+    private val _searchDrivenRecommendations = MutableStateFlow<List<VideoItem>>(emptyList())
+    val searchDrivenRecommendations: StateFlow<List<VideoItem>> = _searchDrivenRecommendations.asStateFlow()
+
+    private val _latestSearchIntent = MutableStateFlow<String?>(null)
+    val latestSearchIntent: StateFlow<String?> = _latestSearchIntent.asStateFlow()
+
+    private var searchRecsJob: kotlinx.coroutines.Job? = null
+
+    fun refreshSearchDrivenRecommendations() {
+        searchRecsJob?.cancel()
+        searchRecsJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val latest = _recentSearches.value.firstOrNull { it.isNotBlank() }
+                if (latest.isNullOrBlank()) {
+                    _searchDrivenRecommendations.value = emptyList()
+                    _latestSearchIntent.value = null
+                    return@launch
+                }
+
+                _latestSearchIntent.value = latest
+
+                // Proactively discover related media across providers
+                val discovered = mutableListOf<VideoItem>()
+                val adultEnabled = _adultContentEnabled.value
+
+                // 1. Fetch search related items from YouTube
+                try {
+                    val ytItems = com.example.extractor.YouTubeExtractorHelper.searchYouTube(latest, getApplication())
+                    discovered.addAll(ytItems.take(8))
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Search recs YT error", e)
+                }
+
+                // 2. Fetch search related items from TMDB / Archive
+                try {
+                    val tmdbItems = com.example.extractor.MultiSourceProvider.search(getApplication(), "tmdb", latest, 6)
+                    discovered.addAll(tmdbItems)
+                } catch (e: Exception) {
+                    // Continue
+                }
+
+                try {
+                    val archiveItems = com.example.extractor.ArchiveOrgProvider.search(latest, 1)
+                    discovered.addAll(archiveItems.take(4))
+                } catch (e: Exception) {
+                    // Continue
+                }
+
+                val cleanFiltered = discovered
+                    .filterNot { isBlockedVideo(it) }
+                    .filter { adultEnabled || !isAdultVideoItem(it) }
+                    .distinctBy { (it.providerId ?: "") + "_" + it.id }
+
+                val tasteVector = com.example.recommendation.SmartRecommendationEngine.computeTasteVector(
+                    watchHistory = _watchHistory.value,
+                    watchProgressMap = _watchProgressMap.value,
+                    likedVideoIds = _likedVideoIds.value,
+                    dislikedVideoIds = _dislikedVideoIds.value,
+                    bookmarks = _watchLaterList.value,
+                    notInterestedChannels = _notInterestedChannels.value,
+                    recentSearches = _recentSearches.value
+                )
+
+                val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+                    candidates = cleanFiltered,
+                    tasteVector = tasteVector,
+                    blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value,
+                    blockedChannels = _notInterestedChannels.value
+                )
+
+                _searchDrivenRecommendations.value = ranked.take(12)
+
+                // Also infuse candidate items smoothly into the general trending pool
+                if (ranked.isNotEmpty()) {
+                    val currentTrending = _trendingVideos.value
+                    val infused = (ranked.take(4) + currentTrending).distinctBy { (it.providerId ?: "") + "_" + it.id }
+                    _trendingVideos.value = infused
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Failed to refresh search recommendations", e)
+            }
+        }
     }
 
     private val _userPlaylists = MutableStateFlow<List<UserPlaylist>>(emptyList())
@@ -1132,6 +1360,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         _subscribedChannels.value = updatedList
         saveSubscribedChannels(updatedList)
+
+        val isNowSub = updatedList.any { it.name.equals(clean, ignoreCase = true) }
+        _channelDetails.value?.let { current ->
+            if (current.name.equals(clean, ignoreCase = true)) {
+                _channelDetails.value = current.copy(isSubscribed = isNowSub)
+            }
+        }
+        loadSubscriptionFeed()
+    }
+
+    private var subscriptionFeedJob: Job? = null
+    fun loadSubscriptionFeed() {
+        subscriptionFeedJob?.cancel()
+        subscriptionFeedJob = viewModelScope.launch(Dispatchers.IO) {
+            _isSubscriptionLoading.value = true
+            try {
+                val subs = _subscribedChannels.value
+                val feed = mutableListOf<VideoItem>()
+                val existingFeed = _trendingVideos.value + _recommendedVideos.value
+
+                if (subs.isNotEmpty()) {
+                    // 1. First collect existing cached items matching subscribed creators
+                    subs.forEach { sub ->
+                        val matching = existingFeed.filter { item ->
+                            item.uploaderName.equals(sub.name, ignoreCase = true) ||
+                            item.uploaderName.contains(sub.name, ignoreCase = true) ||
+                            sub.name.contains(item.uploaderName, ignoreCase = true)
+                        }
+                        feed.addAll(matching)
+                    }
+
+                    // 2. Fetch fresh videos from top subscribed creators
+                    for (sub in subs.take(6)) {
+                        try {
+                            val results = YouTubeExtractorHelper.searchYouTube(sub.name, getApplication())
+                            val matches = results.filter {
+                                it.uploaderName.equals(sub.name, ignoreCase = true) ||
+                                it.uploaderName.contains(sub.name, ignoreCase = true) ||
+                                sub.name.contains(it.uploaderName, ignoreCase = true)
+                            }.take(8)
+                            if (matches.isNotEmpty()) {
+                                feed.addAll(matches)
+                            } else {
+                                feed.addAll(results.take(4))
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainViewModel", "Failed fetching feed for ${sub.name}: ${e.message}")
+                        }
+                    }
+                }
+
+                // If feed is still small, enrich with top trending items
+                if (feed.size < 6 && existingFeed.isNotEmpty()) {
+                    feed.addAll(existingFeed.take(15))
+                }
+
+                _subscriptionVideos.value = feed.distinctBy { it.id }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "loadSubscriptionFeed failed: ${e.message}")
+            } finally {
+                _isSubscriptionLoading.value = false
+            }
+        }
     }
 
     fun toggleSubscriptionNotification(channelId: String) {
@@ -1600,18 +1891,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (adultEnabled) searches else searches.filterNot { isAdultSearchQuery(it) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private val _trendingTopics = MutableStateFlow<List<String>>(com.example.util.ExploreMediaHelper.getCuratedTrendingTopics())
+    val trendingTopics: StateFlow<List<String>> = _trendingTopics.asStateFlow()
+
+    fun loadTrendingTopics() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val topics = com.example.util.ExploreMediaHelper.fetchTrendingSearchTopics()
+                if (topics.isNotEmpty()) {
+                    _trendingTopics.value = topics
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Failed to load real trending topics: ${e.message}")
+            }
+        }
+    }
+
     init {
         refreshProvidersList()
         loadTrending()
+        loadTrendingTopics()
+        loadSubscriptionFeed()
         viewModelScope.launch {
             videoCacheRepo.searchHistoryFlow.collect { roomSearches ->
                 if (roomSearches.isNotEmpty()) {
                     _recentSearches.value = roomSearches
+                    refreshSearchDrivenRecommendations()
                 }
             }
         }
         com.example.ui.player.GlobalPlayerManager.setPlaybackFailedListener {
             tryNextFallbackStream()
+        }
+        if (_recentSearches.value.isNotEmpty()) {
+            refreshSearchDrivenRecommendations()
         }
     }
 
@@ -1622,6 +1935,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updated = (listOf(q) + filtered).take(20)
         _recentSearches.value = updated
         saveRecentSearches(updated)
+        refreshSearchDrivenRecommendations()
         viewModelScope.launch {
             videoCacheRepo.addSearchQuery(q)
         }
@@ -1631,6 +1945,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updated = _recentSearches.value.filterNot { it.equals(query, ignoreCase = true) }
         _recentSearches.value = updated
         saveRecentSearches(updated)
+        refreshSearchDrivenRecommendations()
         viewModelScope.launch {
             videoCacheRepo.removeSearchQuery(query)
         }
@@ -1639,6 +1954,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearAllRecentSearches() {
         _recentSearches.value = emptyList()
         saveRecentSearches(emptyList())
+        _searchDrivenRecommendations.value = emptyList()
+        _latestSearchIntent.value = null
         viewModelScope.launch {
             videoCacheRepo.clearSearchHistory()
         }
@@ -1755,14 +2072,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .trim()
     }
 
-    fun openChannel(channelName: String, avatarUrl: String? = null) {
+    fun openChannel(channelName: String, avatarUrl: String? = null, channelUrlOrId: String? = null) {
         val trimmed = channelName.trim()
         if (trimmed.isBlank()) return
+        val cleanAvatar = avatarUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(trimmed, avatarUrl).logoUrls.firstOrNull()
         _selectedChannelName.value = trimmed
-        _selectedChannelAvatarUrl.value = avatarUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(trimmed, avatarUrl).logoUrls.firstOrNull()
-        _currentScreen.value = AppScreen.HOME
-        updateSearchQuery(trimmed)
-        performSearch(trimmed)
+        _selectedChannelAvatarUrl.value = cleanAvatar
+        _currentScreen.value = AppScreen.CHANNEL
+        loadChannelDetails(trimmed, cleanAvatar, channelUrlOrId)
+    }
+
+    private var channelLoadJob: Job? = null
+    fun loadChannelDetails(channelName: String, avatarUrl: String? = null, channelUrlOrId: String? = null) {
+        channelLoadJob?.cancel()
+        channelLoadJob = viewModelScope.launch(Dispatchers.IO) {
+            _isChannelLoading.value = true
+            try {
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(channelName, avatarUrl)
+                val initialVideos = (_trendingVideos.value + _recommendedVideos.value).filter { item ->
+                    item.uploaderName.equals(channelName, ignoreCase = true) ||
+                    item.uploaderName.contains(channelName, ignoreCase = true)
+                }
+
+                val initialDetails = com.example.model.ChannelDetails(
+                    channelId = channelName.lowercase().replace("[^a-z0-9]".toRegex(), "_").take(30),
+                    name = channelName,
+                    handle = "@${channelName.replace(" ", "").lowercase()}",
+                    avatarUrl = avatarUrl ?: brand.logoUrls.firstOrNull(),
+                    subscriberCount = brand.subscriberCountText.ifBlank { "850K subscribers" },
+                    videoCount = if (initialVideos.isNotEmpty()) "${initialVideos.size} videos" else "90+ videos",
+                    isSubscribed = isSubscribed(channelName),
+                    videos = initialVideos
+                )
+                _channelDetails.value = initialDetails
+                _channelVideos.value = initialVideos
+
+                // Fetch real channel information and uploads
+                val fetched = YouTubeExtractorHelper.fetchChannelDetails(
+                    channelNameOrUrl = channelUrlOrId ?: channelName,
+                    context = getApplication(),
+                    fallbackAvatar = avatarUrl
+                )
+                val isSub = isSubscribed(fetched.name) || isSubscribed(channelName)
+                val finalDetails = fetched.copy(
+                    isSubscribed = isSub,
+                    avatarUrl = fetched.avatarUrl ?: avatarUrl ?: brand.logoUrls.firstOrNull()
+                )
+                _channelDetails.value = finalDetails
+                _channelVideos.value = finalDetails.videos
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "loadChannelDetails failed for $channelName: ${e.message}")
+            } finally {
+                _isChannelLoading.value = false
+            }
+        }
     }
 
     private var suggestionJob: kotlinx.coroutines.Job? = null
@@ -1778,15 +2141,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         suggestionJob = viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.delay(200L)
+            kotlinx.coroutines.delay(180L)
             if (!isActive) return@launch
 
+            val sanitized = com.example.util.SmartSearchSanitizer.sanitizeQuery(q)
+
             val historyMatches = _recentSearches.value
-                .filter { it.contains(q, ignoreCase = true) }
+                .filter { it.contains(q, ignoreCase = true) || it.contains(sanitized.cleanQuery, ignoreCase = true) }
                 .take(3)
                 .map { SearchSuggestionItem(query = it, isHistory = true) }
 
-            val fetchedSuggestions = com.example.extractor.YouTubeExtractorHelper.fetchSearchSuggestions(q)
+            val fetchedSuggestions = com.example.extractor.YouTubeExtractorHelper.fetchSearchSuggestions(sanitized.cleanQuery)
             if (!isActive) return@launch
 
             val ytSuggestions = fetchedSuggestions.map { sug ->
@@ -1800,6 +2165,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val combined = mutableListOf<SearchSuggestionItem>()
             val seenQueries = mutableSetOf<String>()
 
+            // 1. AI Sanitized / Typo Correction suggestion at top
+            if (sanitized.wasCleaned) {
+                val cleanLower = sanitized.cleanQuery.lowercase()
+                if (seenQueries.add(cleanLower)) {
+                    combined.add(
+                        SearchSuggestionItem(
+                            query = sanitized.cleanQuery,
+                            isHistory = false,
+                            providerBadge = if (sanitized.didYouMean != null) "Did You Mean" else "AI Cleaned"
+                        )
+                    )
+                }
+            }
+
+            // 2. History matches
             historyMatches.forEach { item ->
                 val lower = item.query.lowercase()
                 if (seenQueries.add(lower)) {
@@ -1807,6 +2187,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
+            // 3. YouTube live suggestions
             ytSuggestions.forEach { item ->
                 val lower = item.query.lowercase()
                 if (seenQueries.add(lower)) {
@@ -1821,11 +2202,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun performSearch(query: String? = null) {
-        val q = (query ?: _searchQuery.value).trim()
-        if (q.isBlank()) return
-        addRecentSearch(q)
-        currentSearchPage = 1
+        val rawInput = (query ?: _searchQuery.value).trim()
+        if (rawInput.isBlank()) return
 
+        val sanitized = com.example.util.SmartSearchSanitizer.sanitizeQuery(rawInput)
+        _activeSearchSanitizedResult.value = sanitized
+
+        val searchTarget = sanitized.cleanQuery
+        addRecentSearch(searchTarget)
+        if (sanitized.wasCleaned && rawInput != searchTarget) {
+            addRecentSearch(rawInput)
+        }
+
+        currentSearchPage = 1
         _isSearching.value = true
         _searchResults.value = emptyList()
 
@@ -1848,7 +2237,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             adultEnabled || !isAdultVideoItem(it)
                         }
                     }
-                    _searchResults.value = filtered
+                    val ranked = rankFeedWithRecommendations(filtered)
+                    _searchResults.value = ranked
                 }
 
                 supervisorScope {
@@ -1857,7 +2247,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         launch(Dispatchers.IO) {
                             try {
                                 val ytResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
-                                    com.example.extractor.YouTubeExtractorHelper.searchYouTube(q, getApplication())
+                                    com.example.extractor.YouTubeExtractorHelper.searchYouTube(searchTarget, getApplication())
                                 } ?: emptyList()
                                 if (ytResults.isNotEmpty()) {
                                     synchronized(collectedList) { collectedList.addAll(ytResults) }
@@ -1874,7 +2264,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         launch(Dispatchers.IO) {
                             try {
                                 val archResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
-                                    com.example.extractor.ArchiveOrgProvider.search(q, 1)
+                                    com.example.extractor.ArchiveOrgProvider.search(searchTarget, 1)
                                 } ?: emptyList()
                                 if (archResults.isNotEmpty()) {
                                     synchronized(collectedList) { collectedList.addAll(archResults) }
@@ -1891,7 +2281,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         launch(Dispatchers.IO) {
                             try {
                                 val epResults = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                    com.example.extractor.EpornerProvider.search(q, 25)
+                                    com.example.extractor.EpornerProvider.search(searchTarget, 25)
                                 } ?: emptyList()
                                 if (epResults.isNotEmpty()) {
                                     synchronized(collectedList) { collectedList.addAll(epResults) }
@@ -1915,7 +2305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         launch(Dispatchers.IO) {
                             try {
                                 val provResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
-                                    com.example.extractor.MultiSourceProvider.search(getApplication(), prov, q, 15)
+                                    com.example.extractor.MultiSourceProvider.search(getApplication(), prov, searchTarget, 15)
                                 } ?: emptyList()
                                 if (provResults.isNotEmpty()) {
                                     synchronized(collectedList) { collectedList.addAll(provResults) }
@@ -2218,8 +2608,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                val tasteVector = com.example.recommendation.SmartRecommendationEngine.computeTasteVector(
+                    watchHistory = _watchHistory.value,
+                    watchProgressMap = _watchProgressMap.value,
+                    likedVideoIds = _likedVideoIds.value,
+                    dislikedVideoIds = _dislikedVideoIds.value,
+                    bookmarks = _watchLaterList.value,
+                    notInterestedChannels = _notInterestedChannels.value
+                )
+
+                val rankedDiscovered = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+                    candidates = discovered,
+                    tasteVector = tasteVector,
+                    activeVideo = _activeVideoItem.value,
+                    blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value,
+                    blockedChannels = _notInterestedChannels.value
+                )
+
                 val current = _playerRecommendations.value
-                val combined = (current + discovered).distinctBy { it.id }
+                val combined = (current + rankedDiscovered).distinctBy { it.id }
                 _playerRecommendations.value = combined
 
                 // Ensure home feed keeps filling up as well

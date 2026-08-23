@@ -414,6 +414,15 @@ object ChannelLogoHelper {
                 subscriberCountText = "Official Partner"
             )
 
+            combined.contains("beeg") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = cleanName,
+                brandShortText = "BG",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "Official Partner"
+            )
+
             // Top Creators & Channels
             combined.contains("mrbeast") -> BrandLogoInfo(
                 logoUrls = listOf("https://yt3.googleusercontent.com/fxGKYucJAVme-Yz4fsdCro6FCrNsBs0x6GcZNquNZP4b0ScG9P_AhXYtqSLQ5WZa8nA2qQDpjw=s176-c-k-c0x00ffffff-no-rj"),
@@ -505,17 +514,14 @@ object ChannelLogoHelper {
                 subscriberCountText = "24.5M subscribers"
             )
 
-            // Dynamic Hash-derived branding for any YouTube channel / general creator
+            // Dynamic Hash-derived branding for any creator / channel
             else -> {
                 val hash = abs(cleanName.hashCode())
                 val palette = AVATAR_PALETTE[hash % AVATAR_PALETTE.size]
                 val initials = getInitials(cleanName)
 
-                val cleanHandle = cleanName.replace(Regex("[^a-zA-Z0-9_]"), "")
-                val fallbackAvatarUrl = if (cleanHandle.isNotBlank()) "https://unavatar.io/youtube/$cleanHandle" else null
-
                 BrandLogoInfo(
-                    logoUrls = if (fallbackAvatarUrl != null) listOf(fallbackAvatarUrl) else emptyList(),
+                    logoUrls = emptyList(),
                     brandName = cleanName,
                     brandShortText = initials,
                     backgroundColor = palette.first,

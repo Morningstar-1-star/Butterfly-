@@ -26,20 +26,57 @@ class MainApplication : Application() {
         super.onCreate()
         appContext = this
 
-        // Configure ultra high-performance Coil ImageLoader with parallel OkHttp throughput
+        // Configure ultra high-performance Coil ImageLoader with parallel OkHttp throughput and domain-specific headers
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
             .dispatcher(okhttp3.Dispatcher().apply {
                 maxRequests = 128
                 maxRequestsPerHost = 32
             })
             .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
-            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-                    .build()
-                chain.proceed(request)
+                val originalRequest = chain.request()
+                val urlStr = originalRequest.url.toString().lowercase()
+                val requestBuilder = originalRequest.newBuilder()
+
+                // Standard desktop user agent for all thumbnail CDN fetches
+                requestBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+                when {
+                    urlStr.contains("externulls.com") || urlStr.contains("beeg.com") -> {
+                        requestBuilder.header("Referer", "https://beeg.com/")
+                        requestBuilder.header("Origin", "https://beeg.com")
+                    }
+                    urlStr.contains("phncdn.com") || urlStr.contains("pornhub.com") -> {
+                        requestBuilder.header("Referer", "https://www.pornhub.com/")
+                        requestBuilder.header("Origin", "https://www.pornhub.com")
+                        requestBuilder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                    }
+                    urlStr.contains("xvideos.com") || urlStr.contains("xv-cdn.com") -> {
+                        requestBuilder.header("Referer", "https://www.xvideos.com/")
+                    }
+                    urlStr.contains("xhamster.com") || urlStr.contains("xhcdn.com") -> {
+                        requestBuilder.header("Referer", "https://xhamster.com/")
+                    }
+                    urlStr.contains("eporner.com") || urlStr.contains("static-cluster") -> {
+                        requestBuilder.header("Referer", "https://www.eporner.com/")
+                    }
+                    urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {
+                        requestBuilder.header("Referer", "https://www.youporn.com/")
+                    }
+                    urlStr.contains("rule34video.com") -> {
+                        requestBuilder.header("Referer", "https://rule34video.com/")
+                    }
+                    urlStr.contains("bilibili.com") || urlStr.contains("hdslb.com") || urlStr.contains("bilivideo.com") -> {
+                        requestBuilder.header("Referer", "https://www.bilibili.com/")
+                    }
+                    urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("starott.com") -> {
+                        requestBuilder.header("Referer", "https://www.hotstar.com/")
+                    }
+                }
+
+                chain.proceed(requestBuilder.build())
             }
             .build()
 

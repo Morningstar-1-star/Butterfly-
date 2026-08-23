@@ -37,6 +37,8 @@ import com.example.ui.components.DownloadQualityBottomSheet
 import com.example.ui.components.LandscapeRelatedDrawer
 import com.example.ui.player.GlobalPlayerManager
 import com.example.ui.player.UniversalVideoPlayer
+import com.example.ui.ambient.AmbientPlayerGlow
+import com.example.ui.ambient.rememberAmbientPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.model.EpisodeItem
@@ -126,6 +128,12 @@ fun VideoPlayerScreen(
     val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
     val playerRecommendations by viewModel.playerRecommendations.collectAsState()
     val isLoadingPlayerRecs by viewModel.isLoadingPlayerRecs.collectAsState()
+
+    val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
+    val isAmbientEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
+    val ambientPalette = rememberAmbientPalette(
+        thumbnailUrl = currentStreamData?.thumbnailUrl ?: currentVideoItem?.thumbnailUrl
+    )
 
     val relatedContent = remember(trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
         val base = trendingVideos.filter { it.id != activeVideoId }
@@ -253,17 +261,26 @@ fun VideoPlayerScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = MaterialTheme.colorScheme.background
         ) { paddingValues ->
-            Column(
+            Box(
                 modifier = modifier
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                // PORTRAIT VIDEO PLAYER VIEW
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .background(Color.Black)
+                // YouTube-style Dynamic Ambient Mode Lighting Effect
+                AmbientPlayerGlow(
+                    palette = ambientPalette,
+                    isEnabled = isAmbientEnabled
+                )
+
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // PORTRAIT VIDEO PLAYER VIEW
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .background(Color.Black)
                         .pointerInput(Unit) {
                             var totalDrag = 0f
                             detectVerticalDragGestures(
@@ -497,6 +514,7 @@ fun VideoPlayerScreen(
             }
         }
     }
+}
 
     // MODAL BOTTOM SHEET: DOWNLOAD QUALITY PICKER
     if (showDownloadQualitySheet) {

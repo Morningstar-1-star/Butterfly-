@@ -102,7 +102,8 @@ fun ExploreScreen(
         if (searchQuery.isNotBlank()) {
             isSearching = true
             try {
-                searchResults = ExploreMediaHelper.searchAll(searchQuery.trim())
+                val sanitized = com.example.util.SmartSearchSanitizer.sanitizeQuery(searchQuery.trim())
+                searchResults = ExploreMediaHelper.searchAll(sanitized.cleanQuery)
             } catch (e: Exception) {
                 searchResults = emptyList()
             } finally {

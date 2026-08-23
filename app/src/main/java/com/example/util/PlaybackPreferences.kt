@@ -25,6 +25,16 @@ class PlaybackPreferences private constructor(context: Context) {
     )
     val disableSpeedForMusic: StateFlow<Boolean> = _disableSpeedForMusic.asStateFlow()
 
+    private val _ambientModeEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_AMBIENT_MODE_ENABLED, true)
+    )
+    val ambientModeEnabled: StateFlow<Boolean> = _ambientModeEnabled.asStateFlow()
+
+    private val _loopVideoEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_LOOP_VIDEO_ENABLED, false)
+    )
+    val loopVideoEnabled: StateFlow<Boolean> = _loopVideoEnabled.asStateFlow()
+
     fun setForceCustomSpeed(enabled: Boolean) {
         _forceCustomSpeed.value = enabled
         prefs.edit().putBoolean(KEY_FORCE_CUSTOM_SPEED, enabled).apply()
@@ -39,6 +49,16 @@ class PlaybackPreferences private constructor(context: Context) {
     fun setDisableSpeedForMusic(disabled: Boolean) {
         _disableSpeedForMusic.value = disabled
         prefs.edit().putBoolean(KEY_DISABLE_SPEED_FOR_MUSIC, disabled).apply()
+    }
+
+    fun setAmbientModeEnabled(enabled: Boolean) {
+        _ambientModeEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_AMBIENT_MODE_ENABLED, enabled).apply()
+    }
+
+    fun setLoopVideoEnabled(enabled: Boolean) {
+        _loopVideoEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_LOOP_VIDEO_ENABLED, enabled).apply()
     }
 
     fun getEffectiveSpeed(isMusic: Boolean): Float {
@@ -56,6 +76,8 @@ class PlaybackPreferences private constructor(context: Context) {
         private const val KEY_FORCE_CUSTOM_SPEED = "force_custom_speed"
         private const val KEY_DEFAULT_SPEED = "default_speed"
         private const val KEY_DISABLE_SPEED_FOR_MUSIC = "disable_speed_for_music"
+        private const val KEY_AMBIENT_MODE_ENABLED = "ambient_mode_enabled"
+        private const val KEY_LOOP_VIDEO_ENABLED = "loop_video_enabled"
 
         @Volatile
         private var INSTANCE: PlaybackPreferences? = null

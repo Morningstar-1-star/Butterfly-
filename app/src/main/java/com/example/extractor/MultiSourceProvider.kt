@@ -41,73 +41,36 @@ object MultiSourceProvider {
             "pornhub" -> getPornhubHome(limit)
             "xvideos" -> getXVideosHome(limit)
             "xhamster" -> getXHamsterHome(limit)
-            "redtube" -> getRedTubeHome(limit)
+            "redtube" -> RedTubeProvider.getHome(page, limit)
             "youporn" -> getYouPornHome(page, limit)
             "hotstar", "jiohotstar" -> HotstarProvider.getHome(page, limit)
             "beeg" -> getBeegHome(limit)
-            "4tube" -> parse4tubeHtml("https://www.4tube.com/", limit)
+            "4tube" -> FourTubeProvider.getHome(page, limit)
             "rule34video" -> parseRule34Html("https://rule34video.com/", limit)
             else -> emptyList()
         }
 
-        if (customItems.isNotEmpty()) {
-            return@withContext customItems
-        }
-
-        // 2. Fallback to YtDlpResolver
-        val fallbackQuery = when (pid) {
-            "dailymotion" -> "trending"
-            "vimeo" -> "staff picks"
-            "bilibili" -> "anime"
-            "hotstar", "jiohotstar" -> "movies"
-            "pornhub" -> "trending"
-            "xvideos" -> "popular"
-            "xhamster" -> "popular"
-            "redtube" -> "trending"
-            "youporn" -> "popular"
-            "4tube" -> "video"
-            "beeg" -> "popular"
-            "rule34video" -> "animation"
-            else -> "popular"
-        }
-
-        try {
-            YtDlpResolver.search(context, fallbackQuery, limit, pid)
-        } catch (e: Exception) {
-            Log.w(TAG, "YtDlpResolver home search failed for $pid: ${e.message}")
-            emptyList()
-        }
+        customItems
     }
 
     suspend fun search(context: Context, providerId: String, query: String, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val pid = providerId.lowercase()
 
-        val customItems = when (pid) {
+        when (pid) {
             "dailymotion" -> searchDailymotion(query, limit)
             "vimeo" -> searchVimeo(query, limit)
             "bilibili" -> searchBilibili(query, 1, limit)
             "pornhub" -> searchPornhub(query, limit)
             "xvideos" -> searchXVideos(query, limit)
             "xhamster" -> searchXHamster(query, limit)
-            "redtube" -> searchRedTube(query, limit)
+            "redtube" -> RedTubeProvider.search(query, 1, limit)
             "youporn" -> searchYouPorn(query, limit)
             "hotstar", "jiohotstar" -> HotstarProvider.search(query, 1, limit)
             "beeg" -> BeegProvider.search(query, limit)
-            "4tube" -> parse4tubeHtml("https://www.4tube.com/search/${URLEncoder.encode(query, "UTF-8")}", limit)
+            "4tube" -> FourTubeProvider.search(query, 1, limit)
             "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/", limit)
             else -> emptyList()
-        }
-
-        if (customItems.isNotEmpty()) {
-            return@withContext customItems
-        }
-
-        try {
-            YtDlpResolver.search(context, query, limit, pid)
-        } catch (e: Exception) {
-            Log.w(TAG, "YtDlpResolver search failed for $pid: ${e.message}")
-            emptyList()
         }
     }
 
@@ -492,37 +455,7 @@ object MultiSourceProvider {
 
     // ------------------- 4TUBE -------------------
     private fun parse4tubeHtml(targetUrl: String, limit: Int): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder().url(targetUrl).build()
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val pattern = Pattern.compile("<a\\s+[^>]*href=\"(https://www\\.4tube\\.com/videos/(\\d+)/[^\"]*)\"[^>]*>", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seen = mutableSetOf<String>()
-
-            while (matcher.find() && list.size < limit) {
-                val url = matcher.group(1) ?: continue
-                val id = matcher.group(2) ?: continue
-                if (seen.contains(id)) continue
-                seen.add(id)
-
-                list.add(
-                    VideoItem(
-                        id = url,
-                        title = "4tube Video",
-                        uploaderName = "4tube",
-                        thumbnailUrl = "",
-                        providerId = "4tube"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "4tube parse error: ${e.message}")
-        }
-        return list
+        return FourTubeProvider.getHome(1, limit)
     }
 
     // ------------------- RULE34VIDEO -------------------

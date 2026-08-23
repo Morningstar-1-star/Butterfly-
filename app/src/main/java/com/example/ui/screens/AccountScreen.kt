@@ -333,7 +333,7 @@ fun AccountScreen(
                             thumbnailUrl = watchLaterList.firstOrNull()?.thumbnailUrl,
                             icon = Icons.Outlined.WatchLater,
                             badgeColor = Color(0xFF0F4C81),
-                            onClick = { showWatchLaterSheet = true }
+                            onClick = { viewModel.navigateToScreen(AppScreen.LIBRARY) }
                         )
                     }
 
@@ -404,7 +404,7 @@ fun AccountScreen(
                     AccountMenuListItem(
                         icon = Icons.Outlined.SmartDisplay,
                         title = "Your videos",
-                        onClick = { showWatchLaterSheet = true }
+                        onClick = { viewModel.navigateToScreen(AppScreen.LIBRARY) }
                     )
 
                     AccountMenuListItem(

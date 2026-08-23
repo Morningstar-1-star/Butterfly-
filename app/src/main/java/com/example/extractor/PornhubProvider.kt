@@ -7,6 +7,7 @@ import com.example.model.ProviderType
 import com.example.model.StreamData
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -93,6 +94,49 @@ object PornhubProvider {
                             val format = item.optString("format", "hls")
                             val isHls = format.equals("hls", ignoreCase = true) || rawUrl.contains(".m3u8")
 
+                            val isDirectMedia = rawUrl.contains(".m3u8") || rawUrl.contains(".mp4")
+                            if (!isDirectMedia && rawUrl.contains("pornhub.com")) {
+                                // Sometimes rawUrl is a JSON endpoint returning the actual CDN links
+                                try {
+                                    val subReq = Request.Builder()
+                                        .url(rawUrl)
+                                        .header("User-Agent", DEFAULT_UA)
+                                        .header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                                        .header("Referer", "https://www.pornhub.com/")
+                                        .build()
+                                    val subResp = httpClient.newCall(subReq).execute().use { it.body?.string() }
+                                    if (!subResp.isNullOrBlank() && (subResp.trim().startsWith("[") || subResp.trim().startsWith("{"))) {
+                                        val subArray = if (subResp.trim().startsWith("[")) JSONArray(subResp) else JSONArray().put(JSONObject(subResp))
+                                        for (k in 0 until subArray.length()) {
+                                            val subItem = subArray.optJSONObject(k) ?: continue
+                                            val subVideoUrl = subItem.optString("videoUrl", "").replace("\\/", "/")
+                                            if (subVideoUrl.isNotBlank() && subVideoUrl.startsWith("http")) {
+                                                val subQual = subItem.optString("quality", quality)
+                                                val subFmt = subItem.optString("format", format)
+                                                val subIsHls = subFmt.equals("hls", ignoreCase = true) || subVideoUrl.contains(".m3u8")
+                                                streamOptions.add(
+                                                    PlayableStreamOption(
+                                                        qualityLabel = "${subQual}p (${subFmt.uppercase()})",
+                                                        format = if (subIsHls) "m3u8" else "mp4",
+                                                        isMuxed = true,
+                                                        videoUrl = subVideoUrl,
+                                                        providerType = ProviderType.OTHER,
+                                                        headers = mapOf(
+                                                            "Referer" to "https://www.pornhub.com/",
+                                                            "User-Agent" to DEFAULT_UA,
+                                                            "Cookie" to "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US"
+                                                        )
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        continue
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed resolving sub media definition: ${e.message}")
+                                }
+                            }
+
                             val qualityLabel = if (quality.isNotBlank()) "${quality}p (${format.uppercase()})" else format.uppercase()
 
                             streamOptions.add(
@@ -104,7 +148,8 @@ object PornhubProvider {
                                     providerType = ProviderType.OTHER,
                                     headers = mapOf(
                                         "Referer" to "https://www.pornhub.com/",
-                                        "User-Agent" to DEFAULT_UA
+                                        "User-Agent" to DEFAULT_UA,
+                                        "Cookie" to "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US"
                                     )
                                 )
                             )

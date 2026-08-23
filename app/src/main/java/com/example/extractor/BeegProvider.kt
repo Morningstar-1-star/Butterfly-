@@ -59,42 +59,63 @@ object BeegProvider {
                 for (i in 0 until minOf(array.length(), limit)) {
                     val item = array.optJSONObject(i) ?: continue
                     val fileObj = item.optJSONObject("file") ?: continue
-                    val fileId = fileObj.optString("id", "")
+                    val fileId = fileObj.opt("id")?.toString() ?: ""
                     if (fileId.isBlank()) continue
 
                     var title = "Beeg Video"
+                    var customThumb = ""
+                    var uploader = "Beeg"
                     val dataArr = fileObj.optJSONArray("data")
                     if (dataArr != null) {
                         for (j in 0 until dataArr.length()) {
                             val d = dataArr.optJSONObject(j) ?: continue
-                            if (d.optString("cd_column") == "sf_name") {
-                                val v = d.optString("cd_value", "")
-                                if (v.isNotBlank()) {
-                                    title = v
+                            val col = d.optString("cd_column", "")
+                            val v = d.optString("cd_value", "")
+                            if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
+                                title = v
+                            } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
+                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/240x180/$v.jpg"
+                            } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
+                                uploader = v
+                            }
+                        }
+                    }
+
+                    val fcFacts = item.optJSONArray("fc_facts")
+                    var modelOrStudioName = ""
+                    if (fcFacts != null && fcFacts.length() > 0) {
+                        for (fIdx in 0 until fcFacts.length()) {
+                            val factObj = fcFacts.optJSONObject(fIdx) ?: continue
+                            val tagObj = factObj.optJSONObject("tag")
+                            val tgType = tagObj?.optString("tg_type", "") ?: ""
+                            val tgName = tagObj?.optString("tg_name", "") ?: factObj.optString("fc_name", "")
+                            if (tgName.isNotBlank()) {
+                                if (tgType.equals("model", ignoreCase = true) || tgType.equals("studio", ignoreCase = true) || tgType.equals("site", ignoreCase = true)) {
+                                    modelOrStudioName = tgName
                                     break
+                                } else if (modelOrStudioName.isBlank()) {
+                                    modelOrStudioName = tgName
                                 }
                             }
                         }
                     }
 
-                    var factId = ""
-                    val fcFacts = item.optJSONArray("fc_facts")
-                    if (fcFacts != null && fcFacts.length() > 0) {
-                        val factObj = fcFacts.optJSONObject(0)
-                        if (factObj != null) {
-                            factId = factObj.optString("id", "")
-                        }
+                    if (uploader == "Beeg" && modelOrStudioName.isNotBlank()) {
+                        uploader = modelOrStudioName
                     }
 
                     val duration = fileObj.optLong("fl_duration", 0L)
-                    val thumbId = if (factId.isNotBlank()) factId else fileId
-                    val thumb = "https://thumbs.externulls.com/240x180/$thumbId.jpg"
+                    val thumb = when {
+                        customThumb.isNotBlank() -> customThumb
+                        fileId.isNotBlank() -> "https://thumbs.externulls.com/240x180/$fileId.jpg"
+                        else -> "https://thumbs.beeg.com/240x180/$fileId.jpg"
+                    }
 
                     list.add(
                         VideoItem(
                             id = "https://beeg.com/$fileId",
                             title = title,
-                            uploaderName = "Beeg",
+                            uploaderName = uploader,
                             thumbnailUrl = thumb,
                             durationSeconds = duration,
                             providerId = PROVIDER_ID
@@ -131,42 +152,63 @@ object BeegProvider {
                 for (i in 0 until minOf(array.length(), limit)) {
                     val item = array.optJSONObject(i) ?: continue
                     val fileObj = item.optJSONObject("file") ?: continue
-                    val fileId = fileObj.optString("id", "")
+                    val fileId = fileObj.opt("id")?.toString() ?: ""
                     if (fileId.isBlank()) continue
 
                     var title = "Beeg Video"
+                    var customThumb = ""
+                    var uploader = "Beeg"
                     val dataArr = fileObj.optJSONArray("data")
                     if (dataArr != null) {
                         for (j in 0 until dataArr.length()) {
                             val d = dataArr.optJSONObject(j) ?: continue
-                            if (d.optString("cd_column") == "sf_name") {
-                                val v = d.optString("cd_value", "")
-                                if (v.isNotBlank()) {
-                                    title = v
+                            val col = d.optString("cd_column", "")
+                            val v = d.optString("cd_value", "")
+                            if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
+                                title = v
+                            } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
+                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/240x180/$v.jpg"
+                            } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
+                                uploader = v
+                            }
+                        }
+                    }
+
+                    val fcFacts = item.optJSONArray("fc_facts")
+                    var modelOrStudioName = ""
+                    if (fcFacts != null && fcFacts.length() > 0) {
+                        for (fIdx in 0 until fcFacts.length()) {
+                            val factObj = fcFacts.optJSONObject(fIdx) ?: continue
+                            val tagObj = factObj.optJSONObject("tag")
+                            val tgType = tagObj?.optString("tg_type", "") ?: ""
+                            val tgName = tagObj?.optString("tg_name", "") ?: factObj.optString("fc_name", "")
+                            if (tgName.isNotBlank()) {
+                                if (tgType.equals("model", ignoreCase = true) || tgType.equals("studio", ignoreCase = true) || tgType.equals("site", ignoreCase = true)) {
+                                    modelOrStudioName = tgName
                                     break
+                                } else if (modelOrStudioName.isBlank()) {
+                                    modelOrStudioName = tgName
                                 }
                             }
                         }
                     }
 
-                    var factId = ""
-                    val fcFacts = item.optJSONArray("fc_facts")
-                    if (fcFacts != null && fcFacts.length() > 0) {
-                        val factObj = fcFacts.optJSONObject(0)
-                        if (factObj != null) {
-                            factId = factObj.optString("id", "")
-                        }
+                    if (uploader == "Beeg" && modelOrStudioName.isNotBlank()) {
+                        uploader = modelOrStudioName
                     }
 
                     val duration = fileObj.optLong("fl_duration", 0L)
-                    val thumbId = if (factId.isNotBlank()) factId else fileId
-                    val thumb = "https://thumbs.externulls.com/240x180/$thumbId.jpg"
+                    val thumb = when {
+                        customThumb.isNotBlank() -> customThumb
+                        fileId.isNotBlank() -> "https://thumbs.externulls.com/240x180/$fileId.jpg"
+                        else -> "https://thumbs.beeg.com/240x180/$fileId.jpg"
+                    }
 
                     list.add(
                         VideoItem(
                             id = "https://beeg.com/$fileId",
                             title = title,
-                            uploaderName = "Beeg",
+                            uploaderName = uploader,
                             thumbnailUrl = thumb,
                             durationSeconds = duration,
                             providerId = PROVIDER_ID
@@ -210,30 +252,51 @@ object BeegProvider {
                 val fileObj = json.optJSONObject("file")
                 if (fileObj != null) {
                     var title = "Beeg Video"
+                    var uploader = "Beeg"
+                    var customThumb = ""
                     val dataArr = fileObj.optJSONArray("data")
                     if (dataArr != null) {
                         for (j in 0 until dataArr.length()) {
                             val d = dataArr.optJSONObject(j) ?: continue
-                            if (d.optString("cd_column") == "sf_name") {
-                                val v = d.optString("cd_value", "")
-                                if (v.isNotBlank()) {
-                                    title = v
-                                    break
-                                }
+                            val col = d.optString("cd_column", "")
+                            val v = d.optString("cd_value", "")
+                            if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
+                                title = v
+                            } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
+                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/240x180/$v.jpg"
+                            } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
+                                uploader = v
                             }
                         }
                     }
 
-                    var factId = ""
                     val fcFacts = json.optJSONArray("fc_facts")
+                    var modelOrStudioName = ""
                     if (fcFacts != null && fcFacts.length() > 0) {
-                        val factObj = fcFacts.optJSONObject(0)
-                        if (factObj != null) {
-                            factId = factObj.optString("id", "")
+                        for (fIdx in 0 until fcFacts.length()) {
+                            val factObj = fcFacts.optJSONObject(fIdx) ?: continue
+                            val tagObj = factObj.optJSONObject("tag")
+                            val tgType = tagObj?.optString("tg_type", "") ?: ""
+                            val tgName = tagObj?.optString("tg_name", "") ?: factObj.optString("fc_name", "")
+                            if (tgName.isNotBlank()) {
+                                if (tgType.equals("model", ignoreCase = true) || tgType.equals("studio", ignoreCase = true) || tgType.equals("site", ignoreCase = true)) {
+                                    modelOrStudioName = tgName
+                                    break
+                                } else if (modelOrStudioName.isBlank()) {
+                                    modelOrStudioName = tgName
+                                }
+                            }
                         }
                     }
-                    val thumbId = if (factId.isNotBlank()) factId else fileId
-                    val thumb = "https://thumbs.externulls.com/240x180/$thumbId.jpg"
+                    if (uploader == "Beeg" && modelOrStudioName.isNotBlank()) {
+                        uploader = modelOrStudioName
+                    }
+
+                    val thumb = when {
+                        customThumb.isNotBlank() -> customThumb
+                        fileId.isNotBlank() -> "https://thumbs.externulls.com/240x180/$fileId.jpg"
+                        else -> "https://thumbs.beeg.com/240x180/$fileId.jpg"
+                    }
 
                     val options = mutableListOf<PlayableStreamOption>()
 
@@ -297,7 +360,7 @@ object BeegProvider {
                             videoId = fileId,
                             videoUrl = primaryOption.videoUrl ?: "",
                             title = title,
-                            channelName = "Beeg",
+                            channelName = uploader,
                             thumbnailUrl = thumb,
                             availableStreamOptions = options,
                             selectedStreamOption = primaryOption,

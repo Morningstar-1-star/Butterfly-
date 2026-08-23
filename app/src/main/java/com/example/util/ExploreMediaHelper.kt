@@ -138,6 +138,42 @@ object ExploreMediaHelper {
         }
     }
 
+    suspend fun fetchTrendingSearchTopics(): List<String> = withContext(Dispatchers.IO) {
+        try {
+            val topics = mutableListOf<String>()
+            val movies = try { fetchTmdbTrendingMovies() } catch (e: Exception) { emptyList() }
+            val tv = try { fetchTmdbTrendingTv() } catch (e: Exception) { emptyList() }
+            val anime = try { fetchAniListTrendingAnime() } catch (e: Exception) { emptyList() }
+
+            movies.take(6).forEach { if (it.title.isNotBlank()) topics.add(it.title.trim()) }
+            tv.take(6).forEach { if (it.title.isNotBlank()) topics.add(it.title.trim()) }
+            anime.take(4).forEach { if (it.title.isNotBlank()) topics.add(it.title.trim()) }
+
+            if (topics.isNotEmpty()) {
+                topics.distinct().take(12)
+            } else {
+                getCuratedTrendingTopics()
+            }
+        } catch (e: Exception) {
+            getCuratedTrendingTopics()
+        }
+    }
+
+    fun getCuratedTrendingTopics(): List<String> = listOf(
+        "Toy Story 5",
+        "Mutiny",
+        "Spider-Man: Brand New Day",
+        "Lanterns",
+        "Reacher",
+        "Silo",
+        "Deadpool & Wolverine",
+        "Dune: Part Two",
+        "Stranger Things",
+        "Arcane",
+        "Solo Leveling",
+        "House of the Dragon"
+    )
+
     suspend fun fetchCategoryItems(mediaType: ExploreMediaType): List<ExploreMediaItem> = withContext(Dispatchers.IO) {
         when (mediaType) {
             ExploreMediaType.MOVIE -> {

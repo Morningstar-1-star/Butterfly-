@@ -134,6 +134,10 @@ fun VideoCard(
                 val vId = video.id.substringAfter("v=").substringBefore("&")
                 "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
             }
+            video.providerId == "beeg" && video.id.isNotBlank() -> {
+                val fileId = Regex("""\d+""").find(video.id)?.value ?: ""
+                if (fileId.isNotBlank()) "https://thumbs.externulls.com/240x180/$fileId.jpg" else null
+            }
             else -> null
         }
     }

@@ -39,7 +39,11 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Explicit
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
@@ -77,6 +81,7 @@ fun SearchScreen(
     modifier: Modifier = Modifier
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val activeSanitized by viewModel.activeSearchSanitizedResult.collectAsState()
     val searchSuggestions by viewModel.searchSuggestions.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val searchFilter by viewModel.searchFilter.collectAsState()
@@ -86,6 +91,7 @@ fun SearchScreen(
     val isSearching by viewModel.isSearching.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
+    val trendingTopics by viewModel.trendingTopics.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
@@ -114,16 +120,21 @@ fun SearchScreen(
         )
     }
 
-    // Default trending topic fallbacks when user has no recent searches
+    // Default trending topic fallbacks when offline or loading
     val trendingFallbacks = remember {
         listOf(
-            "roman reigns vs cody rhodes",
-            "minecraft hardcore 100 days",
-            "ramayana trailer reaction",
-            "sousou no frieren episode 1",
-            "top trending music videos 2026",
-            "best action movies full hd",
-            "anime fight scenes 4k"
+            "Toy Story 5",
+            "Mutiny",
+            "Spider-Man: Brand New Day",
+            "Lanterns",
+            "Reacher",
+            "Silo",
+            "Deadpool & Wolverine",
+            "Dune: Part Two",
+            "Stranger Things",
+            "Arcane",
+            "Solo Leveling",
+            "House of the Dragon"
         )
     }
 
@@ -223,7 +234,7 @@ fun SearchScreen(
                 onValueChange = { viewModel.updateSearchQuery(it) },
                 placeholder = {
                     Text(
-                        text = "Search Butterfly",
+                        text = "Search movies, TV shows and anime...",
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -616,26 +627,82 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Results for \"$searchQuery\"",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (searchFilter.isActive) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (activeSanitized != null && activeSanitized?.wasCleaned == true) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = if (activeSanitized?.didYouMean != null) "Did you mean: " else "Smart AI Search: ",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = activeSanitized?.cleanQuery ?: "",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            Text(
+                                                text = activeSanitized?.noiseDescription ?: "Cleaned technical noise & tags",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        if (activeSanitized?.originalQuery != activeSanitized?.cleanQuery) {
+                                            TextButton(
+                                                onClick = {
+                                                    val raw = activeSanitized?.originalQuery ?: ""
+                                                    if (raw.isNotBlank()) viewModel.performSearch(raw)
+                                                }
+                                            ) {
+                                                Text("Search Raw", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
-                                    text = "${filteredResults.size} of ${baseResults.size}",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.primary
+                                    text = "Results for \"${activeSanitized?.cleanQuery ?: searchQuery}\"",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (searchFilter.isActive) {
+                                    Text(
+                                        text = "${filteredResults.size} of ${baseResults.size}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
@@ -711,48 +778,163 @@ fun SearchScreen(
                 }
             }
         } else {
-            // EMPTY SEARCH QUERY -> SHOW RECENT SEARCH HISTORY LIST OR TRENDING FALLBACKS
-            val listToShow = if (recentSearches.isNotEmpty()) recentSearches else trendingFallbacks
-            val isActualHistory = recentSearches.isNotEmpty()
+            // EMPTY SEARCH QUERY -> CLEAN MODERN RECENT & TRENDING SEARCHES CARDS (Matching user reference)
+            val topics = if (trendingTopics.isNotEmpty()) trendingTopics else trendingFallbacks
+            val chunkedTopics = remember(topics) { topics.chunked(2) }
 
             LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 100.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (!isActualHistory) {
-                    item {
-                        Text(
-                            text = "Popular Searches",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
-                        )
-                    }
-                }
-                items(listToShow) { historyQuery ->
-                    val thumbnail = historyThumbnailMap[historyQuery]
-                    SearchSuggestionRow(
-                        suggestion = SearchSuggestionItem(
-                            query = historyQuery,
-                            isHistory = isActualHistory,
-                            providerBadge = if (!isActualHistory) "Trending" else null
-                        ),
-                        thumbnailUrl = thumbnail,
-                        onClick = {
-                            focusManager.clearFocus()
-                            viewModel.updateSearchQuery(historyQuery)
-                            viewModel.performSearch(historyQuery)
-                        },
-                        onInsertQuery = {
-                            viewModel.updateSearchQuery(historyQuery)
-                        },
-                        onDeleteHistory = {
-                            if (isActualHistory) {
-                                viewModel.removeRecentSearch(historyQuery)
+                // 1. RECENT SEARCHES CARD (Shown only if user has recent searches)
+                if (recentSearches.isNotEmpty()) {
+                    item(key = "recent_searches_card") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFF141416)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFF26262A))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                            ) {
+                                // Header: Clock Icon + Title + "CLEAR ALL"
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.History,
+                                            contentDescription = null,
+                                            tint = Color(0xFFF5A623),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = "Recent Searches",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+
+                                    TextButton(
+                                        onClick = { viewModel.clearAllRecentSearches() },
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "CLEAR ALL",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF8E8E93),
+                                            letterSpacing = 0.5.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // Recent Search Pills
+                                @OptIn(ExperimentalLayoutApi::class)
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    recentSearches.forEach { queryText ->
+                                        RecentSearchPill(
+                                            text = queryText,
+                                            onClick = {
+                                                focusManager.clearFocus()
+                                                viewModel.updateSearchQuery(queryText)
+                                                viewModel.performSearch(queryText)
+                                            },
+                                            onDelete = {
+                                                viewModel.removeRecentSearch(queryText)
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
-                    )
+                    }
+                }
+
+                // 2. TRENDING SEARCHES CARD
+                item(key = "trending_searches_card") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFF141416)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF26262A))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 18.dp)
+                        ) {
+                            Text(
+                                text = "Trending Searches",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // 2-Column Grid Layout for Trending items
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                chunkedTopics.forEach { pair ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        // Left Item
+                                        TrendingSearchItem(
+                                            title = pair[0],
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                focusManager.clearFocus()
+                                                viewModel.updateSearchQuery(pair[0])
+                                                viewModel.performSearch(pair[0])
+                                            }
+                                        )
+
+                                        // Right Item
+                                        if (pair.size > 1) {
+                                            TrendingSearchItem(
+                                                title = pair[1],
+                                                modifier = Modifier.weight(1f),
+                                                onClick = {
+                                                    focusManager.clearFocus()
+                                                    viewModel.updateSearchQuery(pair[1])
+                                                    viewModel.performSearch(pair[1])
+                                                }
+                                            )
+                                        } else {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1021,4 +1203,87 @@ private fun ProviderSourceChip(
         }
     }
 }
+
+@Composable
+private fun RecentSearchPill(
+    text: String,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xFF1E1E22),
+        border = BorderStroke(1.dp, Color(0xFF2E2E34)),
+        modifier = Modifier
+            .clip(RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFE6E6EA),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .clickable(
+                        role = Role.Button,
+                        onClick = onDelete
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove search",
+                    tint = Color(0xFF9E9EA4),
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrendingSearchItem(
+    title: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                contentDescription = null,
+                tint = Color(0xFFF5A623),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFEDEDF0),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 
