@@ -263,6 +263,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableProviders = MutableStateFlow<List<ProviderUiItem>>(emptyList())
     val availableProviders: StateFlow<List<ProviderUiItem>> = _availableProviders.asStateFlow()
 
+    val vegaRepository = com.example.vega.VegaProviderRepository(getApplication())
+    val installedVegaProviders: StateFlow<List<com.example.vega.InstalledVegaProvider>> = vegaRepository.installedProviders
+
+    private val _availableVegaProviders = MutableStateFlow<List<String>>(emptyList())
+    val availableVegaProviders: StateFlow<List<String>> = _availableVegaProviders.asStateFlow()
+
+    private val _isFetchingVegaProviders = MutableStateFlow(false)
+    val isFetchingVegaProviders: StateFlow<Boolean> = _isFetchingVegaProviders.asStateFlow()
+
+    private val _vegaProviderError = MutableStateFlow<String?>(null)
+    val vegaProviderError: StateFlow<String?> = _vegaProviderError.asStateFlow()
+
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
 
@@ -1717,6 +1729,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getActiveProvider(): Any? = null
 
+    fun fetchAvailableVegaProviders() {
+        _isFetchingVegaProviders.value = true
+        _vegaProviderError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val list = com.example.vega.VegaProviderClient.getAvailableProviders()
+                _availableVegaProviders.value = list
+                if (list.isEmpty()) {
+                    _vegaProviderError.value = "No providers currently returned from server"
+                }
+            } catch (e: Exception) {
+                _vegaProviderError.value = e.message ?: "Failed to reach server"
+            } finally {
+                _isFetchingVegaProviders.value = false
+            }
+        }
+    }
+
+    fun installVegaProvider(id: String) {
+        val cleanId = id.trim().lowercase()
+        val formattedName = com.example.vega.VegaProviderClient.formatProviderDisplayName(cleanId)
+        vegaRepository.installProvider(cleanId, formattedName)
+        _enabledProviderIds.value = _enabledProviderIds.value + "vega_$cleanId"
+        refreshProvidersList()
+    }
+
+    fun uninstallVegaProvider(id: String) {
+        val cleanId = id.trim().lowercase()
+        vegaRepository.uninstallProvider(cleanId)
+        val vegaKey = "vega_$cleanId"
+        if (_activeProviderId.value == vegaKey) {
+            _activeProviderId.value = "all"
+        }
+        _enabledProviderIds.value = _enabledProviderIds.value - vegaKey
+        refreshProvidersList()
+        loadTrending(forceRefresh = true)
+    }
+
+    fun toggleVegaProvider(id: String, isEnabled: Boolean) {
+        val cleanId = id.trim().lowercase()
+        vegaRepository.setProviderEnabled(cleanId, isEnabled)
+        val vegaKey = "vega_$cleanId"
+        if (isEnabled) {
+            _enabledProviderIds.value = _enabledProviderIds.value + vegaKey
+        } else {
+            if (_activeProviderId.value == vegaKey) {
+                _activeProviderId.value = "all"
+            }
+            _enabledProviderIds.value = _enabledProviderIds.value - vegaKey
+        }
+        refreshProvidersList()
+    }
+
     fun reloadProviders() {
         viewModelScope.launch(Dispatchers.IO) {
             refreshProvidersList()
@@ -1830,6 +1895,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDefault = (activeId == "hotstar")
             )
         )
+
+        // Dynamic Vega Providers installed by user
+        val installedVega = vegaRepository.getInstalledProviders()
+        for (vp in installedVega) {
+            val vId = "vega_${vp.id}"
+            uiList.add(
+                ProviderUiItem(
+                    id = vId,
+                    name = vp.name,
+                    description = "Vega media provider: ${vp.name}",
+                    category = "Vega",
+                    providerType = com.example.model.ProviderType.VEGA,
+                    isEnabled = vp.isEnabled,
+                    isDefault = (activeId == vId)
+                )
+            )
+        }
+
         if (adultEnabled) {
             uiList.add(
                 ProviderUiItem(
@@ -1909,6 +1992,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshProvidersList()
+        fetchAvailableVegaProviders()
         loadTrending()
         loadTrendingTopics()
         loadSubscriptionFeed()
@@ -2316,6 +2400,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                     }
+
+                    // 5. Installed & Enabled Vega Providers
+                    val installedVega = vegaRepository.getInstalledProviders().filter { it.isEnabled }
+                    val targetVega = when {
+                        activeProv.startsWith("vega_") -> {
+                            val raw = activeProv.removePrefix("vega_")
+                            installedVega.filter { it.id.equals(raw, ignoreCase = true) }
+                        }
+                        activeProv == "all" -> installedVega
+                        else -> emptyList()
+                    }
+
+                    targetVega.forEach { vegaProv ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                val vResults = kotlinx.coroutines.withTimeoutOrNull(8500L) {
+                                    com.example.vega.VegaProviderClient.search(vegaProv.id, searchTarget)
+                                } ?: emptyList()
+                                if (vResults.isNotEmpty()) {
+                                    val videoItems = vResults.map { vItem ->
+                                        VideoItem(
+                                            id = "vega_${vegaProv.id}::${vItem.link}",
+                                            title = vItem.title,
+                                            uploaderName = vegaProv.name,
+                                            thumbnailUrl = vItem.imageUrl ?: "",
+                                            durationSeconds = -1L,
+                                            providerId = "vega_${vegaProv.id}"
+                                        )
+                                    }
+                                    synchronized(collectedList) { collectedList.addAll(videoItems) }
+                                    updateUiResults()
+                                }
+                            } catch (e: Exception) {
+                                Log.w("MainViewModel", "Vega search error for ${vegaProv.id}: ${e.message}")
+                            }
+                        }
+                    }
                 }
 
                 updateUiResults()
@@ -2404,6 +2525,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 kotlinx.coroutines.withTimeoutOrNull(12000L) {
                                     com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15)
                                 } ?: emptyList()
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        })
+                    }
+
+                    // 5. Installed & Enabled Vega Providers
+                    val installedVega = vegaRepository.getInstalledProviders().filter { it.isEnabled }
+                    val targetVega = when {
+                        activeProv.startsWith("vega_") -> {
+                            val raw = activeProv.removePrefix("vega_")
+                            installedVega.filter { it.id.equals(raw, ignoreCase = true) }
+                        }
+                        activeProv == "all" -> installedVega
+                        else -> emptyList()
+                    }
+
+                    targetVega.forEach { vegaProv ->
+                        deferredList.add(async(Dispatchers.IO) {
+                            try {
+                                val vResults = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                    com.example.vega.VegaProviderClient.search(vegaProv.id, "trending")
+                                        .ifEmpty { com.example.vega.VegaProviderClient.search(vegaProv.id, "latest") }
+                                        .ifEmpty { com.example.vega.VegaProviderClient.search(vegaProv.id, "movie") }
+                                } ?: emptyList()
+                                vResults.map { vItem ->
+                                    VideoItem(
+                                        id = "vega_${vegaProv.id}::${vItem.link}",
+                                        title = vItem.title,
+                                        uploaderName = vegaProv.name,
+                                        thumbnailUrl = vItem.imageUrl ?: "",
+                                        durationSeconds = -1L,
+                                        providerId = "vega_${vegaProv.id}"
+                                    )
+                                }
                             } catch (e: Exception) {
                                 emptyList()
                             }
@@ -2767,7 +2923,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val result = YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
+                val result = if (cleanIdOrUrl.startsWith("vega_") || targetProviderId?.startsWith("vega_") == true) {
+                    val fullId = cleanIdOrUrl
+                    val parts = fullId.split("::", limit = 2)
+                    val rawProv = if (parts.size == 2) {
+                        parts[0].removePrefix("vega_")
+                    } else {
+                        (targetProviderId ?: "vega_").removePrefix("vega_")
+                    }
+                    val link = if (parts.size == 2) parts[1] else cleanIdOrUrl
+
+                    val streams = kotlinx.coroutines.withTimeoutOrNull(18000L) {
+                        com.example.vega.VegaProviderClient.getStream(rawProv, link)
+                    } ?: emptyList()
+
+                    val playable = streams.filterNot { it.isTorrent }
+                    if (playable.isNotEmpty()) {
+                        val options = playable.map { st ->
+                            PlayableStreamOption(
+                                qualityLabel = st.quality,
+                                format = st.format.lowercase(),
+                                isMuxed = true,
+                                videoUrl = st.url,
+                                audioUrl = null,
+                                providerType = com.example.model.ProviderType.VEGA,
+                                headers = st.headers
+                            )
+                        }
+                        val streamData = StreamData(
+                            videoId = cleanIdOrUrl,
+                            title = initialVideoItem.title,
+                            channelName = initialVideoItem.uploaderName,
+                            availableStreamOptions = options,
+                            selectedStreamOption = options.first(),
+                            providerId = targetProviderId ?: "vega",
+                            providerType = com.example.model.ProviderType.VEGA
+                        )
+                        YouTubeExtractorHelper.ExtractionResult.Success(streamData)
+                    } else {
+                        val hadTorrent = streams.any { it.isTorrent }
+                        val errMsg = if (hadTorrent) {
+                            "Torrent/Magnet streams are not supported for direct playback."
+                        } else {
+                            "No playable direct video streams found from $rawProv."
+                        }
+                        YouTubeExtractorHelper.ExtractionResult.Error(
+                            ExtractorErrorDetails(
+                                errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                                message = errMsg,
+                                rawExceptionName = "VegaStreamException",
+                                fullStackTrace = "",
+                                urlOrId = cleanIdOrUrl
+                            )
+                        )
+                    }
+                } else {
+                    YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
+                }
+
                 if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
                 _extractionResult.value = result
                 if (result is YouTubeExtractorHelper.ExtractionResult.Success) {

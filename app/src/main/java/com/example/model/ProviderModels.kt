@@ -16,7 +16,8 @@ enum class ProviderType {
     SCRAPER,
     TORRENT,
     DEBRID,
-    OTHER
+    OTHER,
+    VEGA
 }
 
 enum class ProviderStatusState {
