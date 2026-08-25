@@ -130,6 +130,9 @@ fun UniversalVideoPlayer(
         com.example.effects.VideoEffectsManager.onVideoChanged(videoId ?: activeStreamData?.videoId)
     }
 
+    val torrentEngine = remember(context) { com.example.torrent.engine.TorrentEngine.getInstance(context) }
+    val torrentStats by torrentEngine.stats.collectAsState()
+
     // Gesture Controls State
     val coroutineScope = rememberCoroutineScope()
     var brightnessLevel by remember { mutableFloatStateOf(0.7f) }
@@ -686,6 +689,14 @@ fun UniversalVideoPlayer(
                     }
                 }
             }
+
+            // P2P / Torrent Live Streaming Telemetry HUD
+            com.example.ui.torrent.TorrentStreamOverlay(
+                stats = torrentStats,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = if (isLandscape) 44.dp else 40.dp, start = 8.dp)
+            )
 
             // YouTube-Style Center Controls (Previous, Play/Pause, Next)
             AnimatedVisibility(

@@ -699,6 +699,7 @@ object GlobalPlayerManager {
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true)
                 .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
+                .setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
 
             val errorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
                 override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
@@ -875,20 +876,24 @@ object GlobalPlayerManager {
 
                 val builder = MediaItem.Builder().setUri(uri)
 
+                val isLocalTorrentStream = lowerUrl.contains("127.0.0.1:8899") || lowerUrl.contains("localhost:8899")
+
                 if (lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
                     builder.setMimeType(MimeTypes.APPLICATION_M3U8)
                 } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
                     builder.setMimeType(MimeTypes.APPLICATION_MPD)
-                } else if (lowerFormat == "mkv" || lowerUrl.contains(".mkv") || lowerUrl.contains("video%2fx-matroska") || lowerUrl.contains("video/x-matroska")) {
-                    builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
-                } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
-                    builder.setMimeType(MimeTypes.VIDEO_WEBM)
-                } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
-                    builder.setMimeType(MimeTypes.AUDIO_WEBM)
-                } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") || lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerFormat == "m4a" || lowerFormat == "audio" || lowerFormat == "aac" || lowerFormat == "mp3") {
-                    builder.setMimeType(MimeTypes.AUDIO_MP4)
-                } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerFormat == "mp4" || lowerFormat == "m4s" || lowerFormat == "video") {
-                    builder.setMimeType(MimeTypes.VIDEO_MP4)
+                } else if (!isLocalTorrentStream) {
+                    if (lowerFormat == "mkv" || lowerUrl.contains(".mkv") || lowerUrl.contains("video%2fx-matroska") || lowerUrl.contains("video/x-matroska")) {
+                        builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
+                    } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
+                        builder.setMimeType(MimeTypes.VIDEO_WEBM)
+                    } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
+                        builder.setMimeType(MimeTypes.AUDIO_WEBM)
+                    } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") || lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerFormat == "m4a" || lowerFormat == "audio" || lowerFormat == "aac" || lowerFormat == "mp3") {
+                        builder.setMimeType(MimeTypes.AUDIO_MP4)
+                    } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerFormat == "mp4" || lowerFormat == "m4s" || lowerFormat == "video") {
+                        builder.setMimeType(MimeTypes.VIDEO_MP4)
+                    }
                 }
 
                 if (subtitles.isNotEmpty()) {

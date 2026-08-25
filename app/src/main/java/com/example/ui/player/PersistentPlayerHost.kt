@@ -22,7 +22,9 @@ fun PersistentPlayerHost(
 
     AndroidView(
         factory = { ctx ->
-            PlayerView(ctx).apply {
+            val playerView = GlobalPlayerManager.getOrCreatePlayerView(ctx)
+            (playerView.parent as? ViewGroup)?.removeView(playerView)
+            playerView.apply {
                 this.player = exoPlayer
                 this.useController = useController
                 this.resizeMode = resizeMode
@@ -59,9 +61,9 @@ fun PersistentPlayerHost(
             }
         },
         onRelease = { playerView ->
-            // Do not clear playerView.player to null on the singleton ExoPlayer during transitions.
-            // Setting player to null here disconnects the video decoder surface, leading to black screens or ANRs.
+            // Do not clear player or detach view here; single playerView instance is reused seamlessly
         },
         modifier = modifier
     )
 }
+

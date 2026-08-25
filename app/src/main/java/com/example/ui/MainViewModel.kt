@@ -252,7 +252,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
-        val set = mutableSetOf("all", "youtube", "archive_org", "dailymotion", "bilibili", "vimeo", "hotstar")
+        val set = mutableSetOf("all", "youtube", "torrent", "archive_org", "dailymotion", "bilibili", "vimeo", "hotstar")
         if (settingsPrefs.getBoolean("adult_content_enabled", false)) {
             set.addAll(listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn"))
         }
@@ -1902,6 +1902,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDefault = (activeId == "hotstar")
             )
         )
+        uiList.add(
+            ProviderUiItem(
+                id = "torrent",
+                name = "Torrent (P2P)",
+                description = "Stream Movies, TV Series & Anime via native BitTorrent releases & trackers",
+                category = "Torrent",
+                providerType = com.example.model.ProviderType.TORRENT,
+                isEnabled = enabledSet.contains("torrent"),
+                isDefault = (activeId == "torrent")
+            )
+        )
 
         // Dynamic Vega Providers installed by user
         val installedVega = vegaRepository.getInstalledProviders()
@@ -2444,6 +2455,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                     }
+
+                    // 6. Torrent Media Search (Movies, Series, Anime with 16:9 Backdrops)
+                    if ((activeProv == "all" || activeProv == "torrent") && enabledSet.contains("torrent")) {
+                        launch(Dispatchers.IO) {
+                            try {
+                                val tResults = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                                    searchTorrentMedia(searchTarget)
+                                } ?: emptyList()
+                                if (tResults.isNotEmpty()) {
+                                    synchronized(collectedList) { collectedList.addAll(tResults) }
+                                    updateUiResults()
+                                }
+                            } catch (e: Exception) {
+                                Log.w("MainViewModel", "Torrent search note: ${e.message}")
+                            }
+                        }
+                    }
                 }
 
                 updateUiResults()
@@ -2617,6 +2645,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "Vega trending note for ${vegaProv.id}: ${e.message}")
+                            }
+                        }
+                    }
+
+                    // 6. Torrent Trending Feed (Movies, Series, Anime with 16:9 Backdrops)
+                    if ((activeProv == "all" || activeProv == "torrent") && enabledSet.contains("torrent")) {
+                        launch(Dispatchers.IO) {
+                            try {
+                                val torrentItems = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                    fetchTorrentTrendingFeed()
+                                } ?: emptyList()
+                                if (torrentItems.isNotEmpty()) {
+                                    synchronized(collectedFeed) { collectedFeed.addAll(torrentItems) }
+                                    updateTrendingUi()
+                                }
+                            } catch (e: Exception) {
+                                Log.w("MainViewModel", "Torrent trending note: ${e.message}")
                             }
                         }
                     }
@@ -2947,7 +2992,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val result = if (cleanIdOrUrl.startsWith("vega_") || targetProviderId?.startsWith("vega_") == true) {
+                val result = if (cleanIdOrUrl.startsWith("torrent_") || targetProviderId == "torrent" || initialVideoItem.providerId == "torrent") {
+                    val torrentTitle = initialVideoItem.title
+                    val cleanTitle = torrentTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
+                    val identity = com.example.torrent.provider.MediaIdentity(
+                        title = cleanTitle,
+                        mediaType = if (cleanIdOrUrl.contains("tv_") || cleanIdOrUrl.contains("series")) "tv" else "movie",
+                        tmdbId = Regex("""\d+""").find(cleanIdOrUrl)?.value
+                    )
+                    val releases = com.example.torrent.provider.TorrentProviderManager.getInstance().searchReleases(cleanTitle, identity)
+                    if (releases.isNotEmpty()) {
+                        val topRelease = releases.first()
+                        if (torrentHttpServer == null) {
+                            torrentHttpServer = com.example.torrent.server.TorrentHttpServer(torrentEngine, port = 8899).also {
+                                it.start()
+                            }
+                        }
+                        val session = torrentEngine.startSession(topRelease, streamPort = 8899)
+                        val options = releases.map { rel: com.example.torrent.model.TorrentRelease ->
+                            val label = buildString {
+                                append(rel.quality)
+                                if (rel.codec.isNotBlank()) append(" • ").append(rel.codec)
+                                if (rel.hdr.isNotBlank()) append(" • ").append(rel.hdr)
+                                append(" [${rel.provider} - ${rel.seeders} seeds]")
+                            }
+                            PlayableStreamOption(
+                                qualityLabel = label,
+                                format = "mkv",
+                                isMuxed = true,
+                                videoUrl = session.httpStreamUrl,
+                                audioUrl = null,
+                                providerType = com.example.model.ProviderType.TORRENT,
+                                headers = mapOf("Accept-Ranges" to "bytes")
+                            )
+                        }
+                        val streamData = StreamData(
+                            videoId = cleanIdOrUrl,
+                            title = initialVideoItem.title,
+                            channelName = "${topRelease.provider} P2P (${topRelease.seeders} seeds)",
+                            channelAvatarUrl = initialVideoItem.thumbnailUrl,
+                            description = "Native BitTorrent Stream • Size: ${topRelease.formattedSize} • Seeds: ${topRelease.seeders}",
+                            availableStreamOptions = options,
+                            selectedStreamOption = options.first(),
+                            providerId = "torrent",
+                            providerType = com.example.model.ProviderType.TORRENT
+                        )
+                        YouTubeExtractorHelper.ExtractionResult.Success(streamData)
+                    } else {
+                        YouTubeExtractorHelper.ExtractionResult.Error(
+                            ExtractorErrorDetails(
+                                errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                                message = "No active torrent releases found with seeds for $torrentTitle",
+                                rawExceptionName = "TorrentReleaseException",
+                                fullStackTrace = "TorrentProviderManager searched Torrentio, YTS, EZTV, Nyaa",
+                                urlOrId = cleanIdOrUrl
+                            )
+                        )
+                    }
+                } else if (cleanIdOrUrl.startsWith("vega_") || targetProviderId?.startsWith("vega_") == true) {
                     val fullId = cleanIdOrUrl
                     val parts = fullId.split("::", limit = 2)
                     val rawProv = if (parts.size == 2) {
@@ -3110,7 +3212,176 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedCaptionOption.value = caption
     }
 
+    // --- BitTorrent Native Engine & P2P Stream Pipeline ---
+    private val torrentEngine = com.example.torrent.engine.TorrentEngine.getInstance(getApplication())
+    private var torrentHttpServer: com.example.torrent.server.TorrentHttpServer? = null
 
+    val torrentEngineStats: StateFlow<com.example.torrent.model.TorrentEngineStats> = torrentEngine.stats
+
+    private val _torrentReleases = MutableStateFlow<List<com.example.torrent.model.TorrentRelease>>(emptyList())
+    val torrentReleases: StateFlow<List<com.example.torrent.model.TorrentRelease>> = _torrentReleases.asStateFlow()
+
+    private val _isSearchingTorrents = MutableStateFlow(false)
+    val isSearchingTorrents: StateFlow<Boolean> = _isSearchingTorrents.asStateFlow()
+
+    private var torrentSearchJob: Job? = null
+
+    fun searchTorrentReleases(identity: com.example.torrent.provider.MediaIdentity) {
+        torrentSearchJob?.cancel()
+        _isSearchingTorrents.value = true
+        _torrentReleases.value = emptyList()
+
+        torrentSearchJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val manager = com.example.torrent.provider.TorrentProviderManager.getInstance()
+                val results = manager.searchReleases(identity.title, identity)
+                _torrentReleases.value = results
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error searching torrents: ${e.message}")
+                _torrentReleases.value = emptyList()
+            } finally {
+                _isSearchingTorrents.value = false
+            }
+        }
+    }
+
+    fun clearTorrentReleases() {
+        _torrentReleases.value = emptyList()
+        _isSearchingTorrents.value = false
+    }
+
+    private suspend fun fetchTorrentTrendingFeed(): List<VideoItem> {
+        val helper = com.example.util.ExploreMediaHelper
+        val movies = helper.fetchCategoryItems(com.example.model.ExploreMediaType.MOVIE).take(15)
+        val tv = helper.fetchCategoryItems(com.example.model.ExploreMediaType.TV).take(15)
+        val anime = helper.fetchCategoryItems(com.example.model.ExploreMediaType.ANIME).take(15)
+
+        val combined = (movies + tv + anime).shuffled()
+        return combined.map { item ->
+            val typeStr = item.mediaType.name.lowercase().replaceFirstChar { it.uppercase() }
+            val yearStr = if (!item.releaseYear.isNullOrBlank()) " (${item.releaseYear})" else ""
+            val thumb = item.backdropUrl?.ifBlank { null } ?: item.posterUrl
+            VideoItem(
+                id = "torrent_media_${item.id}",
+                title = "${item.title}$yearStr",
+                uploaderName = "Torrent Stream • $typeStr",
+                thumbnailUrl = thumb,
+                durationSeconds = -1L,
+                providerId = "torrent",
+                description = item.overview ?: "",
+                uploadDate = item.releaseYear
+            )
+        }
+    }
+
+    private suspend fun searchTorrentMedia(query: String): List<VideoItem> {
+        val helper = com.example.util.ExploreMediaHelper
+        val results = helper.searchAll(query)
+        return results.map { item ->
+            val typeStr = item.mediaType.name.lowercase().replaceFirstChar { it.uppercase() }
+            val yearStr = if (!item.releaseYear.isNullOrBlank()) " (${item.releaseYear})" else ""
+            val thumb = item.backdropUrl?.ifBlank { null } ?: item.posterUrl
+            VideoItem(
+                id = "torrent_media_${item.id}",
+                title = "${item.title}$yearStr",
+                uploaderName = "Torrent Stream • $typeStr",
+                thumbnailUrl = thumb,
+                durationSeconds = -1L,
+                providerId = "torrent",
+                description = item.overview ?: "",
+                uploadDate = item.releaseYear
+            )
+        }
+    }
+
+    fun playTorrentRelease(
+        release: com.example.torrent.model.TorrentRelease,
+        identity: com.example.torrent.provider.MediaIdentity,
+        posterUrl: String? = null
+    ) {
+        // 1. Immediately stop prior playback
+        activePlaybackJob?.cancel()
+        activePlaybackJob = null
+        com.example.ui.player.GlobalPlayerManager.stopAndClear()
+
+        // 2. Start local HTTP Range bridge server if not running
+        if (torrentHttpServer == null) {
+            torrentHttpServer = com.example.torrent.server.TorrentHttpServer(torrentEngine, port = 8899).also {
+                it.start()
+            }
+        }
+
+        // 3. Start engine session
+        val session = torrentEngine.startSession(release, streamPort = 8899)
+
+        // 4. Construct stream option & media data
+        val qualityLabel = buildString {
+            append(release.quality)
+            if (release.codec.isNotBlank()) append(" • ").append(release.codec)
+            if (release.hdr.isNotBlank()) append(" • ").append(release.hdr)
+            append(" [${release.provider}]")
+        }
+
+        val streamOption = PlayableStreamOption(
+            qualityLabel = qualityLabel,
+            format = "mkv",
+            isMuxed = true,
+            videoUrl = session.httpStreamUrl,
+            audioUrl = null,
+            providerType = com.example.model.ProviderType.TORRENT,
+            headers = mapOf("Accept-Ranges" to "bytes")
+        )
+
+        val displayTitle = if (release.title.isNotBlank()) release.title else identity.title
+        val uploader = "${release.provider} P2P (${release.seeders} seeds)"
+        val desc = "Native BitTorrent Stream • Size: ${release.formattedSize} • Audio: ${release.audioChannels}"
+
+        val videoItem = VideoItem(
+            id = "torrent_${release.infoHash}",
+            title = displayTitle,
+            uploaderName = uploader,
+            thumbnailUrl = posterUrl,
+            providerId = "torrent"
+        )
+        _activeVideoItem.value = videoItem
+        _activeVideoId.value = videoItem.id
+        recordVideoView(videoItem)
+
+        val streamData = StreamData(
+            videoId = videoItem.id,
+            title = displayTitle,
+            channelName = uploader,
+            channelAvatarUrl = posterUrl,
+            description = desc,
+            availableStreamOptions = listOf(streamOption),
+            selectedStreamOption = streamOption,
+            providerId = "torrent",
+            providerType = com.example.model.ProviderType.TORRENT
+        )
+
+        _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(streamData)
+        _selectedStreamOption.value = streamOption
+        _isPlaying.value = true
+        com.example.ui.player.GlobalPlayerManager.resetFirstFrameState()
+
+        // 5. Navigate to Player screen & trigger ExoPlayer
+        _currentScreen.value = AppScreen.PLAYER
+
+        com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+            context = getApplication(),
+            streamData = streamData,
+            streamOption = streamOption,
+            hlsUrl = null,
+            captionOption = null
+        )
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        torrentEngine.stopSession(clearCache = false)
+        torrentHttpServer?.stop()
+        torrentHttpServer = null
+    }
 
     private fun interleaveLists(lists: List<List<VideoItem>>): List<VideoItem> {
         val result = mutableListOf<VideoItem>()

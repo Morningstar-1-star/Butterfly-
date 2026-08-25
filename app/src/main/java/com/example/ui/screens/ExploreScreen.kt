@@ -78,6 +78,11 @@ fun ExploreScreen(
     var resolvedMediaDetails by remember { mutableStateOf<ExploreMediaItem?>(null) }
     var isResolvingDetails by remember { mutableStateOf(false) }
 
+    var activeTorrentMedia by remember { mutableStateOf<ExploreMediaItem?>(null) }
+    var activeTorrentIdentity by remember { mutableStateOf<com.example.torrent.provider.MediaIdentity?>(null) }
+    val torrentReleases by viewModel.torrentReleases.collectAsState()
+    val isSearchingTorrents by viewModel.isSearchingTorrents.collectAsState()
+
     // Load initial explore feed
     fun loadFeed(forceRefresh: Boolean = false) {
         coroutineScope.launch {
@@ -509,6 +514,24 @@ fun ExploreScreen(
                     resolvedMediaDetails = null
                 },
                 onToggleSave = { viewModel.toggleSaveExploreMedia(displayItem) },
+                onOpenTorrentStreams = {
+                    val mediaIdentity = com.example.torrent.provider.MediaIdentity(
+                        title = displayItem.title,
+                        year = displayItem.releaseYear.filter { it.isDigit() }.take(4).ifBlank { null },
+                        imdbId = displayItem.imdbId,
+                        tmdbId = displayItem.tmdbId ?: displayItem.id,
+                        mediaType = when (displayItem.mediaType) {
+                            ExploreMediaType.TV -> "tv"
+                            ExploreMediaType.ANIME -> "anime"
+                            else -> "movie"
+                        },
+                        season = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null,
+                        episode = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null
+                    )
+                    activeTorrentMedia = displayItem
+                    activeTorrentIdentity = mediaIdentity
+                    viewModel.searchTorrentReleases(mediaIdentity)
+                },
                 onPlayTrailerOrSearch = { query ->
                     selectedMediaForDetails = null
                     resolvedMediaDetails = null
@@ -519,6 +542,58 @@ fun ExploreScreen(
                 onSelectRelatedMedia = { related ->
                     selectedMediaForDetails = related
                     resolvedMediaDetails = null
+                }
+            )
+        }
+
+        // BitTorrent P2P Releases Selector Sheet
+        if (activeTorrentIdentity != null && activeTorrentMedia != null) {
+            val curMedia = activeTorrentMedia!!
+            val curIdentity = activeTorrentIdentity!!
+            val seasons: List<com.example.model.SeriesSeason> = remember(curMedia) {
+                if (curMedia.mediaType != ExploreMediaType.MOVIE) {
+                    val epCount = curMedia.episodesCount?.coerceIn(1, 100) ?: 12
+                    listOf(
+                        com.example.model.SeriesSeason(
+                            seasonNumber = 1,
+                            seasonName = "Season 1",
+                            episodes = (1..epCount).map { epNum ->
+                                com.example.model.EpisodeItem(
+                                    id = "${curMedia.id}_s1e$epNum",
+                                    seasonNumber = 1,
+                                    episodeNumber = epNum,
+                                    title = "Episode $epNum"
+                                )
+                            }
+                        )
+                    )
+                } else emptyList()
+            }
+
+            com.example.ui.torrent.TorrentReleasesBottomSheet(
+                mediaIdentity = curIdentity,
+                posterUrl = curMedia.posterUrl ?: curMedia.backdropUrl,
+                seasons = seasons,
+                releases = torrentReleases,
+                isLoading = isSearchingTorrents,
+                onDismiss = {
+                    activeTorrentIdentity = null
+                    activeTorrentMedia = null
+                    viewModel.clearTorrentReleases()
+                },
+                onSelectRelease = { release ->
+                    val identityToPlay = curIdentity
+                    val posterToPlay = curMedia.posterUrl ?: curMedia.backdropUrl
+                    activeTorrentIdentity = null
+                    activeTorrentMedia = null
+                    selectedMediaForDetails = null
+                    resolvedMediaDetails = null
+                    viewModel.playTorrentRelease(release, identityToPlay, posterToPlay)
+                },
+                onSelectEpisode = { seasonNum, epNum ->
+                    val updated = curIdentity.copy(season = seasonNum, episode = epNum)
+                    activeTorrentIdentity = updated
+                    viewModel.searchTorrentReleases(updated)
                 }
             )
         }
@@ -872,6 +947,7 @@ fun MediaDetailsBottomSheet(
     isSaved: Boolean,
     onDismiss: () -> Unit,
     onToggleSave: () -> Unit,
+    onOpenTorrentStreams: () -> Unit = {},
     onPlayTrailerOrSearch: (String) -> Unit,
     onSelectRelatedMedia: (ExploreMediaItem) -> Unit = {}
 ) {
@@ -1085,18 +1161,42 @@ fun MediaDetailsBottomSheet(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Action Buttons Row (Save to Movies & TV + Watch Trailer + Search)
+                    // Primary Action: Stream via BitTorrent P2P Engine
+                    Button(
+                        onClick = onOpenTorrentStreams,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF7C4DFF),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (item.mediaType == ExploreMediaType.MOVIE) "Stream Full Movie (P2P Releases)" else "Stream Episodes (P2P Releases)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Secondary Action Buttons Row (Save to Movies & TV + Watch Trailer)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Button(
+                        OutlinedButton(
                             onClick = onToggleSave,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSaved) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primary,
-                                contentColor = if (isSaved) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onPrimary
-                            ),
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(

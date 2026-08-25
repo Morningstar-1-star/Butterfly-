@@ -118,6 +118,13 @@ fun VideoCard(
         val uploadDateLower = (video.uploadDate ?: "").lowercase()
 
         val name = when {
+            pid == "torrent" -> {
+                when {
+                    titleLower.contains("anime") || uploaderLower.contains("anime") -> "Torrent • Anime"
+                    video.id.contains("tv_") || titleLower.contains("s0") || titleLower.contains("season") -> "Torrent • Series"
+                    else -> "Torrent • Movie"
+                }
+            }
             pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
             pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
             video.id.startsWith("tv_") || (pid.contains("eztv") && (titleLower.contains("s0") || titleLower.contains("season"))) -> "Series"
@@ -129,12 +136,13 @@ fun VideoCard(
             else -> "Video"
         }
 
-        val bgColor = when (name) {
-            "Movie", "Movies" -> Color(0xFFE5A00D)
-            "Series" -> Color(0xFF0288D1)
-            "Anime" -> Color(0xFF9C27B0)
-            "18+" -> Color(0xFFC2185B)
-            "YouTube" -> Color(0xFFFF0000)
+        val bgColor = when {
+            name.startsWith("Torrent") -> Color(0xFF0096C7)
+            name == "Movie" || name == "Movies" -> Color(0xFFE5A00D)
+            name == "Series" -> Color(0xFF0288D1)
+            name == "Anime" -> Color(0xFF9C27B0)
+            name == "18+" -> Color(0xFFC2185B)
+            name == "YouTube" -> Color(0xFFFF0000)
             else -> Color(0xFF1976D2)
         }
         Pair(name, bgColor)

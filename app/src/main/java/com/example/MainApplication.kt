@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.util.Log
 import coil.Coil
 import coil.ImageLoader
@@ -104,9 +105,9 @@ class MainApplication : Application() {
                     .build()
             }
             .respectCacheHeaders(false) // Cache regardless of server max-age headers
-            .bitmapConfig(if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) android.graphics.Bitmap.Config.ARGB_8888 else android.graphics.Bitmap.Config.RGB_565)
-            .allowHardware(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-            .allowRgb565(android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q)
+            .bitmapConfig(Bitmap.Config.ARGB_8888)
+            .allowHardware(false)
+            .allowRgb565(false)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
