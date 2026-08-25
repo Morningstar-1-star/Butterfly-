@@ -47,8 +47,8 @@ enum class GpuSafetyState(val displayName: String, val badgeColorHex: Long) {
  * Configuration model for the Video Enhancement & Upscaling Engine.
  */
 data class VideoEnhancementConfig(
-    val isEnabled: Boolean = true,
-    val preset: VideoEnhancementPreset = VideoEnhancementPreset.AUTO,
+    val isEnabled: Boolean = false,
+    val preset: VideoEnhancementPreset = VideoEnhancementPreset.OFF,
     val upscalerEngine: UpscalerEngine = UpscalerEngine.AUTO,
     val animeMode: AnimeDetectionMode = AnimeDetectionMode.AUTO,
     val sharpen: Float = 35f, // 0..100

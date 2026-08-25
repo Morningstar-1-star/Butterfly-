@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 object TMDBHelper {
 
     private const val TAG = "TMDBHelper"
-    private const val TMDB_API_KEY = "a07e22bc18f5cb106bfe4cc1f83ad8ed" // TMDB Public API Key
+    private const val TMDB_API_KEY = AppConfig.TMDB_API_KEY
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)

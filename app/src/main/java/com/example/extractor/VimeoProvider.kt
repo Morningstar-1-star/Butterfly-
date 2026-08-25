@@ -10,6 +10,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 object VimeoProvider {
     private const val TAG = "VimeoProvider"
@@ -66,6 +67,47 @@ object VimeoProvider {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Vimeo getHome error: ${e.message}")
+        }
+        return list
+    }
+
+    fun search(query: String, limit: Int = 20): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        if (query.isBlank()) return list
+        try {
+            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+            val searchUrl = "https://vimeo.com/search?q=$encodedQuery"
+            val req = Request.Builder()
+                .url(searchUrl)
+                .header("User-Agent", DEFAULT_USER_AGENT)
+                .header("Referer", "https://vimeo.com/")
+                .build()
+
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+
+            if (!html.isNullOrBlank()) {
+                val pattern = Pattern.compile("href=\"/(?<id>\\d{6,12})\"[^>]*data-title=\"(?<title>[^\"]*)\"", Pattern.CASE_INSENSITIVE)
+                val matcher = pattern.matcher(html)
+                while (matcher.find() && list.size < limit) {
+                    val id = matcher.group("id") ?: continue
+                    val title = matcher.group("title") ?: "Vimeo Video $id"
+                    list.add(
+                        VideoItem(
+                            id = "https://vimeo.com/$id",
+                            title = title,
+                            uploaderName = "Vimeo Creator",
+                            durationSeconds = -1L,
+                            viewCount = -1L,
+                            thumbnailUrl = "https://vumbnail.com/$id.jpg",
+                            providerId = PROVIDER_ID
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Vimeo search error: ${e.message}")
         }
         return list
     }

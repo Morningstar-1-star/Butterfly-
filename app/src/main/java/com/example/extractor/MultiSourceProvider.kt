@@ -264,7 +264,7 @@ object MultiSourceProvider {
     }
 
     private fun searchVimeo(query: String, limit: Int): List<VideoItem> {
-        return emptyList()
+        return VimeoProvider.search(query, limit)
     }
 
     // ------------------- PORNHUB -------------------

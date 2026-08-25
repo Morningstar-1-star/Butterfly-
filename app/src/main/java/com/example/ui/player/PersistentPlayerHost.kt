@@ -1,7 +1,6 @@
 package com.example.ui.player
 
-import android.view.ViewGroup
-import android.widget.FrameLayout
+import android.view.LayoutInflater
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -9,6 +8,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.R
 
 @Composable
 fun PersistentPlayerHost(
@@ -22,9 +22,8 @@ fun PersistentPlayerHost(
 
     AndroidView(
         factory = { ctx ->
-            val playerView = GlobalPlayerManager.getOrCreatePlayerView(ctx)
-            (playerView.parent as? ViewGroup)?.removeView(playerView)
-            playerView.apply {
+            val view = LayoutInflater.from(ctx).inflate(R.layout.persistent_media3_player_view, null, false) as PlayerView
+            view.apply {
                 this.player = exoPlayer
                 this.useController = useController
                 this.resizeMode = resizeMode
@@ -38,10 +37,6 @@ fun PersistentPlayerHost(
                 } else {
                     setFullscreenButtonClickListener(null)
                 }
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
             }
         },
         update = { playerView ->
@@ -54,6 +49,8 @@ fun PersistentPlayerHost(
             if (playerView.resizeMode != resizeMode) {
                 playerView.resizeMode = resizeMode
             }
+            playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+            playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             if (onFullscreenClick != null) {
                 playerView.setFullscreenButtonClickListener { onFullscreenClick() }
             } else {
@@ -61,9 +58,13 @@ fun PersistentPlayerHost(
             }
         },
         onRelease = { playerView ->
-            // Do not clear player or detach view here; single playerView instance is reused seamlessly
+            // Detach this playerView from the player without resetting ExoPlayer's active rendering surface
+            // if ExoPlayer is still playing or managed globally.
+            playerView.setControllerVisibilityListener(null as? PlayerView.ControllerVisibilityListener)
+            playerView.setFullscreenButtonClickListener(null)
         },
         modifier = modifier
     )
 }
+
 

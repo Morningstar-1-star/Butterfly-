@@ -91,7 +91,8 @@ class TorrentHttpServer(
             }
 
             if (totalLength <= 0) {
-                totalLength = 1_500_000_000L // Fallback estimate to let player connect
+                sendResponse(outStream, "503 Service Unavailable", emptyMap(), "Torrent metadata not available yet".toByteArray(StandardCharsets.UTF_8))
+                return
             }
 
             val fileName = engine.getFileName()

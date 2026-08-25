@@ -166,27 +166,7 @@ object RedTubeProvider {
             }
         }
 
-        val matched = fallbackRedTubeCatalog.firstOrNull { it.id.contains(cleanId) }
-        val streamOption = com.example.model.PlayableStreamOption(
-            qualityLabel = "720p",
-            format = "mp4",
-            isMuxed = true,
-            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            providerType = com.example.model.ProviderType.OTHER
-        )
-
-        return@withContext com.example.model.StreamData(
-            videoId = cleanId,
-            videoUrl = fullUrl,
-            title = matched?.title ?: "RedTube Video $cleanId",
-            channelName = "RedTube",
-            thumbnailUrl = matched?.thumbnailUrl ?: "",
-            availableStreamOptions = listOf(streamOption),
-            selectedStreamOption = streamOption,
-            hlsUrl = null,
-            providerId = PROVIDER_ID,
-            providerType = com.example.model.ProviderType.OTHER
-        )
+        throw java.io.IOException("Unable to extract stream for RedTube video $cleanId")
     }
 
     private fun parseRedTubeJsonApi(apiUrl: String, limit: Int): List<VideoItem> {

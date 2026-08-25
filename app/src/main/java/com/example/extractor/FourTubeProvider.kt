@@ -243,30 +243,7 @@ object FourTubeProvider {
             Log.w(TAG, "Fallback search error: ${e.message}")
         }
 
-        // 4. Fallback direct stream data if network was blocked
-        val matchedItem = fallback4TubeCatalog.firstOrNull { it.id.contains(videoId) }
-        val streamOption = PlayableStreamOption(
-            qualityLabel = "720p",
-            format = "mp4",
-            isMuxed = true,
-            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            providerType = ProviderType.OTHER,
-            headers = defaultHeaders
-        )
-
-        return@withContext StreamData(
-            videoId = videoId,
-            videoUrl = fullUrl,
-            title = matchedItem?.title ?: "4tube Video $videoId",
-            channelName = "4Tube Studios",
-            thumbnailUrl = matchedItem?.thumbnailUrl ?: "",
-            availableStreamOptions = listOf(streamOption),
-            selectedStreamOption = streamOption,
-            hlsUrl = null,
-            headers = defaultHeaders,
-            providerId = PROVIDER_ID,
-            providerType = ProviderType.OTHER
-        )
+        throw java.io.IOException("Unable to extract stream for 4tube video $videoId")
     }
 
     private fun extractTitleFromUrl(urlOrId: String): String {

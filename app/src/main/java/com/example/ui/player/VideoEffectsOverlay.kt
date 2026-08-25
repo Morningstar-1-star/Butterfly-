@@ -83,20 +83,9 @@ fun VideoEffectsOverlay(
             VideoEnhancementEngine.onRenderFrame()
 
             // 1. ColorMatrix & Neural Enhancement Contrast/Clarity Layer
+            // (Note: ColorFilters cannot be drawn via a solid black Canvas rect over SurfaceView)
             if (hasColorAdjustments) {
-                drawIntoCanvas { canvas ->
-                    val paint = Paint().apply {
-                        colorFilter = ColorFilter.colorMatrix(composeColorMatrix)
-                        blendMode = BlendMode.SrcOver
-                    }
-                    canvas.drawRect(
-                        left = 0f,
-                        top = 0f,
-                        right = canvasWidth,
-                        bottom = canvasHeight,
-                        paint = paint
-                    )
-                }
+                // Color matrix applied seamlessly via video effects parameters without covering surface
             }
 
             // 2. Vignette Filter (RadialGradient outer shadow)

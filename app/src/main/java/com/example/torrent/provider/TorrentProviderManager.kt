@@ -19,7 +19,7 @@ class TorrentProviderManager(
 ) {
     companion object {
         private const val TAG = "TorrentProviderManager"
-        private const val TMDB_API_KEY = "a07e22bc18f5cb106bfe4cc1f83ad8ed"
+        private const val TMDB_API_KEY = com.example.util.AppConfig.TMDB_API_KEY
 
         @Volatile
         private var instance: TorrentProviderManager? = null

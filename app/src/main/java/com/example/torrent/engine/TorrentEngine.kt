@@ -104,13 +104,26 @@ class TorrentEngine(private val context: Context) {
     }
 
     private suspend fun runEnginePipeline(magnet: ParsedMagnet, release: TorrentRelease) {
-        // 1. ANNOUNCE TO TRACKERS & FIND PEERS
+        // 1. ANNOUNCE TO TRACKERS & FIND PEERS (BEP 15 + BEP 5 DHT)
         _stats.value = _stats.value.copy(state = TorrentEngineState.CONNECTING_TRACKERS)
-        val peers = TrackerClient.announce(
-            infoHashBytes = magnet.infoHashBytes,
-            peerIdBytes = myPeerId,
-            trackers = magnet.trackers
-        )
+        val trackerPeersDeferred = engineScope.async {
+            TrackerClient.announce(
+                infoHashBytes = magnet.infoHashBytes,
+                peerIdBytes = myPeerId,
+                trackers = magnet.trackers
+            )
+        }
+
+        val dhtPeersDeferred = engineScope.async {
+            try {
+                com.example.torrent.dht.DhtClient.getPeers(magnet.infoHashBytes, timeoutMs = 8000)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+
+        val peers = (trackerPeersDeferred.await() + dhtPeersDeferred.await())
+            .distinctBy { "${it.address.hostAddress}:${it.port}" }
 
         _stats.value = _stats.value.copy(
             totalPeersFound = peers.size,
@@ -125,8 +138,12 @@ class TorrentEngine(private val context: Context) {
         // Wait for metadata resolution
         val metadataResolved = waitForMetadata(magnet, timeoutMs = 25000)
         if (!metadataResolved || activeMetadata == null) {
-            // If peer metadata timeout, construct a virtual single-file stream layout
-            activeMetadata = createSyntheticMetadata(magnet, release)
+            Log.w(TAG, "Torrent metadata resolution timed out for infoHash: ${magnet.infoHashHex}")
+            _stats.value = _stats.value.copy(
+                state = TorrentEngineState.ERROR,
+                activeFileName = "Metadata timeout"
+            )
+            return
         }
 
         val meta = activeMetadata ?: return
@@ -289,34 +306,6 @@ class TorrentEngine(private val context: Context) {
             pieceHashes = pieceHashes,
             totalLength = currentOffset,
             files = files,
-            mainVideoFile = mainVideo
-        )
-    }
-
-    private fun createSyntheticMetadata(magnet: ParsedMagnet, release: TorrentRelease): TorrentMetadata {
-        val estimatedSize = if (release.sizeBytes > 0) release.sizeBytes else 1_500_000_000L // 1.5 GB
-        val pieceLen = 1048576 // 1MB
-        val pieceCount = ((estimatedSize + pieceLen - 1) / pieceLen).toInt()
-
-        val pieceHashes = List(pieceCount) { ByteArray(20) }
-        val name = if (release.title.isNotBlank()) "${release.title}.mkv" else "${magnet.displayName}.mkv"
-
-        val mainVideo = TorrentFileItem(
-            index = 0,
-            path = name,
-            name = name,
-            length = estimatedSize,
-            offset = 0L,
-            isVideo = true
-        )
-
-        return TorrentMetadata(
-            infoHash = magnet.infoHashHex,
-            name = name,
-            pieceLength = pieceLen,
-            pieceHashes = pieceHashes,
-            totalLength = estimatedSize,
-            files = listOf(mainVideo),
             mainVideoFile = mainVideo
         )
     }

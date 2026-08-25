@@ -245,8 +245,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
         return adultKeywords.any { q.contains(it) }
     }
-    fun isAdultDownload(entity: OfflineDownloadEntity): Boolean = false
-    fun isDemoOrPlaceholderVideo(item: VideoItem): Boolean = false
+    fun isAdultDownload(entity: OfflineDownloadEntity): Boolean {
+        val combined = "${entity.title} ${entity.channelName} ${entity.videoId}".lowercase()
+        return isAdultSearchQuery(combined)
+    }
+
+    fun isDemoOrPlaceholderVideo(item: VideoItem): Boolean {
+        val lowerId = item.id.lowercase()
+        val lowerTitle = item.title.lowercase()
+        val lowerDesc = (item.description ?: "").lowercase()
+        return lowerId.contains("bigbuckbunny") || lowerTitle.contains("big buck bunny") || lowerDesc.contains("big buck bunny")
+    }
 
     private val _activeProviderId = MutableStateFlow("all")
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()

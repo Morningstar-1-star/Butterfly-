@@ -444,6 +444,16 @@ class AudioEnhancementProcessor : BaseAudioProcessor() {
             sumSqOut = 0.0
         }
 
+        // Feed audio samples into Whisper Inference Pipeline if captioning is active
+        if (com.example.util.AiCaptionEngine.captionState.value.isEnabled) {
+            val pcmCopy = ByteArray(outBuffer.position())
+            val currentPos = outBuffer.position()
+            outBuffer.position(0)
+            outBuffer.get(pcmCopy)
+            outBuffer.position(currentPos)
+            com.example.util.WhisperInferenceEngine.feedPcmData(pcmCopy, sampleRate, outChannels)
+        }
+
         outBuffer.flip()
     }
 

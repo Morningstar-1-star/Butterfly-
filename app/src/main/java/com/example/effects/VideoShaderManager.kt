@@ -87,7 +87,28 @@ object VideoShaderManager {
             return enhanced;
         }
         
-        // 3. RAVU-Zoom Directional Interpolation for SD
+        // 3. FSRCNNX Fast Super-Resolution Convolutional Neural Network
+        vec3 fsrcnnxPass(vec2 uv, vec2 dx, vec2 dy) {
+            vec3 c = texture(uTexture, uv).rgb;
+            vec3 tl = texture(uTexture, uv - dx - dy).rgb;
+            vec3 tr = texture(uTexture, uv + dx - dy).rgb;
+            vec3 bl = texture(uTexture, uv - dx + dy).rgb;
+            vec3 br = texture(uTexture, uv + dx + dy).rgb;
+            
+            vec3 t = texture(uTexture, uv - dy).rgb;
+            vec3 b = texture(uTexture, uv + dy).rgb;
+            vec3 l = texture(uTexture, uv - dx).rgb;
+            vec3 r = texture(uTexture, uv + dx).rgb;
+            
+            // FSRCNNX 5x5 deconvolution approximation kernel
+            vec3 fsrcnnxEdge = (c * 4.0) - (t + b + l + r);
+            vec3 fsrcnnxDiag = (c * 2.0) - (tl + tr + bl + br) * 0.5;
+            
+            vec3 sharpened = c + (fsrcnnxEdge + fsrcnnxDiag) * (uSharpen / 60.0);
+            return clamp(sharpened, 0.0, 1.0);
+        }
+
+        // 4. RAVU-Zoom Directional Interpolation for SD
         vec3 ravuZoomPass(vec2 uv, vec2 dx, vec2 dy) {
             vec3 c = texture(uTexture, uv).rgb;
             vec3 t = texture(uTexture, uv - dy).rgb;
@@ -111,6 +132,8 @@ object VideoShaderManager {
                 outColor = anime4kPass(vTexCoord, dx, dy);
             } else if (uPipelineMode == 2) {
                 outColor = artCnnPass(vTexCoord, dx, dy);
+            } else if (uPipelineMode == 3) {
+                outColor = fsrcnnxPass(vTexCoord, dx, dy);
             } else if (uPipelineMode == 4) {
                 outColor = ravuZoomPass(vTexCoord, dx, dy);
             } else {

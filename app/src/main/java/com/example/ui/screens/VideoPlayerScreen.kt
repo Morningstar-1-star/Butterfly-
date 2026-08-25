@@ -456,7 +456,7 @@ fun VideoPlayerScreen(
 
                         // Related Videos List
                         if (relatedContent.isNotEmpty()) {
-                            items(relatedContent) { video ->
+                            items(relatedContent, key = { "rel_${it.providerId ?: ""}_${it.id}" }) { video ->
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()

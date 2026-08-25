@@ -1047,7 +1047,7 @@ fun SubscriptionsContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
             )
         }
-        items(videos) { video ->
+        items(videos, key = { "multi_${it.providerId ?: ""}_${it.id}" }) { video ->
             VideoCard(
                 video = video,
                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,

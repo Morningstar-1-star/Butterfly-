@@ -331,33 +331,6 @@ object GlobalPlayerManager {
         playbackFailedListener = listener
     }
 
-    private var playerViewInstance: androidx.media3.ui.PlayerView? = null
-
-    fun getOrCreatePlayerView(context: Context): androidx.media3.ui.PlayerView {
-        val existing = playerViewInstance
-        return if (existing != null) {
-            existing
-        } else {
-            val player = getExoPlayer(context)
-            val pv = androidx.media3.ui.PlayerView(context.applicationContext).apply {
-                this.player = player
-                useController = false
-                controllerShowTimeoutMs = 2800
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS)
-                setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility ->
-                    _areControlsVisible.value = (visibility == android.view.View.VISIBLE)
-                })
-                layoutParams = android.widget.FrameLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-            playerViewInstance = pv
-            pv
-        }
-    }
-
     fun getExoPlayer(context: Context): ExoPlayer {
         appContext = context.applicationContext
         val existing = exoPlayerInstance
@@ -417,9 +390,6 @@ object GlobalPlayerManager {
 
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _isPlaying.value = playing
-                    if (playing) {
-                        _firstFrameRendered.value = true
-                    }
                     updatePlayerPositions(player)
                 }
 
@@ -428,9 +398,7 @@ object GlobalPlayerManager {
                     _isBuffering.value = (state == Player.STATE_BUFFERING)
                     updatePlayerPositions(player)
                     if (state == Player.STATE_READY && player.playWhenReady) {
-                        _firstFrameRendered.value = true
                         _isBuffering.value = false
-                        com.example.util.PlaybackPipelineTracker.logFirstFrame(player.duration)
                     }
                     if (state == Player.STATE_ENDED) {
                         _isPlaying.value = false

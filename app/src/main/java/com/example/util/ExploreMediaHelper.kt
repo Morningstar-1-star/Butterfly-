@@ -20,9 +20,9 @@ import java.util.concurrent.TimeUnit
 object ExploreMediaHelper {
 
     private const val TAG = "ExploreMediaHelper"
-    private const val TMDB_API_KEY = "a07e22bc18f5cb106bfe4cc1f83ad8ed"
-    private const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
-    private const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
+    private const val TMDB_API_KEY = AppConfig.TMDB_API_KEY
+    private const val TMDB_IMAGE_BASE = AppConfig.TMDB_IMAGE_BASE_W500
+    private const val TMDB_BACKDROP_BASE = AppConfig.TMDB_BACKDROP_BASE
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)

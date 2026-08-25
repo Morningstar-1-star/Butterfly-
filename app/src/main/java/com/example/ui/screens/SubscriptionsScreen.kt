@@ -268,7 +268,7 @@ fun SubscriptionsScreen(
                     }
                 }
             } else {
-                items(activeVideos) { video ->
+                items(activeVideos, key = { "sub_${it.id}" }) { video ->
                     VideoCard(
                         video = video,
                         watchProgressFraction = watchProgressMap[video.id] ?: 0f,

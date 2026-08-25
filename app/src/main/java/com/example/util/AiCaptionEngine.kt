@@ -156,9 +156,10 @@ object AiCaptionEngine {
             }
 
             Log.i(TAG, "Starting adaptive VAD & Whisper stream pipeline with model $activeModelId")
+            WhisperInferenceEngine.start(context)
             _captionState.value = _captionState.value.copy(
                 isTranscribing = true,
-                statusMessage = "Listening..."
+                statusMessage = "Live Transcription Active"
             )
         }
     }
@@ -166,6 +167,7 @@ object AiCaptionEngine {
     private fun stopEngine() {
         engineJob?.cancel()
         engineJob = null
+        WhisperInferenceEngine.stop()
         _captionState.value = _captionState.value.copy(
             isTranscribing = false,
             statusMessage = "Paused"
