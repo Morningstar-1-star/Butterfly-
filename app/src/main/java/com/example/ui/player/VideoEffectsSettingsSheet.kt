@@ -33,10 +33,11 @@ import com.example.effects.*
  * Collapsible section categories for Video Settings
  */
 private enum class EffectSection(val title: String, val icon: ImageVector) {
+    UPSCALER("Upscaler", Icons.Outlined.HighQuality),
     PRESETS("Presets", Icons.Outlined.AutoAwesome),
     BASIC("Basic", Icons.Outlined.Tune),
     COLOR("Color", Icons.Outlined.Palette),
-    ENHANCEMENT("Enhancement", Icons.Outlined.HighQuality)
+    ENHANCEMENT("Filters", Icons.Outlined.FilterFrames)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,7 +46,9 @@ fun VideoEffectsSettingsSheet(
     onDismiss: () -> Unit
 ) {
     val config by VideoEffectsManager.currentConfig.collectAsState()
-    var selectedSection by remember { mutableStateOf(EffectSection.PRESETS) }
+    val upscaleConfig by VideoEnhancementEngine.config.collectAsState()
+    val upscaleTelemetry by VideoEnhancementEngine.telemetry.collectAsState()
+    var selectedSection by remember { mutableStateOf(EffectSection.UPSCALER) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -182,6 +185,12 @@ fun VideoEffectsSettingsSheet(
                     .verticalScroll(rememberScrollState())
             ) {
                 when (selectedSection) {
+                    EffectSection.UPSCALER -> {
+                        VideoUpscalerSection(
+                            config = upscaleConfig,
+                            telemetry = upscaleTelemetry
+                        )
+                    }
                     EffectSection.PRESETS -> {
                         PresetsSection(
                             activePreset = config.selectedPreset,
@@ -810,3 +819,348 @@ private fun EffectSliderRow(
 private fun Modifier.scale(scale: Float): Modifier = this.then(
     Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
 )
+
+/**
+ * Real-time GPU Upscaler & Neural Enhancement Section
+ */
+@Composable
+private fun VideoUpscalerSection(
+    config: VideoEnhancementConfig,
+    telemetry: VideoEnhancementTelemetry
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // Active Pipeline Status Card
+        Surface(
+            color = Color(0xFF1B1B26),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(telemetry.gpuSafetyState.badgeColorHex))
+                        )
+                        Text(
+                            text = telemetry.activePipelineName,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00E5FF)
+                        )
+                    }
+
+                    Text(
+                        text = telemetry.gpuSafetyState.displayName,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(telemetry.gpuSafetyState.badgeColorHex)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Source: ${telemetry.inputResolution} → ${telemetry.upscaledResolution}",
+                        fontSize = 11.sp,
+                        color = Color.LightGray
+                    )
+                    Text(
+                        text = "Passes: ${telemetry.activePassesCount} GLSL",
+                        fontSize = 11.sp,
+                        color = Color.LightGray.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        // Enhancement Presets: OFF / AUTO / QUALITY / PERFORMANCE / ANIME / LIVE ACTION
+        Text(
+            text = "Enhancement Presets",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White.copy(alpha = 0.6f),
+            letterSpacing = 1.sp
+        )
+
+        val presets = listOf(
+            VideoEnhancementPreset.AUTO to Icons.Outlined.AutoFixHigh,
+            VideoEnhancementPreset.QUALITY to Icons.Outlined.HighQuality,
+            VideoEnhancementPreset.PERFORMANCE to Icons.Outlined.Speed,
+            VideoEnhancementPreset.ANIME to Icons.Outlined.Brush,
+            VideoEnhancementPreset.LIVE_ACTION to Icons.Outlined.Movie,
+            VideoEnhancementPreset.OFF to Icons.Outlined.Block
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            presets.take(3).forEach { (preset, icon) ->
+                val isSelected = config.preset == preset
+                Surface(
+                    onClick = { VideoEnhancementEngine.setPreset(preset) },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E1E28),
+                    border = if (isSelected) BorderStroke(1.dp, Color(0xFF00E5FF)) else BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = preset.displayName,
+                            tint = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = preset.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            presets.drop(3).forEach { (preset, icon) ->
+                val isSelected = config.preset == preset
+                Surface(
+                    onClick = { VideoEnhancementEngine.setPreset(preset) },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E1E28),
+                    border = if (isSelected) BorderStroke(1.dp, Color(0xFF00E5FF)) else BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = preset.displayName,
+                            tint = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = preset.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        // Neural Scaler Engine Picker
+        Text(
+            text = "Upscaler Engine",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White.copy(alpha = 0.6f),
+            letterSpacing = 1.sp
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            UpscalerEngine.values().take(3).forEach { engine ->
+                val isSelected = config.upscalerEngine == engine
+                Surface(
+                    onClick = { VideoEnhancementEngine.setUpscalerEngine(engine) },
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E1E28),
+                    border = if (isSelected) BorderStroke(1.dp, Color(0xFF00E5FF)) else null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 7.dp, horizontal = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = engine.shortTag,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            UpscalerEngine.values().drop(3).forEach { engine ->
+                val isSelected = config.upscalerEngine == engine
+                Surface(
+                    onClick = { VideoEnhancementEngine.setUpscalerEngine(engine) },
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0xFF1E1E28),
+                    border = if (isSelected) BorderStroke(1.dp, Color(0xFF00E5FF)) else null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 7.dp, horizontal = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = engine.shortTag,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        // Sliders: Sharpen, Deband, Denoise
+        EffectSliderRow(
+            label = "Perceptual Sharpening",
+            value = config.sharpen,
+            range = 0f..100f,
+            onValueChange = { VideoEnhancementEngine.setSharpen(it) },
+            onResetValue = { VideoEnhancementEngine.setSharpen(35f) }
+        )
+
+        EffectSliderRow(
+            label = "Gradient Debanding",
+            value = config.deband,
+            range = 0f..100f,
+            onValueChange = { VideoEnhancementEngine.setDeband(it) },
+            onResetValue = { VideoEnhancementEngine.setDeband(25f) }
+        )
+
+        EffectSliderRow(
+            label = "Temporal Denoising",
+            value = config.denoise,
+            range = 0f..100f,
+            onValueChange = { VideoEnhancementEngine.setDenoise(it) },
+            onResetValue = { VideoEnhancementEngine.setDenoise(15f) }
+        )
+
+        // Features Toggles
+        Surface(
+            color = Color(0xFF181822),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Chroma Reconstruction (CfL)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                    Switch(
+                        checked = config.chromaReconstructionCfL,
+                        onCheckedChange = { VideoEnhancementEngine.setChromaReconstruction(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF00E5FF)
+                        ),
+                        modifier = Modifier.scale(0.75f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "SSim Anti-Ringing Clamping",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                    Switch(
+                        checked = config.antiRinging,
+                        onCheckedChange = { VideoEnhancementEngine.setAntiRinging(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF00E5FF)
+                        ),
+                        modifier = Modifier.scale(0.75f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Auto GPU Safety Throttling",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                    Switch(
+                        checked = config.autoGpuSafety,
+                        onCheckedChange = { VideoEnhancementEngine.setAutoGpuSafety(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF00E5FF)
+                        ),
+                        modifier = Modifier.scale(0.75f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Live On-Screen Telemetry HUD",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                    Switch(
+                        checked = config.showDebugHud,
+                        onCheckedChange = { VideoEnhancementEngine.toggleDebugHud() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF00E5FF)
+                        ),
+                        modifier = Modifier.scale(0.75f)
+                    )
+                }
+            }
+        }
+    }
+}
+

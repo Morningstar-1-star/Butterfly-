@@ -43,9 +43,15 @@ fun PersistentPlayerHost(
             }
         },
         update = { playerView ->
-            playerView.player = exoPlayer
-            playerView.useController = useController
-            playerView.resizeMode = resizeMode
+            if (playerView.player != exoPlayer) {
+                playerView.player = exoPlayer
+            }
+            if (playerView.useController != useController) {
+                playerView.useController = useController
+            }
+            if (playerView.resizeMode != resizeMode) {
+                playerView.resizeMode = resizeMode
+            }
             if (onFullscreenClick != null) {
                 playerView.setFullscreenButtonClickListener { onFullscreenClick() }
             } else {
@@ -53,9 +59,8 @@ fun PersistentPlayerHost(
             }
         },
         onRelease = { playerView ->
-            try {
-                playerView.player = null
-            } catch (t: Throwable) {}
+            // Do not clear playerView.player to null on the singleton ExoPlayer during transitions.
+            // Setting player to null here disconnects the video decoder surface, leading to black screens or ANRs.
         },
         modifier = modifier
     )

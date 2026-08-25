@@ -35,41 +35,43 @@ object MultiSourceProvider {
 
         // 1. Try custom scrapers / APIs first
         val customItems = when (pid) {
-            "dailymotion" -> getDailymotionHome(limit)
+            "dailymotion" -> getDailymotionHome(limit, page)
             "vimeo" -> getVimeoHome(limit)
             "bilibili" -> getBilibiliHome(page, limit)
-            "pornhub" -> getPornhubHome(limit)
-            "xvideos" -> getXVideosHome(limit)
-            "xhamster" -> getXHamsterHome(limit)
+            "pornhub" -> getPornhubHome(limit, page)
+            "xvideos" -> getXVideosHome(limit, page)
+            "xhamster" -> getXHamsterHome(limit, page)
             "redtube" -> RedTubeProvider.getHome(page, limit)
             "youporn" -> getYouPornHome(page, limit)
             "hotstar", "jiohotstar" -> HotstarProvider.getHome(page, limit)
             "beeg" -> getBeegHome(limit)
             "4tube" -> FourTubeProvider.getHome(page, limit)
-            "rule34video" -> parseRule34Html("https://rule34video.com/", limit)
+            "eporner" -> EpornerProvider.getHome(limit, page)
+            "rule34video" -> parseRule34Html(if (page > 1) "https://rule34video.com/?page=$page" else "https://rule34video.com/", limit)
             else -> emptyList()
         }
 
         customItems
     }
 
-    suspend fun search(context: Context, providerId: String, query: String, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun search(context: Context, providerId: String, query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val pid = providerId.lowercase()
 
         when (pid) {
-            "dailymotion" -> searchDailymotion(query, limit)
+            "dailymotion" -> searchDailymotion(query, limit, page)
             "vimeo" -> searchVimeo(query, limit)
-            "bilibili" -> searchBilibili(query, 1, limit)
-            "pornhub" -> searchPornhub(query, limit)
-            "xvideos" -> searchXVideos(query, limit)
-            "xhamster" -> searchXHamster(query, limit)
-            "redtube" -> RedTubeProvider.search(query, 1, limit)
-            "youporn" -> searchYouPorn(query, limit)
-            "hotstar", "jiohotstar" -> HotstarProvider.search(query, 1, limit)
+            "bilibili" -> searchBilibili(query, page, limit)
+            "pornhub" -> searchPornhub(query, limit, page)
+            "xvideos" -> searchXVideos(query, limit, page)
+            "xhamster" -> searchXHamster(query, limit, page)
+            "redtube" -> RedTubeProvider.search(query, page, limit)
+            "youporn" -> searchYouPorn(query, page, limit)
+            "hotstar", "jiohotstar" -> HotstarProvider.search(query, page, limit)
             "beeg" -> BeegProvider.search(query, limit)
-            "4tube" -> FourTubeProvider.search(query, 1, limit)
-            "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/", limit)
+            "4tube" -> FourTubeProvider.search(query, page, limit)
+            "eporner" -> EpornerProvider.search(query, limit, page)
+            "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/${if (page > 1) "?page=$page" else ""}", limit)
             else -> emptyList()
         }
     }
@@ -206,14 +208,14 @@ object MultiSourceProvider {
     }
 
     // ------------------- DAILYMOTION -------------------
-    private fun getDailymotionHome(limit: Int): List<VideoItem> {
-        val url = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total&flags=featured&limit=$limit"
+    private fun getDailymotionHome(limit: Int, page: Int = 1): List<VideoItem> {
+        val url = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total&flags=featured&limit=$limit&page=$page"
         return parseDailymotionApi(url)
     }
 
-    private fun searchDailymotion(query: String, limit: Int): List<VideoItem> {
+    private fun searchDailymotion(query: String, limit: Int, page: Int = 1): List<VideoItem> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val url = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total&search=$encoded&limit=$limit"
+        val url = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total&search=$encoded&limit=$limit&page=$page"
         return parseDailymotionApi(url)
     }
 
@@ -266,31 +268,40 @@ object MultiSourceProvider {
     }
 
     // ------------------- PORNHUB -------------------
-    private fun getPornhubHome(limit: Int): List<VideoItem> {
-        return parsePornhubHtml("https://www.pornhub.com/video?o=trending", limit)
+    private fun getPornhubHome(limit: Int, page: Int = 1): List<VideoItem> {
+        val pageParam = if (page > 1) "&page=$page" else ""
+        return parsePornhubHtml("https://www.pornhub.com/video?o=trending$pageParam", limit)
     }
 
-    private fun searchPornhub(query: String, limit: Int): List<VideoItem> {
+    private fun searchPornhub(query: String, limit: Int, page: Int = 1): List<VideoItem> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        return parsePornhubHtml("https://www.pornhub.com/video/search?search=$encoded", limit)
+        val pageParam = if (page > 1) "&page=$page" else ""
+        return parsePornhubHtml("https://www.pornhub.com/video/search?search=$encoded$pageParam", limit)
     }
 
     private fun parsePornhubHtml(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
-        val urlsToTry = listOf(
+        val mirrors = listOf(
             targetUrl,
-            "https://www.pornhub.com/video?o=ht",
-            "https://www.pornhub.com/video?o=mv",
-            "https://www.pornhub.com/"
+            targetUrl.replace("www.pornhub.com", "rt.pornhub.com"),
+            targetUrl.replace("www.pornhub.com", "www.pornhub.org"),
+            targetUrl.replace("www.pornhub.com", "cn.pornhub.com")
         ).distinct()
 
-        for (url in urlsToTry) {
+        val bypassIp = "208.80.154.224"
+        val bypassCookies = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en"
+
+        for (url in mirrors) {
             try {
                 val req = Request.Builder()
                     .url(url)
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                    .header("Cookie", "age_verified=1; platform=pc")
+                    .header("Cookie", bypassCookies)
                     .header("Referer", "https://www.pornhub.com/")
+                    .header("X-Forwarded-For", bypassIp)
+                    .header("X-Real-IP", bypassIp)
+                    .header("CF-Connecting-IP", bypassIp)
+                    .header("Client-IP", bypassIp)
                     .build()
 
                 val pornhubClient = httpClient.newBuilder()
@@ -304,9 +315,7 @@ object MultiSourceProvider {
                     Pair(resp.code, if (resp.isSuccessful) resp.body?.string() else null)
                 }
 
-                println("PORNHUB FETCH URL=$url CODE=$code LENGTH=${bodyStr?.length ?: 0}")
-
-                if (bodyStr.isNullOrEmpty()) continue
+                if (bodyStr.isNullOrEmpty() || bodyStr.length < 500) continue
 
                 val seenKeys = mutableSetOf<String>()
                 val vkPattern = Pattern.compile("(?:data-video-vkey=\"|href=\"/view_video\\.php\\?viewkey=)([a-zA-Z0-9_-]+)", Pattern.CASE_INSENSITIVE)
@@ -369,33 +378,31 @@ object MultiSourceProvider {
                 }
 
                 if (list.isNotEmpty()) {
-                    println("PORNHUB PARSED ${list.size} ITEMS FROM $url")
                     break
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Pornhub parse error for $url: ${e.message}")
-                println("PORNHUB PARSE EXCEPTION FOR $url: ${e.message}")
             }
         }
         return list
     }
 
     // ------------------- XVIDEOS -------------------
-    private fun getXVideosHome(limit: Int): List<VideoItem> {
-        return XVideosProvider.getHome(limit)
+    private fun getXVideosHome(limit: Int, page: Int = 1): List<VideoItem> {
+        return XVideosProvider.getHome(limit, page)
     }
 
-    private fun searchXVideos(query: String, limit: Int): List<VideoItem> {
-        return XVideosProvider.search(query, limit)
+    private fun searchXVideos(query: String, limit: Int, page: Int = 1): List<VideoItem> {
+        return XVideosProvider.search(query, limit, page)
     }
 
     // ------------------- XHAMSTER -------------------
-    private fun getXHamsterHome(limit: Int): List<VideoItem> {
-        return XHamsterProvider.getHome(limit)
+    private fun getXHamsterHome(limit: Int, page: Int = 1): List<VideoItem> {
+        return XHamsterProvider.getHome(limit, page)
     }
 
-    private fun searchXHamster(query: String, limit: Int): List<VideoItem> {
-        return XHamsterProvider.search(query, limit)
+    private fun searchXHamster(query: String, limit: Int, page: Int = 1): List<VideoItem> {
+        return XHamsterProvider.search(query, limit, page)
     }
 
     // ------------------- REDTUBE -------------------

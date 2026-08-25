@@ -1706,6 +1706,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 refreshProvidersList()
                 setActiveProvider("all")
             }
+            launch {
+                com.example.ui.player.GlobalPlayerManager.setPlaybackFailedListener {
+                    viewModelScope.launch(Dispatchers.Main) {
+                        tryNextFallbackStream()
+                    }
+                }
+            }
             @OptIn(FlowPreview::class)
             launch {
                 _searchQuery
@@ -2467,48 +2474,90 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val activeProv = _activeProviderId.value
                 val enabledSet = _enabledProviderIds.value
 
-                val combinedItems = mutableListOf<VideoItem>()
+                val collectedFeed = mutableListOf<VideoItem>()
+
+                fun updateTrendingUi() {
+                    val currentSnapshot: List<VideoItem>
+                    synchronized(collectedFeed) {
+                        currentSnapshot = ArrayList(collectedFeed)
+                    }
+                    val filtered = currentSnapshot
+                        .distinctBy { it.id }
+                        .filter {
+                            if (activeProv != "all") {
+                                it.providerId == activeProv
+                            } else {
+                                adultEnabled || !isAdultVideoItem(it)
+                            }
+                        }
+
+                    val groupedByProvider = filtered.groupBy { it.providerId }
+                    val balancedList = mutableListOf<VideoItem>()
+                    var index = 0
+                    var hasMore = true
+                    while (hasMore) {
+                        hasMore = false
+                        for ((_, providerItems) in groupedByProvider) {
+                            if (index < providerItems.size) {
+                                balancedList.add(providerItems[index])
+                                hasMore = true
+                            }
+                        }
+                        index++
+                    }
+                    _trendingVideos.value = if (balancedList.isNotEmpty()) balancedList else filtered
+                }
 
                 supervisorScope {
-                    val deferredList = mutableListOf<kotlinx.coroutines.Deferred<List<VideoItem>>>()
-
                     // 1. YouTube
                     if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
-                        deferredList.add(async(Dispatchers.IO) {
+                        launch(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                                val ytItems = kotlinx.coroutines.withTimeoutOrNull(10000L) {
                                     com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
                                 } ?: emptyList()
+                                if (ytItems.isNotEmpty()) {
+                                    synchronized(collectedFeed) { collectedFeed.addAll(ytItems.shuffled()) }
+                                    updateTrendingUi()
+                                }
                             } catch (e: Exception) {
-                                emptyList()
+                                Log.w("MainViewModel", "YouTube trending note: ${e.message}")
                             }
-                        })
+                        }
                     }
 
                     // 2. Archive.org
                     if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
-                        deferredList.add(async(Dispatchers.IO) {
+                        launch(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                                val arcItems = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                                     com.example.extractor.ArchiveOrgProvider.getHome(1)
                                 } ?: emptyList()
+                                if (arcItems.isNotEmpty()) {
+                                    synchronized(collectedFeed) { collectedFeed.addAll(arcItems.shuffled()) }
+                                    updateTrendingUi()
+                                }
                             } catch (e: Exception) {
-                                emptyList()
+                                Log.w("MainViewModel", "ArchiveOrg note: ${e.message}")
                             }
-                        })
+                        }
                     }
 
                     // 3. Eporner
                     if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
-                        deferredList.add(async(Dispatchers.IO) {
+                        launch(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                val epItems = kotlinx.coroutines.withTimeoutOrNull(7000L) {
                                     com.example.extractor.EpornerProvider.getHome(25)
                                 } ?: emptyList()
+                                if (epItems.isNotEmpty()) {
+                                    synchronized(collectedFeed) { collectedFeed.addAll(epItems.shuffled()) }
+                                    updateTrendingUi()
+                                }
                             } catch (e: Exception) {
-                                emptyList()
+                                Log.w("MainViewModel", "Eporner note: ${e.message}")
                             }
-                        })
+                        }
                     }
 
                     // 4. MultiSource providers
@@ -2516,19 +2565,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     val targetSources = when {
                         activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
-                        else -> listOf(activeProv)
+                        else -> if (ytDlpSources.contains(activeProv)) listOf(activeProv) else emptyList()
                     }
 
                     targetSources.forEach { prov ->
-                        deferredList.add(async(Dispatchers.IO) {
+                        launch(Dispatchers.IO) {
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(12000L) {
+                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(7000L) {
                                     com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15)
                                 } ?: emptyList()
+                                if (srcItems.isNotEmpty()) {
+                                    synchronized(collectedFeed) { collectedFeed.addAll(srcItems.shuffled()) }
+                                    updateTrendingUi()
+                                }
                             } catch (e: Exception) {
-                                emptyList()
+                                Log.w("MainViewModel", "Source note for $prov: ${e.message}")
                             }
-                        })
+                        }
                     }
 
                     // 5. Installed & Enabled Vega Providers
@@ -2543,64 +2596,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     targetVega.forEach { vegaProv ->
-                        deferredList.add(async(Dispatchers.IO) {
+                        launch(Dispatchers.IO) {
                             try {
-                                val vResults = kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                                    com.example.vega.VegaProviderClient.search(vegaProv.id, "trending")
-                                        .ifEmpty { com.example.vega.VegaProviderClient.search(vegaProv.id, "latest") }
-                                        .ifEmpty { com.example.vega.VegaProviderClient.search(vegaProv.id, "movie") }
+                                val vResults = kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                                    com.example.vega.VegaProviderClient.getHomeContent(vegaProv.id)
                                 } ?: emptyList()
-                                vResults.map { vItem ->
-                                    VideoItem(
-                                        id = "vega_${vegaProv.id}::${vItem.link}",
-                                        title = vItem.title,
-                                        uploaderName = vegaProv.name,
-                                        thumbnailUrl = vItem.imageUrl ?: "",
-                                        durationSeconds = -1L,
-                                        providerId = "vega_${vegaProv.id}"
-                                    )
+                                if (vResults.isNotEmpty()) {
+                                    val vItems = vResults.map { vItem ->
+                                        VideoItem(
+                                            id = "vega_${vegaProv.id}::${vItem.link}",
+                                            title = vItem.title,
+                                            uploaderName = vegaProv.name,
+                                            thumbnailUrl = vItem.imageUrl ?: "",
+                                            durationSeconds = -1L,
+                                            providerId = "vega_${vegaProv.id}"
+                                        )
+                                    }
+                                    synchronized(collectedFeed) { collectedFeed.addAll(vItems) }
+                                    updateTrendingUi()
                                 }
                             } catch (e: Exception) {
-                                emptyList()
+                                Log.w("MainViewModel", "Vega trending note for ${vegaProv.id}: ${e.message}")
                             }
-                        })
-                    }
-
-                    deferredList.awaitAll().filterNotNull().forEach { itemsFromSource ->
-                        combinedItems.addAll(itemsFromSource.shuffled())
+                        }
                     }
                 }
 
-                val filtered = combinedItems
-                    .distinctBy { it.id }
-                    .filter {
-                        if (activeProv != "all") {
-                            it.providerId == activeProv
-                        } else {
-                            adultEnabled || !isAdultVideoItem(it)
-                        }
-                    }
-
-                // Balance and interleave sources for rich diversity on the home screen
-                val groupedByProvider = filtered.groupBy { it.providerId }
-                val balancedList = mutableListOf<VideoItem>()
-                var index = 0
-                var hasMore = true
-                while (hasMore) {
-                    hasMore = false
-                    for ((_, providerItems) in groupedByProvider) {
-                        if (index < providerItems.size) {
-                            balancedList.add(providerItems[index])
-                            hasMore = true
-                        }
-                    }
-                    index++
-                }
-
-                _trendingVideos.value = if (balancedList.isNotEmpty()) balancedList else filtered
+                updateTrendingUi()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadTrending failed", e)
-                _trendingVideos.value = emptyList()
             } finally {
                 _isLoadingTrending.value = false
             }
@@ -2933,15 +2957,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     val link = if (parts.size == 2) parts[1] else cleanIdOrUrl
 
-                    val streams = kotlinx.coroutines.withTimeoutOrNull(18000L) {
-                        com.example.vega.VegaProviderClient.getStream(rawProv, link)
-                    } ?: emptyList()
+                    val resolution = kotlinx.coroutines.withTimeoutOrNull(25000L) {
+                        com.example.vega.VegaProviderClient.resolveFullVegaPlayback(rawProv, link)
+                    }
 
-                    val playable = streams.filterNot { it.isTorrent }
-                    if (playable.isNotEmpty()) {
-                        val options = playable.map { st ->
+                    if (resolution != null && resolution.success && resolution.streams.isNotEmpty()) {
+                        val options = resolution.streams.map { st ->
+                            val label = if (st.server.isNotBlank() && st.server != "Direct") {
+                                "${st.quality} • ${st.server}"
+                            } else {
+                                st.quality
+                            }
                             PlayableStreamOption(
-                                qualityLabel = st.quality,
+                                qualityLabel = label,
                                 format = st.format.lowercase(),
                                 isMuxed = true,
                                 videoUrl = st.url,
@@ -2950,29 +2978,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 headers = st.headers
                             )
                         }
+
+                        val resolvedMeta = resolution.meta
+                        val updatedTitle = resolvedMeta?.title?.ifBlank { null } ?: initialVideoItem.title
+                        val updatedThumbnail = resolvedMeta?.poster ?: resolvedMeta?.image ?: initialVideoItem.thumbnailUrl
+                        val updatedDescription = resolvedMeta?.synopsis ?: initialVideoItem.description
+
                         val streamData = StreamData(
                             videoId = cleanIdOrUrl,
-                            title = initialVideoItem.title,
+                            title = updatedTitle,
                             channelName = initialVideoItem.uploaderName,
+                            channelAvatarUrl = updatedThumbnail,
+                            description = updatedDescription,
                             availableStreamOptions = options,
                             selectedStreamOption = options.first(),
-                            providerId = targetProviderId ?: "vega",
-                            providerType = com.example.model.ProviderType.VEGA
+                            providerId = targetProviderId ?: "vega_$rawProv",
+                            providerType = com.example.model.ProviderType.VEGA,
+                            headers = options.firstOrNull()?.headers ?: emptyMap()
                         )
                         YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                     } else {
-                        val hadTorrent = streams.any { it.isTorrent }
-                        val errMsg = if (hadTorrent) {
-                            "Torrent/Magnet streams are not supported for direct playback."
-                        } else {
-                            "No playable direct video streams found from $rawProv."
-                        }
+                        val errMsg = resolution?.errorMessage
+                            ?: "[Vega Resolution Timeout] Provider '$rawProv' did not return playable stream URLs within 25s."
                         YouTubeExtractorHelper.ExtractionResult.Error(
                             ExtractorErrorDetails(
                                 errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
                                 message = errMsg,
-                                rawExceptionName = "VegaStreamException",
-                                fullStackTrace = "",
+                                rawExceptionName = "VegaResolutionException",
+                                fullStackTrace = "Stage: ${resolution?.stageReached ?: "TIMEOUT"}",
                                 urlOrId = cleanIdOrUrl
                             )
                         )
@@ -3035,7 +3068,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun tryNextFallbackStream() {
         val now = System.currentTimeMillis()
-        if (now - lastFallbackAttemptTime < 1000L) {
+        if (now - lastFallbackAttemptTime < 1200L) {
             return
         }
         lastFallbackAttemptTime = now
@@ -3044,12 +3077,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ext = _extractionResult.value
         if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
             val options = ext.streamData.availableStreamOptions
-            val currentIndex = options.indexOfFirst { it.videoUrl == current.videoUrl || it.qualityLabel == current.qualityLabel }
-            if (currentIndex >= 0 && currentIndex + 1 < options.size && fallbackAttemptsCount < 4) {
+            val currentIndex = options.indexOfFirst { it.videoUrl == current.videoUrl }
+            val nextIndex = if (currentIndex >= 0) currentIndex + 1 else 1
+            if (nextIndex < options.size && fallbackAttemptsCount < 6) {
                 fallbackAttemptsCount++
-                val nextOption = options[currentIndex + 1]
-                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto falling back ($fallbackAttemptsCount/4) to option ${currentIndex + 1}: '${nextOption.qualityLabel}'")
-                _selectedStreamOption.value = nextOption
+                val nextOption = options[nextIndex]
+                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto switching ($fallbackAttemptsCount/6) to backup option: '${nextOption.qualityLabel}'")
+                selectStreamOption(nextOption)
             } else {
                 Log.w("MainViewModel", "[Fallback] All fallback stream options exhausted or maximum attempts reached.")
             }
@@ -3058,6 +3092,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectStreamOption(option: PlayableStreamOption) {
         _selectedStreamOption.value = option
+        val ext = _extractionResult.value
+        if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
+            val updatedStreamData = ext.streamData.copy(selectedStreamOption = option)
+            _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(updatedStreamData)
+            com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+                context = getApplication(),
+                streamData = updatedStreamData,
+                streamOption = option,
+                hlsUrl = null,
+                captionOption = _selectedCaptionOption.value
+            )
+        }
     }
 
     fun selectCaptionOption(caption: CaptionOption?) {

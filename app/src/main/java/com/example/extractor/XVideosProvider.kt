@@ -24,13 +24,15 @@ object XVideosProvider {
         .followSslRedirects(true)
         .build()
 
-    fun getHome(limit: Int): List<VideoItem> {
-        return parseXVideosHtml("https://www.xvideos.com/new/1", limit)
+    fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
+        val target = if (page <= 1) "https://www.xvideos.com/new/1" else "https://www.xvideos.com/new/$page"
+        return parseXVideosHtml(target, limit)
     }
 
-    fun search(query: String, limit: Int): List<VideoItem> {
+    fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        return parseXVideosHtml("https://www.xvideos.com/?k=$encoded", limit)
+        val target = if (page <= 1) "https://www.xvideos.com/?k=$encoded" else "https://www.xvideos.com/?k=$encoded&p=$page"
+        return parseXVideosHtml(target, limit)
     }
 
     private fun parseXVideosHtml(targetUrl: String, limit: Int): List<VideoItem> {
@@ -67,6 +69,11 @@ object XVideosProvider {
                 seenIds.add(path)
 
                 val thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
+                val previewList = if (thumb.isNotBlank()) {
+                    com.example.util.PreviewFrameResolver.resolvePreviewFrames(
+                        VideoItem(id = "https://www.xvideos.com$path", title = title, uploaderName = "XVideos", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                    )
+                } else emptyList()
 
                 list.add(
                     VideoItem(
@@ -74,7 +81,8 @@ object XVideosProvider {
                         title = title,
                         uploaderName = "XVideos",
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewList
                     )
                 )
             }

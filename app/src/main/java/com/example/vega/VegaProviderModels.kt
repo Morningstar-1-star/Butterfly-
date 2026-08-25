@@ -16,7 +16,37 @@ data class VegaSearchResult(
     val extraInfo: String? = null
 )
 
+data class VegaDirectLink(
+    val title: String,
+    val link: String,
+    val type: String = "movie", // "movie", "episode", "series"
+    val description: String? = null,
+    val image: String? = null
+)
+
+data class VegaLinkList(
+    val title: String,
+    val quality: String = "Auto",
+    val directLinks: List<VegaDirectLink> = emptyList()
+)
+
+data class VegaMetaResult(
+    val title: String,
+    val synopsis: String? = null,
+    val image: String? = null,
+    val poster: String? = null,
+    val type: String = "movie",
+    val imdbId: String? = null,
+    val tmdbId: String? = null,
+    val rating: String? = null,
+    val tags: List<String> = emptyList(),
+    val cast: List<String> = emptyList(),
+    val linkList: List<VegaLinkList> = emptyList(),
+    val webUrl: String? = null
+)
+
 data class VegaStreamResult(
+    val server: String = "Direct",
     val url: String,
     val quality: String = "Auto",
     val format: String = "mp4",
@@ -24,3 +54,4 @@ data class VegaStreamResult(
     val isTorrent: Boolean = false,
     val subtitleUrls: List<String> = emptyList()
 )
+

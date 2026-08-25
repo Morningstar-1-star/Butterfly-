@@ -30,6 +30,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import kotlin.math.roundToInt
 import com.example.db.OfflineDownloadEntity
 import com.example.model.AppScreen
 import com.example.model.UserPlaylist
@@ -37,6 +41,7 @@ import com.example.model.VideoItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.AvatarCustomizerSheet
 import com.example.ui.components.BuiltinAvatarPresets
+import kotlinx.coroutines.isActive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1225,11 +1230,75 @@ private fun HistoryVideoCard(
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val hasScrubbing = remember(video) {
+        com.example.util.PreviewFrameResolver.supportsScrubbing(video)
+    }
+    val previewFrames = remember(video, hasScrubbing) {
+        if (hasScrubbing) com.example.util.PreviewFrameResolver.resolvePreviewFrames(video) else emptyList()
+    }
+    val isScrubbable = hasScrubbing && previewFrames.size > 1
+    var isAutoPlaying by remember { mutableStateOf(false) }
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubFraction by remember { mutableFloatStateOf(0f) }
+    var frameIndex by remember { mutableIntStateOf(0) }
+    var cardWidthPx by remember { mutableFloatStateOf(1f) }
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isAutoPlaying, previewFrames) {
+        if (isAutoPlaying && isScrubbable) {
+            while (isAutoPlaying) {
+                kotlinx.coroutines.delay(200L)
+                frameIndex = (frameIndex + 1) % previewFrames.size
+                scrubFraction = (frameIndex + 1).toFloat() / previewFrames.size
+            }
+        }
+    }
+
+    val isPreviewActive = (isScrubbing || isAutoPlaying) && isScrubbable
+    val activeThumb = if (isPreviewActive && frameIndex in previewFrames.indices) {
+        previewFrames[frameIndex]
+    } else {
+        video.thumbnailUrl ?: "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
+    }
+
+    val scrubModifier = if (isScrubbable) {
+        Modifier.pointerInput(previewFrames, isAutoPlaying) {
+            detectHorizontalDragGestures(
+                onDragStart = { offset ->
+                    dragAccumulator = 0f
+                    if (!isAutoPlaying) {
+                        isScrubbing = true
+                        val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
+                        scrubFraction = frac
+                        frameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
+                    }
+                },
+                onDragEnd = {
+                    isScrubbing = false
+                    if (kotlin.math.abs(dragAccumulator) > 15f) {
+                        isAutoPlaying = true
+                    }
+                },
+                onDragCancel = { isScrubbing = false },
+                onHorizontalDrag = { change, dragAmount ->
+                    change.consume()
+                    dragAccumulator += dragAmount
+                    if (!isAutoPlaying) {
+                        val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
+                        scrubFraction = frac
+                        frameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
+                    }
+                }
+            )
+        }
+    } else {
+        Modifier
+    }
 
     Column(
         modifier = modifier
             .width(160.dp)
-            .clickable { onClick() }
+            .clickable { if (!isScrubbing) onClick() }
     ) {
         // Thumbnail with duration overlay & progress bar
         Box(
@@ -1238,16 +1307,20 @@ private fun HistoryVideoCard(
                 .height(90.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
+                .onGloballyPositioned { layoutCoords ->
+                    cardWidthPx = layoutCoords.size.width.toFloat().coerceAtLeast(1f)
+                }
+                .then(scrubModifier)
         ) {
             AsyncImage(
-                model = video.thumbnailUrl ?: "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg",
+                model = activeThumb,
                 contentDescription = video.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
 
             // Duration badge
-            if (video.formattedDuration.isNotBlank()) {
+            if (video.formattedDuration.isNotBlank() && !isPreviewActive) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = Color.Black.copy(alpha = 0.82f),
@@ -1265,8 +1338,24 @@ private fun HistoryVideoCard(
                 }
             }
 
-            // Red watch progress line at bottom of thumbnail
-            if (progressFraction > 0f) {
+            // Teaser Scrubber Bar
+            if (isPreviewActive) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = scrubFraction.coerceIn(0.01f, 1f))
+                            .background(Color(0xFFFF1744))
+                    )
+                }
+            } else if (progressFraction > 0f) {
+                // Red watch progress line at bottom of thumbnail
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)

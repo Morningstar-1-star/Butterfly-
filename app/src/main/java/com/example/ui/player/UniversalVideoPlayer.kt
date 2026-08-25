@@ -85,6 +85,7 @@ fun UniversalVideoPlayer(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showVideoEffectsSheet by remember { mutableStateOf(false) }
+    var showAudioEnhancementSheet by remember { mutableStateOf(false) }
     var showSponsorBlockSheet by remember { mutableStateOf(false) }
     var showSpeedSubMenu by remember { mutableStateOf(false) }
     var showQualitySubMenu by remember { mutableStateOf(false) }
@@ -1591,7 +1592,45 @@ fun UniversalVideoPlayer(
                             )
                         }
 
-                        // 6. Smart Skip / SponsorBlock
+                        // 6. Audio Enhancement & Voice Stabilizer
+                        val audioConfig by com.example.audio.AudioEnhancementEngine.config.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showSettingsSheet = false
+                                    showAudioEnhancementSheet = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VolumeUp,
+                                    contentDescription = "Audio Enhancement",
+                                    tint = if (audioConfig.isEnabled) Color(0xFF7C4DFF) else Color.White
+                                )
+                                Text(
+                                    text = "Audio Enhancement",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = if (!audioConfig.isEnabled) "Off"
+                                else audioConfig.preset.displayName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (audioConfig.isEnabled) Color(0xFFB388FF) else Color.LightGray,
+                                fontWeight = if (audioConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+
+                        // 7. Smart Skip / SponsorBlock
                         val smartSkipPrefs = remember(context) { com.example.smartskip.SmartSkipPreferences.getInstance(context) }
                         val isSmartSkipOn by smartSkipPrefs.isSmartSkipEnabled.collectAsState()
                         Row(
@@ -1677,6 +1716,12 @@ fun UniversalVideoPlayer(
         if (showVideoEffectsSheet) {
             VideoEffectsSettingsSheet(
                 onDismiss = { showVideoEffectsSheet = false }
+            )
+        }
+
+        if (showAudioEnhancementSheet) {
+            AudioEffectsSettingsSheet(
+                onDismiss = { showAudioEnhancementSheet = false }
             )
         }
 

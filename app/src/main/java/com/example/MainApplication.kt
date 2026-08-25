@@ -42,6 +42,10 @@ class MainApplication : Application() {
 
                 // Standard desktop user agent for all thumbnail CDN fetches
                 requestBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                requestBuilder.header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                requestBuilder.header("Sec-Fetch-Dest", "image")
+                requestBuilder.header("Sec-Fetch-Mode", "no-cors")
+                requestBuilder.header("Sec-Fetch-Site", "cross-site")
 
                 when {
                     urlStr.contains("externulls.com") || urlStr.contains("beeg.com") -> {
@@ -51,15 +55,20 @@ class MainApplication : Application() {
                     urlStr.contains("phncdn.com") || urlStr.contains("pornhub.com") -> {
                         requestBuilder.header("Referer", "https://www.pornhub.com/")
                         requestBuilder.header("Origin", "https://www.pornhub.com")
-                        requestBuilder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                        requestBuilder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1")
                     }
-                    urlStr.contains("xvideos.com") || urlStr.contains("xv-cdn.com") -> {
+                    urlStr.contains("xvideos.com") || urlStr.contains("xv-cdn.com") || urlStr.contains("xvideos-cdn.com") -> {
                         requestBuilder.header("Referer", "https://www.xvideos.com/")
                     }
-                    urlStr.contains("xhamster.com") || urlStr.contains("xhcdn.com") -> {
+                    urlStr.contains("xhamster.com") || urlStr.contains("xhcdn.com") || urlStr.contains("xhcdn.net") || urlStr.contains("xhamster.desi") -> {
                         requestBuilder.header("Referer", "https://xhamster.com/")
+                        requestBuilder.header("Origin", "https://xhamster.com")
                     }
-                    urlStr.contains("eporner.com") || urlStr.contains("static-cluster") -> {
+                    urlStr.contains("4tube.com") || urlStr.contains("f-cdn.com") -> {
+                        requestBuilder.header("Referer", "https://www.4tube.com/")
+                        requestBuilder.header("Origin", "https://www.4tube.com")
+                    }
+                    urlStr.contains("eporner.com") || urlStr.contains("static-cluster") || urlStr.contains("static-sg-cdn") -> {
                         requestBuilder.header("Referer", "https://www.eporner.com/")
                     }
                     urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {

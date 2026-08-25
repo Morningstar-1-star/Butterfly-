@@ -22,6 +22,8 @@ object PornhubProvider {
         .build()
 
     private const val DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    private const val BYPASS_IP = "208.80.154.224"
+    private const val BYPASS_COOKIES = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en"
 
     fun extractViewkey(urlOrId: String): String {
         val trimmed = urlOrId.trim()
@@ -34,26 +36,35 @@ object PornhubProvider {
 
     fun getStreamData(urlOrId: String, context: Context?): StreamData? {
         val vk = extractViewkey(urlOrId)
-        val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.pornhub.com/view_video.php?viewkey=$vk"
+        val candidateUrls = listOf(
+            if (urlOrId.startsWith("http")) urlOrId else "https://www.pornhub.com/view_video.php?viewkey=$vk",
+            "https://rt.pornhub.com/view_video.php?viewkey=$vk",
+            "https://www.pornhub.org/view_video.php?viewkey=$vk",
+            "https://cn.pornhub.com/view_video.php?viewkey=$vk"
+        ).distinct()
 
-        Log.d(TAG, "Fetching Pornhub stream data for $targetUrl (viewkey: $vk)")
+        Log.d(TAG, "Fetching Pornhub stream data (viewkey: $vk)")
 
-        try {
-            val req = Request.Builder()
-                .url(targetUrl)
-                .header("User-Agent", DEFAULT_UA)
-                .header("Cookie", "age_verified=1; platform=pc")
-                .header("Referer", "https://www.pornhub.com/")
-                .build()
+        for (targetUrl in candidateUrls) {
+            try {
+                val req = Request.Builder()
+                    .url(targetUrl)
+                    .header("User-Agent", DEFAULT_UA)
+                    .header("Cookie", BYPASS_COOKIES)
+                    .header("Referer", "https://www.pornhub.com/")
+                    .header("X-Forwarded-For", BYPASS_IP)
+                    .header("X-Real-IP", BYPASS_IP)
+                    .header("CF-Connecting-IP", BYPASS_IP)
+                    .header("Client-IP", BYPASS_IP)
+                    .build()
 
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
+                val html = httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
 
-            if (html.isNullOrEmpty()) {
-                Log.w(TAG, "Failed to load HTML for $targetUrl")
-                return null
-            }
+                if (html.isNullOrEmpty() || html.length < 500) {
+                    continue
+                }
 
             // Extract Title
             var title = "Pornhub Video"
@@ -187,41 +198,39 @@ object PornhubProvider {
                 }
             }
 
-            if (streamOptions.isEmpty()) {
-                Log.w(TAG, "No playable stream options discovered for Pornhub URL $targetUrl")
-                return null
+                if (streamOptions.isNotEmpty()) {
+                    // Sort options so higher qualities (e.g., 1080p, 720p, 480p) or HLS come first
+                    val sortedOptions = streamOptions.distinctBy { it.videoUrl ?: "" }.sortedWith(
+                        compareByDescending<PlayableStreamOption> { it.format == "m3u8" }
+                            .thenByDescending {
+                                val num = Regex("""\d+""").find(it.qualityLabel)?.value?.toIntOrNull() ?: 0
+                                num
+                            }
+                    )
+
+                    Log.i(TAG, "Successfully extracted ${sortedOptions.size} Pornhub stream options for $vk")
+                    val firstUrl = sortedOptions.firstOrNull()?.videoUrl ?: ""
+
+                    return StreamData(
+                        videoId = vk,
+                        videoUrl = firstUrl,
+                        title = title,
+                        channelName = "Pornhub",
+                        thumbnailUrl = thumb,
+                        availableStreamOptions = sortedOptions,
+                        selectedStreamOption = sortedOptions.firstOrNull(),
+                        providerId = "pornhub",
+                        headers = mapOf(
+                            "Referer" to "https://www.pornhub.com/",
+                            "User-Agent" to DEFAULT_UA,
+                            "Cookie" to BYPASS_COOKIES
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pornhub stream extraction error for $targetUrl: ${e.message}")
             }
-
-            // Sort options so higher qualities (e.g., 1080p, 720p, 480p) or HLS come first
-            val sortedOptions = streamOptions.distinctBy { it.videoUrl ?: "" }.sortedWith(
-                compareByDescending<PlayableStreamOption> { it.format == "m3u8" }
-                    .thenByDescending {
-                        val num = Regex("""\d+""").find(it.qualityLabel)?.value?.toIntOrNull() ?: 0
-                        num
-                    }
-            )
-
-            Log.i(TAG, "Successfully extracted ${sortedOptions.size} Pornhub stream options for $vk")
-
-            val firstUrl = sortedOptions.firstOrNull()?.videoUrl ?: ""
-
-            return StreamData(
-                videoId = vk,
-                videoUrl = firstUrl,
-                title = title,
-                channelName = "Pornhub",
-                thumbnailUrl = thumb,
-                availableStreamOptions = sortedOptions,
-                selectedStreamOption = sortedOptions.firstOrNull(),
-                providerId = "pornhub",
-                headers = mapOf(
-                    "Referer" to "https://www.pornhub.com/",
-                    "User-Agent" to DEFAULT_UA
-                )
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in Pornhub stream extraction: ${e.message}", e)
-            return null
         }
+        return null
     }
 }

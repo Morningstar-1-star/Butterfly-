@@ -206,10 +206,13 @@ object YtDlpResolver {
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
-                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en")
+                    request.addOption("--add-header", "X-Forwarded-For: 208.80.154.224")
                     request.addOption("--geo-bypass")
+                    request.addOption("--geo-bypass-country", "US")
                     domainHeaders["Referer"] = "https://www.pornhub.com/"
-                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US"
+                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en"
+                    domainHeaders["X-Forwarded-For"] = "208.80.154.224"
                 }
                 lowerUrl.contains("xvideos.com") -> {
                     request.addOption("--add-header", "Referer: https://www.xvideos.com/")

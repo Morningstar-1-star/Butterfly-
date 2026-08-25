@@ -1,8 +1,10 @@
 package com.example.ui.components
 
+import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,14 +18,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SlowMotionVideo
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FileDownload
@@ -42,19 +49,28 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,14 +78,15 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Surface
 import com.example.model.VideoItem
+import com.example.util.PreviewFrameResolver
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 import com.example.ui.animation.bounceClick
 
@@ -142,14 +159,113 @@ fun VideoCard(
         }
     }
 
-    val thumbnailImageRequest = remember(effectiveThumbnailUrl) {
-        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, effectiveThumbnailUrl, crossfadeMillis = 100)
+    // Teaser & preview frame scrubbing (fast check to prevent UI lock on non-scrubbable sources)
+    val hasScrubbingTeaser = remember(video) {
+        PreviewFrameResolver.supportsScrubbing(video)
+    }
+    val previewFrames = remember(video, hasScrubbingTeaser, effectiveThumbnailUrl) {
+        if (hasScrubbingTeaser) {
+            val list = PreviewFrameResolver.resolvePreviewFrames(video)
+            if (list.isEmpty() && effectiveThumbnailUrl != null) listOf(effectiveThumbnailUrl) else list
+        } else {
+            emptyList()
+        }
+    }
+    val isScrubbable = hasScrubbingTeaser && previewFrames.size > 1
+
+    var isAutoPlaying by remember { mutableStateOf(false) }
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubFraction by remember { mutableFloatStateOf(0f) }
+    var currentFrameIndex by remember { mutableIntStateOf(0) }
+    var cardWidthPx by remember { mutableFloatStateOf(1f) }
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
+    val view = LocalView.current
+
+    // Automatic Teaser Loop: cycles through preview frames like an animated video
+    LaunchedEffect(isAutoPlaying, previewFrames) {
+        if (isAutoPlaying && isScrubbable) {
+            PreviewFrameResolver.prefetchFrames(context, previewFrames)
+            while (isAutoPlaying) {
+                kotlinx.coroutines.delay(200L) // 5 FPS animated teaser playback
+                currentFrameIndex = (currentFrameIndex + 1) % previewFrames.size
+                scrubFraction = (currentFrameIndex + 1).toFloat() / previewFrames.size
+            }
+        }
+    }
+
+    // Trigger subtle haptic tick feedback as user scrubs or when auto-play engages
+    LaunchedEffect(currentFrameIndex, isScrubbing, isAutoPlaying) {
+        if ((isScrubbing || isAutoPlaying) && isScrubbable) {
+            try {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            } catch (_: Exception) {}
+        }
+    }
+
+    val isPreviewActive = (isScrubbing || isAutoPlaying) && isScrubbable
+    val activeImageUrl = remember(isPreviewActive, currentFrameIndex, previewFrames, effectiveThumbnailUrl) {
+        if (isPreviewActive && currentFrameIndex in previewFrames.indices) {
+            previewFrames[currentFrameIndex]
+        } else {
+            effectiveThumbnailUrl
+        }
+    }
+
+    val thumbnailImageRequest = remember(activeImageUrl, isPreviewActive) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
+            context,
+            activeImageUrl,
+            crossfadeMillis = if (isPreviewActive) 0 else 100
+        )
+    }
+
+    val scrubModifier = if (isScrubbable) {
+        Modifier.pointerInput(previewFrames, isAutoPlaying) {
+            detectHorizontalDragGestures(
+                onDragStart = { offset ->
+                    dragAccumulator = 0f
+                    PreviewFrameResolver.prefetchFrames(context, previewFrames)
+                    if (!isAutoPlaying) {
+                        isScrubbing = true
+                        val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
+                        scrubFraction = frac
+                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
+                    }
+                },
+                onDragEnd = {
+                    isScrubbing = false
+                    // If user swiped past small threshold or flung, activate automated continuous teaser playback
+                    if (kotlin.math.abs(dragAccumulator) > 15f) {
+                        isAutoPlaying = true
+                    }
+                },
+                onDragCancel = {
+                    isScrubbing = false
+                },
+                onHorizontalDrag = { change, dragAmount ->
+                    change.consume()
+                    dragAccumulator += dragAmount
+                    if (!isAutoPlaying) {
+                        val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
+                        scrubFraction = frac
+                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
+                    } else if (kotlin.math.abs(dragAccumulator) > 40f) {
+                        // A strong reverse swipe can toggle/reset auto play
+                        isAutoPlaying = true
+                    }
+                }
+            )
+        }
+    } else {
+        Modifier
     }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .bounceClick(scaleDown = 0.97f) { onClick() },
+            .bounceClick(scaleDown = 0.97f) {
+                if (!isScrubbing) onClick()
+            },
         shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -157,12 +273,16 @@ fun VideoCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column {
-            // Thumbnail container with Duration Badge
+            // Thumbnail container with Duration Badge and Horizontal Drag Scrubbing / Auto Teaser
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .onGloballyPositioned { layoutCoordinates ->
+                        cardWidthPx = layoutCoordinates.size.width.toFloat().coerceAtLeast(1f)
+                    }
+                    .then(scrubModifier)
             ) {
                 if (thumbnailImageRequest != null) {
                     AsyncImage(
@@ -185,7 +305,8 @@ fun VideoCard(
                     }
                 }
 
-                if (video.displayDuration.isNotEmpty()) {
+                // Normal duration badge (hidden when actively playing teaser or scrubbing)
+                if (video.displayDuration.isNotEmpty() && !isPreviewActive) {
                     Text(
                         text = video.displayDuration,
                         color = Color.White,
@@ -203,7 +324,7 @@ fun VideoCard(
                 }
 
                 // Series Season/Episode Pill badge on bottom-left of thumbnail
-                if (!seriesPillText.isNullOrEmpty()) {
+                if (!seriesPillText.isNullOrEmpty() && !isPreviewActive) {
                     Text(
                         text = seriesPillText,
                         color = Color.White,
@@ -220,7 +341,7 @@ fun VideoCard(
                     )
                 }
 
-                if (showProviderBadge && !video.providerId.isNullOrEmpty()) {
+                if (showProviderBadge && !video.providerId.isNullOrEmpty() && !isPreviewActive) {
                     Text(
                         text = providerBadgeInfo.first,
                         color = Color.White,
@@ -237,8 +358,120 @@ fun VideoCard(
                     )
                 }
 
-                // Red YouTube-style Watch Progress Bar on bottom of thumbnail
-                if (watchProgressFraction > 0f) {
+                // Subtle Teaser Badge indicator when idle (Tap to auto-play teaser frames)
+                if (hasScrubbingTeaser && !isPreviewActive) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.75f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                isAutoPlaying = true
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SlowMotionVideo,
+                            contentDescription = "Swipe or tap to play teaser",
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = "Teaser",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // ACTIVE TEASER / SCRUBBING OVERLAY: Teaser Frame info & Playing Indicator
+                if (isPreviewActive) {
+                    val estimatedSeconds = if (video.durationSeconds > 0) (scrubFraction * video.durationSeconds).toLong() else -1L
+                    val timeText = if (estimatedSeconds >= 0) {
+                        val m = (estimatedSeconds % 3600) / 60
+                        val s = estimatedSeconds % 60
+                        val h = estimatedSeconds / 3600
+                        if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+                    } else null
+
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.88f),
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isAutoPlaying) Icons.Default.SlowMotionVideo else Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color(0xFFFF4081),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = if (isAutoPlaying) "Playing Teaser • ${currentFrameIndex + 1}/${previewFrames.size}" else "Teaser Clip • Frame ${currentFrameIndex + 1}/${previewFrames.size}",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (timeText != null) {
+                                Text(
+                                    text = "($timeText)",
+                                    color = Color(0xFFFFD54F),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                            if (isAutoPlaying) {
+                                Text(
+                                    text = "✕",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clickable {
+                                            isAutoPlaying = false
+                                        }
+                                        .padding(start = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ACTIVE TEASER / SCRUBBING: Animated Progress bar across bottom of thumbnail
+                if (isPreviewActive) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = scrubFraction.coerceIn(0.01f, 1f))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFFF1744), Color(0xFFFF80AB), Color(0xFFFFD54F))
+                                    )
+                                )
+                        )
+                    }
+                } else if (watchProgressFraction > 0f) {
+                    // Standard Red YouTube-style Watch Progress Bar on bottom of thumbnail
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)

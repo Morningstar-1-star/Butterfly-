@@ -6,6 +6,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -81,27 +82,38 @@ fun LiquidGlassMiniPlayer(
         val defaultWidthPx = with(density) { (if (isVertical) 155.dp else 225.dp).toPx() }
         val maxWidthPx = (parentWidthPx - with(density) { 24.dp.toPx() }).coerceAtLeast(minWidthPx)
 
-        // Fluid position and sizing state with instant interactive responsiveness
         var currentWidthPx by remember(streamData.videoId) { mutableFloatStateOf(defaultWidthPx.coerceIn(minWidthPx, maxWidthPx)) }
-        var currentXPx by remember(streamData.videoId) { mutableFloatStateOf(-1f) }
-        var currentYPx by remember(streamData.videoId) { mutableFloatStateOf(-1f) }
 
         val marginPx = with(density) { 12.dp.toPx() }
         val topMarginPx = with(density) { statusBarPaddingDp.toPx() + 8.dp.toPx() }
         val bottomMarginPx = with(density) { bottomBarPaddingDp.toPx() + 12.dp.toPx() }
 
-        // Initial docking position to bottom-right
+        // Spring animatables for physics-driven bouncy position & entry animation
+        val animX = remember(streamData.videoId) { Animatable(-1f) }
+        val animY = remember(streamData.videoId) { Animatable(-1f) }
+        val enterScale = remember(streamData.videoId) { Animatable(0.7f) }
+
+        // Initial docking position to bottom-right with bouncy entry
         LaunchedEffect(parentWidthPx, parentHeightPx, currentWidthPx, activeAspectRatio) {
             val playerH = currentWidthPx / activeAspectRatio
-            val maxX = (parentWidthPx - currentWidthPx - marginPx).coerceAtLeast(marginPx)
-            val maxY = (parentHeightPx - playerH - bottomMarginPx).coerceAtLeast(topMarginPx)
+            val rightX = (parentWidthPx - currentWidthPx - marginPx).coerceAtLeast(marginPx)
+            val bottomY = (parentHeightPx - playerH - bottomMarginPx).coerceAtLeast(topMarginPx)
 
-            if (currentXPx < 0f || currentYPx < 0f) {
-                currentXPx = maxX
-                currentYPx = maxY
+            if (animX.value < 0f || animY.value < 0f) {
+                animX.snapTo(rightX)
+                animY.snapTo(bottomY)
+                enterScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
             } else {
-                currentXPx = currentXPx.coerceIn(marginPx, maxX)
-                currentYPx = currentYPx.coerceIn(topMarginPx, maxY)
+                val clampedX = animX.value.coerceIn(marginPx, rightX)
+                val clampedY = animY.value.coerceIn(topMarginPx, bottomY)
+                animX.snapTo(clampedX)
+                animY.snapTo(clampedY)
             }
         }
 
@@ -113,9 +125,13 @@ fun LiquidGlassMiniPlayer(
                 .offset {
                     val maxX = (parentWidthPx - playerW - marginPx).coerceAtLeast(marginPx)
                     val maxY = (parentHeightPx - playerH - bottomMarginPx).coerceAtLeast(topMarginPx)
-                    val x = if (currentXPx < 0f) maxX.roundToInt() else currentXPx.roundToInt()
-                    val y = if (currentYPx < 0f) maxY.roundToInt() else currentYPx.roundToInt()
+                    val x = if (animX.value < 0f) maxX.roundToInt() else animX.value.roundToInt()
+                    val y = if (animY.value < 0f) maxY.roundToInt() else animY.value.roundToInt()
                     IntOffset(x, y)
+                }
+                .graphicsLayer {
+                    scaleX = enterScale.value
+                    scaleY = enterScale.value
                 }
                 .size(
                     width = with(density) { playerW.toDp() },
@@ -135,20 +151,22 @@ fun LiquidGlassMiniPlayer(
                 .clip(RoundedCornerShape(14.dp))
                 .pointerInput(streamData.videoId, parentWidthPx, parentHeightPx, activeAspectRatio) {
                     detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
-                        // 1. Instantaneous Fluid Zoom / Stretch Resizing (Zero lag, zero coroutine overhead)
+                        // 1. Zoom / Pinch-to-resize
                         if (zoom != 1f) {
                             val newWidth = (currentWidthPx * zoom).coerceIn(minWidthPx, maxWidthPx)
                             currentWidthPx = newWidth
                         }
 
-                        // 2. Instantaneous Fluid Panning / Dragging
+                        // 2. Fluid drag with hardware transform
                         val activeW = currentWidthPx
                         val activeH = activeW / activeAspectRatio
                         val maxAllowedX = (parentWidthPx - activeW - marginPx).coerceAtLeast(marginPx)
                         val maxAllowedY = (parentHeightPx - activeH - bottomMarginPx).coerceAtLeast(topMarginPx)
 
-                        currentXPx = (currentXPx + pan.x).coerceIn(marginPx, maxAllowedX)
-                        currentYPx = (currentYPx + pan.y).coerceIn(topMarginPx, maxAllowedY)
+                        coroutineScope.launch {
+                            animX.snapTo((animX.value + pan.x).coerceIn(marginPx, maxAllowedX))
+                            animY.snapTo((animY.value + pan.y).coerceIn(topMarginPx, maxAllowedY))
+                        }
                     }
                 },
             shape = RoundedCornerShape(14.dp),

@@ -16,7 +16,9 @@ data class VideoItem(
     val thumbnailUrl: String? = null,
     val providerId: String? = null,
     val tags: List<String> = emptyList(),
-    val description: String? = null
+    val description: String? = null,
+    val previewThumbnails: List<String> = emptyList(),
+    val previewClipUrl: String? = null
 ) {
     val cleanTags: List<String>
         get() {

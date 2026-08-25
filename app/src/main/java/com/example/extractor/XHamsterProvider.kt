@@ -136,10 +136,10 @@ object XHamsterProvider {
     }
 
     // ------------------- CATALOG / SEARCH -------------------
-    fun getHome(limit: Int = 20): List<VideoItem> {
+    fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
         val urls = listOf(
-            "https://xhamster.com/best",
-            "https://xhamster.com/trending",
+            if (page > 1) "https://xhamster.com/best/$page" else "https://xhamster.com/best",
+            if (page > 1) "https://xhamster.com/trending/$page" else "https://xhamster.com/trending",
             "https://xhamster.com/"
         )
         for (u in urls) {
@@ -149,9 +149,9 @@ object XHamsterProvider {
         return emptyList()
     }
 
-    fun search(query: String, limit: Int = 20): List<VideoItem> {
+    fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val targetUrl = "https://xhamster.com/search/$encoded"
+        val targetUrl = if (page > 1) "https://xhamster.com/search/$encoded?page=$page" else "https://xhamster.com/search/$encoded"
         return parseListingHtml(targetUrl, limit)
     }
 
@@ -161,7 +161,7 @@ object XHamsterProvider {
             val req = Request.Builder()
                 .url(targetUrl)
                 .header("User-Agent", DEFAULT_UA)
-                .header("Cookie", "age_verified=1; platform=pc")
+                .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 .header("Referer", "https://xhamster.com/")
                 .build()
 
@@ -196,15 +196,22 @@ object XHamsterProvider {
                     }
                 }
 
-                // Thumbnail
+                // Thumbnail: Prioritize real CDN image URLs and avoid svg/data placeholder URIs
                 var thumb = ""
-                val imgMatch = Pattern.compile("<img[^>]+src=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(body)
-                if (imgMatch.find()) {
-                    thumb = imgMatch.group(1)?.trim() ?: ""
-                } else {
-                    val srcsetMatch = Pattern.compile("srcset=\"([^\\s,\"]+)", Pattern.CASE_INSENSITIVE).matcher(body)
-                    if (srcsetMatch.find()) {
-                        thumb = srcsetMatch.group(1)?.trim() ?: ""
+                val imgCandidatePattern = Pattern.compile("""(?:data-src|data-lazy-src|data-preview|data-webp|data-thumb-url|data-poster|srcset|src)=["']([^"'\s,]+)["']""", Pattern.CASE_INSENSITIVE)
+                val imgMatcher = imgCandidatePattern.matcher(body)
+                while (imgMatcher.find()) {
+                    val candidate = imgMatcher.group(1)?.trim() ?: continue
+                    if (candidate.startsWith("http") && !candidate.contains("data:image") && !candidate.endsWith(".svg")) {
+                        thumb = candidate
+                        break
+                    }
+                }
+
+                if (thumb.isBlank()) {
+                    val genericUrlMatch = Pattern.compile("""(https?://[^"'\s>]*(?:xhcdn|xhamster)[^"'\s>]*\.(?:jpg|jpeg|webp|png)[^"'\s>]*)""", Pattern.CASE_INSENSITIVE).matcher(body)
+                    if (genericUrlMatch.find()) {
+                        thumb = genericUrlMatch.group(1) ?: ""
                     }
                 }
 
@@ -216,6 +223,12 @@ object XHamsterProvider {
                     durSec = parseDurationToSeconds(durStr)
                 }
 
+                val previewList = if (thumb.isNotBlank()) {
+                    com.example.util.PreviewFrameResolver.resolvePreviewFrames(
+                        VideoItem(id = videoUrl, title = title, uploaderName = "xHamster", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                    )
+                } else emptyList()
+
                 list.add(
                     VideoItem(
                         id = videoUrl,
@@ -223,7 +236,8 @@ object XHamsterProvider {
                         uploaderName = "xHamster",
                         thumbnailUrl = thumb,
                         durationSeconds = durSec,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewList
                     )
                 )
             }

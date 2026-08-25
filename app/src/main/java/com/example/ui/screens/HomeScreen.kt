@@ -904,26 +904,6 @@ fun HomeScreen(
             )
         }
 
-        // FULLSCREEN OVERLAY: SETTINGS SCREEN WITH CLEAN SMOOTH TRANSITION
-        AnimatedVisibility(
-            visible = (currentScreen == AppScreen.SETTINGS),
-            enter = slideInVertically(
-                initialOffsetY = { (it * 0.1f).toInt() },
-                animationSpec = tween(180, easing = FastOutSlowInEasing)
-            ) + fadeIn(animationSpec = tween(180)),
-            exit = slideOutVertically(
-                targetOffsetY = { (it * 0.1f).toInt() },
-                animationSpec = tween(150, easing = FastOutSlowInEasing)
-            ) + fadeOut(animationSpec = tween(150)),
-            modifier = Modifier.fillMaxSize().zIndex(90f)
-        ) {
-            SettingsScreen(
-                viewModel = viewModel,
-                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
         // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH YOUTUBE-STYLE SLIDE-UP
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.PLAYER),

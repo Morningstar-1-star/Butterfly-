@@ -286,11 +286,11 @@ object EpornerProvider {
         null
     }
 
-    suspend fun getHome(limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun getHome(limit: Int = 25, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<VideoItem>()
         try {
             val req = Request.Builder()
-                .url("https://www.eporner.com/api/v2/video/search/?order=top-weekly&per_page=$limit&thumbsize=big")
+                .url("https://www.eporner.com/api/v2/video/search/?order=top-weekly&per_page=$limit&page=$page&thumbsize=big")
                 .header("User-Agent", DEFAULT_USER_AGENT)
                 .build()
             val jsonStr = httpClient.newCall(req).execute().use { resp ->
@@ -310,6 +310,23 @@ object EpornerProvider {
                 val duration = video.optLong("length_sec", -1L)
                 val views = video.optLong("views", -1L)
 
+                val previewThumbsList = mutableListOf<String>()
+                val thumbsArr = video.optJSONArray("thumbs")
+                if (thumbsArr != null) {
+                    for (t in 0 until thumbsArr.length()) {
+                        val tObj = thumbsArr.optJSONObject(t)
+                        val tSrc = tObj?.optString("src", "")
+                        if (!tSrc.isNullOrBlank()) {
+                            previewThumbsList.add(tSrc)
+                        }
+                    }
+                }
+                if (previewThumbsList.isEmpty() && thumb.isNotBlank()) {
+                    previewThumbsList.addAll(com.example.util.PreviewFrameResolver.resolvePreviewFrames(
+                        VideoItem(id = url, title = title, uploaderName = "Eporner", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                    ))
+                }
+
                 items.add(
                     VideoItem(
                         id = url,
@@ -321,7 +338,8 @@ object EpornerProvider {
                         viewCount = views,
                         uploadDate = video.optString("added", "HD"),
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewThumbsList
                     )
                 )
             }
@@ -331,13 +349,13 @@ object EpornerProvider {
         items
     }
 
-    suspend fun search(query: String, limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String, limit: Int = 25, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<VideoItem>()
         if (query.isBlank()) return@withContext emptyList()
         try {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8")
             val req = Request.Builder()
-                .url("https://www.eporner.com/api/v2/video/search/?query=$encoded&per_page=$limit&thumbsize=big")
+                .url("https://www.eporner.com/api/v2/video/search/?query=$encoded&per_page=$limit&page=$page&thumbsize=big")
                 .header("User-Agent", DEFAULT_USER_AGENT)
                 .build()
             val jsonStr = httpClient.newCall(req).execute().use { resp ->
@@ -357,6 +375,23 @@ object EpornerProvider {
                 val duration = video.optLong("length_sec", -1L)
                 val views = video.optLong("views", -1L)
 
+                val previewThumbsList = mutableListOf<String>()
+                val thumbsArr = video.optJSONArray("thumbs")
+                if (thumbsArr != null) {
+                    for (t in 0 until thumbsArr.length()) {
+                        val tObj = thumbsArr.optJSONObject(t)
+                        val tSrc = tObj?.optString("src", "")
+                        if (!tSrc.isNullOrBlank()) {
+                            previewThumbsList.add(tSrc)
+                        }
+                    }
+                }
+                if (previewThumbsList.isEmpty() && thumb.isNotBlank()) {
+                    previewThumbsList.addAll(com.example.util.PreviewFrameResolver.resolvePreviewFrames(
+                        VideoItem(id = url, title = title, uploaderName = "Eporner", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                    ))
+                }
+
                 items.add(
                     VideoItem(
                         id = url,
@@ -368,7 +403,8 @@ object EpornerProvider {
                         viewCount = views,
                         uploadDate = video.optString("added", "HD"),
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewThumbsList
                     )
                 )
             }

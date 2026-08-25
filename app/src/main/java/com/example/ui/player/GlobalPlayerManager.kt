@@ -373,7 +373,19 @@ object GlobalPlayerManager {
                 .setBackBuffer(15_000, true)
                 .build()
 
-            val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context.applicationContext).apply {
+            val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(context.applicationContext) {
+                override fun buildAudioSink(
+                    context: Context,
+                    enableFloatOutput: Boolean,
+                    enableAudioTrackPlaybackParams: Boolean
+                ): androidx.media3.exoplayer.audio.AudioSink? {
+                    return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                        .setAudioProcessors(arrayOf(com.example.audio.AudioEnhancementEngine.processor))
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .build()
+                }
+            }.apply {
                 setEnableDecoderFallback(true)
                 setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             }
@@ -394,6 +406,7 @@ object GlobalPlayerManager {
                         if (ratio in 0.4f..2.5f) {
                             _videoAspectRatio.value = ratio
                         }
+                        com.example.effects.VideoEnhancementEngine.updateVideoDimensions(videoSize.width, videoSize.height)
                     }
                 }
 
@@ -598,11 +611,18 @@ object GlobalPlayerManager {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
             while (isActive) {
-                val player = exoPlayerInstance
-                if (player != null) {
-                    updatePlayerPositions(player)
+                try {
+                    val player = exoPlayerInstance
+                    if (player != null && player.playbackState != Player.STATE_IDLE) {
+                        updatePlayerPositions(player)
+                        val delayMs = if (player.isPlaying) 250L else 500L
+                        delay(delayMs)
+                    } else {
+                        delay(500L)
+                    }
+                } catch (e: Exception) {
+                    delay(500L)
                 }
-                delay(150)
             }
         }
     }
@@ -754,6 +774,15 @@ object GlobalPlayerManager {
                                     reqHeaders["Origin"] = "https://www.eporner.com"
                                 }
                             }
+                            lowerTarget.contains("4tube.com") || lowerTarget.contains("fbtcdn.com") || lowerTarget.contains("ttcache.com") || streamData?.providerId == "4tube" || streamData?.providerId == "fourtube" -> {
+                                reqHeaders["Referer"] = "https://www.4tube.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.4tube.com"
+                                }
+                                if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                                    reqHeaders["Cookie"] = "age_verified=1; ft_mature=1; platform=pc; consent=1"
+                                }
+                            }
                             lowerTarget.contains("redtube.com") -> {
                                 reqHeaders["Referer"] = "https://www.redtube.com/"
                             }
@@ -850,6 +879,8 @@ object GlobalPlayerManager {
                     builder.setMimeType(MimeTypes.APPLICATION_M3U8)
                 } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
                     builder.setMimeType(MimeTypes.APPLICATION_MPD)
+                } else if (lowerFormat == "mkv" || lowerUrl.contains(".mkv") || lowerUrl.contains("video%2fx-matroska") || lowerUrl.contains("video/x-matroska")) {
+                    builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
                 } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
                     builder.setMimeType(MimeTypes.VIDEO_WEBM)
                 } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
@@ -970,6 +1001,16 @@ object GlobalPlayerManager {
 
             // Smart Skip / SponsorBlock segment resolution
             if (streamData != null) {
+                com.example.effects.VideoEffectsManager.onVideoChanged(streamData.videoId)
+                com.example.effects.VideoEnhancementEngine.onVideoLoaded(
+                    videoId = streamData.videoId,
+                    title = streamData.title,
+                    channel = streamData.channelName,
+                    tags = null,
+                    description = streamData.description,
+                    width = 0,
+                    height = 0
+                )
                 com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
                     context = ctx,
                     videoId = streamData.videoId,

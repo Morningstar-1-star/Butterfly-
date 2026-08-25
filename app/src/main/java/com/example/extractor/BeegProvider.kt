@@ -24,12 +24,13 @@ object BeegProvider {
         .followSslRedirects(true)
         .build()
 
-    fun getHome(limit: Int = 20): List<VideoItem> {
+    fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
+        val offset = ((page - 1) * limit).coerceAtLeast(0)
         try {
             val urls = listOf(
-                "https://store.externulls.com/tag/videos/home?limit=$limit&offset=0",
-                "https://store.externulls.com/tag/videos/main?limit=$limit&offset=0"
+                "https://store.externulls.com/tag/videos/home?limit=$limit&offset=$offset",
+                "https://store.externulls.com/tag/videos/main?limit=$limit&offset=$offset"
             )
             var jsonStr: String? = null
             for (u in urls) {
@@ -129,12 +130,13 @@ object BeegProvider {
         return list
     }
 
-    fun search(query: String, limit: Int = 20): List<VideoItem> {
+    fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
         if (query.isBlank()) return list
+        val offset = ((page - 1) * limit).coerceAtLeast(0)
         try {
             val encodedQ = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-            val url = "https://store.externulls.com/tag/videos/$encodedQ?limit=$limit&offset=0"
+            val url = "https://store.externulls.com/tag/videos/$encodedQ?limit=$limit&offset=$offset"
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", DEFAULT_USER_AGENT)

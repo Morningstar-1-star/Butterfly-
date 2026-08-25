@@ -45,6 +45,11 @@ class VegaProviderRepository(private val context: Context) {
             } catch (e: Exception) {
                 // Ignore parse errors
             }
+        } else {
+            // Seed default working providers
+            list.add(InstalledVegaProvider(id = "hdhub4u", name = "HDHub4U", isEnabled = true))
+            list.add(InstalledVegaProvider(id = "4khdhub", name = "4K HDHub", isEnabled = true))
+            saveInstalledProviders(list)
         }
 
         _installedProviders.value = list
