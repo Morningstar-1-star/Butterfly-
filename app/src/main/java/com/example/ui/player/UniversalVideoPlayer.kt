@@ -77,6 +77,8 @@ fun UniversalVideoPlayer(
     onBackClick: (() -> Unit)? = null,
     onNextClick: (() -> Unit)? = null,
     onPreviousClick: (() -> Unit)? = null,
+    onSwipeDownDrag: ((dragDeltaY: Float) -> Unit)? = null,
+    onSwipeDownEnd: ((accumulatedDy: Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -350,6 +352,7 @@ fun UniversalVideoPlayer(
                 )
             }
             .pointerInput(isLandscape) {
+                var isSwipingDownToMinimize = false
                 detectDragGestures(
                     onDragStart = {
                         accumulatedDx = 0f
@@ -359,6 +362,7 @@ fun UniversalVideoPlayer(
                         initialVolume = volumeLevel
                         isDraggingHorizontally = false
                         isDraggingVertically = false
+                        isSwipingDownToMinimize = false
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
@@ -367,10 +371,15 @@ fun UniversalVideoPlayer(
                         val absDx = kotlin.math.abs(accumulatedDx)
                         val absDy = kotlin.math.abs(accumulatedDy)
 
-                        // Swipe down to dismiss in portrait
-                        if (dragAmount.y > 35f && dragAmount.y > kotlin.math.abs(dragAmount.x) * 1.5f && !isLandscape && onBackClick != null && !isDraggingHorizontally) {
-                            onBackClick.invoke()
-                            return@detectDragGestures
+                        // Swipe down to minimize in portrait mode
+                        if (!isLandscape && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
+                            if (isSwipingDownToMinimize || (dragAmount.y > 6f && dragAmount.y > kotlin.math.abs(dragAmount.x) * 1.2f)) {
+                                isSwipingDownToMinimize = true
+                                if (onSwipeDownDrag != null) {
+                                    onSwipeDownDrag.invoke(dragAmount.y)
+                                }
+                                return@detectDragGestures
+                            }
                         }
 
                         if (!isDraggingHorizontally && !isDraggingVertically) {
@@ -431,6 +440,14 @@ fun UniversalVideoPlayer(
                         }
                     },
                     onDragEnd = {
+                        if (isSwipingDownToMinimize) {
+                            if (onSwipeDownEnd != null) {
+                                onSwipeDownEnd.invoke(accumulatedDy)
+                            } else {
+                                onBackClick?.invoke()
+                            }
+                            isSwipingDownToMinimize = false
+                        }
                         isDraggingHorizontally = false
                         isDraggingVertically = false
                         verticalGestureJob?.cancel()
@@ -440,6 +457,14 @@ fun UniversalVideoPlayer(
                         }
                     },
                     onDragCancel = {
+                        if (isSwipingDownToMinimize) {
+                            if (onSwipeDownEnd != null) {
+                                onSwipeDownEnd.invoke(accumulatedDy)
+                            } else {
+                                onBackClick?.invoke()
+                            }
+                            isSwipingDownToMinimize = false
+                        }
                         isDraggingHorizontally = false
                         isDraggingVertically = false
                         verticalGestureJob?.cancel()

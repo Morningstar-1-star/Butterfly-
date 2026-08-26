@@ -27,6 +27,15 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
@@ -180,6 +189,24 @@ fun VideoPlayerScreen(
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
+    val dragOffsetY = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val maxDockDistancePx = with(density) { 360.dp.toPx() }
+    val minimizeThresholdPx = with(density) { 90.dp.toPx() }
+
+    val dragFraction = (dragOffsetY.value / maxDockDistancePx).coerceIn(0f, 1f)
+    val containerScale = 1.0f - (dragFraction * 0.40f)
+    val contentAlpha = (1.0f - dragFraction * 2.2f).coerceIn(0f, 1f)
+    val bgOverlayAlpha = (1.0f - dragFraction * 1.2f).coerceIn(0f, 1f)
+    val roundedCornersDp = (dragFraction * 20).dp
+
+    val minimizePlayerAction: () -> Unit = {
+        coroutineScope.launch {
+            dragOffsetY.animateTo(maxDockDistancePx, tween(150, easing = FastOutSlowInEasing))
+            onBackClick()
+        }
+    }
+
     val landscapeVideos = remember(relatedContent, activeVideoId) {
         relatedContent.filter { it.id != activeVideoId }
     }
@@ -299,17 +326,67 @@ fun VideoPlayerScreen(
     } else {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = Color.Transparent
         ) { paddingValues ->
             Box(
                 modifier = modifier
                     .fillMaxSize()
+                    .graphicsLayer {
+                        translationY = dragOffsetY.value
+                        translationX = dragFraction * (size.width * 0.22f)
+                        scaleX = containerScale
+                        scaleY = containerScale
+                        transformOrigin = TransformOrigin(0.85f, 0.90f)
+                        clip = true
+                        shape = RoundedCornerShape(roundedCornersDp)
+                        alpha = if (dragFraction > 0.92f) 1.0f - ((dragFraction - 0.92f) * 12.5f).coerceIn(0f, 1f) else 1.0f
+                    }
+                    .background(Color.Black.copy(alpha = bgOverlayAlpha))
                     .padding(paddingValues)
             ) {
+                // YouTube-style Drag Handle Pill Bar at top
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 6.dp)
+                        .zIndex(15f)
+                        .width(38.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = (0.55f * contentAlpha)))
+                        .pointerInput(Unit) {
+                            var accumulatedDrag = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { accumulatedDrag = 0f },
+                                onDragEnd = {
+                                    coroutineScope.launch {
+                                        if (dragOffsetY.value > minimizeThresholdPx || accumulatedDrag > 100f) {
+                                            minimizePlayerAction()
+                                        } else {
+                                            dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                                        }
+                                    }
+                                },
+                                onDragCancel = {
+                                    coroutineScope.launch {
+                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    accumulatedDrag += dragAmount
+                                    coroutineScope.launch {
+                                        dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
+                                    }
+                                }
+                            )
+                        }
+                )
+
                 // YouTube-style Dynamic Ambient Mode Lighting Effect
                 AmbientPlayerGlow(
                     palette = ambientPalette,
-                    isEnabled = isAmbientEnabled
+                    isEnabled = isAmbientEnabled && contentAlpha > 0.1f
                 )
 
                 Column(
@@ -321,69 +398,99 @@ fun VideoPlayerScreen(
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f)
                             .background(Color.Black)
-                        .pointerInput(Unit) {
-                            var totalDrag = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { totalDrag = 0f },
-                                onDragEnd = { totalDrag = 0f },
-                                onDragCancel = { totalDrag = 0f },
-                                onVerticalDrag = { change, dragAmount ->
-                                    totalDrag += dragAmount
-                                    if (totalDrag > 80f) {
-                                        change.consume()
-                                        totalDrag = 0f
-                                        onBackClick()
+                            .pointerInput(Unit) {
+                                var accumulatedDrag = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { accumulatedDrag = 0f },
+                                    onDragEnd = {
+                                        coroutineScope.launch {
+                                            if (dragOffsetY.value > minimizeThresholdPx || accumulatedDrag > 100f) {
+                                                minimizePlayerAction()
+                                            } else {
+                                                dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        coroutineScope.launch {
+                                            dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                                        }
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        if (dragAmount > 0f || dragOffsetY.value > 0f) {
+                                            change.consume()
+                                            accumulatedDrag += dragAmount
+                                            coroutineScope.launch {
+                                                dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
+                                            }
+                                        }
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        UniversalVideoPlayer(
+                            streamOption = selectedOption,
+                            hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
+                            captionOption = selectedCaption,
+                            streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
+                            providerId = providerId,
+                            isPlaying = isPlaying,
+                            videoId = activeVideoId,
+                            initialPositionMs = initialPositionMs,
+                            availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
+                            onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
+                            failedSourceLogs = failedSourceLogs,
+                            onProgressUpdate = { pos, dur ->
+                                activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
+                            },
+                            onSwipeDownDrag = { deltaY ->
+                                coroutineScope.launch {
+                                    dragOffsetY.snapTo((dragOffsetY.value + deltaY).coerceAtLeast(0f))
+                                }
+                            },
+                            onSwipeDownEnd = { accumulatedDy ->
+                                coroutineScope.launch {
+                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 100f) {
+                                        minimizePlayerAction()
+                                    } else {
+                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
                                     }
                                 }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    UniversalVideoPlayer(
-                        streamOption = selectedOption,
-                        hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
-                        captionOption = selectedCaption,
-                        streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
-                        providerId = providerId,
-                        isPlaying = isPlaying,
-                        videoId = activeVideoId,
-                        initialPositionMs = initialPositionMs,
-                        availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
-                        onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
-                        failedSourceLogs = failedSourceLogs,
-                        onProgressUpdate = { pos, dur ->
-                            activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                        },
-                        onBackClick = onBackClick,
-                        onNextClick = {
-                            val currentQueue = viewModel.playbackQueue.value
-                            if (currentQueue.isNotEmpty()) {
-                                viewModel.playNextInQueue()
-                            } else if (landscapeVideos.isNotEmpty()) {
-                                val nextVid = landscapeVideos.first()
-                                viewModel.playVideo(nextVid.id, nextVid.providerId)
-                            } else {
+                            },
+                            onBackClick = minimizePlayerAction,
+                            onNextClick = {
+                                val currentQueue = viewModel.playbackQueue.value
+                                if (currentQueue.isNotEmpty()) {
+                                    viewModel.playNextInQueue()
+                                } else if (landscapeVideos.isNotEmpty()) {
+                                    val nextVid = landscapeVideos.first()
+                                    viewModel.playVideo(nextVid.id, nextVid.providerId)
+                                } else {
+                                    val curMs = GlobalPlayerManager.currentPositionMs.value
+                                    GlobalPlayerManager.seekTo(curMs + 10000L)
+                                }
+                            },
+                            onPreviousClick = {
                                 val curMs = GlobalPlayerManager.currentPositionMs.value
-                                GlobalPlayerManager.seekTo(curMs + 10000L)
+                                if (curMs > 5000L) {
+                                    GlobalPlayerManager.seekTo(0L)
+                                } else {
+                                    GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
+                                }
                             }
-                        },
-                        onPreviousClick = {
-                            val curMs = GlobalPlayerManager.currentPositionMs.value
-                            if (curMs > 5000L) {
-                                GlobalPlayerManager.seekTo(0L)
-                            } else {
-                                GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
-                            }
-                        }
-                    )
-                }
+                        )
+                    }
 
-                // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                ) {
+                    // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .graphicsLayer {
+                                alpha = contentAlpha
+                            }
+                    ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
