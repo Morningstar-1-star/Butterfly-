@@ -649,16 +649,7 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable {
-                                        if (currentScreen == AppScreen.HOME) {
-                                            coroutineScope.launch {
-                                                feedListState.animateScrollToItem(0)
-                                            }
-                                        } else {
-                                            viewModel.navigateToScreen(AppScreen.HOME)
-                                            coroutineScope.launch {
-                                                feedListState.scrollToItem(0)
-                                            }
-                                        }
+                                        viewModel.navigateToScreen(AppScreen.SETTINGS)
                                     }
                                     .padding(vertical = 4.dp, horizontal = 2.dp)
                             ) {

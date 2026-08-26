@@ -71,6 +71,48 @@ object AudioEnhancementEngine {
         _config.value = _config.value.copy(trebleGainDb = db)
     }
 
+    fun setEqBand(index: Int, gainDb: Float) {
+        if (index in 0 until 10) {
+            val newBands = _config.value.eq10BandsDb.clone()
+            newBands[index] = gainDb
+            _config.value = _config.value.copy(
+                eq10BandsDb = newBands,
+                eqPreset = EqualizerPreset.CUSTOM
+            )
+        }
+    }
+
+    fun setEqPreset(preset: EqualizerPreset) {
+        _config.value = _config.value.copy(
+            eqPreset = preset,
+            eq10BandsDb = preset.gains.clone()
+        )
+    }
+
+    fun setVirtualizerPercent(percent: Float) {
+        _config.value = _config.value.copy(virtualizerPercent = percent)
+    }
+
+    fun setBassBoostDb(db: Float) {
+        _config.value = _config.value.copy(bassBoostDb = db)
+    }
+
+    fun setTrebleBoostDb(db: Float) {
+        _config.value = _config.value.copy(trebleBoostDb = db)
+    }
+
+    fun resetEq() {
+        _config.value = _config.value.copy(
+            eqPreset = EqualizerPreset.FLAT,
+            eq10BandsDb = FloatArray(10) { 0f },
+            bassBoostDb = 0f,
+            trebleBoostDb = 0f,
+            virtualizerPercent = 0f,
+            bassGainDb = 0f,
+            trebleGainDb = 0f
+        )
+    }
+
     fun setChannelMode(mode: ChannelMode) {
         _config.value = _config.value.copy(channelMode = mode)
     }

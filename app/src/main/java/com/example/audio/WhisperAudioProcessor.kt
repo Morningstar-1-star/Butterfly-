@@ -30,7 +30,8 @@ class WhisperAudioProcessor : BaseAudioProcessor() {
 
             val sampleRate = inputAudioFormat.sampleRate
             val channelCount = inputAudioFormat.channelCount
-            WhisperInferenceEngine.feedPcmData(pcmBytes, sampleRate, channelCount)
+            val encoding = inputAudioFormat.encoding
+            WhisperInferenceEngine.feedPcmData(pcmBytes, sampleRate, channelCount, encoding)
         }
 
         // Forward untouched PCM data directly to AudioTrack output buffer

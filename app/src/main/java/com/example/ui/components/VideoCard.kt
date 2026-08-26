@@ -110,6 +110,11 @@ fun VideoCard(
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val effectiveWatchProgress = if (watchProgressFraction > 0f) {
+        watchProgressFraction
+    } else {
+        remember(video.id) { com.example.util.PlaybackResumeManager.getSavedFraction(context, video.id) }
+    }
 
     val providerBadgeInfo = remember(video.providerId, video.title, video.uploaderName, video.uploadDate, video.id) {
         val pid = (video.providerId ?: "").lowercase()
@@ -477,7 +482,7 @@ fun VideoCard(
                                 )
                         )
                     }
-                } else if (watchProgressFraction > 0f) {
+                } else if (effectiveWatchProgress > 0f) {
                     // Standard Red YouTube-style Watch Progress Bar on bottom of thumbnail
                     Box(
                         modifier = Modifier
@@ -489,7 +494,7 @@ fun VideoCard(
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .fillMaxWidth(watchProgressFraction.coerceIn(0.01f, 1f))
+                                .fillMaxWidth(effectiveWatchProgress.coerceIn(0.01f, 1f))
                                 .background(Color.Red)
                         )
                     }

@@ -33,7 +33,11 @@ object TrackerClient {
         infoHashBytes: ByteArray,
         peerIdBytes: ByteArray,
         trackers: List<String>,
-        port: Int = 6881
+        port: Int = 6881,
+        bytesLeft: Long = 0L,
+        bytesDownloaded: Long = 0L,
+        bytesUploaded: Long = 0L,
+        event: String = "started"
     ): List<InetSocketAddress> = withContext(Dispatchers.IO) {
         val uniqueTrackers = trackers.distinct().take(12)
         val allPeers = coroutineScope {
@@ -41,9 +45,9 @@ object TrackerClient {
                 async {
                     try {
                         if (trackerUrl.startsWith("udp://", ignoreCase = true)) {
-                            announceUdp(trackerUrl, infoHashBytes, peerIdBytes, port)
+                            announceUdp(trackerUrl, infoHashBytes, peerIdBytes, port, bytesLeft, bytesDownloaded, bytesUploaded, event)
                         } else if (trackerUrl.startsWith("http://", ignoreCase = true) || trackerUrl.startsWith("https://", ignoreCase = true)) {
-                            announceHttp(trackerUrl, infoHashBytes, peerIdBytes, port)
+                            announceHttp(trackerUrl, infoHashBytes, peerIdBytes, port, bytesLeft, bytesDownloaded, bytesUploaded, event)
                         } else {
                             emptyList()
                         }
@@ -64,7 +68,11 @@ object TrackerClient {
         trackerUrl: String,
         infoHashBytes: ByteArray,
         peerIdBytes: ByteArray,
-        port: Int
+        port: Int,
+        bytesLeft: Long,
+        bytesDownloaded: Long,
+        bytesUploaded: Long,
+        event: String
     ): List<InetSocketAddress> {
         val uri = URI(trackerUrl)
         val host = uri.host ?: return emptyList()
@@ -102,6 +110,13 @@ object TrackerClient {
             val connectionId = connectResp.getLong()
 
             // 2. Announce Request (BEP 15)
+            val eventCode = when (event.lowercase()) {
+                "completed" -> 1
+                "started" -> 2
+                "stopped" -> 3
+                else -> 0 // none
+            }
+
             val announceTransId = random.nextInt()
             val announceReq = ByteBuffer.allocate(98).order(ByteOrder.BIG_ENDIAN)
             announceReq.putLong(connectionId)
@@ -109,10 +124,10 @@ object TrackerClient {
             announceReq.putInt(announceTransId)
             announceReq.put(infoHashBytes) // 20 bytes
             announceReq.put(peerIdBytes)   // 20 bytes
-            announceReq.putLong(0L)        // downloaded
-            announceReq.putLong(0L)        // left
-            announceReq.putLong(0L)        // uploaded
-            announceReq.putInt(2)          // event: 2 = started
+            announceReq.putLong(bytesDownloaded)
+            announceReq.putLong(bytesLeft)
+            announceReq.putLong(bytesUploaded)
+            announceReq.putInt(eventCode)
             announceReq.putInt(0)          // IP address (0 = default)
             announceReq.putInt(random.nextInt()) // key
             announceReq.putInt(100)        // num_want (-1 = default, 100 peers)
@@ -159,13 +174,18 @@ object TrackerClient {
         trackerUrl: String,
         infoHashBytes: ByteArray,
         peerIdBytes: ByteArray,
-        port: Int
+        port: Int,
+        bytesLeft: Long,
+        bytesDownloaded: Long,
+        bytesUploaded: Long,
+        event: String
     ): List<InetSocketAddress> {
         val encodedHash = urlEncodeBytes(infoHashBytes)
         val encodedPeerId = urlEncodeBytes(peerIdBytes)
 
         val delimiter = if (trackerUrl.contains("?")) "&" else "?"
-        val url = "$trackerUrl${delimiter}info_hash=$encodedHash&peer_id=$encodedPeerId&port=$port&uploaded=0&downloaded=0&left=0&compact=1&event=started"
+        val eventParam = if (event.isNotBlank()) "&event=$event" else ""
+        val url = "$trackerUrl${delimiter}info_hash=$encodedHash&peer_id=$encodedPeerId&port=$port&uploaded=$bytesUploaded&downloaded=$bytesDownloaded&left=$bytesLeft&compact=1$eventParam"
 
         val req = Request.Builder()
             .url(url)

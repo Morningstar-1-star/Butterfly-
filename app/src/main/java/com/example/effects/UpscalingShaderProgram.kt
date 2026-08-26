@@ -8,6 +8,7 @@ import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
 import androidx.media3.effect.SingleFrameGlShaderProgram
 import java.io.IOException
+import kotlin.math.max
 
 /**
  * Media3 GlShaderProgram that executes GPU shaders (Anime4K, ArtCNN, FSRCNNX, RAVU)
@@ -17,6 +18,7 @@ class UpscalingShaderProgram(
     context: Context,
     useHdr: Boolean,
     private val pipelineMode: Int, // 1=Anime4K, 2=ArtCNN, 3=FSRCNNX, 4=RAVU
+    private val scaleFactor: Float = 1.0f,
     private val sharpenAmount: Float = 50f,
     private val debandAmount: Float = 30f,
     private val denoiseAmount: Float = 20f,
@@ -25,6 +27,8 @@ class UpscalingShaderProgram(
 ) : SingleFrameGlShaderProgram(useHdr) {
 
     private val glProgram: GlProgram
+    private var currentWidth: Int = 1920
+    private var currentHeight: Int = 1080
 
     init {
         try {
@@ -40,8 +44,12 @@ class UpscalingShaderProgram(
     }
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
-        // Output frame dimension matching input texture
-        return Size(inputWidth, inputHeight)
+        val baseWidth = if (inputWidth > 0) inputWidth else 1920
+        val baseHeight = if (inputHeight > 0) inputHeight else 1080
+        val effectiveScale = scaleFactor.coerceIn(1.0f, 4.0f)
+        currentWidth = kotlin.math.round((baseWidth * effectiveScale).toDouble()).toInt()
+        currentHeight = kotlin.math.round((baseHeight * effectiveScale).toDouble()).toInt()
+        return Size(currentWidth, currentHeight)
     }
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
@@ -53,9 +61,18 @@ class UpscalingShaderProgram(
 
             // Feed shader uniforms
             glProgram.setIntUniform("uPipelineMode", pipelineMode)
+            glProgram.setFloatsUniform(
+                "uResolution",
+                floatArrayOf(
+                    max(1f, currentWidth.toFloat()),
+                    max(1f, currentHeight.toFloat())
+                )
+            )
             glProgram.setFloatUniform("uSharpen", sharpenAmount)
             glProgram.setFloatUniform("uDeband", debandAmount)
             glProgram.setFloatUniform("uDenoise", denoiseAmount)
+            glProgram.setIntUniform("uAntiRinging", if (antiRinging) 1 else 0)
+            glProgram.setIntUniform("uCfL", if (cfl) 1 else 0)
             glProgram.setBufferAttribute(
                 "aFramePosition",
                 GlUtil.getNormalizedCoordinateBounds(),

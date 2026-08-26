@@ -25,6 +25,7 @@ object WhisperNative {
 
     external fun initContext(modelPath: String): Long
     external fun freeContext(contextPtr: Long)
+    external fun abortInference(contextPtr: Long)
     external fun fullTranscribe(
         contextPtr: Long,
         audioData: FloatArray,
@@ -36,6 +37,25 @@ object WhisperNative {
     external fun getTextSegment(contextPtr: Long, index: Int): String
     external fun getTextSegmentT0(contextPtr: Long, index: Int): Long
     external fun getTextSegmentT1(contextPtr: Long, index: Int): Long
+
+    data class TimestampedSegment(
+        val text: String,
+        val startMs: Long,
+        val endMs: Long
+    )
+
+    fun getSegments(contextPtr: Long): List<TimestampedSegment> {
+        if (contextPtr == 0L || !isLoaded) return emptyList()
+        val count = getTextSegmentCount(contextPtr)
+        val list = mutableListOf<TimestampedSegment>()
+        for (i in 0 until count) {
+            val text = getTextSegment(contextPtr, i)
+            val t0 = getTextSegmentT0(contextPtr, i)
+            val t1 = getTextSegmentT1(contextPtr, i)
+            list.add(TimestampedSegment(text, t0, t1))
+        }
+        return list
+    }
 
     /**
      * High level helper to perform transcription on 16kHz mono float audio.

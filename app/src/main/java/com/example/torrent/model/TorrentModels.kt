@@ -60,17 +60,90 @@ data class TorrentFileItem(
     val name: String,
     val length: Long,
     val offset: Long,
-    val isVideo: Boolean
+    val isVideo: Boolean,
+    val isSelected: Boolean = true,
+    val progress: Float = 0f
 )
 
 data class TorrentMetadata(
     val infoHash: String,
     val name: String,
     val pieceLength: Int,
-    val pieceHashes: List<ByteArray>,
+    val pieceHashes: List<ByteArray> = emptyList(),
     val totalLength: Long,
     val files: List<TorrentFileItem>,
     val mainVideoFile: TorrentFileItem
+)
+
+data class TorrentPeerInfo(
+    val ip: String,
+    val port: Int,
+    val clientName: String = "",
+    val downloadRateBps: Long = 0L,
+    val uploadRateBps: Long = 0L,
+    val isChoked: Boolean = true,
+    val isInterested: Boolean = false,
+    val isSeed: Boolean = false,
+    val progress: Float = 0f,
+    val flags: String = ""
+)
+
+data class TorrentTrackerInfo(
+    val url: String,
+    val status: String = "Working",
+    val peersCount: Int = 0,
+    val seedsCount: Int = 0,
+    val message: String = ""
+)
+
+data class PieceMapInfo(
+    val totalPieces: Int = 0,
+    val downloadedPiecesCount: Int = 0,
+    val piecesBitfield: BooleanArray = BooleanArray(0)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PieceMapInfo) return false
+        return totalPieces == other.totalPieces &&
+                downloadedPiecesCount == other.downloadedPiecesCount &&
+                piecesBitfield.contentEquals(other.piecesBitfield)
+    }
+
+    override fun hashCode(): Int {
+        var result = totalPieces
+        result = 31 * result + downloadedPiecesCount
+        result = 31 * result + piecesBitfield.contentHashCode()
+        return result
+    }
+}
+
+data class TorrentDownloadTask(
+    val id: String,
+    val infoHash: String,
+    val title: String,
+    val savePath: String,
+    val totalBytes: Long = 0L,
+    val downloadedBytes: Long = 0L,
+    val progress: Float = 0f,
+    val speedBps: Long = 0L,
+    val etaSeconds: Long = 0L,
+    val state: TorrentEngineState = TorrentEngineState.IDLE,
+    val isSequential: Boolean = false,
+    val selectedFileIndices: List<Int> = emptyList(),
+    val dateAdded: Long = System.currentTimeMillis()
+)
+
+data class TorrentSettings(
+    val dhtEnabled: Boolean = true,
+    val pexEnabled: Boolean = true,
+    val lsdEnabled: Boolean = true,
+    val maxConnections: Int = 200,
+    val maxDownloadSpeedBps: Long = 0L, // 0 = unlimited
+    val maxUploadSpeedBps: Long = 0L,   // 0 = unlimited
+    val downloadOnlyOnWifi: Boolean = false,
+    val downloadOnlyWhenCharging: Boolean = false,
+    val sequentialStreamingDefault: Boolean = true,
+    val customTrackers: List<String> = emptyList()
 )
 
 data class TorrentEngineStats(
@@ -90,12 +163,16 @@ data class TorrentEngineStats(
     val totalProgress: Float = 0f,
     val streamPort: Int = 8899,
     val streamUrl: String = "",
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val dhtNodes: Long = 0L,
+    val activePeersList: List<TorrentPeerInfo> = emptyList(),
+    val trackersList: List<TorrentTrackerInfo> = emptyList()
 )
 
 data class TorrentStreamSession(
     val sessionId: String,
     val release: TorrentRelease,
     val httpStreamUrl: String,
-    val localFilePath: String? = null
+    val localFilePath: String? = null,
+    val fileIndex: Int = 0
 )

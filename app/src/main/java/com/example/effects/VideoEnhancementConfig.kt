@@ -5,22 +5,22 @@ package com.example.effects
  */
 enum class VideoEnhancementPreset(val displayName: String, val description: String) {
     OFF("Off", "Native video rendering with zero shader passes"),
-    AUTO("Auto", "Intelligently selects optimal neural/GLSL pipeline based on resolution, content, and GPU"),
-    QUALITY("Quality", "Maximum visual fidelity using ArtCNN C4F16 + CfL + SSimSuperRes anti-ringing"),
-    PERFORMANCE("Performance", "Lightweight FSRCNNX / Fast Bilateral scaler with low battery & GPU impact"),
-    ANIME("Anime4K", "Anime4K line thinning, dark-line push, and bilateral chroma reconstruction"),
-    LIVE_ACTION("Live Action", "ArtCNN neural-approximation filter optimized for cinema film grain and faces")
+    AUTO("Auto", "Intelligently selects optimal GLSL shader pipeline based on resolution, content, and GPU"),
+    QUALITY("Quality", "High visual fidelity using ArtCNN spatial convolution + CfL chroma + anti-ringing"),
+    PERFORMANCE("Performance", "Lightweight FSRCNNX edge scaler with low battery & GPU impact"),
+    ANIME("Anime4K", "Anime4K line restoration, dark-line push, and bilateral chroma reconstruction"),
+    LIVE_ACTION("Live Action", "ArtCNN spatial filter optimized for cinema film grain and natural contours")
 }
 
 /**
- * Upscaler algorithms available in the engine.
+ * Upscaler shader algorithms available in the engine.
  */
 enum class UpscalerEngine(val displayName: String, val shortTag: String) {
     AUTO("Auto (Smart Pipeline)", "AUTO"),
-    ART_CNN_C4F16("ArtCNN C4F16 (Neural HD)", "ArtCNN"),
-    FSRCNNX_X2("FSRCNNX ×2 (SuperRes)", "FSRCNNX"),
+    ART_CNN_C4F16("ArtCNN C4F16 (Spatial HD)", "ArtCNN"),
+    FSRCNNX_X2("FSRCNNX ×2 (Edge Scaler)", "FSRCNNX"),
     RAVU_ZOOM("RAVU-Zoom (SD/Directional)", "RAVU"),
-    ANIME4K("Anime4K / Ani4K (Line Push)", "Anime4K"),
+    ANIME4K("Anime4K (Line Push)", "Anime4K"),
     SSIM_SUPER_RES("SSimSuperRes (Anti-Ring)", "SSimRes")
 }
 

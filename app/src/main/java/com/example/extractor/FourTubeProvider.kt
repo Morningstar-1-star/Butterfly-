@@ -259,13 +259,19 @@ object FourTubeProvider {
 
     private fun extractStreamsFromHtml(html: String, fullUrl: String, videoId: String): StreamData? {
         try {
+            val streamOptions = mutableListOf<PlayableStreamOption>()
+            var hlsUrl: String? = null
+            val defaultHeaders = mapOf(
+                "User-Agent" to DEFAULT_USER_AGENT,
+                "Referer" to "https://www.4tube.com/",
+                "Origin" to "https://www.4tube.com",
+                "Cookie" to "age_verified=1; ft_mature=1; platform=pc; consent=1"
+            )
+
             val mediaDefPattern = Pattern.compile("""mediaDefinitions\s*:\s*(\[[^\]]+\])""", Pattern.DOTALL)
             val matcher = mediaDefPattern.matcher(html)
             if (matcher.find()) {
                 val jsonArr = JSONArray(matcher.group(1))
-                val streamOptions = mutableListOf<PlayableStreamOption>()
-                var hlsUrl: String? = null
-
                 for (i in 0 until jsonArr.length()) {
                     val obj = jsonArr.getJSONObject(i)
                     val format = obj.optString("format", "")
@@ -281,27 +287,52 @@ object FourTubeProvider {
                                 format = "mp4",
                                 isMuxed = true,
                                 videoUrl = videoUrl,
-                                providerType = ProviderType.OTHER
+                                providerType = ProviderType.OTHER,
+                                headers = defaultHeaders
                             )
                         )
                     }
                 }
+            }
 
-                if (hlsUrl != null || streamOptions.isNotEmpty()) {
-                    val firstOption = streamOptions.firstOrNull()
-                    return StreamData(
-                        videoId = videoId,
-                        videoUrl = fullUrl,
-                        title = extractTitleFromHtml(html) ?: "4tube Video",
-                        channelName = "4tube",
-                        thumbnailUrl = extractThumbnailFromHtml(html) ?: "",
-                        availableStreamOptions = streamOptions,
-                        selectedStreamOption = firstOption,
-                        hlsUrl = hlsUrl,
-                        providerId = PROVIDER_ID,
-                        providerType = ProviderType.OTHER
-                    )
+            // Also check unescaped videoUrl / quality JSON attributes in the page
+            if (streamOptions.isEmpty() && hlsUrl == null) {
+                val cleanHtml = html.replace("\\/", "/")
+                val vUrlMatcher = Pattern.compile(""""videoUrl"\s*:\s*"([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(cleanHtml)
+                while (vUrlMatcher.find()) {
+                    val candidate = vUrlMatcher.group(1) ?: continue
+                    if (candidate.contains(".m3u8")) {
+                        hlsUrl = candidate
+                    } else if (candidate.startsWith("http")) {
+                        streamOptions.add(
+                            PlayableStreamOption(
+                                qualityLabel = "720p",
+                                format = "mp4",
+                                isMuxed = true,
+                                videoUrl = candidate,
+                                providerType = ProviderType.OTHER,
+                                headers = defaultHeaders
+                            )
+                        )
+                    }
                 }
+            }
+
+            if (hlsUrl != null || streamOptions.isNotEmpty()) {
+                val firstOption = streamOptions.firstOrNull()
+                return StreamData(
+                    videoId = videoId,
+                    videoUrl = fullUrl,
+                    title = extractTitleFromHtml(html) ?: "4tube Video",
+                    channelName = "4tube",
+                    thumbnailUrl = extractThumbnailFromHtml(html) ?: "",
+                    availableStreamOptions = streamOptions,
+                    selectedStreamOption = firstOption,
+                    hlsUrl = hlsUrl,
+                    providerId = PROVIDER_ID,
+                    providerType = ProviderType.OTHER,
+                    headers = defaultHeaders
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error parsing media definitions: ${e.message}")

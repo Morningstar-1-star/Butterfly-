@@ -1,25 +1,31 @@
 package com.example.torrent.server
 
 import android.util.Log
+import com.example.torrent.core.TorrentSessionManager
 import com.example.torrent.engine.TorrentEngine
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import java.io.*
+import kotlinx.coroutines.*
+import java.io.BufferedOutputStream
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
 
-class TorrentHttpServer(
-    private val engine: TorrentEngine,
-    val port: Int = 0 // 0 means dynamic ephemeral port
+/**
+ * High-performance HTTP 1.1 Range streaming bridge for Media3 / ExoPlayer.
+ * Exposes BitTorrent swarm playback as a standard HTTP progressive stream with full Range,
+ * 206 Partial Content, Content-Range, Content-Length, and dynamic piece deadline acceleration.
+ */
+class TorrentStreamServer(
+    private val sessionProvider: () -> TorrentSessionManager?,
+    val port: Int = 0
 ) {
     companion object {
-        private const val TAG = "TorrentHttpServer"
-        private const val BUFFER_SIZE = 64 * 1024 // 64 KB chunk
+        private const val TAG = "TorrentStreamServer"
+        private const val CHUNK_SIZE = 64 * 1024 // 64 KB streaming chunk
     }
 
     private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -37,14 +43,13 @@ class TorrentHttpServer(
 
         serverScope.launch {
             try {
-                // If port is 0 or fails on specific port, bind to free ephemeral port
                 val boundSocket = try {
                     ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
                 }
                 serverSocket = boundSocket
-                Log.i(TAG, "Torrent HTTP bridge server listening on http://127.0.0.1:${boundSocket.localPort}")
+                Log.i(TAG, "Torrent Stream Server running on http://127.0.0.1:${boundSocket.localPort}")
 
                 while (isRunning.get()) {
                     val clientSocket = try {
@@ -76,7 +81,6 @@ class TorrentHttpServer(
             if (parts.size < 2) return
 
             val method = parts[0].uppercase()
-            val path = parts[1]
 
             val headers = mutableMapOf<String, String>()
             while (true) {
@@ -93,20 +97,27 @@ class TorrentHttpServer(
                 return
             }
 
-            // Wait for engine metadata to load (up to 10 seconds), then fallback to virtual stream length if needed
-            var totalLength = engine.getFileLength()
+            val sessionMgr = sessionProvider()
+            if (sessionMgr == null) {
+                sendResponse(outStream, "503 Service Unavailable", emptyMap(), "No active torrent session".toByteArray())
+                return
+            }
+
+            // Wait for file metadata
+            var totalLength = sessionMgr.activeFileItem?.length ?: sessionMgr.activeRelease?.sizeBytes ?: 0L
             var retries = 0
-            while (totalLength <= 0 && retries < 20 && !socket.isClosed) {
-                kotlinx.coroutines.delay(500)
-                totalLength = engine.getFileLength()
+            while (totalLength <= 0 && retries < 120 && !socket.isClosed && isRunning.get()) {
+                delay(500)
+                totalLength = sessionMgr.activeFileItem?.length ?: sessionMgr.activeRelease?.sizeBytes ?: 0L
                 retries++
             }
 
             if (totalLength <= 0) {
-                totalLength = 1024L * 1024L * 1024L // 1 GB virtual length fallback
+                sendResponse(outStream, "503 Service Unavailable", emptyMap(), "Metadata discovery timeout".toByteArray())
+                return
             }
 
-            val fileName = engine.getFileName()
+            val fileName = sessionMgr.activeFileItem?.name ?: sessionMgr.activeRelease?.fileName ?: "video.mkv"
             val contentType = getContentType(fileName)
             val rangeHeader = headers["range"]
 
@@ -142,7 +153,7 @@ class TorrentHttpServer(
                 responseHeaders["Content-Range"] = "bytes $startByte-$endByte/$totalLength"
             }
 
-            // Send HTTP headers
+            // Write HTTP headers
             val headerSb = StringBuilder("HTTP/1.1 $statusCode\r\n")
             for ((k, v) in responseHeaders) {
                 headerSb.append("$k: $v\r\n")
@@ -153,29 +164,29 @@ class TorrentHttpServer(
 
             if (method == "HEAD") return
 
-            // Notify engine of seek
-            engine.onPlaybackSeek(startByte)
+            // Notify session of playback position to prioritize piece deadlines
+            sessionMgr.onPlaybackSeek(startByte)
 
             // Stream body in chunks
             var currentOffset = startByte
-            val buffer = ByteArray(BUFFER_SIZE)
+            val buffer = ByteArray(CHUNK_SIZE)
 
             while (currentOffset <= endByte && isRunning.get()) {
-                val bytesToRead = minOf(BUFFER_SIZE.toLong(), (endByte - currentOffset + 1)).toInt()
-                val bytesRead = engine.readBytesForStream(currentOffset, bytesToRead, buffer, 0)
+                val bytesToRead = minOf(CHUNK_SIZE.toLong(), (endByte - currentOffset + 1)).toInt()
+                val bytesRead = sessionMgr.readBytesForStream(currentOffset, bytesToRead, buffer, 0)
 
                 if (bytesRead > 0) {
                     outStream.write(buffer, 0, bytesRead)
                     currentOffset += bytesRead
                     outStream.flush()
                 } else {
-                    // Piece not yet downloaded - wait briefly for peer swarm blocks to arrive
-                    if (!isRunning.get()) break
-                    kotlinx.coroutines.delay(100)
+                    // Piece still downloading - yield briefly to allow libtorrent block write
+                    if (!isRunning.get() || socket.isClosed) break
+                    delay(80)
                 }
             }
         } catch (_: Exception) {
-            // Client closed socket / seeked away
+            // Player closed connection or seeked
         } finally {
             try { socket.close() } catch (_: Exception) {}
         }

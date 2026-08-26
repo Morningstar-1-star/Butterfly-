@@ -205,13 +205,21 @@ fun UniversalVideoPlayer(
     }
 
     LaunchedEffect(streamOption, hlsUrl, captionOption, videoId, streamData) {
+        val curPos = GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
+        val resumePos = if (curPos > 0L) {
+            curPos
+        } else {
+            initialPositionMs.takeIf { it > 0L }
+                ?: videoId?.let { com.example.util.PlaybackResumeManager.getSavedPosition(context, it) }
+                ?: 0L
+        }
         GlobalPlayerManager.prepareAndPlay(
             context = context,
             streamData = streamData ?: activeStreamData,
             streamOption = streamOption,
             hlsUrl = hlsUrl,
             captionOption = captionOption,
-            initialPos = initialPositionMs
+            initialPos = resumePos
         )
     }
 
@@ -752,6 +760,50 @@ fun UniversalVideoPlayer(
                                 imageVector = Icons.Default.AspectRatio,
                                 contentDescription = "Aspect Ratio",
                                 tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Video Effects & Filters Button
+                        val topVideoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                showVideoEffectsSheet = true
+                            },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    if (topVideoEffectsConfig.isEnabled) Color(0xFF00E5FF).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Video Effects & Filters",
+                                tint = if (topVideoEffectsConfig.isEnabled) Color(0xFF00E5FF) else Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Audio Equalizer & Enhancement Button
+                        val topAudioConfig by com.example.ui.player.audio.AudioEnhancementEngine.config.collectAsState()
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                showAudioEnhancementSheet = true
+                            },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    if (topAudioConfig.isEnabled) Color(0xFFB388FF).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = "Audio Equalizer & Enhancement",
+                                tint = if (topAudioConfig.isEnabled) Color(0xFFB388FF) else Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
                         }

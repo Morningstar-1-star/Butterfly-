@@ -88,18 +88,30 @@ object PreviewFrameResolver {
             }
         }
 
-        // 3. PORNHUB (16 teaser scene frames: 1.jpg .. 16.jpg)
+        // 3. PORNHUB (16 teaser scene frames: 1.jpg .. 16.jpg, handles (m=eaAaGwObaaaa)1.jpg & CDN paths)
         if (provider.contains("pornhub") || thumbLower.contains("phncdn.com") || thumbLower.contains("pornhub")) {
-            val phMatcher = Regex("""/(\d+)\.jpg""").find(rawThumb)
+            val phPrefixMatcher = Regex("""/((?:\([^\)]+\))*?)(\d+)\.(jpg|webp|jpeg|png)""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (phPrefixMatcher != null) {
+                val prefix = phPrefixMatcher.groupValues[1]
+                val ext = phPrefixMatcher.groupValues[3]
+                val base = rawThumb.substring(0, phPrefixMatcher.range.first)
+                return (1..16).map { idx -> "$base/${prefix}$idx.$ext" }
+            }
+            val phMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (phMatcher != null) {
+                val ext = phMatcher.groupValues[2]
                 val base = rawThumb.substring(0, phMatcher.range.first)
+                return (1..16).map { idx -> "$base/$idx.$ext" }
+            }
+            if (rawThumb.contains("/original/") || rawThumb.contains("/thumbs_")) {
+                val base = rawThumb.substringBeforeLast("/")
                 return (1..16).map { idx -> "$base/$idx.jpg" }
             }
         }
 
         // 4. XHAMSTER (12 teaser storyboard cuts)
         if (provider.contains("xhamster") || thumbLower.contains("xhcdn.com") || thumbLower.contains("xhamster")) {
-            val xhMatcher = Regex("""/(\d+)\.(jpg|webp)""").find(rawThumb)
+            val xhMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (xhMatcher != null) {
                 val ext = xhMatcher.groupValues[2]
                 val base = rawThumb.substring(0, xhMatcher.range.first)
@@ -108,11 +120,19 @@ object PreviewFrameResolver {
         }
 
         // 5. REDTUBE & YOUPORN
-        if (provider.contains("redtube") || provider.contains("youporn") || thumbLower.contains("redtube") || thumbLower.contains("youporn")) {
-            val rtMatcher = Regex("""/(\d+)\.jpg""").find(rawThumb)
+        if (provider.contains("redtube") || provider.contains("youporn") || thumbLower.contains("redtube") || thumbLower.contains("youporn") || thumbLower.contains("rdtcdn.com") || thumbLower.contains("ypncdn.com")) {
+            val rtPrefixMatcher = Regex("""/((?:\([^\)]+\))*?)(\d+)\.(jpg|webp|jpeg|png)""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (rtPrefixMatcher != null) {
+                val prefix = rtPrefixMatcher.groupValues[1]
+                val ext = rtPrefixMatcher.groupValues[3]
+                val base = rawThumb.substring(0, rtPrefixMatcher.range.first)
+                return (1..16).map { idx -> "$base/${prefix}$idx.$ext" }
+            }
+            val rtMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (rtMatcher != null) {
+                val ext = rtMatcher.groupValues[2]
                 val base = rawThumb.substring(0, rtMatcher.range.first)
-                return (1..16).map { idx -> "$base/$idx.jpg" }
+                return (1..16).map { idx -> "$base/$idx.$ext" }
             }
         }
 

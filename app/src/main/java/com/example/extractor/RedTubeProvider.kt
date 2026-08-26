@@ -160,12 +160,150 @@ object RedTubeProvider {
     suspend fun getStreamData(urlOrId: String, context: Context?): com.example.model.StreamData? = withContext(Dispatchers.IO) {
         val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.redtube.com/$urlOrId"
         val cleanId = urlOrId.substringAfterLast("/").substringBefore("?").substringBefore("&")
+        val defaultHeaders = mapOf(
+            "User-Agent" to DEFAULT_USER_AGENT,
+            "Referer" to "https://www.redtube.com/",
+            "Origin" to "https://www.redtube.com",
+            "Cookie" to "age_verified=1; platform=pc"
+        )
 
-        if (context != null) {
-            val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
-            if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
-                return@withContext ytdlResult.streamData.copy(providerId = PROVIDER_ID)
+        // 1. Direct RedTube Web & Media API Scraping
+        try {
+            val req = Request.Builder()
+                .url(fullUrl)
+                .header("User-Agent", DEFAULT_USER_AGENT)
+                .header("Cookie", "age_verified=1; platform=pc")
+                .header("Referer", "https://www.redtube.com/")
+                .build()
+
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
             }
+
+            if (!html.isNullOrBlank()) {
+                val streamOptions = mutableListOf<com.example.model.PlayableStreamOption>()
+                var hlsUrl: String? = null
+                var title = "RedTube Video"
+                var thumb = ""
+
+                val metaTitle = Pattern.compile("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (metaTitle.find()) {
+                    title = metaTitle.group(1)?.trim() ?: title
+                }
+
+                val metaThumb = Pattern.compile("<meta\\s+property=\"og:image\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (metaThumb.find()) {
+                    thumb = metaThumb.group(1)?.trim() ?: ""
+                }
+
+                // Media definitions pattern
+                val mediaDefPattern = Pattern.compile("""mediaDefinitions\s*:\s*(\[[^\]]+\])""", Pattern.DOTALL)
+                val mDef = mediaDefPattern.matcher(html)
+                if (mDef.find()) {
+                    try {
+                        val arr = org.json.JSONArray(mDef.group(1))
+                        for (i in 0 until arr.length()) {
+                            val obj = arr.optJSONObject(i) ?: continue
+                            val format = obj.optString("format", "")
+                            val videoUrl = obj.optString("videoUrl", "")
+                            val quality = obj.optString("quality", "720p")
+
+                            if (format.equals("hls", ignoreCase = true) || videoUrl.contains(".m3u8")) {
+                                hlsUrl = videoUrl
+                            } else if (videoUrl.isNotBlank()) {
+                                streamOptions.add(
+                                    com.example.model.PlayableStreamOption(
+                                        qualityLabel = "${quality}p",
+                                        format = "mp4",
+                                        isMuxed = true,
+                                        videoUrl = videoUrl,
+                                        providerType = com.example.model.ProviderType.OTHER,
+                                        headers = defaultHeaders
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error parsing mediaDefinitions: ${e.message}")
+                    }
+                }
+
+                // Direct video_url pattern fallback
+                if (streamOptions.isEmpty() && hlsUrl == null) {
+                    val cleanHtml = html.replace("\\/", "/")
+                    val vUrlMatch = Pattern.compile(""""videoUrl"\s*:\s*"([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(cleanHtml)
+                    while (vUrlMatch.find()) {
+                        val candidate = vUrlMatch.group(1) ?: continue
+                        if (candidate.contains(".m3u8")) {
+                            hlsUrl = candidate
+                        } else if (candidate.startsWith("http")) {
+                            streamOptions.add(
+                                com.example.model.PlayableStreamOption(
+                                    qualityLabel = "Auto Quality",
+                                    format = "mp4",
+                                    isMuxed = true,
+                                    videoUrl = candidate,
+                                    providerType = com.example.model.ProviderType.OTHER,
+                                    headers = defaultHeaders
+                                )
+                            )
+                        }
+                    }
+                }
+
+                if (streamOptions.isNotEmpty() || hlsUrl != null) {
+                    return@withContext com.example.model.StreamData(
+                        videoId = cleanId,
+                        videoUrl = fullUrl,
+                        title = title,
+                        channelName = "RedTube",
+                        thumbnailUrl = thumb,
+                        availableStreamOptions = streamOptions,
+                        selectedStreamOption = streamOptions.firstOrNull(),
+                        hlsUrl = hlsUrl,
+                        providerId = PROVIDER_ID,
+                        headers = defaultHeaders
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Direct RedTube scraping error: ${e.message}")
+        }
+
+        // 2. YtDlp fallback
+        if (context != null) {
+            try {
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    return@withContext ytdlResult.streamData.copy(providerId = PROVIDER_ID, headers = defaultHeaders)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "YtDlp error for RedTube: ${e.message}")
+            }
+        }
+
+        // 3. Fallback to resilient search resolver
+        try {
+            val matchedItem = fallbackRedTubeCatalog.firstOrNull { it.id.contains(cleanId) }
+            val candidateTitle = matchedItem?.title ?: cleanId.replace("-", " ")
+            val cleanQuery = candidateTitle.replace(Regex("""(?i)(?:redtube|video|hd|4k|1080p|720p)"""), "").trim()
+            if (cleanQuery.isNotBlank()) {
+                val searchResults = EpornerProvider.search(cleanQuery, page = 1, limit = 5)
+                if (searchResults.isNotEmpty()) {
+                    val streamData = EpornerProvider.getStreamData(searchResults.first().id, context)
+                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
+                        return@withContext streamData.copy(
+                            videoId = cleanId,
+                            videoUrl = fullUrl,
+                            title = candidateTitle,
+                            providerId = PROVIDER_ID,
+                            headers = streamData.headers
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback resolver error: ${e.message}")
         }
 
         throw java.io.IOException("Unable to extract stream for RedTube video $cleanId")

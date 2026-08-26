@@ -12,16 +12,20 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipInputStream
 
 /**
  * SubDL subtitle provider adapter.
- * Accesses SubDL API with TMDB, IMDb, and title-based subtitle discovery.
+ * Uses the official SubDL v1 API contract with support for TMDB, IMDb, and title queries.
  */
 class SubDlProvider(
+    private val apiKey: String = "subdl_Mp42hcrZJOddEWEGyUjzp1q2A1NsdWxkAd2pDD8PCwg",
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 ) : SubtitleProvider {
@@ -32,17 +36,17 @@ class SubDlProvider(
     override suspend fun search(query: SubtitleSearchQuery): List<SubtitleItem> = withContext(Dispatchers.IO) {
         val results = mutableListOf<SubtitleItem>()
         try {
-            val urlBuilder = StringBuilder("https://api.subdl.com/api/v1/subtitles?")
+            val urlBuilder = StringBuilder("https://api.subdl.com/api/v1/subtitles?api_key=").append(apiKey)
             var hasParam = false
 
             if (!query.imdbId.isNullOrBlank()) {
-                urlBuilder.append("imdb_id=").append(query.imdbId)
+                urlBuilder.append("&imdb_id=").append(query.imdbId.trim())
                 hasParam = true
             } else if (!query.tmdbId.isNullOrBlank()) {
-                urlBuilder.append("tmdb_id=").append(query.tmdbId)
+                urlBuilder.append("&tmdb_id=").append(query.tmdbId.trim())
                 hasParam = true
             } else if (query.title.isNotBlank()) {
-                urlBuilder.append("film_name=").append(URLEncoder.encode(query.title, "UTF-8"))
+                urlBuilder.append("&film_name=").append(URLEncoder.encode(query.title.trim(), "UTF-8"))
                 hasParam = true
             }
 
@@ -60,7 +64,7 @@ class SubDlProvider(
 
             val request = Request.Builder()
                 .url(urlBuilder.toString())
-                .header("User-Agent", "Butterfly Subtitle Client/1.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Butterfly/1.0")
                 .header("Accept", "application/json")
                 .build()
 
@@ -75,10 +79,14 @@ class SubDlProvider(
                     val sub = subtitlesArr.optJSONObject(i) ?: continue
                     val subUrl = sub.optString("url", "")
                     val lang = sub.optString("lang", "en")
-                    val release = sub.optString("release_name", sub.optString("name", "Subtitle"))
+                    val release = sub.optString("release_name", sub.optString("name", "Subtitle $i"))
                     val hi = sub.optBoolean("hi", false)
 
-                    val fullDownloadUrl = if (subUrl.startsWith("http")) subUrl else "https://dl.subdl.com$subUrl"
+                    val fullDownloadUrl = when {
+                        subUrl.startsWith("http://") || subUrl.startsWith("https://") -> subUrl
+                        subUrl.startsWith("/") -> "https://dl.subdl.com$subUrl"
+                        else -> "https://dl.subdl.com/$subUrl"
+                    }
 
                     results.add(
                         SubtitleItem(
@@ -87,11 +95,11 @@ class SubDlProvider(
                             providerName = name,
                             title = release,
                             languageCode = normalizeLangCode(lang),
-                            languageName = lang.replaceFirstChar { it.uppercase() },
-                            format = SubtitleFormat.SRT,
+                            languageName = lang.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
+                            format = if (release.endsWith(".vtt", ignoreCase = true)) SubtitleFormat.VTT else SubtitleFormat.SRT,
                             downloadUrl = fullDownloadUrl,
                             isHearingImpaired = hi,
-                            matchScore = 85,
+                            matchScore = 90,
                             sourceType = SubtitleSourceType.EXTERNAL_PROVIDER,
                             releaseInfo = release
                         )
@@ -108,12 +116,33 @@ class SubDlProvider(
         try {
             val req = Request.Builder()
                 .url(item.downloadUrl)
-                .header("User-Agent", "Mozilla/5.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
 
-            return@withContext okHttpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
+            val responseBytes = okHttpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.bytes() else null
+            } ?: return@withContext null
+
+            // Check if response is a ZIP archive (starts with PK\x03\x04)
+            if (responseBytes.size >= 4 && responseBytes[0] == 0x50.toByte() && responseBytes[1] == 0x4B.toByte()) {
+                val zis = ZipInputStream(ByteArrayInputStream(responseBytes))
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val name = entry.name.lowercase()
+                    if (name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass")) {
+                        val text = zis.bufferedReader(StandardCharsets.UTF_8).readText()
+                        zis.closeEntry()
+                        zis.close()
+                        return@withContext text
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+                zis.close()
             }
+
+            // Direct subtitle text
+            return@withContext String(responseBytes, StandardCharsets.UTF_8)
         } catch (e: Exception) {
             Log.w("SubDlProvider", "Failed to fetch SubDL content: ${e.message}")
             null
@@ -131,6 +160,9 @@ class SubDlProvider(
             "german", "de", "deu" -> "de"
             "russian", "ru", "rus" -> "ru"
             "korean", "ko", "kor" -> "ko"
+            "arabic", "ar", "ara" -> "ar"
+            "portuguese", "pt", "por" -> "pt"
+            "italian", "it", "ita" -> "it"
             else -> lang.take(2).lowercase()
         }
     }

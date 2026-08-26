@@ -11,3 +11,8 @@
 -dontwarn okhttp3.**
 -keep class org.jsoup.** { *; }
 -dontwarn org.jsoup.**
+
+# libtorrent4j
+-keep class org.libtorrent4j.swig.libtorrent_jni { *; }
+-keep class org.libtorrent4j.** { *; }
+-dontwarn org.libtorrent4j.**

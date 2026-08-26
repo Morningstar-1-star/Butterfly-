@@ -814,8 +814,7 @@ fun AccountScreen(
                         OutlinedButton(
                             onClick = {
                                 coroutineScope.launch {
-                                    val restored = com.example.util.GoogleDriveSyncManager.restoreFromGoogleDrive(context)
-                                    // Apply restored data if needed
+                                    val success = viewModel.restoreGoogleDriveBackup()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()

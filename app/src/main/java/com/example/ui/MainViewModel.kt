@@ -840,6 +840,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    suspend fun restoreGoogleDriveBackup(): Boolean = withContext(Dispatchers.IO) {
+        val backup = com.example.util.GoogleDriveSyncManager.restoreFromGoogleDrive(getApplication())
+        var totalRestored = 0
+
+        backup.history.forEach { video ->
+            userDataDao.insertWatchHistory(
+                WatchHistoryEntity(
+                    videoId = video.id,
+                    title = video.title ?: video.id,
+                    channelName = video.uploaderName ?: "",
+                    thumbnailUrl = video.thumbnailUrl,
+                    providerId = video.providerId ?: "youtube",
+                    progressFraction = 0.5f
+                )
+            )
+            totalRestored++
+        }
+
+        backup.likedVideos.forEach { video ->
+            userDataDao.insertLikedVideo(
+                LikedVideoEntity(
+                    videoId = video.id,
+                    title = video.title ?: video.id,
+                    channelName = video.uploaderName ?: "",
+                    thumbnailUrl = video.thumbnailUrl,
+                    providerId = video.providerId ?: "youtube"
+                )
+            )
+            totalRestored++
+        }
+
+        backup.watchLaterList.forEach { video ->
+            userDataDao.insertBookmark(
+                BookmarkEntity(
+                    videoId = video.id,
+                    title = video.title ?: video.id,
+                    channelName = video.uploaderName ?: "",
+                    thumbnailUrl = video.thumbnailUrl,
+                    providerId = video.providerId ?: "youtube"
+                )
+            )
+            totalRestored++
+        }
+
+        backup.playlists.forEach { pl ->
+            userDataDao.insertOrUpdatePlaylist(
+                UserPlaylistEntity(
+                    id = pl.id,
+                    title = pl.title,
+                    createdAt = System.currentTimeMillis(),
+                    videosJson = serializeVideos(pl.videos)
+                )
+            )
+            totalRestored++
+        }
+
+        val json = com.example.util.GoogleDriveSyncManager.getBackupJson(getApplication())
+        if (!json.isNullOrBlank()) {
+            try {
+                importUserDataJson(json)
+            } catch (_: Exception) {}
+        }
+        totalRestored > 0
+    }
+
     private val _isSearchExpanded = MutableStateFlow(false)
     val isSearchExpanded: StateFlow<Boolean> = _isSearchExpanded.asStateFlow()
 
@@ -895,15 +960,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (kotlin.math.abs(fraction - currentFraction) >= 0.01f) {
             _watchProgressMap.value = _watchProgressMap.value + (videoId to fraction)
             _watchPositionMsMap.value = _watchPositionMsMap.value + (videoId to currentPositionMs)
+            com.example.util.PlaybackResumeManager.savePosition(getApplication(), videoId, currentPositionMs, totalDurationMs)
         }
     }
 
     fun recordVideoView(video: VideoItem) {
         val filtered = _watchHistory.value.filterNot { it.id == video.id }
         _watchHistory.value = listOf(video) + filtered
-        // Initialize default progress if not recorded
-        if (!_watchProgressMap.value.containsKey(video.id)) {
-            _watchProgressMap.value = _watchProgressMap.value + (video.id to 0.15f)
+        val savedFraction = com.example.util.PlaybackResumeManager.getSavedFraction(getApplication(), video.id)
+        val savedPos = com.example.util.PlaybackResumeManager.getSavedPosition(getApplication(), video.id)
+        if (savedFraction > 0f) {
+            _watchProgressMap.value = _watchProgressMap.value + (video.id to savedFraction)
+        }
+        if (savedPos > 0L) {
+            _watchPositionMsMap.value = _watchPositionMsMap.value + (video.id to savedPos)
         }
         val historyEntity = WatchHistoryEntity(
             videoId = video.id,
@@ -911,7 +981,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             channelName = video.uploaderName ?: "",
             thumbnailUrl = video.thumbnailUrl,
             providerId = video.providerId,
-            progressFraction = _watchProgressMap.value[video.id] ?: 0.15f
+            progressFraction = _watchProgressMap.value[video.id] ?: savedFraction
         )
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1666,7 +1736,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (adultEnabled) list else list.filterNot { isAdultDownload(it) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val downloadLiveProgress: StateFlow<Map<String, Any>> = MutableStateFlow(emptyMap())
+    val downloadLiveProgress: StateFlow<Map<String, com.example.downloader.DownloadProgressState>> = com.example.downloader.AppDownloadManager.progressMap
 
     var downloadSheetVideoItem by mutableStateOf<VideoItem?>(null)
         private set
@@ -1695,18 +1765,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         qualityLabel: String,
         streamOption: PlayableStreamOption? = null
     ) {
+        val url = streamOption?.videoUrl ?: return
+        com.example.downloader.AppDownloadManager.startDownload(
+            context = getApplication(),
+            videoId = videoId,
+            title = title,
+            channelName = channelName,
+            thumbnailUrl = thumbnailUrl,
+            qualityLabel = qualityLabel,
+            downloadUrl = url
+        )
     }
 
     fun pauseDownload(videoId: String) {
+        com.example.downloader.AppDownloadManager.pauseDownload(videoId)
     }
 
     fun resumeDownload(videoId: String) {
+        val dl = _offlineDownloads.value.firstOrNull { it.videoId == videoId } ?: return
+        val currentOption = _selectedStreamOption.value
+        val url = currentOption?.videoUrl ?: dl.localFilePath
+        com.example.downloader.AppDownloadManager.resumeDownload(
+            context = getApplication(),
+            videoId = videoId,
+            title = dl.title,
+            channelName = dl.channelName,
+            thumbnailUrl = dl.thumbnailUrl,
+            qualityLabel = dl.qualityLabel,
+            downloadUrl = url
+        )
     }
 
     fun deleteDownload(videoId: String, localFilePath: String? = null) {
+        com.example.downloader.AppDownloadManager.deleteDownload(getApplication(), videoId, localFilePath)
     }
 
     fun clearAllDownloads() {
+        com.example.downloader.AppDownloadManager.clearAllDownloads(getApplication())
     }
 
     fun playOfflineDownload(download: OfflineDownloadEntity) {
@@ -1997,6 +2092,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (adultEnabled) {
             // ONLY 18+ adult providers shown when 18+ toggle is enabled
+            uiList.add(
+                ProviderUiItem(
+                    id = "all",
+                    name = "All 18+ Sources",
+                    description = "Aggregated 18+ feed combining all enabled adult providers",
+                    category = "18+",
+                    isEnabled = enabledSet.contains("all"),
+                    isDefault = (activeId == "all")
+                )
+            )
             val adultProviders = listOf(
                 Triple("pornhub", "Pornhub", "Pornhub video catalog"),
                 Triple("xvideos", "XVideos", "XVideos video catalog"),
@@ -3402,6 +3507,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedStreamOption.value = option
         val ext = _extractionResult.value
         if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
+            val currentPos = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
             val updatedStreamData = ext.streamData.copy(selectedStreamOption = option)
             _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(updatedStreamData)
             com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
@@ -3409,7 +3515,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 streamData = updatedStreamData,
                 streamOption = option,
                 hlsUrl = null,
-                captionOption = _selectedCaptionOption.value
+                captionOption = _selectedCaptionOption.value,
+                initialPos = currentPos
             )
         }
     }

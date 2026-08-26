@@ -21,6 +21,18 @@ android {
     ndk {
       abiFilters += listOf("arm64-v8a")
     }
+    externalNativeBuild {
+      cmake {
+        cppFlags += listOf("-std=c++17", "-O3", "-fexceptions")
+      }
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/whisper/CMakeLists.txt")
+      version = "3.22.1"
+    }
   }
 
   packaging {
@@ -124,6 +136,11 @@ dependencies {
   implementation(libs.okhttp.dnsoverhttps)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
+  implementation(libs.libtorrent4j)
+  implementation(libs.libtorrent4j.android.arm64)
+  implementation(libs.libtorrent4j.android.arm)
+  implementation(libs.libtorrent4j.android.x64)
+  implementation(libs.libtorrent4j.android.x86)
 
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

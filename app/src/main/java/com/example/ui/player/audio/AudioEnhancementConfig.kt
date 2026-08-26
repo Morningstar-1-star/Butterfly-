@@ -9,6 +9,22 @@ enum class AudioPreset(val displayName: String) {
     CUSTOM("Custom")
 }
 
+enum class EqualizerPreset(val displayName: String, val gains: FloatArray) {
+    FLAT("Flat", floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
+    BASS_BOOST("Bass Boost", floatArrayOf(7f, 6f, 4.5f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
+    TREBLE_BOOST("Treble Boost", floatArrayOf(0f, 0f, 0f, 0f, 0f, 1f, 3f, 5f, 7f, 8f)),
+    VOCAL_CLEAR("Vocal Clear", floatArrayOf(-2f, -1f, 0f, 2f, 5f, 6f, 4f, 2f, 0f, -1f)),
+    ROCK("Rock", floatArrayOf(5f, 4f, 2f, -1f, -2f, 0f, 2f, 4f, 5f, 6f)),
+    POP("Pop", floatArrayOf(2f, 3f, 4f, 2f, 0f, 1f, 2f, 3f, 4f, 3f)),
+    JAZZ("Jazz", floatArrayOf(3f, 2f, 1f, 2f, 0f, 1f, 2f, 3f, 3f, 4f)),
+    CLASSICAL("Classical", floatArrayOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f)),
+    EDM("EDM / Dance", floatArrayOf(6f, 5f, 2f, 0f, -2f, 1f, 2f, 4f, 6f, 6f)),
+    HIP_HOP("Hip-Hop", floatArrayOf(7f, 6f, 4f, 1f, 0f, 0f, 1f, 2f, 4f, 4f)),
+    ACOUSTIC("Acoustic", floatArrayOf(3f, 2f, 1f, 1f, 2f, 2f, 3f, 3f, 2f, 2f)),
+    CINEMA_ACTION("Cinema", floatArrayOf(6f, 5f, 2f, -1f, 2f, 3f, 2f, 3f, 5f, 6f)),
+    CUSTOM("Custom", floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f))
+}
+
 enum class DynamicRangeCompressionMode(
     val displayName: String,
     val ratio: Float,
@@ -56,10 +72,23 @@ data class AudioEnhancementConfig(
     val limiterCeilingDb: Float = -1.0f,
     val bassGainDb: Float = 0.0f,
     val trebleGainDb: Float = 0.0f,
-    val eq5BandsDb: FloatArray = floatArrayOf(0f, 0f, 0f, 0f, 0f),
+    val eq10BandsDb: FloatArray = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
+    val eqPreset: EqualizerPreset = EqualizerPreset.FLAT,
+    val virtualizerPercent: Float = 0.0f,
+    val bassBoostDb: Float = 0.0f,
+    val trebleBoostDb: Float = 0.0f,
     val channelMode: ChannelMode = ChannelMode.AUTO,
     val pitchCorrectionPreserved: Boolean = true
 ) {
+    val eq5BandsDb: FloatArray
+        get() = floatArrayOf(
+            eq10BandsDb.getOrElse(1) { 0f },
+            eq10BandsDb.getOrElse(3) { 0f },
+            eq10BandsDb.getOrElse(5) { 0f },
+            eq10BandsDb.getOrElse(7) { 0f },
+            eq10BandsDb.getOrElse(9) { 0f }
+        )
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -80,7 +109,11 @@ data class AudioEnhancementConfig(
         if (limiterCeilingDb != other.limiterCeilingDb) return false
         if (bassGainDb != other.bassGainDb) return false
         if (trebleGainDb != other.trebleGainDb) return false
-        if (!eq5BandsDb.contentEquals(other.eq5BandsDb)) return false
+        if (!eq10BandsDb.contentEquals(other.eq10BandsDb)) return false
+        if (eqPreset != other.eqPreset) return false
+        if (virtualizerPercent != other.virtualizerPercent) return false
+        if (bassBoostDb != other.bassBoostDb) return false
+        if (trebleBoostDb != other.trebleBoostDb) return false
         if (channelMode != other.channelMode) return false
         if (pitchCorrectionPreserved != other.pitchCorrectionPreserved) return false
         return true
@@ -103,7 +136,11 @@ data class AudioEnhancementConfig(
         result = 31 * result + limiterCeilingDb.hashCode()
         result = 31 * result + bassGainDb.hashCode()
         result = 31 * result + trebleGainDb.hashCode()
-        result = 31 * result + eq5BandsDb.contentHashCode()
+        result = 31 * result + eq10BandsDb.contentHashCode()
+        result = 31 * result + eqPreset.hashCode()
+        result = 31 * result + virtualizerPercent.hashCode()
+        result = 31 * result + bassBoostDb.hashCode()
+        result = 31 * result + trebleBoostDb.hashCode()
         result = 31 * result + channelMode.hashCode()
         result = 31 * result + pitchCorrectionPreserved.hashCode()
         return result
@@ -118,3 +155,4 @@ data class AudioMeterState(
     val channelCount: Int = 2,
     val activeDsp: Boolean = true
 )
+

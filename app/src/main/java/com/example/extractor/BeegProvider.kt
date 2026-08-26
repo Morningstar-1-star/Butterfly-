@@ -124,8 +124,8 @@ object BeegProvider {
                             }
                         }
                     }
-                    if (thumb.isBlank() || thumb.contains("externulls.com") || thumb.contains("beeg.com")) {
-                        thumb = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)${i % 8 + 1}.jpg"
+                    if (thumb.isBlank()) {
+                        thumb = "https://thumbs.externulls.com/480x360/$fileId.jpg"
                     }
 
                     list.add(
@@ -217,8 +217,8 @@ object BeegProvider {
 
                     val duration = fileObj.optLong("fl_duration", 0L)
                     var thumb = customThumb
-                    if (thumb.isBlank() || thumb.contains("externulls.com") || thumb.contains("beeg.com")) {
-                        thumb = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)${i % 8 + 1}.jpg"
+                    if (thumb.isBlank()) {
+                        thumb = "https://thumbs.externulls.com/480x360/$fileId.jpg"
                     }
 
                     list.add(

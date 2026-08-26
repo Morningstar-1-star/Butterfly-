@@ -87,33 +87,49 @@ object WhisperInferenceEngine {
     /**
      * Ingests raw audio PCM data (e.g. from ExoPlayer AudioProcessor / AudioSink).
      */
-    fun feedPcmData(pcmBytes: ByteArray, sampleRate: Int, channels: Int) {
+    fun feedPcmData(pcmBytes: ByteArray, sampleRate: Int, channels: Int, encoding: Int = androidx.media3.common.C.ENCODING_PCM_16BIT) {
         if (!isRunning.get() || pcmBytes.isEmpty()) return
 
-        scope.launch(Dispatchers.Default) {
-            val samples = convertPcmToFloat16k(pcmBytes, sampleRate, channels)
-            if (samples.isNotEmpty()) {
+        val samples = convertPcmToFloat16k(pcmBytes, sampleRate, channels, encoding)
+        if (samples.isNotEmpty()) {
+            if (audioQueue.size < 50) {
                 audioQueue.offer(samples)
             }
         }
     }
 
-    private fun convertPcmToFloat16k(rawPcm: ByteArray, sourceSampleRate: Int, channels: Int): FloatArray {
-        val numSamples = rawPcm.size / (2 * channels)
+    private fun convertPcmToFloat16k(rawPcm: ByteArray, sourceSampleRate: Int, channels: Int, encoding: Int): FloatArray {
+        val isFloat = encoding == androidx.media3.common.C.ENCODING_PCM_FLOAT
+        val bytesPerSample = if (isFloat) 4 else 2
+        val numSamples = rawPcm.size / (bytesPerSample * channels)
         if (numSamples == 0) return FloatArray(0)
 
-        // 1. Convert 16-bit PCM to mono float
+        // 1. Convert PCM to mono float [-1.0f, 1.0f]
         val monoFloats = FloatArray(numSamples)
         val buffer = ByteBuffer.wrap(rawPcm).order(ByteOrder.LITTLE_ENDIAN)
 
-        for (i in 0 until numSamples) {
-            var sum = 0.0f
-            for (c in 0 until channels) {
-                if (buffer.hasRemaining()) {
-                    sum += buffer.short / 32768.0f
+        if (isFloat) {
+            for (i in 0 until numSamples) {
+                var sum = 0.0f
+                for (c in 0 until channels) {
+                    if (buffer.remaining() >= 4) {
+                        var f = buffer.float
+                        if (f.isNaN() || f.isInfinite()) f = 0.0f
+                        sum += f.coerceIn(-1.0f, 1.0f)
+                    }
                 }
+                monoFloats[i] = sum / channels.coerceAtLeast(1)
             }
-            monoFloats[i] = sum / channels.coerceAtLeast(1)
+        } else {
+            for (i in 0 until numSamples) {
+                var sum = 0.0f
+                for (c in 0 until channels) {
+                    if (buffer.remaining() >= 2) {
+                        sum += buffer.short / 32768.0f
+                    }
+                }
+                monoFloats[i] = sum / channels.coerceAtLeast(1)
+            }
         }
 
         // 2. Resample to 16kHz if needed

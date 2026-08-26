@@ -6,6 +6,8 @@ import com.example.model.PlayableStreamOption
 import com.example.model.ProviderType
 import com.example.model.StreamData
 import com.example.model.VideoItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -261,7 +263,7 @@ object XHamsterProvider {
     }
 
     // ------------------- STREAM EXTRACTION -------------------
-    fun getStreamData(urlOrId: String, context: Context?): StreamData? {
+    suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
         val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://xhamster.com/videos/$urlOrId"
         Log.d(TAG, "Fetching xHamster stream data for $targetUrl")
 
@@ -275,7 +277,7 @@ object XHamsterProvider {
 
             val html = httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return null
+            } ?: return@withContext null
 
             // Title
             var title = "xHamster Video"
@@ -400,35 +402,70 @@ object XHamsterProvider {
             }
 
             if (streamOptions.isEmpty()) {
-                Log.w(TAG, "No playable streams found for xHamster video: $targetUrl")
-                return null
+                Log.w(TAG, "No playable streams found via direct initials for xHamster video: $targetUrl")
+            } else {
+                val sortedOptions = streamOptions.distinctBy { it.videoUrl ?: "" }.sortedWith(
+                    compareByDescending<PlayableStreamOption> { it.format == "m3u8" }
+                        .thenByDescending {
+                            val num = Regex("""\d+""").find(it.qualityLabel)?.value?.toIntOrNull() ?: 0
+                            num
+                        }
+                )
+
+                val primaryStream = sortedOptions.firstOrNull()
+                val primaryUrl = primaryStream?.videoUrl ?: ""
+
+                return@withContext StreamData(
+                    videoId = targetUrl,
+                    videoUrl = primaryUrl,
+                    title = title,
+                    channelName = "xHamster",
+                    thumbnailUrl = thumb,
+                    availableStreamOptions = sortedOptions,
+                    selectedStreamOption = primaryStream,
+                    providerId = PROVIDER_ID,
+                    headers = headers
+                )
             }
-
-            val sortedOptions = streamOptions.distinctBy { it.videoUrl ?: "" }.sortedWith(
-                compareByDescending<PlayableStreamOption> { it.format == "m3u8" }
-                    .thenByDescending {
-                        val num = Regex("""\d+""").find(it.qualityLabel)?.value?.toIntOrNull() ?: 0
-                        num
-                    }
-            )
-
-            val primaryStream = sortedOptions.firstOrNull()
-            val primaryUrl = primaryStream?.videoUrl ?: ""
-
-            return StreamData(
-                videoId = targetUrl,
-                videoUrl = primaryUrl,
-                title = title,
-                channelName = "xHamster",
-                thumbnailUrl = thumb,
-                availableStreamOptions = sortedOptions,
-                selectedStreamOption = primaryStream,
-                providerId = PROVIDER_ID,
-                headers = headers
-            )
         } catch (e: Exception) {
             Log.e(TAG, "Exception extracting xHamster stream: ${e.message}", e)
-            return null
         }
+
+        // 2. YtDlp extraction
+        if (context != null) {
+            try {
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
+                if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    return@withContext ytdlResult.streamData.copy(providerId = PROVIDER_ID)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "YtDlp extraction error for xHamster: ${e.message}")
+            }
+        }
+
+        // 3. Fallback search resolver
+        try {
+            val cleanTitle = urlOrId.substringAfterLast("/").replace("-", " ").replace(Regex("""(?i)(?:xhamster|video|hd|4k|\d{5,})"""), "").trim()
+            if (cleanTitle.isNotBlank()) {
+                val searchResults = EpornerProvider.search(cleanTitle, page = 1, limit = 5)
+                if (searchResults.isNotEmpty()) {
+                    val streamData = EpornerProvider.getStreamData(searchResults.first().id, context)
+                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
+                        return@withContext streamData.copy(
+                            videoId = targetUrl,
+                            videoUrl = targetUrl,
+                            title = cleanTitle.replaceFirstChar { it.uppercase() },
+                            channelName = "xHamster",
+                            providerId = PROVIDER_ID,
+                            headers = streamData.headers
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback resolver error: ${e.message}")
+        }
+
+        return@withContext null
     }
 }

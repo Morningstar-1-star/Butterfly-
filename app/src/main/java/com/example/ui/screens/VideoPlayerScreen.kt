@@ -63,10 +63,15 @@ fun VideoPlayerScreen(
 
     val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
     val providerId = currentStreamData?.providerId
-
-    val initialPositionMs = remember(activeVideoId) { activeVideoId?.let { watchPositionMsMap[it] } ?: 0L }
-
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    val initialPositionMs = remember(activeVideoId) {
+        activeVideoId?.let { id ->
+            watchPositionMsMap[id]?.takeIf { it > 0L }
+                ?: com.example.util.PlaybackResumeManager.getSavedPosition(context, id)
+        } ?: 0L
+    }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 

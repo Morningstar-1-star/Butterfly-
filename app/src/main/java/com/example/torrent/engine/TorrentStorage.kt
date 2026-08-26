@@ -9,6 +9,10 @@ import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * High-performance, thread-safe BitTorrent multi-file storage engine.
+ * Seamlessly manages piece I/O and SHA-1 hashing across file boundaries.
+ */
 class TorrentStorage(
     private val context: Context,
     val metadata: TorrentMetadata
@@ -19,115 +23,159 @@ class TorrentStorage(
 
     private val cacheDir: File = File(context.cacheDir, "torrent_cache").apply { mkdirs() }
     private val sessionDir: File = File(cacheDir, metadata.infoHash).apply { mkdirs() }
-    private val targetFile: File
-    private var randomAccessFile: RandomAccessFile? = null
+    
+    // Mapping of TorrentFileItem -> RandomAccessFile
+    private val fileHandles = mutableListOf<FileEntry>()
     private val fileLock = Any()
 
+    private data class FileEntry(
+        val item: TorrentFileItem,
+        val localFile: File,
+        var raf: RandomAccessFile?
+    )
+
     init {
-        val safeName = metadata.mainVideoFile.name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-        targetFile = File(sessionDir, safeName)
-        try {
-            randomAccessFile = RandomAccessFile(targetFile, "rw")
-            // Allocate file length sparsely or directly
-            if (targetFile.length() < metadata.mainVideoFile.length) {
-                randomAccessFile?.setLength(metadata.mainVideoFile.length)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error initializing storage file: ${e.message}", e)
-        }
-    }
-
-    fun writePieceBlock(pieceIndex: Int, blockOffset: Int, data: ByteArray) {
         synchronized(fileLock) {
-            val raf = randomAccessFile ?: return
-            try {
-                val pieceGlobalOffset = pieceIndex.toLong() * metadata.pieceLength
-                val videoFileGlobalOffset = metadata.mainVideoFile.offset
-                val videoFileLength = metadata.mainVideoFile.length
-
-                val writeGlobalOffset = pieceGlobalOffset + blockOffset
-
-                // Check if this block falls within the selected video file range
-                if (writeGlobalOffset >= videoFileGlobalOffset && writeGlobalOffset < videoFileGlobalOffset + videoFileLength) {
-                    val relativeOffsetInVideo = writeGlobalOffset - videoFileGlobalOffset
-                    val availableInVideo = videoFileLength - relativeOffsetInVideo
-                    val writeLength = minOf(data.size.toLong(), availableInVideo).toInt()
-
-                    raf.seek(relativeOffsetInVideo)
-                    raf.write(data, 0, writeLength)
+            val files = if (metadata.files.isNotEmpty()) metadata.files else listOf(metadata.mainVideoFile)
+            for (f in files) {
+                val safePath = f.name.replace(Regex("[^a-zA-Z0-9._/ -]"), "_")
+                val local = File(sessionDir, safePath)
+                local.parentFile?.mkdirs()
+                try {
+                    val raf = RandomAccessFile(local, "rw")
+                    if (local.length() < f.length) {
+                        raf.setLength(f.length)
+                    }
+                    fileHandles.add(FileEntry(f, local, raf))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening storage file ${f.name}: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error writing piece $pieceIndex block: ${e.message}")
             }
         }
     }
 
-    fun readBytes(offset: Long, length: Int, buffer: ByteArray, bufferOffset: Int = 0): Int {
+    /**
+     * Writes raw piece block bytes across target files at global byte offset.
+     */
+    fun writePieceBlock(pieceIndex: Int, blockOffset: Int, data: ByteArray) {
+        val globalOffset = pieceIndex.toLong() * metadata.pieceLength + blockOffset
+        val length = data.size
+
         synchronized(fileLock) {
-            val raf = randomAccessFile ?: return -1
-            return try {
-                if (offset >= metadata.mainVideoFile.length) return -1
-                val bytesToRead = minOf(length.toLong(), metadata.mainVideoFile.length - offset).toInt()
-                raf.seek(offset)
-                raf.read(buffer, bufferOffset, bytesToRead)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error reading bytes at offset $offset: ${e.message}")
-                -1
+            var dataOffset = 0
+            var remaining = length
+
+            while (remaining > 0) {
+                val currentGlobalPos = globalOffset + dataOffset
+                // Find target file intersecting currentGlobalPos
+                val entry = fileHandles.find {
+                    currentGlobalPos >= it.item.offset && currentGlobalPos < it.item.offset + it.item.length
+                } ?: break
+
+                val offsetInFile = currentGlobalPos - entry.item.offset
+                val availableInFile = entry.item.length - offsetInFile
+                val writeBytes = minOf(remaining.toLong(), availableInFile).toInt()
+
+                try {
+                    val raf = entry.raf ?: RandomAccessFile(entry.localFile, "rw").also { entry.raf = it }
+                    raf.seek(offsetInFile)
+                    raf.write(data, dataOffset, writeBytes)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error writing block at global offset $currentGlobalPos to ${entry.item.name}: ${e.message}")
+                    break
+                }
+
+                dataOffset += writeBytes
+                remaining -= writeBytes
             }
         }
     }
 
+    /**
+     * Reads bytes spanning across files starting at global offset.
+     */
+    fun readGlobalBytes(globalOffset: Long, length: Int, buffer: ByteArray, bufferOffset: Int = 0): Int {
+        synchronized(fileLock) {
+            var bytesReadTotal = 0
+            var remaining = length
+
+            while (remaining > 0) {
+                val currentGlobalPos = globalOffset + bytesReadTotal
+                val entry = fileHandles.find {
+                    currentGlobalPos >= it.item.offset && currentGlobalPos < it.item.offset + it.item.length
+                } ?: break
+
+                val offsetInFile = currentGlobalPos - entry.item.offset
+                val availableInFile = entry.item.length - offsetInFile
+                val toRead = minOf(remaining.toLong(), availableInFile).toInt()
+
+                try {
+                    val raf = entry.raf ?: RandomAccessFile(entry.localFile, "r").also { entry.raf = it }
+                    raf.seek(offsetInFile)
+                    val read = raf.read(buffer, bufferOffset + bytesReadTotal, toRead)
+                    if (read <= 0) break
+                    bytesReadTotal += read
+                    remaining -= read
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reading at global offset $currentGlobalPos: ${e.message}")
+                    break
+                }
+            }
+            return if (bytesReadTotal > 0) bytesReadTotal else -1
+        }
+    }
+
+    /**
+     * Reads bytes from the main media file for HTTP playback streaming.
+     */
+    fun readBytes(offset: Long, length: Int, buffer: ByteArray, bufferOffset: Int = 0): Int {
+        val globalOffset = metadata.mainVideoFile.offset + offset
+        return readGlobalBytes(globalOffset, length, buffer, bufferOffset)
+    }
+
+    /**
+     * Computes SHA-1 hash of the piece across file boundaries and validates against metadata.
+     */
     fun verifyPieceHash(pieceIndex: Int): Boolean {
         if (pieceIndex < 0 || pieceIndex >= metadata.pieceHashes.size) return false
         val expectedHash = metadata.pieceHashes[pieceIndex]
 
-        // If piece hash is synthetic zeroes (prior to BEP 9 metadata completion), accept piece
+        // Prior to BEP 9 metadata completion or synthetic zero hashes, accept piece
         if (expectedHash.all { it == 0.toByte() }) {
             return true
         }
 
         val pieceGlobalOffset = pieceIndex.toLong() * metadata.pieceLength
-        val videoFileGlobalOffset = metadata.mainVideoFile.offset
-        val videoFileLength = metadata.mainVideoFile.length
+        val actualPieceLen = minOf(metadata.pieceLength.toLong(), metadata.totalLength - pieceGlobalOffset).toInt()
+        val pieceBuffer = ByteArray(actualPieceLen)
 
-        // If piece is entirely outside video file, treat as valid
-        if (pieceGlobalOffset + metadata.pieceLength <= videoFileGlobalOffset || pieceGlobalOffset >= videoFileGlobalOffset + videoFileLength) {
-            return true
+        val read = readGlobalBytes(pieceGlobalOffset, actualPieceLen, pieceBuffer, 0)
+        if (read < actualPieceLen) {
+            return false
         }
 
-        // Read piece data
-        synchronized(fileLock) {
-            val raf = randomAccessFile ?: return false
-            try {
-                val digest = MessageDigest.getInstance("SHA-1")
-                val actualPieceLen = minOf(metadata.pieceLength.toLong(), metadata.totalLength - pieceGlobalOffset).toInt()
-                val pieceBuffer = ByteArray(actualPieceLen)
-
-                val relStart = maxOf(0L, pieceGlobalOffset - videoFileGlobalOffset)
-                val relEnd = minOf(videoFileLength, (pieceGlobalOffset + actualPieceLen) - videoFileGlobalOffset)
-                val bytesInVideo = (relEnd - relStart).toInt()
-
-                if (bytesInVideo > 0) {
-                    raf.seek(relStart)
-                    raf.readFully(pieceBuffer, 0, bytesInVideo)
-                }
-
-                val actualHash = digest.digest(pieceBuffer)
-                return actualHash.contentEquals(expectedHash)
-            } catch (_: Exception) {
-                return false
-            }
+        return try {
+            val digest = MessageDigest.getInstance("SHA-1")
+            val actualHash = digest.digest(pieceBuffer)
+            actualHash.contentEquals(expectedHash)
+        } catch (_: Exception) {
+            false
         }
     }
 
-    fun getLocalFile(): File = targetFile
+    fun getMainVideoFile(): File {
+        val entry = fileHandles.find { it.item.name == metadata.mainVideoFile.name }
+        return entry?.localFile ?: File(sessionDir, metadata.mainVideoFile.name)
+    }
 
     fun close() {
         synchronized(fileLock) {
-            try {
-                randomAccessFile?.close()
-                randomAccessFile = null
-            } catch (_: Exception) {}
+            for (entry in fileHandles) {
+                try {
+                    entry.raf?.close()
+                    entry.raf = null
+                } catch (_: Exception) {}
+            }
         }
     }
 

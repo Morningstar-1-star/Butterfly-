@@ -32,6 +32,7 @@ object GlobalPlayerManager {
     private var exoPlayerInstance: ExoPlayer? = null
     private var scope = CoroutineScope(Dispatchers.Main)
     private var progressTrackerJob: Job? = null
+    private var pendingResumePositionMs: Long? = null
 
     private val mediaHeaderInterceptor = okhttp3.Interceptor { chain ->
         var request = chain.request()
@@ -385,13 +386,26 @@ object GlobalPlayerManager {
                     _isPlaying.value = player.isPlaying
                     _isBuffering.value = (state == Player.STATE_BUFFERING)
                     updatePlayerPositions(player)
-                    if (state == Player.STATE_READY && player.playWhenReady) {
-                        _isBuffering.value = false
+                    if (state == Player.STATE_READY) {
+                        if (player.playWhenReady) {
+                            _isBuffering.value = false
+                        }
+                        pendingResumePositionMs?.let { targetPos ->
+                            if (targetPos > 0L && kotlin.math.abs(player.currentPosition - targetPos) > 1000L) {
+                                player.seekTo(targetPos)
+                            }
+                            pendingResumePositionMs = null
+                        }
                     }
                     if (state == Player.STATE_ENDED) {
                         _isPlaying.value = false
                         _isBuffering.value = false
                         _playbackEnded.value = true
+                        appContext?.let { ctx ->
+                            _activeStreamData.value?.videoId?.let { vid ->
+                                com.example.util.PlaybackResumeManager.clearPosition(ctx, vid)
+                            }
+                        }
                     }
                 }
 
@@ -401,6 +415,13 @@ object GlobalPlayerManager {
 
                 override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
                     updatePlayerPositions(player)
+                    if (!timeline.isEmpty) {
+                        pendingResumePositionMs?.let { targetPos ->
+                            if (targetPos > 0L && kotlin.math.abs(player.currentPosition - targetPos) > 1000L) {
+                                player.seekTo(targetPos)
+                            }
+                        }
+                    }
                 }
 
                 override fun onPositionDiscontinuity(
@@ -478,8 +499,23 @@ object GlobalPlayerManager {
             _bufferedPositionMs.value = buf.coerceAtLeast(cur)
             _progressFraction.value = (cur.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
             _bufferedFraction.value = (buf.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+            
+            appContext?.let { ctx ->
+                _activeStreamData.value?.videoId?.let { vid ->
+                    if (vid.isNotBlank() && cur > 0L) {
+                        com.example.util.PlaybackResumeManager.savePosition(ctx, vid, cur, dur)
+                    }
+                }
+            }
         } else if (cur >= 0) {
             _currentPositionMs.value = cur
+            appContext?.let { ctx ->
+                _activeStreamData.value?.videoId?.let { vid ->
+                    if (vid.isNotBlank() && cur > 0L) {
+                        com.example.util.PlaybackResumeManager.savePosition(ctx, vid, cur, _durationMs.value)
+                    }
+                }
+            }
         }
 
         com.example.util.AiCaptionEngine.updateCurrentPlaybackPosition(cur)
@@ -654,14 +690,25 @@ object GlobalPlayerManager {
             return
         }
 
+        val previousPos = _currentPositionMs.value.coerceAtLeast(try { exoPlayerInstance?.currentPosition ?: 0L } catch (_: Throwable) { 0L })
+        val isQualitySwitch = streamData?.videoId != null && streamData.videoId == _activeStreamData.value?.videoId && previousPos > 0L
+
+        val effectiveResumePos = when {
+            initialPos > 0L -> initialPos
+            isQualitySwitch -> previousPos
+            streamData?.videoId != null -> com.example.util.PlaybackResumeManager.getSavedPosition(context, streamData.videoId)
+            else -> 0L
+        }
+
         _firstFrameRendered.value = false
-        _currentPositionMs.value = initialPos
+        _currentPositionMs.value = effectiveResumePos
         _durationMs.value = 0L
         _bufferedPositionMs.value = 0L
         _progressFraction.value = 0f
         _bufferedFraction.value = 0f
         _playerError.value = null
         currentLoadedMediaKey = mediaKey
+        pendingResumePositionMs = effectiveResumePos.takeIf { it > 0L }
 
         try {
             player.stop()
@@ -966,8 +1013,8 @@ object GlobalPlayerManager {
                 return
             }
 
-            if (initialPos > 0L) {
-                player.seekTo(initialPos)
+            if (effectiveResumePos > 0L) {
+                player.seekTo(effectiveResumePos)
             }
 
             com.example.util.PlaybackPipelineTracker.logPrepare(
@@ -1077,17 +1124,36 @@ object GlobalPlayerManager {
         exoPlayerInstance?.let { player ->
             player.pause()
             _isPlaying.value = false
+            appContext?.let { ctx ->
+                _activeStreamData.value?.videoId?.let { vid ->
+                    val cur = player.currentPosition
+                    val dur = player.duration
+                    if (cur > 0L) {
+                        com.example.util.PlaybackResumeManager.savePosition(ctx, vid, cur, dur)
+                    }
+                }
+            }
         }
     }
 
     fun seekTo(positionMs: Long) {
-        val target = positionMs.coerceAtLeast(0L)
+        val player = exoPlayerInstance
+        val playerDur = player?.duration?.takeIf { it > 0 && it != androidx.media3.common.C.TIME_UNSET } ?: _durationMs.value
+        val safeMax = if (playerDur > 1000L) playerDur - 500L else if (playerDur > 0L) playerDur else Long.MAX_VALUE
+        val target = positionMs.coerceIn(0L, safeMax)
+
         _currentPositionMs.value = target
-        val dur = _durationMs.value
-        if (dur > 0) {
-            _progressFraction.value = (target.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+        if (playerDur > 0) {
+            _progressFraction.value = (target.toFloat() / playerDur.toFloat()).coerceIn(0f, 1f)
         }
-        exoPlayerInstance?.seekTo(target)
+
+        try {
+            if (player != null && player.playbackState != Player.STATE_IDLE) {
+                player.seekTo(target)
+            }
+        } catch (e: Throwable) {
+            android.util.Log.w("GlobalPlayerManager", "seekTo error: ${e.message}")
+        }
     }
 
     fun seekForward(deltaMs: Long = 10000L) {
@@ -1109,6 +1175,16 @@ object GlobalPlayerManager {
 
     fun stopAndClear() {
         autoHideControlsJob?.cancel()
+        pendingResumePositionMs = null
+        appContext?.let { ctx ->
+            _activeStreamData.value?.videoId?.let { vid ->
+                val cur = _currentPositionMs.value
+                val dur = _durationMs.value
+                if (cur > 0L) {
+                    com.example.util.PlaybackResumeManager.savePosition(ctx, vid, cur, dur)
+                }
+            }
+        }
         currentLoadedMediaKey = null
         _activeStreamData.value = null
         _progressFraction.value = 0f

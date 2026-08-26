@@ -419,6 +419,7 @@ private fun BasicControlsSection(
             label = "Sharpness",
             value = state.sharpness,
             range = 0f..100f,
+            isNotched = true,
             onValueChange = onSharpnessChange,
             onResetValue = { onSharpnessChange(0f) }
         )
@@ -763,57 +764,71 @@ private fun EffectSliderRow(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     valueFormat: String = "%.0f",
+    isNotched: Boolean = false,
     onValueChange: (Float) -> Unit,
     onResetValue: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Left Column: Label with value directly below
+        Column(
+            modifier = Modifier
+                .width(95.dp)
+                .clickable { onResetValue() }
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.9f),
-                fontWeight = FontWeight.Medium
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp
             )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = String.format(java.util.Locale.US, valueFormat, value),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (value != 0f && value != range.start) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.6f),
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (value != 0f && value != range.start) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Reset $label",
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clickable { onResetValue() }
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(1.dp))
+            Text(
+                text = String.format(java.util.Locale.US, valueFormat, value),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (value != 0f && value != range.start) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
         }
 
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = range,
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color(0xFF00E5FF),
-                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
-            ),
-            modifier = Modifier.height(28.dp)
-        )
+        // Right Column: Slider with Center Reference Tick Line
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(34.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (range.start < 0f && range.endInclusive > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .width(2.dp)
+                        .height(12.dp)
+                        .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(1.dp))
+                )
+            }
+
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = range,
+                steps = if (isNotched) 10 else 0,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color(0xFF00E5FF),
+                    inactiveTrackColor = Color(0xFF2A2A38),
+                    activeTickColor = Color(0xFF00E5FF),
+                    inactiveTickColor = Color.White.copy(alpha = 0.25f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 

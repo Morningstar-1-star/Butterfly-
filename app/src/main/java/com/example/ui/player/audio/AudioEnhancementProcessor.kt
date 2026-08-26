@@ -90,8 +90,9 @@ class AudioEnhancementProcessor : BaseAudioProcessor() {
             }
         } else {
             for (i in 0 until totalSamples) {
-                val f = inputBuffer.float
-                floatBuffer[i] = f
+                var f = inputBuffer.float
+                if (f.isNaN() || f.isInfinite()) f = 0.0f
+                floatBuffer[i] = f.coerceIn(-1.0f, 1.0f)
                 val mag = abs(f)
                 if (mag > maxInMag) maxInMag = mag
             }
@@ -172,15 +173,16 @@ class AudioEnhancementProcessor : BaseAudioProcessor() {
             )
         }
 
-        // 6. Tone & 5-Band Equalizer
+        // 6. Tone, Bass Boost & 10-Band Graphic Equalizer + 3D Virtualizer
         audioEqualizer.processInPlace(
             samples = currentSamples,
             sampleCount = currentSampleCount,
             channelCount = currentChannels,
             sampleRate = inSampleRate,
-            bassGainDb = config.bassGainDb,
-            trebleGainDb = config.trebleGainDb,
-            eq5BandsDb = config.eq5BandsDb
+            bassGainDb = config.bassGainDb + config.bassBoostDb,
+            trebleGainDb = config.trebleGainDb + config.trebleBoostDb,
+            eq10BandsDb = config.eq10BandsDb,
+            virtualizerPercent = config.virtualizerPercent
         )
 
         // 7. Peak Limiter

@@ -230,9 +230,22 @@ object WhisperModelManager {
                 }
             }
 
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (destFile.exists()) destFile.delete()
-                tempFile.renameTo(destFile)
+            if (tempFile.exists() && tempFile.length() > 1024 * 1024) {
+                // Verify file header integrity
+                val isValidHeader = verifyModelHeader(tempFile)
+                if (isValidHeader) {
+                    if (destFile.exists()) destFile.delete()
+                    tempFile.renameTo(destFile)
+                } else {
+                    Log.e(TAG, "Downloaded model failed integrity check.")
+                    tempFile.delete()
+                    updateModelDownloadingState(modelId, isDownloading = false, progress = 0f)
+                    return@withContext false
+                }
+            } else {
+                tempFile.delete()
+                updateModelDownloadingState(modelId, isDownloading = false, progress = 0f)
+                return@withContext false
             }
 
             refreshModelsList(context)
@@ -270,6 +283,24 @@ object WhisperModelManager {
                 downloadProgress = progress
             )
             _modelsState.value = current
+        }
+    }
+
+    private fun verifyModelHeader(file: File): Boolean {
+        return try {
+            java.io.FileInputStream(file).use { input ->
+                val buffer = ByteArray(4)
+                val read = input.read(buffer)
+                if (read == 4) {
+                    val magic = java.nio.ByteBuffer.wrap(buffer).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+                    // Check GGML / GGMF / GGJT / GGUF magic headers
+                    magic == 0x67676d6c || magic == 0x67676d66 || magic == 0x67676a74 || magic == 0x46554747
+                } else {
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            false
         }
     }
 }
