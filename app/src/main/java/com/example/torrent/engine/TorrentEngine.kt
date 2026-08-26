@@ -136,7 +136,7 @@ class TorrentEngine(private val context: Context) {
         }
 
         // Wait for metadata resolution
-        val metadataResolved = waitForMetadata(magnet, timeoutMs = 25000)
+        val metadataResolved = waitForMetadata(magnet, timeoutMs = 60000)
         if (!metadataResolved || activeMetadata == null) {
             Log.w(TAG, "Torrent metadata resolution timed out for infoHash: ${magnet.infoHashHex}")
             _stats.value = _stats.value.copy(

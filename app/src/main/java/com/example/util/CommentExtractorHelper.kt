@@ -25,8 +25,10 @@ object CommentExtractorHelper {
 
     // Public Invidious / Piped fallback instances for YouTube comments
     private val YOUTUBE_COMMENT_APIS = listOf(
+        "https://inv.nadeko.net/api/v1/comments/",
+        "https://invidious.nerdvpn.de/api/v1/comments/",
+        "https://invidious.jing.rocks/api/v1/comments/",
         "https://pipedapi.kavin.rocks/comments/",
-        "https://inv.tux.pizza/api/v1/comments/",
         "https://api.invidious.io/api/v1/comments/",
         "https://yewtu.be/api/v1/comments/",
         "https://vid.puffyan.us/api/v1/comments/"
@@ -37,16 +39,40 @@ object CommentExtractorHelper {
         providerId: String? = null,
         videoTitle: String? = null
     ): List<VideoComment> = withContext(Dispatchers.IO) {
-        if (videoId.isBlank()) return@withContext emptyList()
+        if (videoId.isBlank() && videoTitle.isNullOrBlank()) return@withContext emptyList()
 
         val cleanProvider = (providerId ?: "").lowercase()
-        val isBilibili = cleanProvider == "bilibili" || videoId.contains("bilibili") || videoId.contains("b23.tv") || videoId.startsWith("BV", ignoreCase = true) || videoId.startsWith("av", ignoreCase = true)
+        val title = videoTitle ?: ""
 
+        // 1. If torrent, movie, tv series, archive or cinema item -> Fetch authentic IMDb / TMDB user reviews
+        val isMovieOrSeriesOrTorrent = cleanProvider.contains("torrent") ||
+                cleanProvider == "tmdb" ||
+                cleanProvider == "cinemeta" ||
+                cleanProvider == "vega" ||
+                videoId.startsWith("tt") ||
+                videoId.startsWith("movie_") ||
+                videoId.startsWith("tv_") ||
+                videoId.contains("magnet:", ignoreCase = true)
+
+        if (isMovieOrSeriesOrTorrent || title.isNotBlank() && (cleanProvider == "archive_org" || cleanProvider.isBlank())) {
+            val tmdbReviews = TMDBHelper.fetchTmdbReviews(
+                title = title,
+                videoId = videoId,
+                providerId = providerId
+            )
+            if (tmdbReviews.isNotEmpty()) {
+                return@withContext tmdbReviews
+            }
+        }
+
+        // 2. Bilibili comments
+        val isBilibili = cleanProvider == "bilibili" || videoId.contains("bilibili") || videoId.contains("b23.tv") || videoId.startsWith("BV", ignoreCase = true) || videoId.startsWith("av", ignoreCase = true)
         if (isBilibili) {
             val biliComments = fetchBilibiliComments(videoId)
             if (biliComments.isNotEmpty()) return@withContext biliComments
         }
 
+        // 3. YouTube comments
         val isYouTube = cleanProvider == "youtube" || videoId.length == 11 || videoId.startsWith("http") || videoId.contains("youtu")
         if (isYouTube || cleanProvider.isBlank()) {
             val ytId = extractYouTubeId(videoId)
@@ -59,8 +85,20 @@ object CommentExtractorHelper {
             }
         }
 
-        // Contextual fallback comments generator if network endpoints fail
-        return@withContext generateContextualFallbackComments(videoTitle ?: "Video", videoId)
+        // 4. If nothing returned from network yet, try TMDB/IMDb review search by title for any media
+        if (title.isNotBlank()) {
+            val generalReviews = TMDBHelper.fetchTmdbReviews(
+                title = title,
+                videoId = videoId,
+                providerId = providerId
+            )
+            if (generalReviews.isNotEmpty()) {
+                return@withContext generalReviews
+            }
+        }
+
+        // Return empty list (NO demo/mock fake comments)
+        return@withContext emptyList()
     }
 
     private fun extractYouTubeId(raw: String): String? {
@@ -250,51 +288,6 @@ object CommentExtractorHelper {
             Log.w(TAG, "Bilibili comments fetch failed: ${e.message}")
         }
         return emptyList()
-    }
-
-    private fun generateContextualFallbackComments(title: String, videoId: String): List<VideoComment> {
-        val hash = kotlin.math.abs(videoId.hashCode())
-        val names = listOf(
-            "Alex Mercer", "Sarah Jenkins", "Devon Vance", "Elena Rostova", "Marcus Chen",
-            "Clara Oswald", "Liam O'Connor", "Sophia Martinez", "Kenji Sato", "Amara Okafor"
-        )
-        val avatars = listOf(
-            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80"
-        )
-        val comments = listOf(
-            "The editing and production quality on this video is outstanding! Absolutely loved every minute of it. 🔥",
-            "Re-watching this for the 3rd time today! The timestamp at 01:45 was mind-blowing.",
-            "Honestly one of the best explanations/videos I've seen on this topic. Keep up the amazing work!",
-            "Can we appreciate how clean the audio and visual presentation is? Subscribed immediately! 👍",
-            "This brought back so many great memories. Thanks for sharing this masterpiece!"
-        )
-
-        val result = mutableListOf<VideoComment>()
-        val count = 5 + (hash % 4)
-        for (i in 0 until count) {
-            val name = names[(hash + i) % names.size]
-            val avatar = avatars[(hash + i) % avatars.size]
-            val text = comments[(hash + i) % comments.size]
-            val likes = 45 + ((hash * (i + 1)) % 1400)
-            val hours = 1 + ((hash + i) % 48)
-
-            result.add(
-                VideoComment(
-                    id = "gen_cmt_${hash}_$i",
-                    authorName = name,
-                    authorAvatarUrl = avatar,
-                    commentText = text,
-                    timeAgo = if (hours > 24) "${hours / 24} days ago" else "$hours hours ago",
-                    likeCount = likes,
-                    sourceBadge = if (i == 0) "📌 Pinned by creator" else null
-                )
-            )
-        }
-        return result
     }
 
     private fun formatTimeAgo(timeSec: Long): String {

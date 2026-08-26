@@ -102,6 +102,13 @@ fun ExploreScreen(
         loadFeed()
     }
 
+    LaunchedEffect(sections) {
+        if (sections.isNotEmpty()) {
+            val allItems = sections.flatMap { it.items }
+            com.example.util.ThumbnailOptimizer.preloadUrls(context, allItems.map { it.posterUrl ?: it.backdropUrl }, maxCount = 35)
+        }
+    }
+
     // Perform live search when search query changes
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {

@@ -26,14 +26,18 @@ data class EpisodeItem(
     val durationText: String = "",
     val thumbnailUrl: String? = null,
     val providerId: String? = null,
-    val viewsText: String = ""
+    val viewsText: String = "",
+    val overview: String? = null,
+    val voteAverage: Float? = null
 )
 
 data class SeriesSeason(
     val seasonNumber: Int,
     val seasonName: String,
     val episodes: List<EpisodeItem>
-)
+) {
+    val name: String get() = seasonName
+}
 
 data class VideoComment(
     val id: String,

@@ -27,6 +27,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -216,6 +217,10 @@ fun UniversalVideoPlayer(
 
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var zoomOffsetX by remember { mutableFloatStateOf(0f) }
+    var zoomOffsetY by remember { mutableFloatStateOf(0f) }
 
     val currentPlayerActivity = remember(context) { context.findActivity() }
     DisposableEffect(isLandscape, currentPlayerActivity) {
@@ -443,7 +448,43 @@ fun UniversalVideoPlayer(
 
         val showLoadingIndicator = isBuffering || (!firstFrameRendered && playerError == null)
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        zoomScale = (zoomScale * zoom).coerceIn(1f, 5f)
+                        if (zoomScale <= 1f) {
+                            zoomOffsetX = 0f
+                            zoomOffsetY = 0f
+                        } else {
+                            zoomOffsetX += pan.x
+                            zoomOffsetY += pan.y
+                        }
+                    }
+                }
+                .pointerInput(zoomScale) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            if (zoomScale > 1f) {
+                                zoomScale = 1f
+                                zoomOffsetX = 0f
+                                zoomOffsetY = 0f
+                                Toast.makeText(context, "Zoom reset", Toast.LENGTH_SHORT).show()
+                            } else {
+                                zoomScale = 2.0f
+                                Toast.makeText(context, "Zoomed 2x", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
+                .graphicsLayer(
+                    scaleX = zoomScale,
+                    scaleY = zoomScale,
+                    translationX = zoomOffsetX,
+                    translationY = zoomOffsetY
+                )
+        ) {
             val hostModifier = if (customAspectRatio != null) {
                 Modifier
                     .fillMaxSize()
@@ -870,6 +911,7 @@ fun UniversalVideoPlayer(
                         durationMs = totalDurMs,
                         bufferedPositionMs = bufferedPosMs,
                         segments = smartSkipSegments,
+                        isLandscape = isLandscape,
                         onSeekStarted = { GlobalPlayerManager.showControls() },
                         onSeekScrubbing = { /* Scrubbing */ },
                         onSeekFinished = { targetMs ->

@@ -348,7 +348,7 @@ object GlobalPlayerManager {
                 }
             }.apply {
                 setEnableDecoderFallback(true)
-                setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             }
 
             val player = ExoPlayer.Builder(context.applicationContext)

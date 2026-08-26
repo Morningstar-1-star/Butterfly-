@@ -223,7 +223,8 @@ fun VideoCard(
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
             context,
             activeImageUrl,
-            crossfadeMillis = if (isPreviewActive) 0 else 60
+            crossfadeMillis = if (isPreviewActive) 0 else 60,
+            preferCompact = true
         )
     }
 

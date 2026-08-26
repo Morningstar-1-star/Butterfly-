@@ -55,7 +55,8 @@ fun YouTubePreciseSeekBar(
     activeColor: Color = Color(0xFFFF0033),
     bufferedColor: Color = Color.White.copy(alpha = 0.55f),
     inactiveColor: Color = Color.White.copy(alpha = 0.25f),
-    thumbColor: Color = Color(0xFFFF0033)
+    thumbColor: Color = Color(0xFFFF0033),
+    isLandscape: Boolean = false
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var scrubPositionMs by remember { mutableLongStateOf(0L) }
@@ -70,7 +71,7 @@ fun YouTubePreciseSeekBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(if (isLandscape) 26.dp else 44.dp)
             .onSizeChanged { trackWidthPx = it.width.toFloat().coerceAtLeast(1f) },
         contentAlignment = Alignment.BottomCenter
     ) {
@@ -151,12 +152,16 @@ fun YouTubePreciseSeekBar(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.fillMaxWidth().height(16.dp)) {
+            Canvas(modifier = Modifier.fillMaxWidth().height(if (isLandscape) 12.dp else 16.dp)) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
                 val centerY = canvasHeight / 2f
 
-                val barHeight = if (isDragging) 6.dp.toPx() else 3.5.dp.toPx()
+                val barHeight = if (isLandscape) {
+                    if (isDragging) 3.5.dp.toPx() else 2.dp.toPx()
+                } else {
+                    if (isDragging) 6.dp.toPx() else 3.5.dp.toPx()
+                }
                 val cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
 
                 // 1. Inactive background track (full width)
@@ -207,7 +212,11 @@ fun YouTubePreciseSeekBar(
                 }
 
                 // 4. Scrubber Thumb Circle
-                val thumbRadius = if (isDragging) 7.5.dp.toPx() else 5.dp.toPx()
+                val thumbRadius = if (isLandscape) {
+                    if (isDragging) 5.dp.toPx() else 3.dp.toPx()
+                } else {
+                    if (isDragging) 7.5.dp.toPx() else 5.dp.toPx()
+                }
                 val thumbX = activeWidth.coerceIn(thumbRadius, canvasWidth - thumbRadius)
 
                 // Outer subtle glow when dragging

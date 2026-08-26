@@ -794,12 +794,239 @@ object TMDBHelper {
                     }
                 }
             }
+            // 3. Fallback: Parse seasons and episodes directly from availableStreamOptions (e.g. for Archive.org multi-episode collections like Spider-Man 1994, animated series, etc.)
+            if (streamData.availableStreamOptions.size > 1) {
+                val archiveSeasons = parseSeasonsFromStreamOptions(streamData)
+                if (archiveSeasons.isNotEmpty()) {
+                    tvSeasonsCache[cacheKey] = archiveSeasons
+                    return@withContext archiveSeasons
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error in fetchTvSeasonsAndEpisodes for $cleanTitle", e)
         }
 
+        // Final check on stream options directly
+        if (streamData.availableStreamOptions.size > 1) {
+            val directSeasons = parseSeasonsFromStreamOptions(streamData)
+            if (directSeasons.isNotEmpty()) {
+                tvSeasonsCache[cacheKey] = directSeasons
+                return@withContext directSeasons
+            }
+        }
+
         val fallback = emptyList<SeriesSeason>()
         return@withContext fallback
+    }
+
+    /**
+     * Parses season and episode hierarchy directly from stream options (e.g. "01x01 Night of the Lizard", "S01E02", etc.)
+     */
+    private fun parseSeasonsFromStreamOptions(streamData: StreamData): List<SeriesSeason> {
+        val options = streamData.availableStreamOptions
+        if (options.isEmpty()) return emptyList()
+
+        val seasonMap = mutableMapOf<Int, MutableList<EpisodeItem>>()
+        val epPattern = Regex("(?i)(?:s(\\d{1,2})[._\\s-]*e(\\d{1,3}))|(?:(\\d{1,2})[xX](\\d{1,3}))|(?:season[._\\s-]*(\\d{1,2})[._\\s-]*episode[._\\s-]*(\\d{1,3}))|(?:(?:ep|episode)[._\\s-]*(\\d{1,3}))")
+
+        for ((idx, opt) in options.withIndex()) {
+            val label = opt.qualityLabel.trim()
+            val match = epPattern.find(label)
+
+            var sNum = 1
+            var eNum = idx + 1
+
+            if (match != null) {
+                val g = match.groupValues
+                when {
+                    g[1].isNotEmpty() && g[2].isNotEmpty() -> {
+                        sNum = g[1].toIntOrNull() ?: 1
+                        eNum = g[2].toIntOrNull() ?: (idx + 1)
+                    }
+                    g[3].isNotEmpty() && g[4].isNotEmpty() -> {
+                        sNum = g[3].toIntOrNull() ?: 1
+                        eNum = g[4].toIntOrNull() ?: (idx + 1)
+                    }
+                    g[5].isNotEmpty() && g[6].isNotEmpty() -> {
+                        sNum = g[5].toIntOrNull() ?: 1
+                        eNum = g[6].toIntOrNull() ?: (idx + 1)
+                    }
+                    g[7].isNotEmpty() -> {
+                        eNum = g[7].toIntOrNull() ?: (idx + 1)
+                    }
+                }
+            }
+
+            // Clean title for display
+            var epTitle = label
+                .replace(Regex("(?i)\\(\\d+p.*?\\)"), "")
+                .replace(Regex("(?i)\\[.*?\\]"), "")
+                .replace(Regex("(?i)\\.ia\\.mp4|\\.mp4|\\.mkv|\\.avi"), "")
+                .replace("_", " ")
+                .trim()
+
+            if (match != null) {
+                epTitle = epTitle.removePrefix(match.value).trim()
+                if (epTitle.startsWith("-") || epTitle.startsWith(".")) {
+                    epTitle = epTitle.substring(1).trim()
+                }
+            }
+
+            if (epTitle.isBlank()) {
+                epTitle = "Episode $eNum"
+            }
+
+            val epItem = EpisodeItem(
+                id = opt.videoUrl ?: "${streamData.videoId}_s${sNum}_e${eNum}",
+                seasonNumber = sNum,
+                episodeNumber = eNum,
+                title = epTitle,
+                durationText = if (opt.format.isNotBlank()) opt.format.uppercase() else "Direct",
+                thumbnailUrl = streamData.effectiveThumbnailUrl,
+                providerId = streamData.providerId ?: "archive_org",
+                viewsText = "Direct Stream"
+            )
+
+            seasonMap.getOrPut(sNum) { mutableListOf() }.add(epItem)
+        }
+
+        return seasonMap.map { (sNum, eps) ->
+            SeriesSeason(
+                seasonNumber = sNum,
+                seasonName = "Season $sNum",
+                episodes = eps.sortedBy { it.episodeNumber }
+            )
+        }.sortedBy { it.seasonNumber }
+    }
+
+    /**
+     * Fetches authentic TMDB / IMDb reviews and ratings for movies, series, or torrents
+     */
+    suspend fun fetchTmdbReviews(
+        title: String,
+        videoId: String? = null,
+        providerId: String? = null
+    ): List<com.example.model.VideoComment> = withContext(Dispatchers.IO) {
+        val cleanTitle = cleanTitleForSearch(title)
+        if (cleanTitle.isBlank() && videoId.isNullOrBlank()) return@withContext emptyList()
+
+        try {
+            var mediaId: Int? = null
+            var mediaType = "movie"
+
+            // 1. Check videoId for explicit ID
+            if (!videoId.isNullOrBlank()) {
+                if (videoId.startsWith("movie_")) {
+                    mediaId = videoId.removePrefix("movie_").toIntOrNull()
+                    mediaType = "movie"
+                } else if (videoId.startsWith("tv_")) {
+                    mediaId = videoId.removePrefix("tv_").substringBefore("_").toIntOrNull()
+                    mediaType = "tv"
+                } else if (videoId.startsWith("tt")) {
+                    val findUrl = "https://api.themoviedb.org/3/find/$videoId?api_key=$TMDB_API_KEY&external_source=imdb_id"
+                    val req = Request.Builder().url(findUrl).header("User-Agent", "Mozilla/5.0").build()
+                    val resp = client.newCall(req).execute()
+                    val body = resp.body?.string()
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        val movies = json.optJSONArray("movie_results")
+                        val tvs = json.optJSONArray("tv_results")
+                        if (movies != null && movies.length() > 0) {
+                            mediaId = movies.getJSONObject(0).optInt("id")
+                            mediaType = "movie"
+                        } else if (tvs != null && tvs.length() > 0) {
+                            mediaId = tvs.getJSONObject(0).optInt("id")
+                            mediaType = "tv"
+                        }
+                    }
+                }
+            }
+
+            // 2. Search TMDB Multi if ID not found
+            if (mediaId == null && cleanTitle.isNotBlank()) {
+                val encodedQuery = URLEncoder.encode(cleanTitle, "UTF-8")
+                val searchUrl = "https://api.themoviedb.org/3/search/multi?api_key=$TMDB_API_KEY&query=$encodedQuery"
+                val req = Request.Builder().url(searchUrl).header("User-Agent", "Mozilla/5.0").build()
+                val resp = client.newCall(req).execute()
+                val body = resp.body?.string()
+                if (body != null) {
+                    val json = JSONObject(body)
+                    val results = json.optJSONArray("results")
+                    if (results != null && results.length() > 0) {
+                        for (i in 0 until results.length()) {
+                            val item = results.getJSONObject(i)
+                            val type = item.optString("media_type")
+                            if (type == "movie" || type == "tv") {
+                                mediaId = item.optInt("id")
+                                mediaType = type
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (mediaId != null && mediaId > 0) {
+                val reviewsUrl = "https://api.themoviedb.org/3/$mediaType/$mediaId/reviews?api_key=$TMDB_API_KEY&page=1"
+                val req = Request.Builder().url(reviewsUrl).header("User-Agent", "Mozilla/5.0").build()
+                val resp = client.newCall(req).execute()
+                val body = resp.body?.string()
+                if (body != null) {
+                    val json = JSONObject(body)
+                    val results = json.optJSONArray("results")
+                    if (results != null && results.length() > 0) {
+                        val reviewList = mutableListOf<com.example.model.VideoComment>()
+                        for (i in 0 until results.length().coerceAtMost(30)) {
+                            val obj = results.getJSONObject(i)
+                            val author = obj.optString("author", "Verified Reviewer")
+                            val content = obj.optString("content", "")
+                            if (content.isBlank()) continue
+
+                            val authorDetails = obj.optJSONObject("author_details")
+                            val ratingVal = authorDetails?.optDouble("rating", 0.0) ?: 0.0
+                            var avatarPath = authorDetails?.optString("avatar_path", null)
+                            if (avatarPath != null && avatarPath != "null") {
+                                avatarPath = if (avatarPath.startsWith("http")) {
+                                    avatarPath.removePrefix("/")
+                                } else {
+                                    "https://image.tmdb.org/t/p/w185$avatarPath"
+                                }
+                            } else {
+                                avatarPath = null
+                            }
+
+                            val createdAt = obj.optString("created_at", "")
+                            val timeAgo = if (createdAt.length >= 10) createdAt.take(10) else "Recently"
+                            val reviewUrl = obj.optString("url", null)
+
+                            val ratingBadge = if (ratingVal > 0.0) "${String.format("%.1f", ratingVal)}/10 ★" else null
+
+                            reviewList.add(
+                                com.example.model.VideoComment(
+                                    id = obj.optString("id", "tmdb_rev_$i"),
+                                    authorName = author,
+                                    authorAvatarUrl = avatarPath,
+                                    commentText = content,
+                                    timeAgo = timeAgo,
+                                    likeCount = if (ratingVal > 0) (ratingVal * 12).toInt() else 24,
+                                    rating = if (ratingVal > 0) (ratingVal / 2.0).toFloat() else null,
+                                    ratingText = ratingBadge,
+                                    sourceBadge = "IMDb / TMDB Review",
+                                    reviewUrl = reviewUrl
+                                )
+                            )
+                        }
+                        if (reviewList.isNotEmpty()) {
+                            return@withContext reviewList
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching TMDB reviews for $cleanTitle: ${e.message}")
+        }
+
+        return@withContext emptyList()
     }
 
     private fun bindAvailableStreamOptionsToSeasons(

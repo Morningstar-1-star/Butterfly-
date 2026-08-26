@@ -93,11 +93,11 @@ class TorrentHttpServer(
                 return
             }
 
-            // Wait a moment if engine metadata is still loading
+            // Wait for engine metadata to load (up to 60 seconds)
             var totalLength = engine.getFileLength()
             var retries = 0
-            while (totalLength <= 0 && retries < 25) {
-                kotlinx.coroutines.delay(200)
+            while (totalLength <= 0 && retries < 120 && !socket.isClosed) {
+                kotlinx.coroutines.delay(500)
                 totalLength = engine.getFileLength()
                 retries++
             }

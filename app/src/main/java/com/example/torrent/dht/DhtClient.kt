@@ -272,29 +272,45 @@ object DhtClient {
     }
 
     private fun sendBencoded(data: Map<String, Any?>, address: InetSocketAddress) {
-        val encodedBytes = Bencode.encode(data)
-        val sock = socket ?: return
-        val packet = DatagramPacket(encodedBytes, encodedBytes.size, address.address, address.port)
-        sock.send(packet)
+        try {
+            val inetAddr = address.address ?: return
+            val encodedBytes = Bencode.encode(data)
+            val sock = socket ?: return
+            if (sock.isClosed) return
+            val packet = DatagramPacket(encodedBytes, encodedBytes.size, inetAddr, address.port)
+            sock.send(packet)
+        } catch (_: Exception) {
+            // Guard against rate limit / audit socket exceptions
+        }
     }
 
     private fun listenLoop() {
         val buffer = ByteArray(UDP_BUFFER_SIZE)
         while (isRunning.get()) {
             try {
-                val sock = socket ?: break
+                val sock = socket
+                if (sock == null || sock.isClosed) break
                 val packet = DatagramPacket(buffer, buffer.size)
                 sock.receive(packet)
 
                 val length = packet.length
+                if (length <= 0) continue
                 val rawData = buffer.copyOf(length)
                 val senderAddr = InetSocketAddress(packet.address, packet.port)
 
                 scope.launch {
                     handleIncomingPacket(rawData, senderAddr)
                 }
+            } catch (e: java.net.SocketTimeoutException) {
+                // Normal timeout on receive, continue listening
+                continue
             } catch (e: Exception) {
-                // Socket timeout or closed
+                if (!isRunning.get()) break
+                try {
+                    Thread.sleep(100)
+                } catch (_: InterruptedException) {
+                    break
+                }
             }
         }
     }

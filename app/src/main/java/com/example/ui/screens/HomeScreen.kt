@@ -831,11 +831,11 @@ fun HomeScreen(
         val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
         AnimatedVisibility(
-            visible = (playingStreamData != null && currentScreen != AppScreen.PLAYER && !isSearchExpanded),
+            visible = (playingStreamData != null && currentScreen != AppScreen.PLAYER),
             enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
                     scaleIn(initialScale = 0.9f, animationSpec = tween(160, easing = FastOutSlowInEasing)),
             exit = fadeOut(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
-                   scaleOut(targetScale = 0.9f, animationSpec = tween(120, easing = FastOutSlowInEasing)),
+                    scaleOut(targetScale = 0.9f, animationSpec = tween(120, easing = FastOutSlowInEasing)),
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(92f)
@@ -849,13 +849,17 @@ fun HomeScreen(
                         com.example.ui.player.GlobalPlayerManager.togglePlayPause()
                         viewModel.togglePlayback()
                     },
-                    onExpand = { viewModel.navigateToScreen(AppScreen.PLAYER) },
+                    onExpand = {
+                        isSearchExpanded = false
+                        viewModel.setSearchExpanded(false)
+                        viewModel.navigateToScreen(AppScreen.PLAYER)
+                    },
                     onClose = {
                         com.example.ui.player.GlobalPlayerManager.stopAndClear()
                         viewModel.closeVideo()
                     },
                     onNext = { viewModel.playNextInQueue() },
-                    bottomBarPaddingDp = bottomBarPaddingDp,
+                    bottomBarPaddingDp = if (isSearchExpanded) 16.dp else bottomBarPaddingDp,
                     statusBarPaddingDp = statusBarTopPadding
                 )
             }
