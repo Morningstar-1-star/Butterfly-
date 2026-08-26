@@ -27,15 +27,19 @@ class MainApplication : Application() {
         super.onCreate()
         appContext = this
 
-        // Configure ultra high-performance Coil ImageLoader with parallel OkHttp throughput and domain-specific headers
+        com.example.util.SecureDnsManager.init(this)
+        com.example.util.GoogleDriveSyncManager.init(this)
+
+        // Configure optimized Coil ImageLoader with moderate concurrency and low memory footprint
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
+            .dns(com.example.util.SecureDnsManager.appDns)
             .dispatcher(okhttp3.Dispatcher().apply {
-                maxRequests = 128
-                maxRequestsPerHost = 32
+                maxRequests = 24
+                maxRequestsPerHost = 8
             })
-            .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
-            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(16, 3, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val urlStr = originalRequest.url.toString().lowercase()
@@ -58,6 +62,10 @@ class MainApplication : Application() {
                         requestBuilder.header("Origin", "https://www.pornhub.com")
                         requestBuilder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1")
                     }
+                    urlStr.contains("rdtcdn.com") || urlStr.contains("redtube.com") -> {
+                        requestBuilder.header("Referer", "https://www.redtube.com/")
+                        requestBuilder.header("Origin", "https://www.redtube.com")
+                    }
                     urlStr.contains("xvideos.com") || urlStr.contains("xv-cdn.com") || urlStr.contains("xvideos-cdn.com") -> {
                         requestBuilder.header("Referer", "https://www.xvideos.com/")
                     }
@@ -65,7 +73,7 @@ class MainApplication : Application() {
                         requestBuilder.header("Referer", "https://xhamster.com/")
                         requestBuilder.header("Origin", "https://xhamster.com")
                     }
-                    urlStr.contains("4tube.com") || urlStr.contains("f-cdn.com") -> {
+                    urlStr.contains("4tube.com") || urlStr.contains("f-cdn.com") || urlStr.contains("ttcache.com") -> {
                         requestBuilder.header("Referer", "https://www.4tube.com/")
                         requestBuilder.header("Origin", "https://www.4tube.com")
                     }
@@ -94,37 +102,36 @@ class MainApplication : Application() {
             .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.10) // 10% RAM max
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache_v2"))
-                    .maxSizeBytes(250L * 1024L * 1024L) // 250 MB dedicated disk cache
+                    .maxSizeBytes(60L * 1024L * 1024L) // 60 MB dedicated disk cache
                     .build()
             }
-            .respectCacheHeaders(false) // Cache regardless of server max-age headers
-            .bitmapConfig(Bitmap.Config.ARGB_8888)
-            .allowHardware(false)
-            .allowRgb565(false)
+            .respectCacheHeaders(false)
+            .bitmapConfig(Bitmap.Config.RGB_565)
+            .allowHardware(true)
+            .allowRgb565(true)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(80)
+            .crossfade(60)
             .build()
         Coil.setImageLoader(imageLoader)
 
-        // Initialize yt-dlp engine
-        try {
-            dev.ffmpegkit_maintained.ytdlp.YtDlp.init(this)
-            Log.i("MainApplication", "yt-dlp engine initialized successfully")
-        } catch (e: Throwable) {
-            Log.w("MainApplication", "yt-dlp init note: ${e.message}")
-        }
+        // Asynchronously initialize yt-dlp engine, pre-warm resolver, and check for updates
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                dev.ffmpegkit_maintained.ytdlp.YtDlp.init(this@MainApplication)
+                Log.i("MainApplication", "yt-dlp engine initialized successfully")
+            } catch (e: Throwable) {
+                Log.w("MainApplication", "yt-dlp init note: ${e.message}")
+            }
 
-        // Pre-warm yt-dlp asynchronously and check for background engine updates on app startup
-        applicationScope.launch {
             try {
                 Log.d("MainApplication", "Pre-warming YtDlpResolver...")
                 YtDlpResolver.prewarm(this@MainApplication)

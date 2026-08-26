@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.*
 import java.io.File
-import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -16,7 +15,7 @@ import kotlin.math.*
  * Features:
  * - Real-time PCM audio buffer ingestion & 16kHz downsampling
  * - Energy & spectral Voice Activity Detection (VAD)
- * - 80-channel Log Mel-spectrogram feature extractor
+ * - Native Whisper.cpp JNI integration
  * - Background multi-threaded inference worker with timestamps
  * - Synchronization with SubtitleTranslator and AiCaptionEngine
  */
@@ -36,16 +35,26 @@ object WhisperInferenceEngine {
     private val audioQueue = ConcurrentLinkedQueue<FloatArray>()
     private var totalProcessedSeconds = 0.0f
 
-    // Current model file handle
+    // Current model file handle & native context pointer
     private var loadedModelFile: File? = null
     private var activeModelId: String = "base"
+    private var nativeContextPtr: Long = 0L
 
     fun initialize(context: Context, modelId: String = "base") {
         activeModelId = modelId
         val modelFile = WhisperModelManager.getModelFile(context, modelId)
         if (modelFile != null && modelFile.exists() && modelFile.length() > 1000) {
             loadedModelFile = modelFile
-            Log.i(TAG, "Whisper model '$modelId' loaded (${modelFile.length() / (1024 * 1024)} MB)")
+            Log.i(TAG, "Whisper model '$modelId' found (${modelFile.length() / (1024 * 1024)} MB)")
+            
+            if (WhisperNative.isAvailable()) {
+                if (nativeContextPtr != 0L) {
+                    WhisperNative.freeContext(nativeContextPtr)
+                    nativeContextPtr = 0L
+                }
+                nativeContextPtr = WhisperNative.initContext(modelFile.absolutePath)
+                Log.i(TAG, "Whisper native context initialized with pointer: $nativeContextPtr")
+            }
         } else {
             Log.w(TAG, "Whisper model '$modelId' not downloaded yet.")
         }
@@ -67,6 +76,11 @@ object WhisperInferenceEngine {
         inferenceJob?.cancel()
         inferenceJob = null
         audioQueue.clear()
+        
+        if (nativeContextPtr != 0L && WhisperNative.isAvailable()) {
+            WhisperNative.freeContext(nativeContextPtr)
+            nativeContextPtr = 0L
+        }
         Log.i(TAG, "Whisper inference pipeline stopped.")
     }
 
@@ -166,7 +180,7 @@ object WhisperInferenceEngine {
                             val fromSec = speechStartTimeSec
                             val toSec = totalProcessedSeconds
 
-                            // Dispatch speech chunk for transcription
+                            // Dispatch speech chunk for native Whisper inference
                             launch(Dispatchers.IO) {
                                 transcribeSegment(audioSegment, fromSec, toSec)
                             }
@@ -182,11 +196,20 @@ object WhisperInferenceEngine {
 
     private suspend fun transcribeSegment(audio: FloatArray, fromSec: Float, toSec: Float) = withContext(Dispatchers.Default) {
         try {
-            // Compute 80-channel Log Mel-spectrogram for Whisper
-            val mel = computeMelSpectrogram(audio)
-            
-            // Generate transcript with timestamp alignment
-            val transcript = performInference(mel, audio.size)
+            val transcript = if (nativeContextPtr != 0L && WhisperNative.isAvailable()) {
+                val sourceLang = AiCaptionEngine.captionState.value.sourceLanguage
+                val lang = if (sourceLang == "auto") "auto" else sourceLang
+                WhisperNative.transcribe(
+                    contextPtr = nativeContextPtr,
+                    samples = audio,
+                    language = lang,
+                    translate = false,
+                    nThreads = 4
+                )
+            } else {
+                ""
+            }
+
             if (transcript.isNotBlank()) {
                 AiCaptionEngine.pushTranscript(transcript, fromSec, toSec)
             }
@@ -201,67 +224,5 @@ object WhisperInferenceEngine {
             sumSq += s * s
         }
         return sqrt(sumSq / samples.size.coerceAtLeast(1))
-    }
-
-    /**
-     * Computes Log-Mel filterbank energies for 16kHz audio (Whisper standard: 80 filters, 400 FFT, 160 hop).
-     */
-    private fun computeMelSpectrogram(samples: FloatArray): Array<FloatArray> {
-        val nFft = 400
-        val hopLength = 160
-        val nMel = 80
-        val numFrames = (samples.size - nFft) / hopLength + 1
-        if (numFrames <= 0) return Array(nMel) { FloatArray(0) }
-
-        val melSpectrogram = Array(nMel) { FloatArray(numFrames) }
-
-        // Hann window
-        val window = FloatArray(nFft) { i ->
-            (0.5 * (1.0 - cos(2.0 * PI * i / nFft))).toFloat()
-        }
-
-        for (frame in 0 until numFrames) {
-            val start = frame * hopLength
-            val frameSamples = FloatArray(nFft)
-            for (i in 0 until nFft) {
-                frameSamples[i] = samples[start + i] * window[i]
-            }
-
-            // Power spectrum calculation
-            val powerSpectrum = FloatArray(nFft / 2 + 1)
-            for (k in 0 until powerSpectrum.size) {
-                var real = 0.0f
-                var imag = 0.0f
-                val angleFactor = -2.0 * PI * k / nFft
-                for (n in 0 until nFft) {
-                    val angle = angleFactor * n
-                    real += frameSamples[n] * cos(angle).toFloat()
-                    imag += frameSamples[n] * sin(angle).toFloat()
-                }
-                powerSpectrum[k] = (real * real + imag * imag) / nFft
-            }
-
-            // Mel filterbank projection (80 bands, 0Hz - 8000Hz)
-            for (m in 0 until nMel) {
-                var melEnergy = 0.0f
-                val centerFreq = 700.0 * (10.0.pow(m * 2.595 / 2595.0) - 1.0)
-                val centerBin = (centerFreq * nFft / TARGET_SAMPLE_RATE).toInt().coerceIn(0, powerSpectrum.size - 1)
-                melEnergy += powerSpectrum[centerBin]
-
-                // Log-Mel scaling
-                melSpectrogram[m][frame] = log10(max(melEnergy, 1e-5f))
-            }
-        }
-
-        return melSpectrogram
-    }
-
-    private fun performInference(mel: Array<FloatArray>, sampleCount: Int): String {
-        // High quality VAD and speech segment validation
-        if (mel.isEmpty() || mel[0].isEmpty()) return ""
-        val durationSec = sampleCount / 16000.0f
-        if (durationSec < 0.4f) return ""
-
-        return "" // Ingested and synchronized with caption engine
     }
 }

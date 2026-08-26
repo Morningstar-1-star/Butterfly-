@@ -106,6 +106,7 @@ dependencies {
   implementation(libs.androidx.media3.exoplayer.dash)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
+  implementation(libs.androidx.media3.effect)
   implementation(libs.androidx.media3.datasource.okhttp)
 
   implementation(libs.newpipe.extractor)
@@ -116,7 +117,11 @@ dependencies {
 
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.androidx.credentials)
+  implementation(libs.androidx.credentials.play.services)
+  implementation(libs.googleid)
   implementation(libs.okhttp)
+  implementation(libs.okhttp.dnsoverhttps)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
 

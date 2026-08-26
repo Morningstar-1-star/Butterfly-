@@ -9,8 +9,11 @@ enum class MediaType {
 }
 
 data class MediaIdentity(
+    val title: String = "",
+    val year: String? = null,
     val tmdbId: String? = null,
     val imdbId: String? = null,
+    val anilistId: String? = null,
     val mediaType: MediaType = MediaType.UNKNOWN,
     val season: Int? = null,
     val episode: Int? = null,

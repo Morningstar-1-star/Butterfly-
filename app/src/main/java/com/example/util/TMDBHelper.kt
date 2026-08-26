@@ -23,6 +23,44 @@ object TMDBHelper {
     private const val TAG = "TMDBHelper"
     private const val TMDB_API_KEY = AppConfig.TMDB_API_KEY
 
+    private val WEB_AND_ADULT_PROVIDERS = setOf(
+        "youtube", "vimeo", "dailymotion", "bilibili",
+        "pornhub", "xhamster", "xvideos", "eporner", "beeg",
+        "youporn", "redtube", "4tube", "rule34video", "multisource"
+    )
+
+    fun isWebOrAdultProvider(providerId: String?): Boolean {
+        if (providerId.isNullOrBlank()) return false
+        val clean = providerId.trim().lowercase()
+        return WEB_AND_ADULT_PROVIDERS.contains(clean) ||
+                clean.contains("pornhub") || clean.contains("xhamster") ||
+                clean.contains("xvideos") || clean.contains("eporner") ||
+                clean.contains("adult")
+    }
+
+    fun shouldUseTmdb(
+        providerId: String?,
+        videoId: String?,
+        isTrailer: Boolean = false,
+        isMovieOrSeries: Boolean = false
+    ): Boolean {
+        if (isTrailer || isMovieOrSeries) return true
+
+        if (!videoId.isNullOrBlank()) {
+            val vId = videoId.lowercase()
+            if (vId.startsWith("movie_") || vId.startsWith("tv_") || vId.startsWith("tt") ||
+                vId.startsWith("tmdb_") || vId.startsWith("anilist_") || vId.startsWith("jikan_")) {
+                return true
+            }
+        }
+
+        if (isWebOrAdultProvider(providerId)) {
+            return false
+        }
+
+        return true
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -79,12 +117,26 @@ object TMDBHelper {
         return clean
     }
 
-    suspend fun fetchMediaDetails(rawTitle: String, videoId: String? = null): MediaDetailInfo = withContext(Dispatchers.IO) {
+    suspend fun fetchMediaDetails(
+        rawTitle: String,
+        videoId: String? = null,
+        providerId: String? = null,
+        forceTmdb: Boolean = false
+    ): MediaDetailInfo? = withContext(Dispatchers.IO) {
+        if (!forceTmdb && !shouldUseTmdb(providerId, videoId)) {
+            Log.i(TAG, "Skipping TMDB auto-matching for web/adult provider: providerId=$providerId, title=$rawTitle")
+            return@withContext null
+        }
+
         val cleanTitle = cleanTitleForSearch(rawTitle)
         val lower = cleanTitle.lowercase()
 
         val liveTmdb = searchTmdbDetails(cleanTitle, videoId)
         if (liveTmdb != null) return@withContext liveTmdb
+
+        if (isWebOrAdultProvider(providerId)) {
+            return@withContext null
+        }
 
         return@withContext getLocalDetailsForTitle(rawTitle, lower)
     }
@@ -449,7 +501,7 @@ object TMDBHelper {
 
     suspend fun fetchCast(rawTitle: String): List<CastMember> = withContext(Dispatchers.IO) {
         val details = fetchMediaDetails(rawTitle)
-        return@withContext details.cast
+        return@withContext details?.cast ?: emptyList()
     }
 
     suspend fun fetchFilmographyForPerson(personName: String, personId: Int?): List<com.example.model.CastFilmographyItem> = withContext(Dispatchers.IO) {
@@ -937,7 +989,8 @@ object TMDBHelper {
         return@withContext list
     }
 
-    suspend fun resolveRealPoster(query: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolveRealPoster(query: String, providerId: String? = null): String? = withContext(Dispatchers.IO) {
+        if (isWebOrAdultProvider(providerId)) return@withContext null
         try {
             val encoded = URLEncoder.encode(query, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/multi?api_key=$TMDB_API_KEY&query=$encoded&page=1"

@@ -18,6 +18,7 @@ object XVideosProvider {
     private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -69,6 +70,22 @@ object XVideosProvider {
                 seenIds.add(path)
 
                 val thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
+
+                // Extract duration near match region if available
+                val startIdx = matcher.start()
+                val endIdx = (startIdx + 400).coerceAtMost(html.length)
+                val snippet = html.substring(startIdx, endIdx)
+                var durSec = -1L
+                val durMatch = Pattern.compile("""(?:duration|min|duration-box)[^>]*>([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)""").matcher(snippet)
+                if (durMatch.find()) {
+                    durSec = parseDurationToSeconds(durMatch.group(1))
+                } else {
+                    val fallbackDur = Pattern.compile("([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)").matcher(snippet)
+                    if (fallbackDur.find()) {
+                        durSec = parseDurationToSeconds(fallbackDur.group(1))
+                    }
+                }
+
                 val previewList = if (thumb.isNotBlank()) {
                     com.example.util.PreviewFrameResolver.resolvePreviewFrames(
                         VideoItem(id = "https://www.xvideos.com$path", title = title, uploaderName = "XVideos", thumbnailUrl = thumb, providerId = PROVIDER_ID)
@@ -81,6 +98,7 @@ object XVideosProvider {
                         title = title,
                         uploaderName = "XVideos",
                         thumbnailUrl = thumb,
+                        durationSeconds = durSec,
                         providerId = PROVIDER_ID,
                         previewThumbnails = previewList
                     )

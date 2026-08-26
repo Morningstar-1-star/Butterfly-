@@ -110,10 +110,10 @@ object ThumbnailOptimizer {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .bitmapConfig(Bitmap.Config.ARGB_8888)
-            .allowHardware(false)
-            .allowRgb565(false)
-            .crossfade(crossfadeMillis)
+            .bitmapConfig(Bitmap.Config.RGB_565)
+            .allowHardware(true)
+            .allowRgb565(true)
+            .crossfade(0)
             .dispatcher(Dispatchers.IO)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
             .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
@@ -148,7 +148,19 @@ object ThumbnailOptimizer {
             }
             lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                 builder.setHeader("Referer", "https://www.pornhub.com/")
-                builder.setHeader("Cookie", "age_verified=1")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1")
+            }
+            lowerUrl.contains("xvideos.com") || lowerUrl.contains("xv-cdn.com") || lowerUrl.contains("xvideos-cdn.com") -> {
+                builder.setHeader("Referer", "https://www.xvideos.com/")
+            }
+            lowerUrl.contains("xhamster.com") || lowerUrl.contains("xhcdn.com") -> {
+                builder.setHeader("Referer", "https://xhamster.com/")
+            }
+            lowerUrl.contains("redtube.com") || lowerUrl.contains("rdtcdn.com") -> {
+                builder.setHeader("Referer", "https://www.redtube.com/")
+            }
+            lowerUrl.contains("youporn.com") || lowerUrl.contains("ypncdn.com") -> {
+                builder.setHeader("Referer", "https://www.youporn.com/")
             }
             lowerUrl.contains("rule34video.com") || lowerUrl.contains("r34v.com") -> {
                 builder.setHeader("Referer", "https://rule34video.com/")
@@ -178,20 +190,8 @@ object ThumbnailOptimizer {
         preloadScope.launch {
             try {
                 videos.take(maxCount).forEach { video ->
-                    val url = getOptimizedThumbnailUrl(video.thumbnailUrl)
-                    if (!url.isNullOrBlank()) {
-                        val request = ImageRequest.Builder(context)
-                            .data(url)
-                            .memoryCacheKey(url)
-                            .diskCacheKey(url)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .networkCachePolicy(CachePolicy.ENABLED)
-                            .bitmapConfig(Bitmap.Config.ARGB_8888)
-                            .allowHardware(false)
-                            .allowRgb565(false)
-                            .dispatcher(Dispatchers.IO)
-                            .build()
+                    val request = buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 0, preferCompact = true)
+                    if (request != null) {
                         imageLoader.enqueue(request)
                     }
                 }
@@ -210,22 +210,14 @@ object ThumbnailOptimizer {
 
         preloadScope.launch {
             try {
-                urls.filterNotNull().filter { it.isNotBlank() }.take(maxCount).forEach { rawUrl ->
-                    val optimized = getOptimizedThumbnailUrl(rawUrl) ?: rawUrl
-                    val request = ImageRequest.Builder(context)
-                        .data(optimized)
-                        .memoryCacheKey(optimized)
-                        .diskCacheKey(optimized)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .bitmapConfig(Bitmap.Config.ARGB_8888)
-                        .allowHardware(false)
-                        .allowRgb565(false)
-                        .dispatcher(Dispatchers.IO)
-                        .build()
-                    imageLoader.enqueue(request)
+                urls.filterNotNull().take(maxCount).forEach { rawUrl ->
+                    val request = buildThumbnailRequest(context, rawUrl, crossfadeMillis = 0, preferCompact = true)
+                    if (request != null) {
+                        imageLoader.enqueue(request)
+                    }
                 }
             } catch (ignored: Exception) {
+                // Ignore background prefetch errors gracefully
             }
         }
     }

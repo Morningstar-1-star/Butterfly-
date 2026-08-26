@@ -18,18 +18,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Repair Gradle Wrapper
-        run: |
-          rm -f gradle/wrapper/gradle-wrapper.jar
-          curl -L \
-            -o gradle/wrapper/gradle-wrapper.jar \
-            https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.7
 
       - name: Make Gradle executable
-        run: chmod +x ./gradlew
+        run: chmod +x ./gradlew || true
 
       - name: Build APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

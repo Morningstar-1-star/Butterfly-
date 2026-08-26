@@ -42,6 +42,7 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.AvatarCustomizerSheet
 import com.example.ui.components.BuiltinAvatarPresets
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +86,14 @@ fun AccountScreen(
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAvatarPickerSheet by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
+
+    val googleAccount by com.example.util.GoogleDriveSyncManager.accountState.collectAsState()
+    val syncStatusText by com.example.util.GoogleDriveSyncManager.syncStatus.collectAsState()
+    val isSyncingData by com.example.util.GoogleDriveSyncManager.isSyncing.collectAsState()
+    var showGoogleDriveSyncDialog by remember { mutableStateOf(false) }
+    var showGoogleSignInDialog by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val savedMoviesAndTv = remember(watchLaterList) {
         watchLaterList.filter { 
@@ -219,6 +228,35 @@ fun AccountScreen(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(14.dp).padding(start = 2.dp)
                                 )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (googleAccount.isLoggedIn) Color(0xFF1E3A5F) else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.clickable {
+                                    if (googleAccount.isLoggedIn) showGoogleDriveSyncDialog = true else showGoogleSignInDialog = true
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = "Google Drive Sync",
+                                        tint = if (googleAccount.isLoggedIn) Color(0xFF00E5FF) else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (googleAccount.isLoggedIn) "Google Drive: ${googleAccount.email.take(18)}..." else "Sign in to Google Drive",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (googleAccount.isLoggedIn) Color(0xFF00E5FF) else MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
@@ -629,6 +667,197 @@ fun AccountScreen(
                         avatarUrl = avatarUrl,
                         avatarPreset = presetId
                     )
+                }
+            )
+        }
+
+        // GOOGLE SIGN IN DIALOG
+        if (showGoogleSignInDialog) {
+            var inputEmail by remember { mutableStateOf(userProfile.name.lowercase().replace(" ", "") + "@gmail.com") }
+            var inputName by remember { mutableStateOf(userProfile.name.ifBlank { "Lucifer" }) }
+
+            AlertDialog(
+                onDismissRequest = { showGoogleSignInDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.CloudUpload,
+                        contentDescription = "Google Sign In",
+                        tint = Color(0xFF4285F4),
+                        modifier = Modifier.size(32.dp)
+                    )
+                },
+                title = { Text("Sign in with Google Account", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Connect your Google Account to automatically backup and sync your watch history, saved playlists, and settings to Google Drive AppData.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = inputName,
+                            onValueChange = { inputName = it },
+                            label = { Text("Display Name") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = inputEmail,
+                            onValueChange = { inputEmail = it },
+                            label = { Text("Google Account Email") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            com.example.util.GoogleDriveSyncManager.signInWithGoogle(
+                                context = context,
+                                email = inputEmail.ifBlank { "user@gmail.com" },
+                                displayName = inputName.ifBlank { "Lucifer" }
+                            )
+                            viewModel.updateUserProfile(
+                                name = inputName.ifBlank { "Lucifer" },
+                                handle = "@${inputName.lowercase().replace(" ", "")}",
+                                bio = userProfile.bio,
+                                avatarUrl = userProfile.avatarUrl,
+                                avatarPreset = userProfile.avatarPreset
+                            )
+                            showGoogleSignInDialog = false
+                            coroutineScope.launch {
+                                com.example.util.GoogleDriveSyncManager.backupToGoogleDrive(
+                                    context = context,
+                                    history = watchHistory,
+                                    likedVideos = likedVideos,
+                                    watchLaterList = watchLaterList
+                                )
+                            }
+                        }
+                    ) {
+                        Text("Sign In & Sync")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showGoogleSignInDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // GOOGLE DRIVE SYNC SETTINGS DIALOG
+        if (showGoogleDriveSyncDialog) {
+            AlertDialog(
+                onDismissRequest = { showGoogleDriveSyncDialog = false },
+                title = { Text("Google Drive Cloud Sync", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF4285F4),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(googleAccount.displayName.ifBlank { "Google User" }, fontWeight = FontWeight.Bold)
+                                Text(googleAccount.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Text(
+                            text = syncStatusText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Auto-sync on startup", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = googleAccount.autoSyncEnabled,
+                                onCheckedChange = { enabled ->
+                                    com.example.util.GoogleDriveSyncManager.toggleAutoSync(context, enabled)
+                                }
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    com.example.util.GoogleDriveSyncManager.verifyGoogleDriveConnection(context)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Verify Google Drive Connection")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val restored = com.example.util.GoogleDriveSyncManager.restoreFromGoogleDrive(context)
+                                    // Apply restored data if needed
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restore Backup from Google Drive")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    com.example.util.GoogleDriveSyncManager.backupToGoogleDrive(
+                                        context = context,
+                                        history = watchHistory,
+                                        likedVideos = likedVideos,
+                                        watchLaterList = watchLaterList
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Backup History & Playlists Now")
+                        }
+
+                        TextButton(
+                            onClick = {
+                                com.example.util.GoogleDriveSyncManager.signOut(context)
+                                showGoogleDriveSyncDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Sign Out of Google Account", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showGoogleDriveSyncDialog = false }) {
+                        Text("Done")
+                    }
                 }
             )
         }
@@ -1275,11 +1504,16 @@ private fun HistoryVideoCard(
                 },
                 onDragEnd = {
                     isScrubbing = false
-                    if (kotlin.math.abs(dragAccumulator) > 15f) {
+                    if (dragAccumulator < -40f) {
                         isAutoPlaying = true
+                    } else {
+                        isAutoPlaying = false
                     }
                 },
-                onDragCancel = { isScrubbing = false },
+                onDragCancel = { 
+                    isScrubbing = false 
+                    isAutoPlaying = false
+                },
                 onHorizontalDrag = { change, dragAmount ->
                     change.consume()
                     dragAccumulator += dragAmount

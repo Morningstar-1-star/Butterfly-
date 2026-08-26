@@ -209,6 +209,13 @@ object VideoEnhancementEngine {
      * GPU cadence callback to check frame rates and safely downgrade shaders if dropped frames rise.
      */
     fun onRenderFrame() {
+        onGpuFrameProcessed(System.nanoTime() / 1000)
+    }
+
+    /**
+     * True decoded video frame processing telemetry callback from Media3 GlShaderProgram.
+     */
+    fun onGpuFrameProcessed(presentationTimeUs: Long) {
         frameCountSinceLastCheck++
         val now = System.currentTimeMillis()
         val elapsed = now - lastFpsCheckTime

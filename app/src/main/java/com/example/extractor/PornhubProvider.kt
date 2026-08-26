@@ -5,17 +5,21 @@ import android.util.Log
 import com.example.model.PlayableStreamOption
 import com.example.model.ProviderType
 import com.example.model.StreamData
+import com.example.model.VideoItem
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 object PornhubProvider {
     private const val TAG = "PornhubProvider"
+    const val PROVIDER_ID = "pornhub"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -24,6 +28,85 @@ object PornhubProvider {
     private const val DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     private const val BYPASS_IP = "208.80.154.224"
     private const val BYPASS_COOKIES = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en"
+
+    fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
+        val apiUrl = "https://www.pornhub.com/webmasters/search?thumbsize=medium&ordering=mostviewed&page=$page"
+        return parseWebmastersApi(apiUrl, limit)
+    }
+
+    fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
+        if (query.isBlank()) return getHome(limit, page)
+        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val apiUrl = "https://www.pornhub.com/webmasters/search?search=$encoded&thumbsize=medium&page=$page"
+        return parseWebmastersApi(apiUrl, limit)
+    }
+
+    private fun parseWebmastersApi(apiUrl: String, limit: Int): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder()
+                .url(apiUrl)
+                .header("User-Agent", DEFAULT_UA)
+                .header("Cookie", BYPASS_COOKIES)
+                .header("Referer", "https://www.pornhub.com/")
+                .build()
+
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val root = JSONObject(jsonStr)
+            val videosArr = root.optJSONArray("videos") ?: return list
+
+            for (i in 0 until videosArr.length()) {
+                if (list.size >= limit) break
+                val vObj = videosArr.optJSONObject(i) ?: continue
+
+                val videoId = vObj.optString("video_id", "")
+                val title = vObj.optString("title", "Pornhub Video")
+                val url = vObj.optString("url", if (videoId.isNotBlank()) "https://www.pornhub.com/view_video.php?viewkey=$videoId" else "")
+                if (url.isBlank()) continue
+
+                var thumb = vObj.optString("default_thumb", "").ifBlank { vObj.optString("thumb", "") }
+                if (thumb.isBlank()) {
+                    val thumbsArr = vObj.optJSONArray("thumbs")
+                    if (thumbsArr != null && thumbsArr.length() > 0) {
+                        thumb = thumbsArr.optJSONObject(0)?.optString("src", "") ?: ""
+                    }
+                }
+                if (thumb.startsWith("//")) thumb = "https:$thumb"
+
+                val durStr = vObj.optString("duration", "0")
+                val durSec = parseDurationToSeconds(durStr)
+                val views = vObj.optLong("views", -1L)
+
+                list.add(
+                    VideoItem(
+                        id = url,
+                        title = title,
+                        uploaderName = "Pornhub",
+                        thumbnailUrl = thumb,
+                        durationSeconds = durSec,
+                        viewCount = views,
+                        providerId = PROVIDER_ID
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Pornhub Webmasters API error ($apiUrl): ${e.message}")
+        }
+        return list
+    }
+
+    private fun parseDurationToSeconds(durStr: String): Long {
+        if (durStr.isBlank()) return 0L
+        val parts = durStr.split(":")
+        var total = 0L
+        for (p in parts) {
+            total = total * 60 + (p.toLongOrNull() ?: 0L)
+        }
+        return total
+    }
 
     fun extractViewkey(urlOrId: String): String {
         val trimmed = urlOrId.trim()
@@ -86,12 +169,21 @@ object PornhubProvider {
                 thumb = metaThumb.group(1)?.trim() ?: ""
             }
 
-            // Extract flashvars
-            val flashvarsMatcher = Pattern.compile("var\\s+flashvars_\\d+\\s*=\\s*(\\{.*?\\});", Pattern.DOTALL).matcher(html)
+            // Extract flashvars or mediaDefinitions JSON
+            val flashvarsMatcher = Pattern.compile("var\\s+flashvars(?:_\\d+)?\\s*=\\s*(\\{.*?\\});", Pattern.DOTALL).matcher(html)
             val streamOptions = mutableListOf<PlayableStreamOption>()
 
+            var fvJsonStr = ""
             if (flashvarsMatcher.find()) {
-                val fvJsonStr = flashvarsMatcher.group(1) ?: ""
+                fvJsonStr = flashvarsMatcher.group(1) ?: ""
+            } else {
+                val mediaDefMatcher = Pattern.compile("\"mediaDefinitions\"\\s*:\\s*(\\[.*?\\])", Pattern.DOTALL).matcher(html)
+                if (mediaDefMatcher.find()) {
+                    fvJsonStr = "{\"mediaDefinitions\":" + (mediaDefMatcher.group(1) ?: "[]") + "}"
+                }
+            }
+
+            if (fvJsonStr.isNotBlank()) {
                 try {
                     val fvObj = JSONObject(fvJsonStr)
                     if (fvObj.has("mediaDefinitions")) {
@@ -112,7 +204,7 @@ object PornhubProvider {
                                     val subReq = Request.Builder()
                                         .url(rawUrl)
                                         .header("User-Agent", DEFAULT_UA)
-                                        .header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                                        .header("Cookie", BYPASS_COOKIES)
                                         .header("Referer", "https://www.pornhub.com/")
                                         .build()
                                     val subResp = httpClient.newCall(subReq).execute().use { it.body?.string() }
@@ -135,7 +227,7 @@ object PornhubProvider {
                                                         headers = mapOf(
                                                             "Referer" to "https://www.pornhub.com/",
                                                             "User-Agent" to DEFAULT_UA,
-                                                            "Cookie" to "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US"
+                                                            "Cookie" to BYPASS_COOKIES
                                                         )
                                                     )
                                                 )

@@ -189,12 +189,12 @@ fun VideoCard(
     var dragAccumulator by remember { mutableFloatStateOf(0f) }
     val view = LocalView.current
 
-    // Automatic Teaser Loop: cycles through preview frames like an animated video
+    // Automatic Teaser Loop: cycles through preview frames ONLY when explicitly activated by left swipe
     LaunchedEffect(isAutoPlaying, previewFrames) {
         if (isAutoPlaying && isScrubbable) {
             PreviewFrameResolver.prefetchFrames(context, previewFrames)
             while (isAutoPlaying) {
-                kotlinx.coroutines.delay(200L) // 5 FPS animated teaser playback
+                kotlinx.coroutines.delay(250L) // 4 FPS lightweight teaser preview
                 currentFrameIndex = (currentFrameIndex + 1) % previewFrames.size
                 scrubFraction = (currentFrameIndex + 1).toFloat() / previewFrames.size
             }
@@ -223,7 +223,7 @@ fun VideoCard(
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
             context,
             activeImageUrl,
-            crossfadeMillis = if (isPreviewActive) 0 else 100
+            crossfadeMillis = if (isPreviewActive) 0 else 60
         )
     }
 
@@ -232,35 +232,33 @@ fun VideoCard(
             detectHorizontalDragGestures(
                 onDragStart = { offset ->
                     dragAccumulator = 0f
-                    PreviewFrameResolver.prefetchFrames(context, previewFrames)
-                    if (!isAutoPlaying) {
-                        isScrubbing = true
-                        val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
-                        scrubFraction = frac
-                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
+                    if (isAutoPlaying) {
+                        isAutoPlaying = false
                     }
+                    isScrubbing = true
+                    val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
+                    scrubFraction = frac
+                    currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
                 },
                 onDragEnd = {
                     isScrubbing = false
-                    // If user swiped past small threshold or flung, activate automated continuous teaser playback
-                    if (kotlin.math.abs(dragAccumulator) > 15f) {
+                    // Only start auto teaser loop if user explicitly swiped LEFT (negative delta) with significant intent
+                    if (dragAccumulator < -40f) {
                         isAutoPlaying = true
+                    } else {
+                        isAutoPlaying = false
                     }
                 },
                 onDragCancel = {
                     isScrubbing = false
+                    isAutoPlaying = false
                 },
                 onHorizontalDrag = { change, dragAmount ->
                     change.consume()
                     dragAccumulator += dragAmount
-                    if (!isAutoPlaying) {
-                        val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
-                        scrubFraction = frac
-                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
-                    } else if (kotlin.math.abs(dragAccumulator) > 40f) {
-                        // A strong reverse swipe can toggle/reset auto play
-                        isAutoPlaying = true
-                    }
+                    val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
+                    scrubFraction = frac
+                    currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
                 }
             )
         }
@@ -271,7 +269,7 @@ fun VideoCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .bounceClick(scaleDown = 0.97f) {
+            .clickable {
                 if (!isScrubbing) onClick()
             },
         shape = RoundedCornerShape(0.dp),

@@ -96,6 +96,9 @@ fun VideoPlayerScreen(
     val failedSourceLogs by viewModel.failedSourceLogs.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
+    val videoComments by viewModel.videoComments.collectAsState()
+    val isCommentsLoading by viewModel.isCommentsLoading.collectAsState()
+    var selectedPillTab by remember { mutableStateOf("RELATED") } // "RELATED", "COMMENTS"
 
     val currentVideoItem = remember(currentStreamData, activeVideoId, activeVideoItem, trendingVideos, searchResults) {
         if (currentStreamData != null) {
@@ -148,6 +151,12 @@ fun VideoPlayerScreen(
 
     val listState = rememberLazyListState()
     var showLandscapeRelatedDrawer by remember { mutableStateOf(false) }
+    var showServerSelectorSheet by remember { mutableStateOf(false) }
+
+    val unifiedCandidates by viewModel.unifiedCandidates.collectAsState()
+    val activeSourceCandidate by viewModel.activeSourceCandidate.collectAsState()
+    val isResolvingUnifiedSources by viewModel.isResolvingUnifiedSources.collectAsState()
+    val unifiedStatusMessage by viewModel.unifiedStatusMessage.collectAsState()
 
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -168,6 +177,18 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
         viewModel.loadMorePlayerRecommendations(currentStreamData)
+    }
+
+    LaunchedEffect(displayTitle, activeVideoId) {
+        if (displayTitle.isNotBlank() && displayTitle != "Loading video...") {
+            val cleanTitle = displayTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
+            viewModel.resolveUnifiedSourcesForMedia(
+                com.example.model.MediaIdentity(
+                    title = cleanTitle,
+                    mediaType = if (cleanTitle.contains("season", true) || cleanTitle.contains("episode", true)) com.example.model.MediaType.TV else com.example.model.MediaType.MOVIE
+                )
+            )
+        }
     }
 
     LaunchedEffect(playbackEnded) {
@@ -409,7 +430,7 @@ fun VideoPlayerScreen(
                                         }
                                     }
                                 },
-                                onCommentsClick = {},
+                                onCommentsClick = { selectedPillTab = "COMMENTS" },
                                 onChannelClick = { channelName ->
                                     viewModel.openChannel(channelName)
                                 },
@@ -427,7 +448,8 @@ fun VideoPlayerScreen(
                                 isDownloaded = isDownloaded,
                                 isDownloading = isDownloading,
                                 downloadProgress = 0f,
-                                onDownloadClick = { showDownloadQualitySheet = true }
+                                onDownloadClick = { showDownloadQualitySheet = true },
+                                onServersClick = { showServerSelectorSheet = true }
                             )
                         }
 
@@ -443,53 +465,124 @@ fun VideoPlayerScreen(
                             }
                         }
 
-                        // Related Videos Header
+                        // Modern Pill Tab Navigation Bar (Related Videos vs Comments)
                         item {
-                            Text(
-                                text = "Related Videos",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                FilterChip(
+                                    selected = selectedPillTab == "RELATED",
+                                    onClick = { selectedPillTab = "RELATED" },
+                                    label = {
+                                        Text(
+                                            text = "Related Videos",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.VideoLibrary,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+
+                                FilterChip(
+                                    selected = selectedPillTab == "COMMENTS",
+                                    onClick = { selectedPillTab = "COMMENTS" },
+                                    label = {
+                                        Text(
+                                            text = "Comments (${videoComments.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Comment,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                            }
                         }
 
-                        // Related Videos List
-                        if (relatedContent.isNotEmpty()) {
-                            items(relatedContent, key = { "rel_${it.providerId ?: ""}_${it.id}" }) { video ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 0.dp)
-                                ) {
-                                    VideoCard(
-                                        video = video,
-                                        showProviderBadge = showThumbnailTags,
-                                        onClick = {
-                                            viewModel.playVideo(video.id, video.providerId)
-                                        },
-                                        onChannelClick = { channelName -> viewModel.openChannel(channelName) },
-                                        onNotInterested = { v -> viewModel.markNotInterested(v) },
-                                        onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
-                                        onAddToQueue = { v -> viewModel.addToQueue(v) },
-                                        onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                        onDownload = { v -> viewModel.showDownloadSheet(v) }
-                                    )
-                                }
+                        // Tab Content Section
+                        if (selectedPillTab == "COMMENTS") {
+                            item {
+                                com.example.ui.components.VideoCommentsSection(
+                                    comments = videoComments,
+                                    isLoading = isCommentsLoading,
+                                    onAddComment = { text ->
+                                        activeVideoId?.let { vid -> viewModel.addComment(text, vid) }
+                                    },
+                                    onLikeComment = { commentId ->
+                                        viewModel.toggleCommentLike(commentId)
+                                    },
+                                    onSeekToTimestamp = { ms ->
+                                        GlobalPlayerManager.seekTo(ms)
+                                    }
+                                )
                             }
                         } else {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "No related videos available.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                            // Related Videos List
+                            if (relatedContent.isNotEmpty()) {
+                                items(relatedContent, key = { "rel_${it.providerId ?: ""}_${it.id}" }) { video ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 0.dp)
+                                    ) {
+                                        VideoCard(
+                                            video = video,
+                                            showProviderBadge = showThumbnailTags,
+                                            onClick = {
+                                                viewModel.playVideo(video.id, video.providerId)
+                                            },
+                                            onChannelClick = { channelName -> viewModel.openChannel(channelName) },
+                                            onNotInterested = { v -> viewModel.markNotInterested(v) },
+                                            onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                                            onAddToQueue = { v -> viewModel.addToQueue(v) },
+                                            onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                            onDownload = { v -> viewModel.showDownloadSheet(v) }
+                                        )
+                                    }
+                                }
+                            } else {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No related videos available.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -542,6 +635,21 @@ fun VideoPlayerScreen(
                 }
             },
             onDismissRequest = { showDownloadQualitySheet = false }
+        )
+    }
+
+    // UNIFIED SERVERS & SOURCES SELECTOR SHEET (Vega Direct Streams + BitTorrent Swarms)
+    if (showServerSelectorSheet) {
+        com.example.ui.player.UnifiedServerSelectorSheet(
+            candidates = unifiedCandidates,
+            activeCandidate = activeSourceCandidate,
+            isResolving = isResolvingUnifiedSources,
+            statusMessage = unifiedStatusMessage,
+            onSelectCandidate = { candidate ->
+                showServerSelectorSheet = false
+                viewModel.switchUnifiedSource(candidate)
+            },
+            onDismiss = { showServerSelectorSheet = false }
         )
     }
 

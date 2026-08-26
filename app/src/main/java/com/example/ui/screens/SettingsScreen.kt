@@ -49,6 +49,7 @@ fun SettingsScreen(
     val recentSearches by viewModel.recentSearches.collectAsState()
 
     var isAppearanceExpanded by remember { mutableStateOf(true) }
+    var isDnsExpanded by remember { mutableStateOf(true) }
     var isProvidersExpanded by remember { mutableStateOf(true) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isSmartSkipExpanded by remember { mutableStateOf(false) }
@@ -449,10 +450,280 @@ fun SettingsScreen(
 
                     SettingsSwitchRow(
                         title = "18+ Adult Content",
-                        subtitle = "Enable adult and mature streaming options",
+                        subtitle = "Enable adult and mature streaming options (Hides normal sources when active)",
                         checked = adultContentEnabled,
                         onCheckedChange = { viewModel.setAdultContentEnabled(it) }
                     )
+                }
+            }
+
+            // 1B. SECURE DNS & DOH (BYPASS ISP BLOCKS)
+            item {
+                val isSecureDnsEnabled by viewModel.isSecureDnsEnabled.collectAsState()
+                val selectedDnsProvider by viewModel.selectedDnsProvider.collectAsState()
+                val customDnsUrl by viewModel.customDnsUrl.collectAsState()
+                val dnsTestResult by viewModel.dnsTestResult.collectAsState()
+
+                var customUrlInput by remember(customDnsUrl) { mutableStateOf(customDnsUrl) }
+
+                ExpandableSettingsCard(
+                    title = "Secure DNS (Bypass ISP Blocks)",
+                    icon = Icons.Outlined.Dns,
+                    isExpanded = isDnsExpanded,
+                    onToggleExpand = { isDnsExpanded = !isDnsExpanded },
+                    badgeText = if (isSecureDnsEnabled) selectedDnsProvider.displayName else "Disabled (ISP)"
+                ) {
+                    SettingsSwitchRow(
+                        title = "Enable Secure DNS (DNS-over-HTTPS)",
+                        subtitle = "Encrypts domain lookups over HTTPS to bypass ISP domain sinkholes and access blocked providers (e.g. Pornhub, XHamster, adult CDNs).",
+                        checked = isSecureDnsEnabled,
+                        onCheckedChange = { viewModel.setSecureDnsEnabled(it) }
+                    )
+
+                    AnimatedVisibility(visible = isSecureDnsEnabled) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                            Text(
+                                text = "Choose Secure DNS Provider",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Selecting an encrypted DNS server hides your requests from your local ISP and unblocks video sources.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                com.example.util.DnsProvider.values().forEach { provider ->
+                                    val isSelected = (selectedDnsProvider == provider)
+                                    Surface(
+                                        onClick = { viewModel.setSelectedDnsProvider(provider) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                        ) {
+                                            RadioButton(
+                                                selected = isSelected,
+                                                onClick = { viewModel.setSelectedDnsProvider(provider) }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = provider.displayName,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    if (provider == com.example.util.DnsProvider.CLOUDFLARE) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        ) {
+                                                            Text(
+                                                                text = "Recommended",
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Text(
+                                                    text = provider.description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (selectedDnsProvider == com.example.util.DnsProvider.CUSTOM) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = customUrlInput,
+                                    onValueChange = {
+                                        customUrlInput = it
+                                        viewModel.setCustomDnsUrl(it)
+                                    },
+                                    label = { Text("Custom DoH URL") },
+                                    placeholder = { Text("https://dns.nextdns.io/doh") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { viewModel.setCustomDnsUrl(customUrlInput) }) {
+                                            Icon(Icons.Default.Check, contentDescription = "Save")
+                                        }
+                                    }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Text(
+                                text = "DNS Resolution Diagnostic Test",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Test if your chosen DNS server can resolve blocked domains (e.g. pornhub.com) and measure latency.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Button(
+                                onClick = { viewModel.runDnsDiagnosticTest("pornhub.com") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Test DNS Resolution (pornhub.com)")
+                            }
+
+                            dnsTestResult?.let { result ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (result.isSuccess) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (result.isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (result.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                                                contentDescription = null,
+                                                tint = if (result.isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                            )
+                                            Text(
+                                                text = if (result.isSuccess) "DNS Resolution Successful!" else "DNS Resolution Failed",
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Active Provider: ${result.providerName} | Latency: ${result.latencyMs} ms",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (result.isSuccess) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Resolved IP Addresses:\n${result.resolvedIps.joinToString("\n")}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        } else {
+                                            result.errorMessage?.let { err ->
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Error: $err",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1B. SOURCE SELECTION & TOGGLES
+            item {
+                val enabledProviderIds by viewModel.enabledProviderIds.collectAsState()
+                val adultEnabled by viewModel.adultContentEnabled.collectAsState()
+
+                val availableSourcesList = remember(adultEnabled) {
+                    if (adultEnabled) {
+                        listOf(
+                            Pair("pornhub", "Pornhub"),
+                            Pair("eporner", "Eporner"),
+                            Pair("xvideos", "XVideos"),
+                            Pair("4tube", "4Tube"),
+                            Pair("beeg", "Beeg"),
+                            Pair("rule34video", "Rule34Video"),
+                            Pair("redtube", "RedTube"),
+                            Pair("xhamster", "xHamster"),
+                            Pair("youporn", "YouPorn")
+                        )
+                    } else {
+                        listOf(
+                            Pair("youtube", "YouTube"),
+                            Pair("archive_org", "Internet Archive"),
+                            Pair("torrent", "Torrent Media"),
+                            Pair("dailymotion", "Dailymotion"),
+                            Pair("bilibili", "Bilibili"),
+                            Pair("vimeo", "Vimeo"),
+                            Pair("hotstar", "Hotstar")
+                        )
+                    }
+                }
+
+                ExpandableSettingsCard(
+                    title = "Source Selection & Management",
+                    icon = Icons.Outlined.Tune,
+                    isExpanded = isProvidersExpanded,
+                    onToggleExpand = { isProvidersExpanded = !isProvidersExpanded },
+                    badgeText = "${enabledProviderIds.filter { it != "all" }.size} Enabled"
+                ) {
+                    Text(
+                        text = if (adultEnabled) "Active 18+ Adult Sources" else "Active Normal Media Sources",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Manually select which video sources are enabled or disabled.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    availableSourcesList.forEach { (pid, pName) ->
+                        val isChecked = enabledProviderIds.contains(pid)
+                        SettingsSwitchRow(
+                            title = pName,
+                            subtitle = if (isChecked) "Source enabled" else "Source disabled",
+                            checked = isChecked,
+                            onCheckedChange = { viewModel.toggleProviderEnabled(pid, it) }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
                 }
             }
 

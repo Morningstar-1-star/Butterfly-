@@ -70,6 +70,7 @@ fun VideoDetailsSection(
     isDownloading: Boolean = false,
     downloadProgress: Float = 0f,
     onDownloadClick: () -> Unit = {},
+    onServersClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isDescriptionExpanded by remember { mutableStateOf(false) }
@@ -91,13 +92,19 @@ fun VideoDetailsSection(
     val currentDescription = streamData?.description?.takeIf { it.isNotBlank() } ?: previewItem?.description
     val currentProviderId = streamData?.providerId ?: previewItem?.providerId
 
-    var mediaDetails by remember(currentVideoId, currentTitle) {
+    var forceTmdbLookup by remember(currentVideoId, currentTitle) { mutableStateOf(false) }
+    var mediaDetails by remember(currentVideoId, currentTitle, forceTmdbLookup) {
         mutableStateOf<MediaDetailInfo?>(null)
     }
 
-    LaunchedEffect(currentVideoId, currentTitle) {
+    LaunchedEffect(currentVideoId, currentTitle, currentProviderId, forceTmdbLookup) {
         if (currentTitle.isNotBlank()) {
-            mediaDetails = TMDBHelper.fetchMediaDetails(currentTitle, currentVideoId)
+            mediaDetails = TMDBHelper.fetchMediaDetails(
+                rawTitle = currentTitle,
+                videoId = currentVideoId,
+                providerId = currentProviderId,
+                forceTmdb = forceTmdbLookup
+            )
         } else {
             mediaDetails = null
         }
@@ -477,6 +484,17 @@ fun VideoDetailsSection(
                 onClick = onDownloadClick
             )
 
+            // Servers & Sources Pill (Unified Vega + Torrent Resolver)
+            if (onServersClick != null) {
+                ActionPill(
+                    icon = Icons.Default.Dns,
+                    label = "Servers",
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    onClick = onServersClick
+                )
+            }
+
             // Thanks Pill
             ActionPill(
                 icon = Icons.Outlined.VolunteerActivism,
@@ -646,6 +664,19 @@ fun VideoDetailsSection(
                     maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 3,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                if (mediaDetails == null && TMDBHelper.isWebOrAdultProvider(currentProviderId) && isDescriptionExpanded && !forceTmdbLookup) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { forceTmdbLookup = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Search TMDB Movie Details (For Trailers)", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
 
                 // Top Cast (Always visible directly in description without needing to click Show More)
                 val castList = mediaDetails?.cast ?: emptyList()

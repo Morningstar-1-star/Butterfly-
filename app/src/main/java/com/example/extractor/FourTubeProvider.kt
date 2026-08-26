@@ -23,6 +23,7 @@ object FourTubeProvider {
     private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -35,7 +36,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2095641/petite-beauty-morning-passion",
             title = "Petite Beauty Morning Passion HD",
             uploaderName = "4Tube Studios",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202305/18/431872141/thumbs_40/(m=eaSaaSbWaaa)(mh=j_47oFk_YfXl-Xlq)1.jpg",
+            thumbnailUrl = "https://c2.ttcache.com/thumbnail/CqLIdMQU3gM/288x162/17.jpg",
             durationSeconds = 1245L,
             viewCount = 342000L,
             providerId = PROVIDER_ID
@@ -44,7 +45,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2084312/sensual-massage-relaxation-session",
             title = "Sensual Massage & Full Body Relaxation Session",
             uploaderName = "Sweet Passion",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202306/10/433391851/thumbs_40/(m=eaSaaSbWaaa)(mh=K59y-yq_q5X5)2.jpg",
+            thumbnailUrl = "https://c2.ttcache.com/thumbnail/fNRNVDSOD8T/288x162/141.jpg",
             durationSeconds = 1860L,
             viewCount = 612000L,
             providerId = PROVIDER_ID
@@ -53,7 +54,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2071985/romantic-getaway-in-paradise",
             title = "Romantic Getaway in Paradise Villa 4K",
             uploaderName = "LustCinema",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202307/04/434912011/thumbs_40/(m=eaSaaSbWaaa)(mh=lKm9_b4qQx)3.jpg",
+            thumbnailUrl = "https://c2.ttcache.com/thumbnail/lRW4Eho2d4x/288x162/23.jpg",
             durationSeconds = 1530L,
             viewCount = 890000L,
             providerId = PROVIDER_ID
@@ -62,7 +63,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2065842/brunette-stunning-hotel-encounter",
             title = "Stunning Brunette Private Hotel Encounter",
             uploaderName = "Glamour Exclusive",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202308/19/437912441/thumbs_40/(m=eaSaaSbWaaa)(mh=mN88_kLm9Q)4.jpg",
+            thumbnailUrl = "https://c2.ttcache.com/thumbnail/WfYdr9y5Tdw/288x162/1_240.jpg",
             durationSeconds = 1120L,
             viewCount = 478000L,
             providerId = PROVIDER_ID
@@ -71,7 +72,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2059124/college-sweethearts-secret-meeting",
             title = "College Sweethearts Secret Bedroom Meeting",
             uploaderName = "Youthful Moments",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202309/02/438812551/thumbs_40/(m=eaSaaSbWaaa)(mh=nL99_pQr7T)5.jpg",
+            thumbnailUrl = "https://c3.ttcache.com/thumbnail/gEHSQOXxMNQ/288x162/6.jpg",
             durationSeconds = 1410L,
             viewCount = 725000L,
             providerId = PROVIDER_ID
@@ -80,7 +81,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2048991/blonde-goddess-luxurious-spa-day",
             title = "Blonde Goddess Luxurious Spa Day Relaxation",
             uploaderName = "Pure Elegance",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202309/25/440212331/thumbs_40/(m=eaSaaSbWaaa)(mh=qR55_tVw8U)6.jpg",
+            thumbnailUrl = "https://c3.ttcache.com/thumbnail/X88ksf1wzGc/288x162/18.jpg",
             durationSeconds = 1690L,
             viewCount = 530000L,
             providerId = PROVIDER_ID
@@ -89,7 +90,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2037654/japanese-sensory-experience-tokyo",
             title = "Japanese Sensory Experience in Tokyo Suite",
             uploaderName = "Tokyo Dreams",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202310/14/441412881/thumbs_40/(m=eaSaaSbWaaa)(mh=sT44_uWx9Y)7.jpg",
+            thumbnailUrl = "https://c4.ttcache.com/thumbnail/oqPcEwowTCd/288x162/a6a2f558af5f83d0cf329762536f5d18_pbw.jpg",
             durationSeconds = 2100L,
             viewCount = 985000L,
             providerId = PROVIDER_ID
@@ -98,7 +99,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2026543/sunset-beach-intimate-moments",
             title = "Sunset Beach Intimate Twilight Moments",
             uploaderName = "Ocean Breeze",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202311/08/443012991/thumbs_40/(m=eaSaaSbWaaa)(mh=vW33_zAb1C)8.jpg",
+            thumbnailUrl = "https://c2.ttcache.com/thumbnail/hcpTNIO5BBX/288x162/1-7WS.jpg",
             durationSeconds = 1350L,
             viewCount = 412000L,
             providerId = PROVIDER_ID
@@ -107,7 +108,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2015432/pov-romantic-date-night-special",
             title = "POV Romantic Date Night & Candlelight Special",
             uploaderName = "First Person POV",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202312/01/444412111/thumbs_40/(m=eaSaaSbWaaa)(mh=xY22_bCd3E)9.jpg",
+            thumbnailUrl = "https://c1.ttcache.com/thumbnail/7AGONP3YSIM/288x162/16.jpg",
             durationSeconds = 1780L,
             viewCount = 1150000L,
             providerId = PROVIDER_ID
@@ -116,7 +117,7 @@ object FourTubeProvider {
             id = "https://www.4tube.com/videos/2004321/exotic-milf-weekend-adventure",
             title = "Exotic Beauty Weekend Villa Adventure",
             uploaderName = "Mature Allure",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202401/15/446812221/thumbs_40/(m=eaSaaSbWaaa)(mh=zA11_dEf5G)10.jpg",
+            thumbnailUrl = "https://c2.ttcache.com/thumbnail/CqLIdMQU3gM/288x162/17.jpg",
             durationSeconds = 1620L,
             viewCount = 670000L,
             providerId = PROVIDER_ID
@@ -424,8 +425,8 @@ object FourTubeProvider {
                     }
                 }
                 if (thumb.startsWith("//")) thumb = "https:$thumb"
-                if (thumb.isBlank()) {
-                    thumb = "https://ci.phncdn.com/videos/${id.takeLast(6)}/thumbs_40/(m=eaSaaSbWaaa)1.jpg"
+                if (thumb.isBlank() || thumb.contains("ci.phncdn.com")) {
+                    thumb = "https://c2.ttcache.com/thumbnail/CqLIdMQU3gM/288x162/17.jpg"
                 }
 
                 var duration = -1L

@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class TorrentHttpServer(
     private val engine: TorrentEngine,
-    val port: Int = 8899
+    val port: Int = 0 // 0 means dynamic ephemeral port
 ) {
     companion object {
         private const val TAG = "TorrentHttpServer"
@@ -26,17 +26,29 @@ class TorrentHttpServer(
     private var serverSocket: ServerSocket? = null
     private val isRunning = AtomicBoolean(false)
 
+    val assignedPort: Int
+        get() = serverSocket?.localPort ?: if (port > 0) port else 8899
+
+    val streamUrl: String
+        get() = "http://127.0.0.1:$assignedPort/stream"
+
     fun start() {
         if (isRunning.getAndSet(true)) return
 
         serverScope.launch {
             try {
-                serverSocket = ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
-                Log.i(TAG, "Torrent HTTP bridge server listening on http://127.0.0.1:$port")
+                // If port is 0 or fails on specific port, bind to free ephemeral port
+                val boundSocket = try {
+                    ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
+                } catch (e: Exception) {
+                    ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+                }
+                serverSocket = boundSocket
+                Log.i(TAG, "Torrent HTTP bridge server listening on http://127.0.0.1:${boundSocket.localPort}")
 
                 while (isRunning.get()) {
                     val clientSocket = try {
-                        serverSocket?.accept() ?: break
+                        boundSocket.accept()
                     } catch (_: Exception) {
                         break
                     }

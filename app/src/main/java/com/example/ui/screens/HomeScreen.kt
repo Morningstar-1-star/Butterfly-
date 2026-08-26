@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.launch
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -92,6 +93,7 @@ fun HomeScreen(
     val isSearchExpandedState by viewModel.isSearchExpanded.collectAsState()
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -103,7 +105,18 @@ fun HomeScreen(
     var isBarsVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
 
+    var topAppBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var fullHeaderHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var scrollOffsetPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+
     val feedListState = rememberLazyListState()
+
+    LaunchedEffect(activeProviderId, activeCategory) {
+        feedListState.scrollToItem(0)
+        scrollOffsetPx = 0f
+        isBarsVisible = true
+    }
 
     LaunchedEffect(currentScreen, isSearchExpanded) {
         isBarsVisible = true
@@ -127,11 +140,6 @@ fun HomeScreen(
             }
         }
     }
-
-    var topAppBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var fullHeaderHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var scrollOffsetPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
 
     val maxScrollOffsetPx = fullHeaderHeightPx.coerceAtLeast(1f)
 
@@ -368,30 +376,12 @@ fun HomeScreen(
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                            val isSpecificAdultSource = viewModel.isAdultProviderId(activeProviderId)
-                            val feedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled, activeProviderId) {
-                                val filtered = rawFeed
-                                    .filterNot { viewModel.isBlockedVideo(it) }
-                                    .filter { adultContentEnabled || isSpecificAdultSource || !viewModel.isAdultVideoItem(it) }
-                                    .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
-                                    .distinctBy { "${it.providerId}_${it.id}" }
-                                if (searchResults.isNotEmpty()) {
-                                    filtered
-                                } else {
-                                    viewModel.rankFeedWithRecommendations(filtered)
-                                }
-                            }
-                            val shortsFeedList = remember(rawFeed, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels, adultContentEnabled, activeProviderId) {
-                                rawFeed
-                                    .filterNot { viewModel.isBlockedVideo(it) }
-                                    .filter { adultContentEnabled || isSpecificAdultSource || !viewModel.isAdultVideoItem(it) }
-                                    .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
-                                    .distinctBy { "${it.providerId}_${it.id}" }
-                            }
+                            val feedList = remember(rawFeed) { rawFeed }
+                            val shortsFeedList = remember(rawFeed) { rawFeed }
 
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
-                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 12)
+                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 24)
                                 }
                             }
 
@@ -400,7 +390,12 @@ fun HomeScreen(
 
                             PullToRefreshBox(
                                 isRefreshing = isRefreshingFeed,
-                                onRefresh = { viewModel.refreshFeed() },
+                                onRefresh = {
+                                    coroutineScope.launch {
+                                        feedListState.scrollToItem(0)
+                                    }
+                                    viewModel.refreshFeed()
+                                },
                                 state = pullRefreshState,
                                 indicator = {
                                     PullToRefreshDefaults.Indicator(
@@ -625,7 +620,7 @@ fun HomeScreen(
             val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
             val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
 
-            val headerTranslationY = animatedScrollOffsetPx.coerceIn(-fullHeaderHeightPx, 0f)
+            val headerTranslationY = scrollOffsetPx.coerceIn(-fullHeaderHeightPx, 0f)
 
             // Combined Collapsible Header + Tags Column
             Column(
@@ -654,7 +649,16 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable {
-                                        viewModel.navigateToScreen(AppScreen.SETTINGS)
+                                        if (currentScreen == AppScreen.HOME) {
+                                            coroutineScope.launch {
+                                                feedListState.animateScrollToItem(0)
+                                            }
+                                        } else {
+                                            viewModel.navigateToScreen(AppScreen.HOME)
+                                            coroutineScope.launch {
+                                                feedListState.scrollToItem(0)
+                                            }
+                                        }
                                     }
                                     .padding(vertical = 4.dp, horizontal = 2.dp)
                             ) {
@@ -873,7 +877,20 @@ fun HomeScreen(
                     userProfile = userProfile,
                     onSelectScreen = { screen ->
                         isSearchExpanded = false
-                        viewModel.navigateToScreen(screen)
+                        if (screen == AppScreen.HOME) {
+                            if (currentScreen == AppScreen.HOME) {
+                                coroutineScope.launch {
+                                    feedListState.animateScrollToItem(0)
+                                }
+                            } else {
+                                viewModel.navigateToScreen(AppScreen.HOME)
+                                coroutineScope.launch {
+                                    feedListState.scrollToItem(0)
+                                }
+                            }
+                        } else {
+                            viewModel.navigateToScreen(screen)
+                        }
                     }
                 )
             }

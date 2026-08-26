@@ -114,21 +114,7 @@ object GlobalPlayerManager {
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
         .addInterceptor(mediaHeaderInterceptor)
-        .dns(object : okhttp3.Dns {
-            override fun lookup(hostname: String): List<java.net.InetAddress> {
-                return try {
-                    okhttp3.Dns.SYSTEM.lookup(hostname)
-                } catch (e: java.net.UnknownHostException) {
-                    try {
-                        java.net.InetAddress.getAllByName(hostname).toList().ifEmpty {
-                            throw e
-                        }
-                    } catch (fallbackError: Throwable) {
-                        throw e
-                    }
-                }
-            }
-        })
+        .dns(com.example.util.SecureDnsManager.appDns)
         .build()
 
     private val _activeStreamData = MutableStateFlow<StreamData?>(null)
@@ -346,6 +332,8 @@ object GlobalPlayerManager {
                 .setBackBuffer(15_000, true)
                 .build()
 
+            val whisperProcessor = com.example.audio.WhisperAudioProcessor()
+            val audioEnhancementProcessor = com.example.ui.player.audio.AudioEnhancementEngine.getAudioProcessor()
             val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(context.applicationContext) {
                 override fun buildAudioSink(
                     context: Context,
@@ -353,7 +341,7 @@ object GlobalPlayerManager {
                     enableAudioTrackPlaybackParams: Boolean
                 ): androidx.media3.exoplayer.audio.AudioSink? {
                     return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
-                        .setAudioProcessors(arrayOf(com.example.audio.AudioEnhancementEngine.processor))
+                        .setAudioProcessors(arrayOf(whisperProcessor, audioEnhancementProcessor))
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .build()
@@ -452,9 +440,31 @@ object GlobalPlayerManager {
             })
             exoPlayerInstance = player
             startProgressTracker()
+            attachVideoEffectsPipeline(player)
             player
         } else {
             existing
+        }
+    }
+
+    private var videoEffectsJob: Job? = null
+
+    private fun attachVideoEffectsPipeline(player: ExoPlayer) {
+        videoEffectsJob?.cancel()
+        videoEffectsJob = CoroutineScope(Dispatchers.Main).launch {
+            com.example.effects.VideoEnhancementEngine.config.collect { config ->
+                try {
+                    val isAnime = com.example.effects.VideoEnhancementEngine.telemetry.value.isAnimeDetected
+                    val effect = com.example.effects.UpscalerModelLoader.createEffect(config, isAnime)
+                    if (effect != null) {
+                        player.setVideoEffects(listOf(effect))
+                    } else {
+                        player.setVideoEffects(emptyList())
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("GlobalPlayerManager", "Video effects update notice: ${e.message}")
+                }
+            }
         }
     }
 

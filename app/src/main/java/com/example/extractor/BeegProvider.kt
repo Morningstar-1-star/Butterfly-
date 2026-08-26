@@ -18,6 +18,7 @@ object BeegProvider {
     private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -106,10 +107,25 @@ object BeegProvider {
                     }
 
                     val duration = fileObj.optLong("fl_duration", 0L)
-                    val thumb = when {
-                        customThumb.isNotBlank() -> customThumb
-                        fileId.isNotBlank() -> "https://thumbs.externulls.com/240x180/$fileId.jpg"
-                        else -> "https://thumbs.beeg.com/240x180/$fileId.jpg"
+                    var thumb = customThumb
+                    if (thumb.isBlank()) {
+                        val tagsArr = item.optJSONArray("tags")
+                        if (tagsArr != null) {
+                            for (tIdx in 0 until tagsArr.length()) {
+                                val tObj = tagsArr.optJSONObject(tIdx) ?: continue
+                                val tThumbs = tObj.optJSONArray("thumbs")
+                                if (tThumbs != null && tThumbs.length() > 0) {
+                                    val tId = tThumbs.optJSONObject(0)?.optString("id", "") ?: ""
+                                    if (tId.isNotBlank()) {
+                                        thumb = "https://cdn34769805.ahacdn.me/thumbs/$tId.jpg"
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (thumb.isBlank() || thumb.contains("externulls.com") || thumb.contains("beeg.com")) {
+                        thumb = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)${i % 8 + 1}.jpg"
                     }
 
                     list.add(
@@ -200,10 +216,9 @@ object BeegProvider {
                     }
 
                     val duration = fileObj.optLong("fl_duration", 0L)
-                    val thumb = when {
-                        customThumb.isNotBlank() -> customThumb
-                        fileId.isNotBlank() -> "https://thumbs.externulls.com/240x180/$fileId.jpg"
-                        else -> "https://thumbs.beeg.com/240x180/$fileId.jpg"
+                    var thumb = customThumb
+                    if (thumb.isBlank() || thumb.contains("externulls.com") || thumb.contains("beeg.com")) {
+                        thumb = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)${i % 8 + 1}.jpg"
                     }
 
                     list.add(
@@ -295,9 +310,8 @@ object BeegProvider {
                     }
 
                     val thumb = when {
-                        customThumb.isNotBlank() -> customThumb
-                        fileId.isNotBlank() -> "https://thumbs.externulls.com/240x180/$fileId.jpg"
-                        else -> "https://thumbs.beeg.com/240x180/$fileId.jpg"
+                        customThumb.isNotBlank() && !customThumb.contains("externulls.com") -> customThumb
+                        else -> "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)1.jpg"
                     }
 
                     val options = mutableListOf<PlayableStreamOption>()

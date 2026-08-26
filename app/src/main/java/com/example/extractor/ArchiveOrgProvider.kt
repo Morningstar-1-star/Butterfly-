@@ -7,6 +7,7 @@ import com.example.model.PlayableStreamOption
 import com.example.model.ProviderType
 import com.example.model.StreamData
 import com.example.model.VideoItem
+import com.example.model.parseDurationToSeconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -76,7 +77,7 @@ object ArchiveOrgProvider {
         val curatedQuery = categories[queryIndex]
         val encodedQuery = URLEncoder.encode(curatedQuery, "UTF-8")
 
-        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=publicdate&fl[]=description&fl[]=downloads&fl[]=mediatype&sort[]=$randomSort&rows=30&page=$page&output=json"
+        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=publicdate&fl[]=description&fl[]=downloads&fl[]=mediatype&fl[]=length&fl[]=duration&sort[]=$randomSort&rows=30&page=$page&output=json"
 
         val items = mutableListOf<VideoItem>()
         val body = httpGet(url)
@@ -85,7 +86,7 @@ object ArchiveOrgProvider {
         }
 
         if (items.isEmpty()) {
-            val scrapeUrl = "https://archive.org/services/search/v1/scrape?q=$encodedQuery&fields=identifier,title,creator,publicdate,description,downloads&count=30"
+            val scrapeUrl = "https://archive.org/services/search/v1/scrape?q=$encodedQuery&fields=identifier,title,creator,publicdate,description,downloads,length,duration&count=30"
             val scrapeBody = httpGet(scrapeUrl)
             if (!scrapeBody.isNullOrBlank()) {
                 items.addAll(parseArchiveList(scrapeBody))
@@ -101,7 +102,7 @@ object ArchiveOrgProvider {
 
         val searchQuery = "mediatype:movies AND ($clean)"
         val encodedQuery = URLEncoder.encode(searchQuery, "UTF-8")
-        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=publicdate&fl[]=description&fl[]=downloads&fl[]=mediatype&sort[]=-downloads&rows=30&page=$page&output=json"
+        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=publicdate&fl[]=description&fl[]=downloads&fl[]=mediatype&fl[]=length&fl[]=duration&sort[]=-downloads&rows=30&page=$page&output=json"
 
         val items = mutableListOf<VideoItem>()
         val body = httpGet(url)
@@ -277,6 +278,8 @@ object ArchiveOrgProvider {
                 val creator = extractCreator(d)
                 val downloads = d.optLong("downloads", 0L)
                 val publicDate = d.optString("publicdate", d.optString("date", ""))
+                val lenStr = d.optString("length", d.optString("duration", ""))
+                val durationSec = parseDurationToSeconds(lenStr)
 
                 if (!com.example.util.LanguageFilterHelper.isAllowed(title, creator, PROVIDER_ID)) {
                     continue
@@ -290,6 +293,7 @@ object ArchiveOrgProvider {
                         uploadDate = publicDate.takeIf { it.isNotBlank() },
                         thumbnailUrl = "https://archive.org/services/img/$id",
                         viewCount = downloads,
+                        durationSeconds = durationSec,
                         providerId = PROVIDER_ID
                     )
                 )

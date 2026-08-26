@@ -20,6 +20,7 @@ object XHamsterProvider {
     private const val DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -169,16 +170,17 @@ object XHamsterProvider {
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return list
 
-            // Find all video thumbnail cards
+            // Find all video thumbnail cards (matching relative /videos/ links or full URLs)
             val cardPattern = Pattern.compile(
-                "<a\\s+class=\"[^\"]*video-thumb__image-container[^\"]*\"[^>]*href=\"(https://xhamster\\.com/videos/[^\"]+)\"[^>]*>(.*?)</a>",
+                """<a\s+[^>]*href="((?:https://xhamster\.com)?/videos/[^"]+)"[^>]*>(.*?)</a>""",
                 Pattern.DOTALL or Pattern.CASE_INSENSITIVE
             )
             val matcher = cardPattern.matcher(html)
             val seen = mutableSetOf<String>()
 
             while (matcher.find() && list.size < limit) {
-                val videoUrl = matcher.group(1) ?: continue
+                val rawUrl = matcher.group(1) ?: continue
+                val videoUrl = if (rawUrl.startsWith("http")) rawUrl else "https://xhamster.com$rawUrl"
                 val body = matcher.group(2) ?: ""
 
                 if (seen.contains(videoUrl)) continue
@@ -186,13 +188,11 @@ object XHamsterProvider {
 
                 // Title
                 var title = "xHamster Video"
-                val tMatch = Pattern.compile("aria-label=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(body)
+                val tMatch = Pattern.compile("""(?:aria-label|alt|title)="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(body)
                 if (tMatch.find()) {
-                    title = tMatch.group(1)?.trim() ?: title
-                } else {
-                    val altMatch = Pattern.compile("alt=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(body)
-                    if (altMatch.find()) {
-                        title = altMatch.group(1)?.trim() ?: title
+                    val candidateTitle = tMatch.group(1)?.trim() ?: ""
+                    if (candidateTitle.isNotBlank() && !candidateTitle.equals("thumb", ignoreCase = true)) {
+                        title = candidateTitle
                     }
                 }
 
@@ -209,10 +209,14 @@ object XHamsterProvider {
                 }
 
                 if (thumb.isBlank()) {
-                    val genericUrlMatch = Pattern.compile("""(https?://[^"'\s>]*(?:xhcdn|xhamster)[^"'\s>]*\.(?:jpg|jpeg|webp|png)[^"'\s>]*)""", Pattern.CASE_INSENSITIVE).matcher(body)
+                    val genericUrlMatch = Pattern.compile("""(https?://[^"'\s>]*(?:xhcdn|xhamster|rdtcdn)[^"'\s>]*\.(?:jpg|jpeg|webp|png)[^"'\s>]*)""", Pattern.CASE_INSENSITIVE).matcher(body)
                     if (genericUrlMatch.find()) {
                         thumb = genericUrlMatch.group(1) ?: ""
                     }
+                }
+
+                if (thumb.isBlank()) {
+                    thumb = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)${list.size % 8 + 1}.jpg"
                 }
 
                 // Duration

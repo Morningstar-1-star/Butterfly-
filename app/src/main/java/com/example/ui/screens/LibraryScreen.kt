@@ -48,15 +48,22 @@ fun LibraryScreen(
 ) {
     val savedList by viewModel.watchLaterList.collectAsState()
     
-    // Resolve real TMDB posters for saved items that have fallback images
+    // Resolve real TMDB posters for saved items that have fallback images (Movie/Series only)
+    val processedPosterItemIds = remember { mutableSetOf<String>() }
     LaunchedEffect(savedList) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             savedList.forEach { item ->
-                if (item.thumbnailUrl.isNullOrBlank() || item.thumbnailUrl?.contains("unsplash.com") == true) {
-                    val realPoster = com.example.util.TMDBHelper.resolveRealPoster(item.title)
-                    if (!realPoster.isNullOrBlank()) {
-                        val updated = item.copy(thumbnailUrl = realPoster)
-                        viewModel.addToWatchLater(updated)
+                val uniqueKey = "${item.providerId}_${item.id}"
+                if (!processedPosterItemIds.contains(uniqueKey)) {
+                    processedPosterItemIds.add(uniqueKey)
+                    if (!com.example.util.TMDBHelper.isWebOrAdultProvider(item.providerId)) {
+                        if (item.thumbnailUrl.isNullOrBlank() || item.thumbnailUrl?.contains("unsplash.com") == true) {
+                            val realPoster = com.example.util.TMDBHelper.resolveRealPoster(item.title, item.providerId)
+                            if (!realPoster.isNullOrBlank() && realPoster != item.thumbnailUrl) {
+                                val updated = item.copy(thumbnailUrl = realPoster)
+                                viewModel.addToWatchLater(updated)
+                            }
+                        }
                     }
                 }
             }

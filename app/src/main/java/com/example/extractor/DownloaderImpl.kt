@@ -77,6 +77,7 @@ class DownloaderImpl private constructor(
 
         private fun createDefaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
+                .dns(com.example.util.SecureDnsManager.appDns)
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
                 .writeTimeout(10, TimeUnit.SECONDS)

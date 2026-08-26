@@ -3,6 +3,7 @@ package com.example.extractor
 import android.content.Context
 import android.util.Log
 import com.example.model.VideoItem
+import com.example.model.parseDurationToSeconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -17,6 +18,7 @@ object MultiSourceProvider {
     private const val TAG = "MultiSourceProvider"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -269,11 +271,15 @@ object MultiSourceProvider {
 
     // ------------------- PORNHUB -------------------
     private fun getPornhubHome(limit: Int, page: Int = 1): List<VideoItem> {
+        val items = PornhubProvider.getHome(limit, page)
+        if (items.isNotEmpty()) return items
         val pageParam = if (page > 1) "&page=$page" else ""
         return parsePornhubHtml("https://www.pornhub.com/video?o=trending$pageParam", limit)
     }
 
     private fun searchPornhub(query: String, limit: Int, page: Int = 1): List<VideoItem> {
+        val items = PornhubProvider.search(query, limit, page)
+        if (items.isNotEmpty()) return items
         val encoded = URLEncoder.encode(query, "UTF-8")
         val pageParam = if (page > 1) "&page=$page" else ""
         return parsePornhubHtml("https://www.pornhub.com/video/search?search=$encoded$pageParam", limit)
@@ -560,12 +566,22 @@ object MultiSourceProvider {
                     if (seen.contains(id)) continue
                     seen.add(id)
 
+                    val startIdx = matcher.start()
+                    val endIdx = (startIdx + 300).coerceAtMost(html.length)
+                    val snippet = html.substring(startIdx, endIdx)
+                    var durSec = -1L
+                    val durMatch = Pattern.compile("([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)").matcher(snippet)
+                    if (durMatch.find()) {
+                        durSec = parseDurationToSeconds(durMatch.group(1))
+                    }
+
                     list.add(
                         VideoItem(
                             id = url,
                             title = title,
                             uploaderName = "Rule34Video",
                             thumbnailUrl = "https://rule34video.com/contents/videos_screenshots/${(id.toIntOrNull() ?: 0) / 1000 * 1000}/$id/preview.jpg",
+                            durationSeconds = durSec,
                             providerId = "rule34video"
                         )
                     )

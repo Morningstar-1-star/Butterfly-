@@ -19,6 +19,7 @@ object RedTubeProvider {
     private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -31,7 +32,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4318721",
             title = "Passionate Evening Encounter 1080p",
             uploaderName = "RedTube Studios",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202305/18/431872141/thumbs_40/(m=eaSaaSbWaaa)(mh=j_47oFk_YfXl-Xlq)1.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)1.jpg",
             durationSeconds = 1140L,
             viewCount = 485000L,
             providerId = PROVIDER_ID
@@ -40,7 +41,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4333918",
             title = "Luxury Spa Relaxation and Sensual Touch",
             uploaderName = "Glamour Red",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202306/10/433391851/thumbs_40/(m=eaSaaSbWaaa)(mh=K59y-yq_q5X5)2.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)2.jpg",
             durationSeconds = 1560L,
             viewCount = 620000L,
             providerId = PROVIDER_ID
@@ -49,7 +50,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4349120",
             title = "Romantic Honeymoon Suite Experience 4K",
             uploaderName = "Velvet Dreams",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202307/04/434912011/thumbs_40/(m=eaSaaSbWaaa)(mh=lKm9_b4qQx)3.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)3.jpg",
             durationSeconds = 1380L,
             viewCount = 780000L,
             providerId = PROVIDER_ID
@@ -58,7 +59,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4379124",
             title = "Stunning Beauty Sunset Private Session",
             uploaderName = "LustCinema",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202308/19/437912441/thumbs_40/(m=eaSaaSbWaaa)(mh=mN88_kLm9Q)4.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)4.jpg",
             durationSeconds = 1720L,
             viewCount = 590000L,
             providerId = PROVIDER_ID
@@ -67,7 +68,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4388125",
             title = "Private Penthouse Meeting & Champagne",
             uploaderName = "Elegance Direct",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202309/02/438812551/thumbs_40/(m=eaSaaSbWaaa)(mh=nL99_pQr7T)5.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)5.jpg",
             durationSeconds = 1450L,
             viewCount = 810000L,
             providerId = PROVIDER_ID
@@ -76,7 +77,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4402123",
             title = "Sensory Massage Session in Tokyo Resort",
             uploaderName = "Tokyo Sensations",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202309/25/440212331/thumbs_40/(m=eaSaaSbWaaa)(mh=qR55_tVw8U)6.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)6.jpg",
             durationSeconds = 1890L,
             viewCount = 940000L,
             providerId = PROVIDER_ID
@@ -85,7 +86,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4414128",
             title = "Midnight Rendezvous in Milan Hotel",
             uploaderName = "Milano Nights",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202310/14/441412881/thumbs_40/(m=eaSaaSbWaaa)(mh=sT44_uWx9Y)7.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)7.jpg",
             durationSeconds = 1290L,
             viewCount = 510000L,
             providerId = PROVIDER_ID
@@ -94,7 +95,7 @@ object RedTubeProvider {
             id = "https://www.redtube.com/4430129",
             title = "Coastal Villa Romantic Escape HD",
             uploaderName = "Sun & Sand Studios",
-            thumbnailUrl = "https://ci.phncdn.com/videos/202311/08/443012991/thumbs_40/(m=eaSaaSbWaaa)(mh=vW33_zAb1C)8.jpg",
+            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)8.jpg",
             durationSeconds = 1640L,
             viewCount = 670000L,
             providerId = PROVIDER_ID
@@ -104,9 +105,10 @@ object RedTubeProvider {
     fun getHome(page: Int = 1, limit: Int = 25): List<VideoItem> {
         // Strategy 1: Official RedTube Public JSON API
         val apiUrls = listOf(
-            "https://api.redtube.com/?data=redtube.Videos.getVideoList&output=json&page=$page&thumbsize=all",
-            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&category=all&page=$page&thumbsize=all",
-            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&search=trending&page=$page&thumbsize=all"
+            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&ordering=mostviewed&page=$page&thumbsize=all",
+            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&ordering=rating&page=$page&thumbsize=all",
+            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&search=trending&page=$page&thumbsize=all",
+            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&category=all&page=$page&thumbsize=all"
         )
 
         for (apiUrl in apiUrls) {

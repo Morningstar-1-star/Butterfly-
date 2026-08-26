@@ -156,3 +156,22 @@ data class StreamData(
             return null
         }
 }
+
+fun parseDurationToSeconds(raw: String?): Long {
+    if (raw.isNullOrBlank()) return -1L
+    val trimmed = raw.trim()
+    if (trimmed.all { it.isDigit() }) {
+        return trimmed.toLongOrNull() ?: -1L
+    }
+    val asFloat = trimmed.toDoubleOrNull()
+    if (asFloat != null) {
+        return asFloat.toLong()
+    }
+    val parts = trimmed.split(":")
+    return when (parts.size) {
+        2 -> (parts[0].toLongOrNull() ?: 0L) * 60L + (parts[1].toLongOrNull() ?: 0L)
+        3 -> (parts[0].toLongOrNull() ?: 0L) * 3600L + (parts[1].toLongOrNull() ?: 0L) * 60L + (parts[2].toLongOrNull() ?: 0L)
+        else -> -1L
+    }
+}
+

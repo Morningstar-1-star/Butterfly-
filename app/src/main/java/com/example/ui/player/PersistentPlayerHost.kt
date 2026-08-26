@@ -28,7 +28,7 @@ fun PersistentPlayerHost(
                 this.useController = useController
                 this.resizeMode = resizeMode
                 setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                 setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
                     GlobalPlayerManager.setControlsVisibility(visibility == android.view.View.VISIBLE)
                 })
@@ -50,7 +50,7 @@ fun PersistentPlayerHost(
                 playerView.resizeMode = resizeMode
             }
             playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-            playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+            playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             if (onFullscreenClick != null) {
                 playerView.setFullscreenButtonClickListener { onFullscreenClick() }
             } else {

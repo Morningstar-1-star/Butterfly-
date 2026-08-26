@@ -20,11 +20,15 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,7 +58,7 @@ import com.example.model.StreamData
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun UniversalVideoPlayer(
     streamOption: PlayableStreamOption?,
@@ -82,6 +86,10 @@ fun UniversalVideoPlayer(
 
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var customAspectRatio by remember { mutableStateOf<Float?>(null) }
+    var customAspectRatioLabel by remember { mutableStateOf("Default") }
+    var customRatiosList by remember { mutableStateOf(listOf("16:8", "18:9", "21:9")) }
+    var showAspectRatioSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showVideoEffectsSheet by remember { mutableStateOf(false) }
@@ -147,6 +155,9 @@ fun UniversalVideoPlayer(
     var doubleTapSeekJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var centerPlayPauseFeedback by remember { mutableStateOf<Boolean?>(null) }
     var centerPlayPauseJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var activeVerticalGestureType by remember { mutableStateOf<String?>(null) }
+    var verticalGestureValue by remember { mutableFloatStateOf(0.7f) }
+    var verticalGestureJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     var accumulatedDx by remember { mutableFloatStateOf(0f) }
     var accumulatedDy by remember { mutableFloatStateOf(0f) }
@@ -374,8 +385,10 @@ fun UniversalVideoPlayer(
 
                             if (isLeftHalf) {
                                 // Left side = Brightness
+                                activeVerticalGestureType = "BRIGHTNESS"
                                 val delta = -accumulatedDy / totalHeight
                                 brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
+                                verticalGestureValue = brightnessLevel
                                 val activity = context as? Activity
                                     ?: (context as? ContextWrapper)?.baseContext as? Activity
                                 activity?.let { act ->
@@ -383,30 +396,41 @@ fun UniversalVideoPlayer(
                                     lp.screenBrightness = brightnessLevel
                                     act.window.attributes = lp
                                 }
-                                gestureNoticeText = "Brightness ${(brightnessLevel * 100).toInt()}%"
-                                gestureNoticeIcon = Icons.Default.BrightnessMedium
                             } else {
                                 // Right side = Volume
+                                activeVerticalGestureType = "VOLUME"
                                 val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                                 if (audioManager != null) {
                                     val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
                                     val delta = -accumulatedDy / totalHeight
                                     volumeLevel = (initialVolume + delta).coerceIn(0f, 1f)
+                                    verticalGestureValue = volumeLevel
                                     val targetVol = (volumeLevel * maxVol).toInt()
                                     audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
-                                    gestureNoticeText = "Volume ${(volumeLevel * 100).toInt()}%"
-                                    gestureNoticeIcon = if (targetVol == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
                                 }
+                            }
+
+                            verticalGestureJob?.cancel()
+                            verticalGestureJob = coroutineScope.launch {
+                                delay(900)
+                                activeVerticalGestureType = null
                             }
                         }
                     },
                     onDragEnd = {
                         isDraggingHorizontally = false
                         isDraggingVertically = false
+                        verticalGestureJob?.cancel()
+                        verticalGestureJob = coroutineScope.launch {
+                            delay(400)
+                            activeVerticalGestureType = null
+                        }
                     },
                     onDragCancel = {
                         isDraggingHorizontally = false
                         isDraggingVertically = false
+                        verticalGestureJob?.cancel()
+                        activeVerticalGestureType = null
                     }
                 )
             },
@@ -420,13 +444,21 @@ fun UniversalVideoPlayer(
         val showLoadingIndicator = isBuffering || (!firstFrameRendered && playerError == null)
 
         Box(modifier = Modifier.fillMaxSize()) {
+            val hostModifier = if (customAspectRatio != null) {
+                Modifier
+                    .fillMaxSize()
+                    .aspectRatio(customAspectRatio!!)
+                    .align(Alignment.Center)
+            } else {
+                Modifier.fillMaxSize()
+            }
             PersistentPlayerHost(
                 useController = false,
-                resizeMode = resizeModeState,
+                resizeMode = if (customAspectRatio != null) AspectRatioFrameLayout.RESIZE_MODE_FILL else resizeModeState,
                 onFullscreenClick = {
                     toggleFullscreen(currentPlayerContext)
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = hostModifier
             )
 
             // Real-time GPU Video Effects Overlay
@@ -435,18 +467,6 @@ fun UniversalVideoPlayer(
                 config = videoEffectsConfig,
                 modifier = Modifier.fillMaxSize()
             )
-
-            // Glowing Loading / Buffering Indicator
-            AnimatedVisibility(
-                visible = showLoadingIndicator,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.Center)
-            ) {
-                GlowingBufferingIndicator(
-                    statusText = if (isBuffering) "Buffering video..." else "Connecting stream..."
-                )
-            }
 
             // Error Overlay if playerError != null
             if (playerError != null) {
@@ -650,6 +670,51 @@ fun UniversalVideoPlayer(
                             )
                         }
 
+                        // Aspect Ratio Button (Click to cycle, Long Press for Custom Menu)
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    if (customAspectRatio != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.65f),
+                                    CircleShape
+                                )
+                                .combinedClickable(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        if (customAspectRatio != null) {
+                                            customAspectRatio = null
+                                            customAspectRatioLabel = "Default"
+                                            resizeModeState = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                            Toast.makeText(context, "Aspect Ratio: Default", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            resizeModeState = when (resizeModeState) {
+                                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                            }
+                                            val label = when (resizeModeState) {
+                                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop / Zoom"
+                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch / Fill"
+                                                else -> "Fit Screen"
+                                            }
+                                            Toast.makeText(context, "Aspect Ratio: $label", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onLongClick = {
+                                        GlobalPlayerManager.showControls()
+                                        showAspectRatioSheet = true
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AspectRatio,
+                                contentDescription = "Aspect Ratio",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
                         // Settings Gear Icon
                         IconButton(
                             onClick = {
@@ -689,14 +754,6 @@ fun UniversalVideoPlayer(
                     }
                 }
             }
-
-            // P2P / Torrent Live Streaming Telemetry HUD
-            com.example.ui.torrent.TorrentStreamOverlay(
-                stats = torrentStats,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(top = if (isLandscape) 44.dp else 40.dp, start = 8.dp)
-            )
 
             // YouTube-Style Center Controls (Previous, Play/Pause, Next)
             AnimatedVisibility(
@@ -974,8 +1031,8 @@ fun UniversalVideoPlayer(
                     showAudioTrackSubMenu = false
                     showAdditionalSettingsSubMenu = false
                 },
-                containerColor = Color(0xFF1E1E1E),
-                contentColor = Color.White
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
             ) {
                 Column(
                     modifier = Modifier
@@ -997,7 +1054,7 @@ fun UniversalVideoPlayer(
                             },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         if (showSpeedSubMenu || showQualitySubMenu || showAudioTrackSubMenu || showAdditionalSettingsSubMenu) {
                             TextButton(onClick = {
@@ -1013,7 +1070,7 @@ fun UniversalVideoPlayer(
 
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 12.dp),
-                        color = Color.White.copy(alpha = 0.12f)
+                        color = MaterialTheme.colorScheme.outlineVariant
                     )
 
                     if (showQualitySubMenu) {
@@ -1045,13 +1102,13 @@ fun UniversalVideoPlayer(
                                         Text(
                                             text = option.qualityLabel,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                         )
                                         if (option.format.isNotBlank()) {
                                             Text(
                                                 text = option.format,
                                                 fontSize = 11.sp,
-                                                color = Color.Gray
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
@@ -1068,17 +1125,17 @@ fun UniversalVideoPlayer(
                         }
                     } else if (showSpeedSubMenu) {
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             if (isMusicTrackDetected && playbackPrefs.disableSpeedForMusic.collectAsState().value) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(10.dp),
+                                        modifier = Modifier.padding(12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
@@ -1091,9 +1148,104 @@ fun UniversalVideoPlayer(
                                 }
                             }
 
-                            // Presets
-                            speedOptions.forEach { speed ->
-                                val isSelected = (playbackSpeed == speed)
+                            // YouTube Interactive Fine-Tuning Card
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(
+                                            onClick = {
+                                                val newSpeed = (playbackSpeed - 0.05f).coerceAtLeast(0.25f)
+                                                val rounded = Math.round(newSpeed * 100f) / 100f
+                                                playbackSpeed = rounded
+                                                GlobalPlayerManager.setPlaybackSpeed(rounded)
+                                                playbackPrefs.setDefaultSpeed(rounded)
+                                                Toast.makeText(context, "Changed default playback speed to ${String.format("%.2f", rounded)}x", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .background(MaterialTheme.colorScheme.surface, CircleShape)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Remove,
+                                                contentDescription = "Decrease speed",
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+
+                                        Text(
+                                            text = "${String.format("%.2f", playbackSpeed)}x",
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+
+                                        IconButton(
+                                            onClick = {
+                                                val newSpeed = (playbackSpeed + 0.05f).coerceAtMost(5.0f)
+                                                val rounded = Math.round(newSpeed * 100f) / 100f
+                                                playbackSpeed = rounded
+                                                GlobalPlayerManager.setPlaybackSpeed(rounded)
+                                                playbackPrefs.setDefaultSpeed(rounded)
+                                                Toast.makeText(context, "Changed default playback speed to ${String.format("%.2f", rounded)}x", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .background(MaterialTheme.colorScheme.surface, CircleShape)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Add,
+                                                contentDescription = "Increase speed",
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+
+                                    // Horizontal Speed Pills
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f).forEach { speed ->
+                                            val isSelected = (Math.abs(playbackSpeed - speed) < 0.03f)
+                                            val label = if (speed == 1.0f) "1.0 Normal" else if (speed % 1.0f == 0f) "${speed.toInt()}" else "$speed"
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    playbackSpeed = speed
+                                                    GlobalPlayerManager.setPlaybackSpeed(speed)
+                                                    playbackPrefs.setDefaultSpeed(speed)
+                                                    Toast.makeText(context, "Changed default playback speed to ${if (speed == 1.0f) "1.0" else "$speed"}x", Toast.LENGTH_SHORT).show()
+                                                },
+                                                label = { Text(label) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                                    containerColor = MaterialTheme.colorScheme.surface,
+                                                    labelColor = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Preset Choices List
+                            speedOptions.take(8).forEach { speed ->
+                                val isSelected = (Math.abs(playbackSpeed - speed) < 0.03f)
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1101,11 +1253,8 @@ fun UniversalVideoPlayer(
                                         .clickable {
                                             playbackSpeed = speed
                                             GlobalPlayerManager.setPlaybackSpeed(speed)
-                                            Toast.makeText(
-                                                context,
-                                                "Playback speed set to ${if (speed == 1.0f) "Normal" else "${speed}x"}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            playbackPrefs.setDefaultSpeed(speed)
+                                            Toast.makeText(context, "Changed default playback speed to ${if (speed == 1.0f) "1.0" else "$speed"}x", Toast.LENGTH_SHORT).show()
                                             showSpeedSubMenu = false
                                             showSettingsSheet = false
                                         }
@@ -1116,7 +1265,7 @@ fun UniversalVideoPlayer(
                                     Text(
                                         text = if (speed == 1.0f) "Normal (1.0x)" else "${speed}x",
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
                                     if (isSelected) {
                                         Icon(
@@ -1476,20 +1625,8 @@ fun UniversalVideoPlayer(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    resizeModeState = when (resizeModeState) {
-                                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    }
-                                    Toast.makeText(
-                                        context,
-                                        "Aspect Ratio: ${when (resizeModeState) {
-                                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop / Zoom"
-                                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch / Fill"
-                                            else -> "Fit Screen"
-                                        }}",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    showSettingsSheet = false
+                                    showAspectRatioSheet = true
                                 }
                                 .padding(vertical = 14.dp, horizontal = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1502,22 +1639,23 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.AspectRatio,
                                     contentDescription = "Aspect Ratio",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Aspect Ratio",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
-                                text = when (resizeModeState) {
+                                text = if (customAspectRatio != null) customAspectRatioLabel else when (resizeModeState) {
                                     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop"
                                     AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
                                     else -> "Fit"
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color.LightGray
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
@@ -1542,12 +1680,12 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.ClosedCaption,
                                     contentDescription = "Subtitles",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Subtitles & AI Live Captions",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
@@ -1603,8 +1741,8 @@ fun UniversalVideoPlayer(
                             )
                         }
 
-                        // 6. Audio Enhancement & Voice Stabilizer
-                        val audioConfig by com.example.audio.AudioEnhancementEngine.config.collectAsState()
+                        // 6. Audio Enhancement
+                        val audioEnhancementConfig by com.example.ui.player.audio.AudioEnhancementEngine.config.collectAsState()
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1622,9 +1760,9 @@ fun UniversalVideoPlayer(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.VolumeUp,
+                                    imageVector = Icons.Default.GraphicEq,
                                     contentDescription = "Audio Enhancement",
-                                    tint = if (audioConfig.isEnabled) Color(0xFF7C4DFF) else Color.White
+                                    tint = if (audioEnhancementConfig.isEnabled) Color(0xFFB388FF) else Color.White
                                 )
                                 Text(
                                     text = "Audio Enhancement",
@@ -1633,15 +1771,15 @@ fun UniversalVideoPlayer(
                                 )
                             }
                             Text(
-                                text = if (!audioConfig.isEnabled) "Off"
-                                else audioConfig.preset.displayName,
+                                text = if (!audioEnhancementConfig.isEnabled) "Off"
+                                else audioEnhancementConfig.selectedPreset.displayName,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (audioConfig.isEnabled) Color(0xFFB388FF) else Color.LightGray,
-                                fontWeight = if (audioConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
+                                color = if (audioEnhancementConfig.isEnabled) Color(0xFFB388FF) else Color.LightGray,
+                                fontWeight = if (audioEnhancementConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
                             )
                         }
 
-                        // 7. Smart Skip / SponsorBlock
+                        // 6. Smart Skip / SponsorBlock
                         val smartSkipPrefs = remember(context) { com.example.smartskip.SmartSkipPreferences.getInstance(context) }
                         val isSmartSkipOn by smartSkipPrefs.isSmartSkipEnabled.collectAsState()
                         Row(
@@ -1718,6 +1856,38 @@ fun UniversalVideoPlayer(
             }
         }
 
+        if (showAspectRatioSheet) {
+            AspectRatioSettingsSheet(
+                currentCustomRatio = customAspectRatio,
+                currentRatioLabel = customAspectRatioLabel,
+                customRatiosList = customRatiosList,
+                onSelectRatio = { ratio, label ->
+                    customAspectRatio = ratio
+                    customAspectRatioLabel = label
+                    if (ratio == null) {
+                        resizeModeState = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    } else {
+                        resizeModeState = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    }
+                    Toast.makeText(context, "Aspect Ratio set to $label", Toast.LENGTH_SHORT).show()
+                },
+                onAddCustomRatio = { newRatio ->
+                    if (!customRatiosList.contains(newRatio)) {
+                        customRatiosList = customRatiosList + newRatio
+                    }
+                },
+                onRemoveCustomRatio = { ratioToRemove ->
+                    customRatiosList = customRatiosList - ratioToRemove
+                    if (customAspectRatioLabel == ratioToRemove) {
+                        customAspectRatio = null
+                        customAspectRatioLabel = "Default"
+                        resizeModeState = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                },
+                onDismiss = { showAspectRatioSheet = false }
+            )
+        }
+
         if (showSubtitleSheet) {
             SubtitleSettingsSheet(
                 onDismiss = { showSubtitleSheet = false }
@@ -1731,8 +1901,8 @@ fun UniversalVideoPlayer(
         }
 
         if (showAudioEnhancementSheet) {
-            AudioEffectsSettingsSheet(
-                onDismiss = { showAudioEnhancementSheet = false }
+            com.example.ui.player.audio.AudioEnhancementSheet(
+                onDismissRequest = { showAudioEnhancementSheet = false }
             )
         }
 
@@ -1992,8 +2162,68 @@ fun UniversalVideoPlayer(
             }
         }
 
-        // Gesture & Seek Overlay Notice (for brightness/volume swipe and scrub)
-        val activeNoticeText = gestureNoticeText ?: seekNoticeText
+        // YouTube-Style Vertical Gesture HUD (Brightness on left, Volume on right)
+        AnimatedVisibility(
+            visible = activeVerticalGestureType != null,
+            enter = fadeIn(tween(100)),
+            exit = fadeOut(tween(300)),
+            modifier = Modifier
+                .align(if (activeVerticalGestureType == "BRIGHTNESS") Alignment.CenterStart else Alignment.CenterEnd)
+                .padding(horizontal = if (isLandscape) 48.dp else 24.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(52.dp)
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color.Black.copy(alpha = 0.70f))
+                    .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(26.dp))
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxHeight()
+                ) {
+                    Icon(
+                        imageVector = if (activeVerticalGestureType == "BRIGHTNESS") Icons.Default.BrightnessMedium
+                                      else if (verticalGestureValue == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .weight(1f)
+                            .padding(vertical = 8.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color.White.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight(verticalGestureValue.coerceIn(0f, 1f))
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.White)
+                        )
+                    }
+
+                    Text(
+                        text = "${(verticalGestureValue * 100).toInt()}%",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        // Gesture & Seek Overlay Notice (for scrub)
+        val activeNoticeText = seekNoticeText
         AnimatedVisibility(
             visible = activeNoticeText != null,
             enter = fadeIn(),
@@ -2009,14 +2239,6 @@ fun UniversalVideoPlayer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    gestureNoticeIcon?.let { icon ->
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
                     Text(
                         text = activeNoticeText ?: "",
                         color = Color.White,
@@ -2123,6 +2345,228 @@ fun GlowingBufferingIndicator(
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AspectRatioSettingsSheet(
+    currentCustomRatio: Float?,
+    currentRatioLabel: String,
+    customRatiosList: List<String>,
+    onSelectRatio: (Float?, String) -> Unit,
+    onAddCustomRatio: (String) -> Unit,
+    onRemoveCustomRatio: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var widthInput by remember { mutableStateOf("") }
+    var heightInput by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val presetRatios = remember {
+        listOf(
+            "Default" to null,
+            "4:3" to (4f / 3f),
+            "16:9" to (16f / 9f),
+            "16:10" to (16f / 10f),
+            "21:9" to (21f / 9f),
+            "32:9" to (32f / 9f),
+            "1:1" to (1f / 1f),
+            "2.35:1" to 2.35f,
+            "2.39:1" to 2.39f
+        )
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp, top = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Aspect Ratio",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Presets
+            Text(
+                text = "Presets",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                presetRatios.forEach { (label, ratio) ->
+                    val isSelected = (currentRatioLabel == label)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            onSelectRatio(ratio, label)
+                        },
+                        label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Custom Ratios List
+            if (customRatiosList.isNotEmpty()) {
+                Text(
+                    text = "Custom",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    customRatiosList.forEach { ratioStr ->
+                        val isSelected = (currentRatioLabel == ratioStr)
+                        val parts = ratioStr.split(":")
+                        val ratioValue = if (parts.size == 2) {
+                            val w = parts[0].toFloatOrNull() ?: 16f
+                            val h = parts[1].toFloatOrNull() ?: 9f
+                            if (h > 0) w / h else 16f / 9f
+                        } else null
+
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                if (ratioValue != null) {
+                                    onSelectRatio(ratioValue, ratioStr)
+                                }
+                            },
+                            label = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(ratioStr)
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { onRemoveCustomRatio(ratioStr) }
+                                    )
+                                }
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            // Add Custom Ratio
+            Text(
+                text = "Add Custom Ratio (e.g. 16:9)",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = widthInput,
+                    onValueChange = { widthInput = it.filter { char -> char.isDigit() } },
+                    placeholder = { Text("Width") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Text(
+                    text = ":",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                OutlinedTextField(
+                    value = heightInput,
+                    onValueChange = { heightInput = it.filter { char -> char.isDigit() } },
+                    placeholder = { Text("Height") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                IconButton(
+                    onClick = {
+                        val w = widthInput.toIntOrNull()
+                        val h = heightInput.toIntOrNull()
+                        if (w != null && h != null && w > 0 && h > 0) {
+                            val newRatioStr = "$w:$h"
+                            val calcRatio = w.toFloat() / h.toFloat()
+                            onAddCustomRatio(newRatioStr)
+                            onSelectRatio(calcRatio, newRatioStr)
+                            widthInput = ""
+                            heightInput = ""
+                        }
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Ratio",
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
         }
     }
 }

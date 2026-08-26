@@ -108,24 +108,22 @@ object YouTubeExtractorHelper {
             Log.w(TAG, "NewPipe trending kiosk fetch failed: ${e.message}")
         }
 
-        // Step 2: Dynamic Multi-Topic Trending Expansion (Shuffled & Fresh across genres)
-        val dynamicTrendingTopics = listOf(
-            "latest viral trending videos",
-            "official music videos 2026 top hits",
-            "official movie trailers 4K",
-            "trending anime episodes and scenes",
-            "popular gaming highlights and gameplay",
-            "trending science documentary deep dive",
-            "mrbeast mark rober mkbhd latest",
-            "top global entertainment news and podcast"
-        ).shuffled().take(2)
+        // Step 2: Dynamic Multi-Topic Expansion only if kiosk returned too few items (< 10)
+        if (combinedTrending.size < 10) {
+            val dynamicTrendingTopics = listOf(
+                "latest viral trending videos",
+                "official music videos 2026 top hits",
+                "official movie trailers 4K",
+                "trending anime episodes and scenes"
+            ).shuffled().take(1)
 
-        for (topic in dynamicTrendingTopics) {
-            try {
-                val topicResults = searchYouTube(topic, context).take(10)
-                combinedTrending.addAll(topicResults)
-            } catch (e: Exception) {
-                Log.w(TAG, "Dynamic topic search failed for '$topic': ${e.message}")
+            for (topic in dynamicTrendingTopics) {
+                try {
+                    val topicResults = searchYouTube(topic, context).take(10)
+                    combinedTrending.addAll(topicResults)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Dynamic topic search failed for '$topic': ${e.message}")
+                }
             }
         }
 

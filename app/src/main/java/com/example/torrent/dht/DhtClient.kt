@@ -348,17 +348,119 @@ object DhtClient {
                 sendBencoded(response, sender)
             }
             "find_node" -> {
+                val target = (a["target"] as? String)?.toByteArray(Charsets.ISO_8859_1) ?: localNodeId
+                val closest = getClosestNodes(target, K_BUCKET_SIZE)
                 val response = mapOf(
                     "t" to t,
                     "y" to "r",
                     "r" to mapOf(
                         "id" to String(localNodeId, Charsets.ISO_8859_1),
-                        "nodes" to String(getCompactRoutingTableNodes(K_BUCKET_SIZE), Charsets.ISO_8859_1)
+                        "nodes" to String(compactNodes(closest), Charsets.ISO_8859_1)
+                    )
+                )
+                sendBencoded(response, sender)
+            }
+            "get_peers" -> {
+                val infoHash = (a["info_hash"] as? String)?.toByteArray(Charsets.ISO_8859_1) ?: localNodeId
+                val closest = getClosestNodes(infoHash, K_BUCKET_SIZE)
+                val token = generateToken(sender.address)
+                val response = mapOf(
+                    "t" to t,
+                    "y" to "r",
+                    "r" to mapOf(
+                        "id" to String(localNodeId, Charsets.ISO_8859_1),
+                        "token" to String(token, Charsets.ISO_8859_1),
+                        "nodes" to String(compactNodes(closest), Charsets.ISO_8859_1)
+                    )
+                )
+                sendBencoded(response, sender)
+            }
+            "announce_peer" -> {
+                val response = mapOf(
+                    "t" to t,
+                    "y" to "r",
+                    "r" to mapOf(
+                        "id" to String(localNodeId, Charsets.ISO_8859_1)
                     )
                 )
                 sendBencoded(response, sender)
             }
         }
+    }
+
+    /**
+     * BEP 5 announce_peer query: Announce that the local peer is downloading or seeding the torrent.
+     */
+    suspend fun announcePeer(
+        infoHashBytes: ByteArray,
+        port: Int,
+        impliedPort: Boolean = false
+    ): Int = withContext(Dispatchers.IO) {
+        val infoHashHex = infoHashBytes.joinToString("") { "%02x".format(it) }
+        val token = peerTokens[infoHashHex] ?: return@withContext 0
+        val targetNodes = getClosestNodes(infoHashBytes, 8)
+        var successfulAnnounces = 0
+
+        for (node in targetNodes) {
+            val t = generateTransactionId()
+            val query = mapOf(
+                "t" to t,
+                "y" to "q",
+                "q" to "announce_peer",
+                "a" to mapOf(
+                    "id" to String(localNodeId, Charsets.ISO_8859_1),
+                    "info_hash" to String(infoHashBytes, Charsets.ISO_8859_1),
+                    "port" to port,
+                    "token" to String(token, Charsets.ISO_8859_1),
+                    "implied_port" to if (impliedPort) 1 else 0
+                )
+            )
+            val deferred = CompletableDeferred<Map<String, Any?>>()
+            pendingTransactions[t] = deferred
+            try {
+                sendBencoded(query, node.address)
+                val resp = withTimeoutOrNull(2500) { deferred.await() }
+                if (resp != null && resp["y"] == "r") {
+                    successfulAnnounces++
+                }
+            } catch (_: Exception) {
+            } finally {
+                pendingTransactions.remove(t)
+            }
+        }
+        Log.i(TAG, "Announced $infoHashHex to $successfulAnnounces nodes.")
+        successfulAnnounces
+    }
+
+    private fun getClosestNodes(targetId: ByteArray, limit: Int): List<DhtNode> {
+        return routingTable.values
+            .sortedBy { xorDistance(it.id, targetId) }
+            .take(limit)
+    }
+
+    private fun xorDistance(a: ByteArray, b: ByteArray): java.math.BigInteger {
+        val xor = ByteArray(20)
+        for (i in 0 until minOf(20, a.size, b.size)) {
+            xor[i] = (a[i].toInt() xor b[i].toInt()).toByte()
+        }
+        return java.math.BigInteger(1, xor)
+    }
+
+    private fun generateToken(addr: InetAddress): ByteArray {
+        val buffer = ByteBuffer.allocate(8)
+        buffer.put(addr.address)
+        buffer.putInt((System.currentTimeMillis() / (1000 * 60 * 10)).toInt()) // 10 min window
+        return buffer.array()
+    }
+
+    private fun compactNodes(nodes: List<DhtNode>): ByteArray {
+        val buffer = ByteBuffer.allocate(nodes.size * 26).order(ByteOrder.BIG_ENDIAN)
+        for (n in nodes) {
+            buffer.put(n.id)
+            buffer.put(n.address.address.address)
+            buffer.putShort(n.address.port.toShort())
+        }
+        return buffer.array()
     }
 
     private fun parseCompactNodes(nodesBytes: ByteArray) {
