@@ -1,0 +1,9 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Explicitly declare binary files to prevent Git CRLF corruption on GitHub Actions
+*.jar binary
+*.so binary
+*.aar binary
+*.png binary
+*.jpg binary
