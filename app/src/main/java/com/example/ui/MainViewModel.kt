@@ -1736,7 +1736,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (adultEnabled) list else list.filterNot { isAdultDownload(it) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val downloadLiveProgress: StateFlow<Map<String, com.example.downloader.DownloadProgressState>> = com.example.downloader.AppDownloadManager.progressMap
+    private val downloadRepository by lazy { com.example.downloader.DownloadRepository(getApplication()) }
 
     var downloadSheetVideoItem by mutableStateOf<VideoItem?>(null)
         private set
@@ -1766,8 +1766,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         streamOption: PlayableStreamOption? = null
     ) {
         val url = streamOption?.videoUrl ?: return
-        com.example.downloader.AppDownloadManager.startDownload(
-            context = getApplication(),
+        downloadRepository.enqueueDownload(
             videoId = videoId,
             title = title,
             channelName = channelName,
@@ -1778,15 +1777,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pauseDownload(videoId: String) {
-        com.example.downloader.AppDownloadManager.pauseDownload(videoId)
+        downloadRepository.pauseDownload(videoId)
     }
 
     fun resumeDownload(videoId: String) {
         val dl = _offlineDownloads.value.firstOrNull { it.videoId == videoId } ?: return
         val currentOption = _selectedStreamOption.value
         val url = currentOption?.videoUrl ?: return
-        com.example.downloader.AppDownloadManager.resumeDownload(
-            context = getApplication(),
+        downloadRepository.resumeDownload(
             videoId = videoId,
             title = dl.title,
             channelName = dl.channelName,
@@ -1797,20 +1795,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteDownload(videoId: String, localFilePath: String? = null) {
-        com.example.downloader.AppDownloadManager.deleteDownload(getApplication(), videoId, localFilePath)
+        downloadRepository.deleteDownload(videoId, localFilePath)
     }
 
     fun clearAllDownloads() {
-        com.example.downloader.AppDownloadManager.clearAllDownloads(getApplication())
+        _offlineDownloads.value.forEach { dl ->
+            downloadRepository.deleteDownload(dl.videoId, dl.localFilePath)
+        }
     }
 
     fun playOfflineDownload(download: OfflineDownloadEntity) {
         val file = java.io.File(download.localFilePath)
         val fileUri = if (file.exists()) "file://${file.absolutePath}" else download.localFilePath
+        val isHls = download.localFilePath.endsWith(".m3u8", ignoreCase = true)
 
         val option = PlayableStreamOption(
             qualityLabel = download.qualityLabel,
-            format = "mp4",
+            format = if (isHls) "hls" else "mp4",
             isMuxed = true,
             videoUrl = fileUri
         )

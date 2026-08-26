@@ -226,17 +226,26 @@ class LibtorrentEngine(private val context: Context) {
         return try {
             val peers = th.peerInfo() ?: return emptyList()
             peers.map { p ->
+                val ipStr = p.ip() ?: ""
+                val ipPortSplit = ipStr.split(":")
+                val ipClean = ipPortSplit.firstOrNull() ?: ipStr
+                val parsedPort = ipPortSplit.getOrNull(1)?.toIntOrNull() ?: 0
+                val flagsStr = p.flags().toString()
+                val isSeed = p.progress() >= 0.999f || flagsStr.contains("seed", ignoreCase = true)
+                val isChoked = flagsStr.contains("choked", ignoreCase = true)
+                val isInterested = flagsStr.contains("interested", ignoreCase = true)
+
                 TorrentPeerInfo(
-                    ip = p.ip(),
-                    port = 0,
-                    clientName = p.client(),
+                    ip = ipClean,
+                    port = parsedPort,
+                    clientName = p.client().ifBlank { "Peer ($ipClean)" },
                     downloadRateBps = p.downSpeed().toLong(),
                     uploadRateBps = p.upSpeed().toLong(),
-                    isChoked = false,
-                    isInterested = false,
-                    isSeed = false,
+                    isChoked = isChoked,
+                    isInterested = isInterested,
+                    isSeed = isSeed,
                     progress = p.progress(),
-                    flags = p.flags().toString()
+                    flags = flagsStr
                 )
             }
         } catch (_: Exception) {
@@ -249,9 +258,11 @@ class LibtorrentEngine(private val context: Context) {
         return try {
             val trackers = th.trackers() ?: return emptyList()
             trackers.map { t ->
+                val url = t.url() ?: ""
+                val tier = t.tier()
                 TorrentTrackerInfo(
-                    url = t.url(),
-                    status = "Active",
+                    url = url,
+                    status = "Tier $tier Active",
                     peersCount = 0,
                     seedsCount = 0,
                     message = ""

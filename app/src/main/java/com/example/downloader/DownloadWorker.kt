@@ -169,8 +169,7 @@ class DownloadWorker(
                 return@withContext Result.retry()
             }
 
-            val md5Bytes = md5Digest.digest()
-            val md5Hex = md5Bytes.joinToString("") { "%02x".format(it) }
+            val sha256Hex = calculateFileSha256(targetFile)
 
             db.userDataDao().insertOrUpdateDownload(
                 initialEntity.copy(
@@ -180,13 +179,29 @@ class DownloadWorker(
                 )
             )
 
-            Log.i(TAG, "Download completed for $videoId ($currentBytes bytes, MD5: $md5Hex)")
-            Result.success(workDataOf("localPath" to targetFile.absolutePath, "checksum" to md5Hex))
+            Log.i(TAG, "Download completed for $videoId ($currentBytes bytes, SHA-256: $sha256Hex)")
+            Result.success(workDataOf("localPath" to targetFile.absolutePath, "checksum" to sha256Hex))
 
         } catch (e: Exception) {
             Log.e(TAG, "Download worker failed for $videoId: ${e.message}", e)
             db.userDataDao().insertOrUpdateDownload(initialEntity.copy(status = "FAILED"))
             Result.failure(workDataOf("error" to (e.message ?: "Unknown download failure")))
+        }
+    }
+
+    private fun calculateFileSha256(file: File): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { stream ->
+                val buf = ByteArray(64 * 1024)
+                var bytesRead: Int
+                while (stream.read(buf).also { bytesRead = it } != -1) {
+                    digest.update(buf, 0, bytesRead)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            "sha256_error"
         }
     }
 }

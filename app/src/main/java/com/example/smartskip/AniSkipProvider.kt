@@ -122,8 +122,9 @@ class AniSkipProvider(
     }
 
     private fun resolveMalId(title: String?, extraMeta: Map<String, String>): Long? {
-        // If anilist or myanimelist id is in extra metadata
-        extraMeta["anilistId"]?.toLongOrNull()?.let { return it }
+        // Use explicit MyAnimeList ID (malId, idMal, jikanId)
+        extraMeta["malId"]?.toLongOrNull()?.let { return it }
+        extraMeta["idMal"]?.toLongOrNull()?.let { return it }
         extraMeta["jikanId"]?.toLongOrNull()?.let { return it }
         return null
     }

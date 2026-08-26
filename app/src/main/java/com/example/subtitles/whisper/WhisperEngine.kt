@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 sealed class WhisperEngineState {
     object Idle : WhisperEngineState()
+    object NativeUnavailable : WhisperEngineState()
     object ModelMissing : WhisperEngineState()
     data class DownloadingModel(val progressPercent: Int) : WhisperEngineState()
     object Ready : WhisperEngineState()
@@ -35,6 +36,10 @@ class WhisperEngine(private val context: Context) {
     val state: StateFlow<WhisperEngineState> = _state.asStateFlow()
 
     fun checkModelStatus(): Boolean {
+        if (!WhisperJni.isAvailable()) {
+            _state.value = WhisperEngineState.NativeUnavailable
+            return false
+        }
         val available = modelManager.isModelDownloaded(WhisperModelType.TINY_EN)
         if (!available) {
             _state.value = WhisperEngineState.ModelMissing

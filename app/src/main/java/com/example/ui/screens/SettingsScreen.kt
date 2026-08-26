@@ -602,11 +602,11 @@ fun SettingsScreen(
                             item {
                                 YouTubeDetailRow(
                                     title = "yt-dlp Core Engine",
-                                    subtitle = "Version: ${engineVer ?: "Loaded"} (${installedVer ?: "2.0.2"})",
+                                    subtitle = "Bundled engine: ${engineVer ?: "yt-dlp-android 2.0.2"} (Updated via app releases)",
                                     onClick = {
                                         coroutineScope.launch {
                                             com.example.extractor.YtDlpUpdateManager.refreshVersion(context)
-                                            Toast.makeText(context, "yt-dlp engine refreshed", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "yt-dlp engine active (bundled AAR)", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 )
