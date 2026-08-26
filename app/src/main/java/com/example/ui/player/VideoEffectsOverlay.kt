@@ -43,7 +43,7 @@ fun VideoEffectsOverlay(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "⚡ GPU Upscaler HUD (Media3 GlEffect)",
+                    text = "⚡ GPU Shader HUD (Media3 GlEffect)",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF00E5FF),
@@ -56,7 +56,7 @@ fun VideoEffectsOverlay(
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "Res: ${upscaleTelemetry.inputResolution} → ${upscaleTelemetry.upscaledResolution}",
+                    text = "Res: ${upscaleTelemetry.inputResolution} → ${upscaleTelemetry.enhancedFramebufferResolution}",
                     fontSize = 10.sp,
                     color = Color.LightGray,
                     fontFamily = FontFamily.Monospace

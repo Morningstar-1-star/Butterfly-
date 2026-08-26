@@ -19,10 +19,10 @@ import java.util.concurrent.TimeUnit
 
 object ExploreMediaHelper {
 
-    private const val TAG = "ExploreMediaHelper"
-    private const val TMDB_API_KEY = AppConfig.TMDB_API_KEY
-    private const val TMDB_IMAGE_BASE = AppConfig.TMDB_IMAGE_BASE_W500
-    private const val TMDB_BACKDROP_BASE = AppConfig.TMDB_BACKDROP_BASE
+    private val TAG = "ExploreMediaHelper"
+    private val TMDB_API_KEY = AppConfig.TMDB_API_KEY
+    private val TMDB_IMAGE_BASE = AppConfig.TMDB_IMAGE_BASE_W500
+    private val TMDB_BACKDROP_BASE = AppConfig.TMDB_BACKDROP_BASE
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -40,9 +40,9 @@ object ExploreMediaHelper {
             val topRatedMoviesDeferred = async { fetchTmdbTopRatedMovies() }
             val popularMoviesDeferred = async { fetchTmdbPopularMovies() }
 
-            val trendingMovies = try { trendingMoviesDeferred.await() } catch (e: Exception) { getCuratedMovies() }
-            val trendingTv = try { trendingTvDeferred.await() } catch (e: Exception) { getCuratedTv() }
-            val popularAnime = try { popularAnimeDeferred.await() } catch (e: Exception) { getCuratedAnime() }
+            val trendingMovies = try { trendingMoviesDeferred.await() } catch (e: Exception) { Log.e(TAG, "Trending movies fetch failed: ${e.message}"); emptyList() }
+            val trendingTv = try { trendingTvDeferred.await() } catch (e: Exception) { Log.e(TAG, "Trending TV fetch failed: ${e.message}"); emptyList() }
+            val popularAnime = try { popularAnimeDeferred.await() } catch (e: Exception) { Log.e(TAG, "Popular anime fetch failed: ${e.message}"); emptyList() }
             val topRatedAnime = try { topRatedAnimeDeferred.await() } catch (e: Exception) { emptyList() }
             val topRatedMovies = try { topRatedMoviesDeferred.await() } catch (e: Exception) { emptyList() }
             val popularMovies = try { popularMoviesDeferred.await() } catch (e: Exception) { emptyList() }
@@ -502,7 +502,7 @@ object ExploreMediaHelper {
                 val bannerUrl = media.optString("bannerImage").takeIf { it.isNotBlank() && it != "null" } ?: posterUrl
 
                 val avgScore = media.optInt("averageScore", 0)
-                val ratingDouble = if (avgScore > 0) avgScore / 10.0 else 8.5
+                val ratingDouble = if (avgScore > 0) avgScore / 10.0 else 0.0
                 val episodes = media.optInt("episodes", 0).takeIf { it > 0 }
                 val year = media.optInt("seasonYear", 0).takeIf { it > 0 }?.toString() ?: "2024"
                 val desc = media.optString("description").replace(Regex("<.*?>"), "").trim()
@@ -1180,71 +1180,6 @@ object ExploreMediaHelper {
     }
 
     private fun getCuratedAnime(): List<ExploreMediaItem> {
-        return listOf(
-            ExploreMediaItem(
-                id = "anime_anilist_16498",
-                title = "Attack on Titan",
-                originalTitle = "Shingeki no Kyojin",
-                mediaType = ExploreMediaType.ANIME,
-                source = ExploreSource.ANILIST,
-                posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx16498-m5ZMNSczuSiO.png",
-                backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/16498-735NioOJuhW5.jpg",
-                rating = 9.1,
-                ratingSource = "MAL",
-                releaseYear = "2013",
-                genres = listOf("Action", "Drama", "Fantasy", "Mystery"),
-                overview = "Centuries ago, mankind was slaughtered to near extinction by monstrous humanoid creatures called Titans.",
-                episodesCount = 89,
-                studio = "WIT Studio / MAPPA"
-            ),
-            ExploreMediaItem(
-                id = "anime_anilist_101922",
-                title = "Demon Slayer: Kimetsu no Yaiba",
-                originalTitle = "Kimetsu no Yaiba",
-                mediaType = ExploreMediaType.ANIME,
-                source = ExploreSource.ANILIST,
-                posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx101922-PEn1CTbeUgqm.jpg",
-                backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/101922-YfZhKLRqrZrP.jpg",
-                rating = 8.7,
-                ratingSource = "AniList",
-                releaseYear = "2019",
-                genres = listOf("Action", "Fantasy", "Supernatural"),
-                overview = "A young man becomes a demon slayer after his family is slaughtered and his younger sister turned into a demon.",
-                episodesCount = 55,
-                studio = "ufotable"
-            ),
-            ExploreMediaItem(
-                id = "anime_anilist_113415",
-                title = "Jujutsu Kaisen",
-                originalTitle = "Jujutsu Kaisen",
-                mediaType = ExploreMediaType.ANIME,
-                source = ExploreSource.ANILIST,
-                posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx113415-bbBWj4pEFseh.jpg",
-                backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/113415-jQBSkxWAAk83.jpg",
-                rating = 8.8,
-                ratingSource = "AniList",
-                releaseYear = "2020",
-                genres = listOf("Action", "Supernatural", "Dark Fantasy"),
-                overview = "Yuji Itadori swallows a cursed talisman - the finger of a demon - and becomes cursed himself.",
-                episodesCount = 47,
-                studio = "MAPPA"
-            ),
-            ExploreMediaItem(
-                id = "anime_anilist_154587",
-                title = "Frieren: Beyond Journey's End",
-                originalTitle = "Sousou no Frieren",
-                mediaType = ExploreMediaType.ANIME,
-                source = ExploreSource.ANILIST,
-                posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-n1HJZbbNmdf8.jpg",
-                backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/154587-k81m4F9r1s00.jpg",
-                rating = 9.3,
-                ratingSource = "MAL",
-                releaseYear = "2023",
-                genres = listOf("Adventure", "Drama", "Fantasy"),
-                overview = "An elf mage reflection upon the meaning of human life and friendship decades after defeating the Demon King.",
-                episodesCount = 28,
-                studio = "Madhouse"
-            )
-        )
+        return emptyList()
     }
 }

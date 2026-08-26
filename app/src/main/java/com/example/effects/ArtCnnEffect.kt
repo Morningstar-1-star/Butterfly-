@@ -13,7 +13,7 @@ data class ArtCnnEffect(
     val cfl: Boolean = true
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-        return UpscalingShaderProgram(
+        return ShaderEnhancementProgram(
             context = context,
             useHdr = useHdr,
             pipelineMode = 2, // ArtCNN

@@ -66,29 +66,29 @@ object VideoEnhancementEngine {
         // Select pipeline according to Auto logic
         val activePipeline = when (_config.value.preset) {
             VideoEnhancementPreset.OFF -> "Off (Native Passthrough)"
-            VideoEnhancementPreset.QUALITY -> "ArtCNN C4F16 + CfL + SSimSuperRes"
-            VideoEnhancementPreset.PERFORMANCE -> "FSRCNNX ×2 (Fast Performance)"
-            VideoEnhancementPreset.ANIME -> "Anime4K Line Thinning + Chroma Bilateral"
-            VideoEnhancementPreset.LIVE_ACTION -> "ArtCNN C4F16 2× Live-Action HD"
+            VideoEnhancementPreset.QUALITY -> "ArtCNN-style Shader + CfL + Anti-Ring"
+            VideoEnhancementPreset.PERFORMANCE -> "FSRCNNX-style Edge Sharpening Shader"
+            VideoEnhancementPreset.ANIME -> "Anime4K-style Line & Chroma Shader"
+            VideoEnhancementPreset.LIVE_ACTION -> "ArtCNN-style Spatial Contour Shader"
             VideoEnhancementPreset.AUTO -> {
                 if (is4kNative) {
-                    "Native 4K Clarity (Deband & SSimRes Passthrough)"
+                    "Native 4K Passthrough Shader"
                 } else if (_config.value.animeMode == AnimeDetectionMode.ALWAYS_ON || (_config.value.animeMode == AnimeDetectionMode.AUTO && isCurrentAnime)) {
-                    "Anime4K / Ani4K Intelligent Upscaler"
+                    "Anime4K-style Shader Filter"
                 } else if (height in 1..719) {
-                    "RAVU-Zoom SD Directional Scaler"
+                    "RAVU-style Directional Reconstruction Shader"
                 } else {
-                    "ArtCNN C4F16 2× Neural HD Scaler"
+                    "ArtCNN-style Spatial Enhancement Shader"
                 }
             }
         }
 
-        val targetRes = if (is4kNative) "4K (Native)" else "4K Ultra-Enhanced"
+        val targetRes = if (is4kNative) "$inputRes (Native)" else "$inputRes (Shader Enhanced)"
 
         _telemetry.value = _telemetry.value.copy(
             activePipelineName = activePipeline,
             inputResolution = inputRes,
-            upscaledResolution = targetRes,
+            enhancedFramebufferResolution = targetRes,
             isAnimeDetected = isCurrentAnime,
             isNative4kPassthrough = is4kNative,
             activePassesCount = if (_config.value.isEnabled) (if (_config.value.gpuPerformanceMode) 2 else 4) else 0

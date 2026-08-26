@@ -7,7 +7,7 @@ import androidx.media3.effect.GlShaderProgram
 /**
  * Media3 GlEffect for real-time video upscaling and shader enhancements.
  */
-data class Media3UpscalingEffect(
+data class Media3ShaderEffect(
     val pipelineMode: Int = 1, // 1=Anime4K, 2=ArtCNN, 3=FSRCNNX, 4=RAVU
     val scaleFactor: Float = 1.0f,
     val sharpen: Float = 50f,
@@ -18,7 +18,7 @@ data class Media3UpscalingEffect(
 ) : GlEffect {
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-        return UpscalingShaderProgram(
+        return ShaderEnhancementProgram(
             context = context,
             useHdr = useHdr,
             pipelineMode = pipelineMode,

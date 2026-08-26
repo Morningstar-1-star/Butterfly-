@@ -894,7 +894,7 @@ private fun VideoUpscalerSection(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Source: ${telemetry.inputResolution} → ${telemetry.upscaledResolution}",
+                        text = "Source: ${telemetry.inputResolution} → ${telemetry.enhancedFramebufferResolution}",
                         fontSize = 11.sp,
                         color = Color.LightGray
                     )

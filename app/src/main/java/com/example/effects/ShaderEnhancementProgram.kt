@@ -14,7 +14,7 @@ import kotlin.math.max
  * Media3 GlShaderProgram that executes GPU shaders (Anime4K, ArtCNN, FSRCNNX, RAVU)
  * directly on decoded OpenGL video frames in real-time.
  */
-class UpscalingShaderProgram(
+class ShaderEnhancementProgram(
     context: Context,
     useHdr: Boolean,
     private val pipelineMode: Int, // 1=Anime4K, 2=ArtCNN, 3=FSRCNNX, 4=RAVU

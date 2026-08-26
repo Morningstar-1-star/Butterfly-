@@ -11,7 +11,7 @@ data class RavuEffect(
     val sharpen: Float = 50f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-        return UpscalingShaderProgram(
+        return ShaderEnhancementProgram(
             context = context,
             useHdr = useHdr,
             pipelineMode = 4, // RAVU

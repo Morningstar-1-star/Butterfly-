@@ -11,7 +11,7 @@ object AppConfig {
      * TMDB Public API Key for movie/TV metadata enrichment.
      * Centralized here to avoid scattering across multiple files.
      */
-    const val TMDB_API_KEY = "a07e22bc18f5cb106bfe4cc1f83ad8ed"
+    const val TMDB_API_KEY = ""
 
     const val TMDB_IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
     const val TMDB_IMAGE_BASE_W342 = "https://image.tmdb.org/t/p/w342"

@@ -1,27 +1,27 @@
 package com.example.effects
 
 /**
- * Top-level presets for the Butterfly Video Enhancement & Upscaling Engine.
+ * Top-level presets for the Butterfly Video Shader Enhancement Engine.
  */
 enum class VideoEnhancementPreset(val displayName: String, val description: String) {
     OFF("Off", "Native video rendering with zero shader passes"),
-    AUTO("Auto", "Intelligently selects optimal GLSL shader pipeline based on resolution, content, and GPU"),
-    QUALITY("Quality", "High visual fidelity using ArtCNN spatial convolution + CfL chroma + anti-ringing"),
-    PERFORMANCE("Performance", "Lightweight FSRCNNX edge scaler with low battery & GPU impact"),
-    ANIME("Anime4K", "Anime4K line restoration, dark-line push, and bilateral chroma reconstruction"),
-    LIVE_ACTION("Live Action", "ArtCNN spatial filter optimized for cinema film grain and natural contours")
+    AUTO("Auto", "Intelligently selects GLSL shader filter pipeline based on resolution and content"),
+    QUALITY("Quality", "High visual fidelity using ArtCNN-style spatial filter + CfL chroma + anti-ringing"),
+    PERFORMANCE("Performance", "Lightweight FSRCNNX-style edge sharpening shader with low GPU load"),
+    ANIME("Anime4K Shader", "Anime4K-style line restoration, dark-line push, and bilateral chroma shader"),
+    LIVE_ACTION("Live Action Shader", "ArtCNN-style spatial shader optimized for cinema film grain and contours")
 }
 
 /**
- * Upscaler shader algorithms available in the engine.
+ * Shader enhancement algorithms available in the engine.
  */
 enum class UpscalerEngine(val displayName: String, val shortTag: String) {
-    AUTO("Auto (Smart Pipeline)", "AUTO"),
-    ART_CNN_C4F16("ArtCNN C4F16 (Spatial HD)", "ArtCNN"),
-    FSRCNNX_X2("FSRCNNX ×2 (Edge Scaler)", "FSRCNNX"),
-    RAVU_ZOOM("RAVU-Zoom (SD/Directional)", "RAVU"),
-    ANIME4K("Anime4K (Line Push)", "Anime4K"),
-    SSIM_SUPER_RES("SSimSuperRes (Anti-Ring)", "SSimRes")
+    AUTO("Auto (Smart Shader Pipeline)", "AUTO"),
+    ART_CNN_C4F16("ArtCNN-style Shader (Spatial HD)", "ArtCNN"),
+    FSRCNNX_X2("FSRCNNX-style Shader (Edge Sharpen)", "FSRCNNX"),
+    RAVU_ZOOM("RAVU-style Shader (Directional)", "RAVU"),
+    ANIME4K("Anime4K-style Shader (Line Push)", "Anime4K"),
+    SSIM_SUPER_RES("SSimSuperRes Shader (Anti-Ring)", "SSimRes")
 }
 
 /**
@@ -60,7 +60,7 @@ data class VideoEnhancementConfig(
     val autoGpuSafety: Boolean = true,
     val showDebugHud: Boolean = false
 ) {
-    fun hasActiveUpscaling(): Boolean {
+    fun hasActiveEnhancement(): Boolean {
         if (!isEnabled || preset == VideoEnhancementPreset.OFF) return false
         return true
     }
@@ -70,9 +70,9 @@ data class VideoEnhancementConfig(
  * Live GPU and video enhancement telemetry.
  */
 data class VideoEnhancementTelemetry(
-    val activePipelineName: String = "ArtCNN C4F16 2x (Auto)",
+    val activePipelineName: String = "ArtCNN-style Shader (Auto)",
     val inputResolution: String = "1080p",
-    val upscaledResolution: String = "1440p / 4K",
+    val enhancedFramebufferResolution: String = "1080p (Shader Enhanced)",
     val isAnimeDetected: Boolean = false,
     val isNative4kPassthrough: Boolean = false,
     val currentFps: Float = 60.0f,

@@ -20,8 +20,8 @@ import java.util.concurrent.TimeUnit
 
 object TMDBHelper {
 
-    private const val TAG = "TMDBHelper"
-    private const val TMDB_API_KEY = AppConfig.TMDB_API_KEY
+    private val TAG = "TMDBHelper"
+    private val TMDB_API_KEY = AppConfig.TMDB_API_KEY
 
     private val WEB_AND_ADULT_PROVIDERS = setOf(
         "youtube", "vimeo", "dailymotion", "bilibili",
@@ -572,47 +572,21 @@ object TMDBHelper {
         val clean = cleanTitleForSearch(rawTitle)
         return MediaDetailInfo(
             title = clean.ifBlank { "Media Item" },
-            plotOverview = "Explore full details, cast, and high-definition direct stream sources for $clean.",
-            releaseDateFormatted = "2024",
-            ratingText = "★ 8.5 / 10 TMDB",
+            plotOverview = "Metadata unavailable.",
+            releaseDateFormatted = "",
+            ratingText = "",
             director = "",
             writer = "",
             studioOrCollection = "",
-            genres = listOf("Action", "Drama", "Thriller"),
+            genres = emptyList(),
             cast = emptyList(),
             screenshots = emptyList(),
-            clipsAndTrailers = listOf(
-                VideoTrailerClip(
-                    title = "$clean - Official Teaser Trailer",
-                    youtubeKey = null,
-                    thumbnailUrl = null,
-                    durationText = "02:15",
-                    clipType = "Official Trailer"
-                )
-            )
+            clipsAndTrailers = emptyList()
         )
     }
 
     private fun getLocalCastForTitle(lowerTitle: String): List<CastMember> {
-        return when {
-            lowerTitle.contains("flex x cop") || lowerTitle.contains("flex") -> listOf(
-                CastMember("Ahn Bo-hyun", "Jin I-soo", null),
-                CastMember("Park Ji-hyun", "Lee Kang-hyun", null),
-                CastMember("Kang Sang-jun", "Yoo Jun-young", null),
-                CastMember("Kwak Si-yang", "Jin Seung-ju", null)
-            )
-            lowerTitle.contains("futurama") -> listOf(
-                CastMember("Billy West", "Philip J. Fry / Farnsworth", null),
-                CastMember("Katey Sagal", "Turanga Leela", null),
-                CastMember("John DiMaggio", "Bender Bending Rodríguez", null)
-            )
-            lowerTitle.contains("spider-man") || lowerTitle.contains("spiderman") -> listOf(
-                CastMember("Tom Holland", "Peter Parker / Spider-Man", null),
-                CastMember("Zendaya", "MJ", null),
-                CastMember("Jacob Batalon", "Ned Leeds", null)
-            )
-            else -> emptyList()
-        }
+        return emptyList()
     }
 
     private val tvSeasonsCache = ConcurrentHashMap<String, List<SeriesSeason>>()
@@ -1114,7 +1088,7 @@ object TMDBHelper {
                         val malId = obj.optInt("mal_id")
                         val title = obj.optString("title", "Anime")
                         val year = obj.optInt("year", 2024)
-                        val score = obj.optDouble("score", 8.5)
+                        val score = obj.optDouble("score", 0.0)
                         val imagesObj = obj.optJSONObject("images")
                         val jpgObj = imagesObj?.optJSONObject("jpg")
                         val imageUrl = jpgObj?.optString("large_image_url", jpgObj.optString("image_url", ""))

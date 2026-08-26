@@ -31,7 +31,7 @@ enum class SubtitleSourceType {
     BILIBILI,
     EXTERNAL_PROVIDER,
     CACHED,
-    WHISPER_AI
+    VOICE_ACTIVITY_DETECTION
 }
 
 /**

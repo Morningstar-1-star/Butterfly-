@@ -12,7 +12,7 @@ data class FsrcnnxEffect(
     val deband: Float = 30f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-        return UpscalingShaderProgram(
+        return ShaderEnhancementProgram(
             context = context,
             useHdr = useHdr,
             pipelineMode = 3, // FSRCNNX

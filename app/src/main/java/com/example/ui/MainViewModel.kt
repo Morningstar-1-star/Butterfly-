@@ -1784,7 +1784,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resumeDownload(videoId: String) {
         val dl = _offlineDownloads.value.firstOrNull { it.videoId == videoId } ?: return
         val currentOption = _selectedStreamOption.value
-        val url = currentOption?.videoUrl ?: dl.localFilePath
+        val url = currentOption?.videoUrl ?: return
         com.example.downloader.AppDownloadManager.resumeDownload(
             context = getApplication(),
             videoId = videoId,
@@ -1981,11 +1981,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addRepositorySource(url: String, name: String = "Custom Repository") {}
-    fun removeRepositorySource(repoId: String) {}
-    fun installExtension(sourceStr: String, onResult: (Any) -> Unit = {}) {}
-    fun uninstallExtension(pluginId: String) {}
-    fun updateExtension(pluginId: String) {}
 
     fun navigateToScreen(screen: AppScreen) {
         _currentScreen.value = screen

@@ -23,16 +23,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.util.AiCaptionEngine
 
 @Composable
-fun SubtitleOverlay(
-    modifier: Modifier = Modifier
-) {
+fun SubtitleOverlay(modifier: Modifier = Modifier) {
     val subtitleMode by GlobalPlayerManager.subtitleMode.collectAsState()
     val bilibiliOrigText by GlobalPlayerManager.currentActiveSubtitleText.collectAsState()
     val bilibiliTransText by GlobalPlayerManager.currentActiveTranslatedText.collectAsState()
-    val aiState by AiCaptionEngine.captionState.collectAsState()
 
     if (subtitleMode == GlobalPlayerManager.SubtitleMode.OFF) return
 
@@ -40,15 +36,14 @@ fun SubtitleOverlay(
         GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL -> Pair(bilibiliOrigText, "")
         GlobalPlayerManager.SubtitleMode.BILIBILI_TRANSLATED -> Pair(bilibiliOrigText, bilibiliTransText)
         GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER -> Pair(bilibiliOrigText, bilibiliTransText)
-        GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS -> Pair(aiState.currentOriginalText, aiState.currentTranslatedText)
         else -> Pair("", "")
     }
 
     val hasContent = origText.isNotBlank() || transText.isNotBlank()
-    val isPositionTop = aiState.isPositionTop
-    val bgOpacity = aiState.backgroundOpacity
-    val fontSize = aiState.fontSizeSp
-    val dualEnabled = aiState.dualSubtitleEnabled
+    val isPositionTop = false
+    val bgOpacity = 0.5f
+    val fontSize = 16f
+    val dualEnabled = true
 
     AnimatedVisibility(
         visible = hasContent,
@@ -71,19 +66,16 @@ fun SubtitleOverlay(
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Translated Subtitle (Primary)
                 if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL) {
                     Text(
                         text = transText,
-                        color = Color(0xFFFFFF00), // High-visibility yellow
+                        color = Color(0xFFFFFF00),
                         fontSize = fontSize.sp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         lineHeight = (fontSize * 1.3f).sp
                     )
                 }
-
-                // Original Subtitle (Chinese / Japanese)
                 if (origText.isNotBlank() && (dualEnabled || subtitleMode == GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL || transText.isBlank())) {
                     if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL) {
                         Spacer(modifier = Modifier.height(3.dp))

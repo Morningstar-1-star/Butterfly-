@@ -21,18 +21,6 @@ android {
     ndk {
       abiFilters += listOf("arm64-v8a")
     }
-    externalNativeBuild {
-      cmake {
-        cppFlags += listOf("-std=c++17", "-O3", "-fexceptions")
-      }
-    }
-  }
-
-  externalNativeBuild {
-    cmake {
-      path = file("src/main/cpp/whisper/CMakeLists.txt")
-      version = "3.22.1"
-    }
   }
 
   packaging {
@@ -164,5 +152,6 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
+  implementation(libs.androidx.work.runtime.ktx)
   "ksp"(libs.moshi.kotlin.codegen)
 }

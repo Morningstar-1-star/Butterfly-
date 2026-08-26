@@ -28,7 +28,7 @@ import kotlinx.coroutines.withContext
  * 2. Bilibili subtitles (native API JSON subtitles)
  * 3. External subtitle providers (OpenSubtitles, SubDL, Jimaku, SubSource, etc.)
  * 4. Cached transcript / Cached Subtitle
- * 5. Whisper.cpp (Last-resort AI fallback)
+ * 5. Voice Activity Detection (RMS detection)
  */
 object SubtitleManager {
     private const val TAG = "SubtitleManager"
@@ -287,7 +287,7 @@ object SubtitleManager {
                     SubtitleSourceType.BILIBILI -> 400
                     SubtitleSourceType.EXTERNAL_PROVIDER -> 300
                     SubtitleSourceType.CACHED -> 200
-                    SubtitleSourceType.WHISPER_AI -> 100
+                    SubtitleSourceType.VOICE_ACTIVITY_DETECTION -> 100
                 }
             }.thenByDescending {
                 // Priority 2: Exact Language Match

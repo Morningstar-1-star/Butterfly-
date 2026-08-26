@@ -198,19 +198,13 @@ object GlobalPlayerManager {
     fun setSubtitleMode(mode: SubtitleMode, context: Context? = null) {
         _subtitleMode.value = mode
         if (mode == SubtitleMode.AI_LIVE_CAPTIONS) {
-            com.example.util.AiCaptionEngine.setEnabled(true, context)
         } else {
-            com.example.util.AiCaptionEngine.setEnabled(false, context)
         }
     }
 
     fun setTargetCaptionLanguage(langCode: String) {
         _targetCaptionLanguage.value = langCode
         com.example.subtitles.SubtitleManager.setSelectedLanguage(langCode)
-        com.example.util.AiCaptionEngine.setLanguages(
-            source = com.example.util.AiCaptionEngine.captionState.value.sourceLanguage,
-            target = langCode
-        )
         // If Bilibili cues are loaded, re-translate them
         val cues = _bilibiliCues.value
         if (cues.isNotEmpty()) {
@@ -333,7 +327,6 @@ object GlobalPlayerManager {
                 .setBackBuffer(15_000, true)
                 .build()
 
-            val whisperProcessor = com.example.audio.WhisperAudioProcessor()
             val audioEnhancementProcessor = com.example.ui.player.audio.AudioEnhancementEngine.getAudioProcessor()
             val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(context.applicationContext) {
                 override fun buildAudioSink(
@@ -342,7 +335,7 @@ object GlobalPlayerManager {
                     enableAudioTrackPlaybackParams: Boolean
                 ): androidx.media3.exoplayer.audio.AudioSink? {
                     return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
-                        .setAudioProcessors(arrayOf(whisperProcessor, audioEnhancementProcessor))
+                        .setAudioProcessors(arrayOf(audioEnhancementProcessor))
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                         .build()
@@ -476,7 +469,7 @@ object GlobalPlayerManager {
             com.example.effects.VideoEnhancementEngine.config.collect { config ->
                 try {
                     val isAnime = com.example.effects.VideoEnhancementEngine.telemetry.value.isAnimeDetected
-                    val effect = com.example.effects.UpscalerModelLoader.createEffect(config, isAnime)
+                    val effect = com.example.effects.ShaderEnhancementLoader.createEffect(config, isAnime)
                     if (effect != null) {
                         player.setVideoEffects(listOf(effect))
                     } else {
@@ -518,7 +511,6 @@ object GlobalPlayerManager {
             }
         }
 
-        com.example.util.AiCaptionEngine.updateCurrentPlaybackPosition(cur)
         com.example.subtitles.SubtitleManager.updatePlaybackPosition(cur)
         appContext?.let { ctx ->
             com.example.smartskip.SmartSkipPlayerEngine.onPlaybackPositionUpdate(ctx, cur)
@@ -1062,9 +1054,6 @@ object GlobalPlayerManager {
                             _subtitleMode.value = if (item.providerId == "bilibili") SubtitleMode.BILIBILI_TRANSLATED else SubtitleMode.EXTERNAL_PROVIDER
                         }
                     },
-                    onFallbackToWhisper = {
-                        android.util.Log.i("GlobalPlayerManager", "No external/bilibili subtitles available. Whisper fallback ready.")
-                    }
                 )
             }
 
