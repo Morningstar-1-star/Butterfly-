@@ -118,6 +118,12 @@ fun HomeScreen(
         isBarsVisible = true
     }
 
+    LaunchedEffect(trendingVideos) {
+        if (trendingVideos.isNotEmpty()) {
+            com.example.util.ThumbnailOptimizer.preloadThumbnails(context, trendingVideos, maxCount = 20)
+        }
+    }
+
     LaunchedEffect(currentScreen, isSearchExpanded) {
         isBarsVisible = true
     }

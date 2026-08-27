@@ -3419,7 +3419,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 } else {
-                    YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
+                    kotlinx.coroutines.withTimeoutOrNull(20000L) {
+                        YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
+                    } ?: YouTubeExtractorHelper.ExtractionResult.Error(
+                        ExtractorErrorDetails(
+                            errorType = ExtractorErrorType.NETWORK_ERROR,
+                            message = "Stream extraction timed out. Please check your network connection or try again.",
+                            rawExceptionName = "TimeoutException",
+                            fullStackTrace = "resolveStream exceeded 20s timeout",
+                            urlOrId = cleanIdOrUrl
+                        )
+                    )
                 }
 
                 if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
@@ -3765,7 +3775,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var unifiedResolutionJob: Job? = null
 
-    fun resolveUnifiedSourcesForMedia(identity: com.example.model.MediaIdentity) {
+    fun resolveUnifiedSourcesForMedia(identity: com.example.model.MediaIdentity, force: Boolean = false) {
+        val activeProv = _activeVideoItem.value?.providerId ?: ""
+        val titleLower = identity.title.lowercase()
+        val isMultiSourceMedia = force || activeProv == "torrent" || activeProv == "vega" || activeProv.startsWith("vega_") ||
+                titleLower.contains("movie") || titleLower.contains("season") || titleLower.contains("s0") || titleLower.contains("s1")
+
+        if (!isMultiSourceMedia) {
+            _isResolvingUnifiedSources.value = false
+            return
+        }
+
         unifiedResolutionJob?.cancel()
         _isResolvingUnifiedSources.value = true
         _unifiedCandidates.value = emptyList()

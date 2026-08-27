@@ -207,6 +207,9 @@ fun UniversalVideoPlayer(
     }
 
     LaunchedEffect(streamOption, hlsUrl, captionOption, videoId, streamData) {
+        if (streamOption == null && hlsUrl.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
         val curPos = GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
         val resumePos = if (curPos > 0L) {
             curPos
@@ -373,11 +376,9 @@ fun UniversalVideoPlayer(
 
                         // Swipe down to minimize in portrait mode
                         if (!isLandscape && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
-                            if (isSwipingDownToMinimize || (dragAmount.y > 6f && dragAmount.y > kotlin.math.abs(dragAmount.x) * 1.2f)) {
+                            if (isSwipingDownToMinimize || (accumulatedDy > 6f && accumulatedDy > absDx * 1.1f)) {
                                 isSwipingDownToMinimize = true
-                                if (onSwipeDownDrag != null) {
-                                    onSwipeDownDrag.invoke(dragAmount.y)
-                                }
+                                onSwipeDownDrag?.invoke(dragAmount.y)
                                 return@detectDragGestures
                             }
                         }
@@ -484,33 +485,6 @@ fun UniversalVideoPlayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        zoomScale = (zoomScale * zoom).coerceIn(1f, 5f)
-                        if (zoomScale <= 1f) {
-                            zoomOffsetX = 0f
-                            zoomOffsetY = 0f
-                        } else {
-                            zoomOffsetX += pan.x
-                            zoomOffsetY += pan.y
-                        }
-                    }
-                }
-                .pointerInput(zoomScale) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            if (zoomScale > 1f) {
-                                zoomScale = 1f
-                                zoomOffsetX = 0f
-                                zoomOffsetY = 0f
-                                Toast.makeText(context, "Zoom reset", Toast.LENGTH_SHORT).show()
-                            } else {
-                                zoomScale = 2.0f
-                                Toast.makeText(context, "Zoomed 2x", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                }
                 .graphicsLayer(
                     scaleX = zoomScale,
                     scaleY = zoomScale,
@@ -650,9 +624,7 @@ fun UniversalVideoPlayer(
                                         ?: (currentPlayerContext as? Activity)?.finish()
                                 }
                             },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
@@ -686,24 +658,23 @@ fun UniversalVideoPlayer(
                         }
                     }
 
-                    // Right-side actions (Speed, Settings, Fullscreen)
+                    // Right-side actions (ONLY Speed, Caption, Settings - clean YouTube style, no background circles)
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Playback Speed Button / Badge
-                        Surface(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                showSpeedSubMenu = true
-                                showSettingsSheet = true
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            contentColor = Color.White
+                        // Playback Speed Button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    GlobalPlayerManager.showControls()
+                                    showSpeedSubMenu = true
+                                    showSettingsSheet = true
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -711,11 +682,11 @@ fun UniversalVideoPlayer(
                                     imageVector = Icons.Default.Speed,
                                     contentDescription = "Playback Speed",
                                     tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x",
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
@@ -729,107 +700,13 @@ fun UniversalVideoPlayer(
                                 GlobalPlayerManager.showControls()
                                 showSubtitleSheet = true
                             },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    if (subMode != GlobalPlayerManager.SubtitleMode.OFF) Color(0xFF00E5FF).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
-                                    CircleShape
-                                )
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ClosedCaption,
                                 contentDescription = "Subtitles & AI Live Captions",
                                 tint = if (subMode != GlobalPlayerManager.SubtitleMode.OFF) Color(0xFF00E5FF) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Aspect Ratio Button (Click to cycle, Long Press for Custom Menu)
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    if (customAspectRatio != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.65f),
-                                    CircleShape
-                                )
-                                .combinedClickable(
-                                    onClick = {
-                                        GlobalPlayerManager.showControls()
-                                        if (customAspectRatio != null) {
-                                            customAspectRatio = null
-                                            customAspectRatioLabel = "Default"
-                                            resizeModeState = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                            Toast.makeText(context, "Aspect Ratio: Default", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            resizeModeState = when (resizeModeState) {
-                                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                            }
-                                            val label = when (resizeModeState) {
-                                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop / Zoom"
-                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch / Fill"
-                                                else -> "Fit Screen"
-                                            }
-                                            Toast.makeText(context, "Aspect Ratio: $label", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    onLongClick = {
-                                        GlobalPlayerManager.showControls()
-                                        showAspectRatioSheet = true
-                                    }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AspectRatio,
-                                contentDescription = "Aspect Ratio",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Video Effects & Filters Button
-                        val topVideoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                showVideoEffectsSheet = true
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    if (topVideoEffectsConfig.isEnabled) Color(0xFF00E5FF).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
-                                    CircleShape
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Video Effects & Filters",
-                                tint = if (topVideoEffectsConfig.isEnabled) Color(0xFF00E5FF) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Audio Equalizer & Enhancement Button
-                        val topAudioConfig by com.example.ui.player.audio.AudioEnhancementEngine.config.collectAsState()
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                showAudioEnhancementSheet = true
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    if (topAudioConfig.isEnabled) Color(0xFFB388FF).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
-                                    CircleShape
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = "Audio Equalizer & Enhancement",
-                                tint = if (topAudioConfig.isEnabled) Color(0xFFB388FF) else Color.White,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
 
@@ -838,35 +715,18 @@ fun UniversalVideoPlayer(
                             onClick = {
                                 GlobalPlayerManager.showControls()
                                 showSpeedSubMenu = false
+                                showQualitySubMenu = false
+                                showAudioTrackSubMenu = false
+                                showAdditionalSettingsSubMenu = false
                                 showSettingsSheet = true
                             },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Player Settings",
                                 tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Fullscreen Toggle Icon
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                toggleFullscreen(currentPlayerContext)
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = "Toggle Fullscreen",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
@@ -882,7 +742,7 @@ fun UniversalVideoPlayer(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(36.dp)
+                    horizontalArrangement = Arrangement.spacedBy(44.dp)
                 ) {
                     // Previous Video / Rewind Button
                     IconButton(
@@ -895,15 +755,13 @@ fun UniversalVideoPlayer(
                                 GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
                             }
                         },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        modifier = Modifier.size(52.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous Video",
                             tint = Color.White,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(36.dp)
                         )
                     }
 
@@ -918,15 +776,13 @@ fun UniversalVideoPlayer(
                                 GlobalPlayerManager.play()
                             }
                         },
-                        modifier = Modifier
-                            .size(68.dp)
-                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                        modifier = Modifier.size(72.dp)
                     ) {
                         Icon(
                             imageVector = if (isCurrentlyPlayingCenter) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isCurrentlyPlayingCenter) "Pause" else "Play",
                             tint = Color.White,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier.size(54.dp)
                         )
                     }
 
@@ -941,15 +797,13 @@ fun UniversalVideoPlayer(
                                 GlobalPlayerManager.seekTo(curMs + 10000L)
                             }
                         },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        modifier = Modifier.size(52.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Video",
                             tint = Color.White,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(36.dp)
                         )
                     }
                 }
@@ -2153,7 +2007,7 @@ fun UniversalVideoPlayer(
             )
         }
 
-        // Ultra-Clean Double-Tap Left (Rewind) Indicator
+        // Clean Double-Tap Left (Rewind) Indicator
         AnimatedVisibility(
             visible = doubleTapSeekDirection == "LEFT",
             enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.8f, animationSpec = tween(120)),
@@ -2166,8 +2020,7 @@ fun UniversalVideoPlayer(
                 modifier = Modifier
                     .size(68.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.60f))
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+                    .background(Color.Black.copy(alpha = 0.40f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -2207,7 +2060,7 @@ fun UniversalVideoPlayer(
             }
         }
 
-        // Ultra-Clean Double-Tap Right (Forward) Indicator
+        // Clean Double-Tap Right (Forward) Indicator
         AnimatedVisibility(
             visible = doubleTapSeekDirection == "RIGHT",
             enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.8f, animationSpec = tween(120)),
@@ -2220,8 +2073,7 @@ fun UniversalVideoPlayer(
                 modifier = Modifier
                     .size(68.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.60f))
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+                    .background(Color.Black.copy(alpha = 0.40f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -2257,7 +2109,7 @@ fun UniversalVideoPlayer(
             }
         }
 
-        // Ultra-Clean Center Double-Tap Play / Pause Indicator
+        // Clean Center Double-Tap Play / Pause Indicator
         AnimatedVisibility(
             visible = centerPlayPauseFeedback != null,
             enter = fadeIn(tween(80)) + scaleIn(initialScale = 0.75f, animationSpec = tween(120)),
@@ -2268,8 +2120,7 @@ fun UniversalVideoPlayer(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.68f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+                    .background(Color.Black.copy(alpha = 0.40f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

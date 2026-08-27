@@ -36,46 +36,40 @@ object ThumbnailOptimizer {
             trimmed = "https:$trimmed"
         }
 
-        // 1. Optimize YouTube thumbnails (use reliable mqdefault.jpg for compact or hqdefault.jpg)
+        // 1. Optimize YouTube thumbnails (use lightweight mqdefault.jpg ~12KB for maximum speed)
         if (trimmed.contains("i.ytimg.com") || trimmed.contains("img.youtube.com")) {
             val vIdPattern = java.util.regex.Pattern.compile("/(vi|vi_webp)/([a-zA-Z0-9_-]{11})/")
             val matcher = vIdPattern.matcher(trimmed)
             if (matcher.find()) {
                 val vId = matcher.group(2)
                 if (!vId.isNullOrBlank()) {
-                    val quality = if (preferCompact) "mqdefault" else "hqdefault"
-                    return "https://i.ytimg.com/vi/$vId/$quality.jpg"
+                    return "https://i.ytimg.com/vi/$vId/mqdefault.jpg"
                 }
             }
-            if (preferCompact) {
-                if (trimmed.contains("/maxresdefault.")) return trimmed.replace(Regex("/maxresdefault\\.[a-z]+.*"), "/mqdefault.jpg")
-                if (trimmed.contains("/sddefault.")) return trimmed.replace(Regex("/sddefault\\.[a-z]+.*"), "/mqdefault.jpg")
-                if (trimmed.contains("/hqdefault.")) return trimmed.replace(Regex("/hqdefault\\.[a-z]+.*"), "/mqdefault.jpg")
-                if (trimmed.contains("/hq720.")) return trimmed.replace(Regex("/hq720\\.[a-z]+.*"), "/mqdefault.jpg")
-            } else {
-                if (trimmed.contains("/maxresdefault.")) return trimmed.replace(Regex("/maxresdefault\\.[a-z]+.*"), "/hqdefault.jpg")
-                if (trimmed.contains("/sddefault.")) return trimmed.replace(Regex("/sddefault\\.[a-z]+.*"), "/hqdefault.jpg")
-                if (trimmed.contains("/hq720.")) return trimmed.replace(Regex("/hq720\\.[a-z]+.*"), "/hqdefault.jpg")
-            }
+            if (trimmed.contains("/maxresdefault.")) return trimmed.replace(Regex("/maxresdefault\\.[a-z]+.*"), "/mqdefault.jpg")
+            if (trimmed.contains("/sddefault.")) return trimmed.replace(Regex("/sddefault\\.[a-z]+.*"), "/mqdefault.jpg")
+            if (trimmed.contains("/hqdefault.")) return trimmed.replace(Regex("/hqdefault\\.[a-z]+.*"), "/mqdefault.jpg")
+            if (trimmed.contains("/hq720.")) return trimmed.replace(Regex("/hq720\\.[a-z]+.*"), "/mqdefault.jpg")
             return trimmed
         }
 
         // 2. Optimize TMDB (The Movie Database) poster & backdrop images
         if (trimmed.contains("image.tmdb.org/t/p/")) {
-            val targetSize = if (preferCompact) "w185" else "w342"
+            val targetSize = "w185"
             return trimmed
                 .replace("/original/", "/$targetSize/")
                 .replace("/w1280/", "/$targetSize/")
                 .replace("/w780/", "/$targetSize/")
                 .replace("/w500/", "/$targetSize/")
+                .replace("/w342/", "/$targetSize/")
         }
 
         // 3. Optimize Unsplash dynamic images
         if (trimmed.contains("images.unsplash.com")) {
             return if (trimmed.contains("w=")) {
-                trimmed.replace(Regex("w=\\d+"), if (preferCompact) "w=200" else "w=400")
+                trimmed.replace(Regex("w=\\d+"), "w=300")
             } else {
-                "$trimmed&w=400&q=75&auto=format"
+                "$trimmed&w=300&q=65&auto=format"
             }
         }
 

@@ -593,7 +593,8 @@ fun SettingsScreen(
 
                     SettingsCategory.DIAGNOSTICS -> {
                         val engineVer by com.example.extractor.YtDlpUpdateManager.engineVersion.collectAsState()
-                        val installedVer by com.example.extractor.YtDlpUpdateManager.installedVersion.collectAsState()
+                        val latestRemoteVer by com.example.extractor.YtDlpUpdateManager.latestRemoteVersion.collectAsState()
+                        val updateState by com.example.extractor.YtDlpUpdateManager.updateState.collectAsState()
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -601,12 +602,31 @@ fun SettingsScreen(
                         ) {
                             item {
                                 YouTubeDetailRow(
-                                    title = "yt-dlp Core Engine",
-                                    subtitle = "Bundled engine: ${engineVer ?: "yt-dlp-android 2.0.2"} (Updated via app releases)",
+                                    title = "yt-dlp Core Engine Status",
+                                    subtitle = "Active Engine: ${engineVer ?: "Checking..."} | Upstream Latest: ${latestRemoteVer ?: "Checking..."}",
                                     onClick = {
                                         coroutineScope.launch {
                                             com.example.extractor.YtDlpUpdateManager.refreshVersion(context)
-                                            Toast.makeText(context, "yt-dlp engine active (bundled AAR)", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Engine: ${com.example.extractor.YtDlpUpdateManager.engineVersion.value}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            }
+                            item {
+                                YouTubeDetailRow(
+                                    title = "Update yt-dlp Engine Now",
+                                    subtitle = when (updateState) {
+                                        is com.example.extractor.YtDlpUpdateManager.UpdateState.Checking -> "Downloading latest yt-dlp binary from GitHub..."
+                                        is com.example.extractor.YtDlpUpdateManager.UpdateState.Success -> (updateState as com.example.extractor.YtDlpUpdateManager.UpdateState.Success).message
+                                        is com.example.extractor.YtDlpUpdateManager.UpdateState.Error -> "Error: ${(updateState as com.example.extractor.YtDlpUpdateManager.UpdateState.Error).errorMessage}"
+                                        else -> "Fetch and install the latest official yt-dlp release directly into internal app storage"
+                                    },
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            Toast.makeText(context, "Updating yt-dlp engine...", Toast.LENGTH_SHORT).show()
+                                            com.example.extractor.YtDlpUpdateManager.updateYtDlpEngine(context) { success, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                     }
                                 )

@@ -10,12 +10,14 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipInputStream
 
 /**
- * Manages active yt-dlp core engine status and upstream release tracking.
- * Note: dev.ffmpegkit-maintained:yt-dlp-android packages the yt-dlp engine as an embedded asset.
- * Updates are provided through dependency releases.
+ * Manages active yt-dlp core engine status, dynamic OTA updating, and upstream release tracking.
  */
 object YtDlpUpdateManager {
     private const val TAG = "YtDlpUpdateManager"
@@ -28,8 +30,8 @@ object YtDlpUpdateManager {
     }
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
@@ -47,12 +49,35 @@ object YtDlpUpdateManager {
     private val _latestRemoteVersion = MutableStateFlow<String?>("Checking...")
     val latestRemoteVersion: StateFlow<String?> = _latestRemoteVersion.asStateFlow()
 
-    private val _isAutoUpdateEnabled = MutableStateFlow<Boolean>(false)
+    private val _isAutoUpdateEnabled = MutableStateFlow<Boolean>(true)
     val isAutoUpdateEnabled: StateFlow<Boolean> = _isAutoUpdateEnabled.asStateFlow()
+
+    fun injectUpdatedPathIntoPython(context: Context) {
+        try {
+            val targetDir = File(context.filesDir, "yt_dlp_updated")
+            if (targetDir.exists() && File(targetDir, "yt_dlp").exists()) {
+                if (com.chaquo.python.Python.isStarted()) {
+                    val python = com.chaquo.python.Python.getInstance()
+                    val sys = python.getModule("sys")
+                    val path = sys.get("path")
+                    val absPath = targetDir.absolutePath
+                    val currentPathList = path?.callAttr("copy")
+                    val containsPath = currentPathList?.callAttr("__contains__", absPath)?.toJava(Boolean::class.java) ?: false
+                    if (!containsPath) {
+                        path?.callAttr("insert", 0, absPath)
+                        Log.i(TAG, "Injected updated yt-dlp package ($absPath) into sys.path")
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Note on sys.path injection: ${e.message}")
+        }
+    }
 
     suspend fun refreshVersion(context: Context): String = withContext(Dispatchers.IO) {
         _updateState.value = UpdateState.Checking
         try {
+            injectUpdatedPathIntoPython(context)
             val engVer = YtDlpResolver.getEngineVersion(context)
             _engineVersion.value = engVer
             _wrapperVersion.value = "2.0.2"
@@ -72,12 +97,122 @@ object YtDlpUpdateManager {
         }
     }
 
+    suspend fun updateYtDlpEngine(context: Context, onResult: (Boolean, String) -> Unit = { _, _ -> }): Unit = withContext(Dispatchers.IO) {
+        _updateState.value = UpdateState.Checking
+        try {
+            YtDlpResolver.ensureInitialized(context)
+
+            // Fetch latest release details from PyPI
+            val req = Request.Builder()
+                .url("https://pypi.org/pypi/yt-dlp/json")
+                .header("User-Agent", "Butterfly-App/1.0")
+                .build()
+
+            val responseStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+
+            if (responseStr.isNullOrBlank()) {
+                val errMsg = "Failed to fetch yt-dlp metadata from PyPI"
+                _updateState.value = UpdateState.Error(errMsg)
+                withContext(Dispatchers.Main) { onResult(false, errMsg) }
+                return@withContext
+            }
+
+            val json = JSONObject(responseStr)
+            val latestVersion = json.getJSONObject("info").getString("version")
+            val urlsArray = json.getJSONArray("urls")
+            var wheelUrl: String? = null
+            for (i in 0 until urlsArray.length()) {
+                val uObj = urlsArray.getJSONObject(i)
+                val u = uObj.getString("url")
+                if (u.endsWith(".whl")) {
+                    wheelUrl = u
+                    break
+                }
+            }
+
+            if (wheelUrl == null) {
+                val errMsg = "No python wheel artifact found for yt-dlp $latestVersion"
+                _updateState.value = UpdateState.Error(errMsg)
+                withContext(Dispatchers.Main) { onResult(false, errMsg) }
+                return@withContext
+            }
+
+            Log.i(TAG, "Downloading yt-dlp $latestVersion wheel from $wheelUrl")
+            val tempWheelFile = File(context.cacheDir, "yt_dlp_latest.whl")
+            val downloadReq = Request.Builder().url(wheelUrl).build()
+            httpClient.newCall(downloadReq).execute().use { resp ->
+                if (!resp.isSuccessful || resp.body == null) {
+                    throw IOException("HTTP download failed with code ${resp.code}")
+                }
+                resp.body!!.byteStream().use { input ->
+                    FileOutputStream(tempWheelFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+
+            val targetDir = File(context.filesDir, "yt_dlp_updated")
+            val tempTargetDir = File(context.filesDir, "yt_dlp_updated_temp_${System.currentTimeMillis()}")
+            if (tempTargetDir.exists()) tempTargetDir.deleteRecursively()
+            tempTargetDir.mkdirs()
+
+            ZipInputStream(tempWheelFile.inputStream()).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name
+                    val outFile = File(tempTargetDir, entryName)
+                    if (!outFile.canonicalPath.startsWith(tempTargetDir.canonicalPath)) {
+                        entry = zis.nextEntry
+                        continue
+                    }
+                    if (entry.isDirectory) {
+                        outFile.mkdirs()
+                    } else {
+                        outFile.parentFile?.mkdirs()
+                        FileOutputStream(outFile).use { fos ->
+                            zis.copyTo(fos)
+                        }
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+            }
+
+            tempWheelFile.delete()
+
+            if (targetDir.exists()) targetDir.deleteRecursively()
+            tempTargetDir.renameTo(targetDir)
+
+            injectUpdatedPathIntoPython(context)
+
+            val newVer = YtDlpResolver.getEngineVersion(context)
+            _engineVersion.value = newVer
+            _latestRemoteVersion.value = latestVersion
+            val displayVer = "Android wrapper: 2.0.2 | yt-dlp engine: $newVer"
+            _installedVersion.value = displayVer
+            val succMsg = "Successfully updated yt-dlp engine to $newVer"
+            _updateState.value = UpdateState.Success(succMsg, newVer)
+
+            withContext(Dispatchers.Main) {
+                onResult(true, "yt-dlp updated to $newVer!")
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Exception updating yt-dlp engine: ${e.message}", e)
+            val errStr = e.message ?: "Failed to update yt-dlp"
+            _updateState.value = UpdateState.Error(errStr)
+            withContext(Dispatchers.Main) {
+                onResult(false, "Update error: $errStr")
+            }
+        }
+    }
+
     suspend fun fetchLatestRemoteVersion(): String? = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder()
-                .url("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+                .url("https://pypi.org/pypi/yt-dlp/json")
                 .header("User-Agent", "Butterfly-App/1.0")
-                .header("Accept", "application/vnd.github.v3+json")
                 .build()
 
             val responseStr = httpClient.newCall(req).execute().use { resp ->
@@ -86,10 +221,10 @@ object YtDlpUpdateManager {
 
             if (!responseStr.isNullOrBlank()) {
                 val json = JSONObject(responseStr)
-                val tagName = json.optString("tag_name", "").removePrefix("v")
-                if (tagName.isNotBlank()) {
-                    _latestRemoteVersion.value = tagName
-                    return@withContext tagName
+                val ver = json.getJSONObject("info").getString("version")
+                if (ver.isNotBlank()) {
+                    _latestRemoteVersion.value = ver
+                    return@withContext ver
                 }
             }
         } catch (e: Exception) {
@@ -101,6 +236,7 @@ object YtDlpUpdateManager {
     suspend fun checkForUpdates(context: Context, isManual: Boolean = false): Unit = withContext(Dispatchers.IO) {
         _updateState.value = UpdateState.Checking
         try {
+            injectUpdatedPathIntoPython(context)
             val localVer = YtDlpResolver.getEngineVersion(context)
             _engineVersion.value = localVer
             val remoteVer = fetchLatestRemoteVersion()
@@ -108,12 +244,18 @@ object YtDlpUpdateManager {
             val displayVer = "Android wrapper: 2.0.2 | yt-dlp engine: $localVer"
             _installedVersion.value = displayVer
 
-            val statusMsg = if (remoteVer != null && remoteVer == localVer) {
-                "yt-dlp is running the latest engine ($localVer)"
+            if (isManual && remoteVer != null && remoteVer != localVer) {
+                updateYtDlpEngine(context)
             } else {
-                "yt-dlp engine $localVer is active"
+                val statusMsg = if (remoteVer != null && remoteVer == localVer) {
+                    "yt-dlp is running the latest engine ($localVer)"
+                } else if (remoteVer != null) {
+                    "Update available: $remoteVer (Active: $localVer)"
+                } else {
+                    "yt-dlp engine $localVer is active"
+                }
+                _updateState.value = UpdateState.Success(statusMsg, localVer)
             }
-            _updateState.value = UpdateState.Success(statusMsg, localVer)
         } catch (e: Throwable) {
             Log.e(TAG, "Engine verification error: ${e.message}", e)
             _updateState.value = UpdateState.Error(e.message ?: "Failed to verify engine")

@@ -344,45 +344,6 @@ fun VideoPlayerScreen(
                     .background(Color.Black.copy(alpha = bgOverlayAlpha))
                     .padding(paddingValues)
             ) {
-                // YouTube-style Drag Handle Pill Bar at top
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 6.dp)
-                        .zIndex(15f)
-                        .width(38.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = (0.55f * contentAlpha)))
-                        .pointerInput(Unit) {
-                            var accumulatedDrag = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { accumulatedDrag = 0f },
-                                onDragEnd = {
-                                    coroutineScope.launch {
-                                        if (dragOffsetY.value > minimizeThresholdPx || accumulatedDrag > 100f) {
-                                            minimizePlayerAction()
-                                        } else {
-                                            dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
-                                        }
-                                    }
-                                },
-                                onDragCancel = {
-                                    coroutineScope.launch {
-                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
-                                    }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    accumulatedDrag += dragAmount
-                                    coroutineScope.launch {
-                                        dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
-                                    }
-                                }
-                            )
-                        }
-                )
-
                 // YouTube-style Dynamic Ambient Mode Lighting Effect
                 AmbientPlayerGlow(
                     palette = ambientPalette,
@@ -397,36 +358,7 @@ fun VideoPlayerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f)
-                            .background(Color.Black)
-                            .pointerInput(Unit) {
-                                var accumulatedDrag = 0f
-                                detectVerticalDragGestures(
-                                    onDragStart = { accumulatedDrag = 0f },
-                                    onDragEnd = {
-                                        coroutineScope.launch {
-                                            if (dragOffsetY.value > minimizeThresholdPx || accumulatedDrag > 100f) {
-                                                minimizePlayerAction()
-                                            } else {
-                                                dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
-                                            }
-                                        }
-                                    },
-                                    onDragCancel = {
-                                        coroutineScope.launch {
-                                            dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
-                                        }
-                                    },
-                                    onVerticalDrag = { change, dragAmount ->
-                                        if (dragAmount > 0f || dragOffsetY.value > 0f) {
-                                            change.consume()
-                                            accumulatedDrag += dragAmount
-                                            coroutineScope.launch {
-                                                dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
-                                            }
-                                        }
-                                    }
-                                )
-                            },
+                            .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
                         UniversalVideoPlayer(
@@ -575,7 +507,19 @@ fun VideoPlayerScreen(
                                 isDownloading = isDownloading,
                                 downloadProgress = 0f,
                                 onDownloadClick = { showDownloadQualitySheet = true },
-                                onServersClick = { showServerSelectorSheet = true }
+                                onServersClick = {
+                                    showServerSelectorSheet = true
+                                    if (displayTitle.isNotBlank()) {
+                                        val cleanTitle = displayTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
+                                        viewModel.resolveUnifiedSourcesForMedia(
+                                            com.example.model.MediaIdentity(
+                                                title = cleanTitle,
+                                                mediaType = if (cleanTitle.contains("season", true) || cleanTitle.contains("episode", true)) com.example.model.MediaType.TV else com.example.model.MediaType.MOVIE
+                                            ),
+                                            force = true
+                                        )
+                                    }
+                                }
                             )
                         }
 

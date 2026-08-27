@@ -102,14 +102,14 @@ class MainApplication : Application() {
             .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.10) // 10% RAM max
+                    .maxSizePercent(0.25) // 25% RAM cache for instant back-and-forth scroll reuse
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache_v2"))
-                    .maxSizeBytes(60L * 1024L * 1024L) // 60 MB dedicated disk cache
+                    .directory(cacheDir.resolve("image_cache_v3"))
+                    .maxSizeBytes(120L * 1024L * 1024L) // 120 MB dedicated disk cache
                     .build()
             }
             .respectCacheHeaders(false)
@@ -119,30 +119,18 @@ class MainApplication : Application() {
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(60)
+            .crossfade(0) // 0ms crossfade eliminates composable animation lag on list scroll
             .build()
         Coil.setImageLoader(imageLoader)
 
-        // Asynchronously initialize yt-dlp engine, pre-warm resolver, and check for updates
+        // Asynchronously initialize yt-dlp engine and sys.path without blocking main UI or downloading on launch
         applicationScope.launch(Dispatchers.IO) {
             try {
                 dev.ffmpegkit_maintained.ytdlp.YtDlp.init(this@MainApplication)
+                com.example.extractor.YtDlpUpdateManager.injectUpdatedPathIntoPython(this@MainApplication)
                 Log.i("MainApplication", "yt-dlp engine initialized successfully")
             } catch (e: Throwable) {
                 Log.w("MainApplication", "yt-dlp init note: ${e.message}")
-            }
-
-            try {
-                Log.d("MainApplication", "Pre-warming YtDlpResolver...")
-                YtDlpResolver.prewarm(this@MainApplication)
-                Log.d("MainApplication", "YtDlpResolver pre-warmed successfully")
-
-                // Background automatic update check
-                if (com.example.extractor.YtDlpUpdateManager.isAutoUpdateEnabled.value) {
-                    com.example.extractor.YtDlpUpdateManager.checkForUpdates(this@MainApplication, isManual = false)
-                }
-            } catch (e: Throwable) {
-                Log.e("MainApplication", "Error during yt-dlp startup routine", e)
             }
         }
     }

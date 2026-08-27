@@ -36,6 +36,7 @@ object YtDlpResolver {
                 }
             }
         }
+        YtDlpUpdateManager.injectUpdatedPathIntoPython(ctx)
     }
 
     fun prewarm(ctx: Context) {
@@ -45,6 +46,12 @@ object YtDlpResolver {
     suspend fun getEngineVersion(ctx: Context): String = withContext(Dispatchers.IO) {
         ensureInitialized(ctx)
         try {
+            val updatedVerFile = java.io.File(ctx.filesDir, "yt_dlp_updated/yt_dlp/version.py")
+            if (updatedVerFile.exists()) {
+                val text = updatedVerFile.readText()
+                val match = Regex("""__version__\s*=\s*'([^']+)'""").find(text)
+                if (match != null) return@withContext match.groupValues[1]
+            }
             val request = YtDlpRequest("https://www.youtube.com")
             request.addOption("--version")
             val response = processSemaphore.withPermit {
