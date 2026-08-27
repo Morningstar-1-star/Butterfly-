@@ -796,9 +796,9 @@ fun SearchScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(20.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = Color(0xFF141416)
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             ),
-                            border = BorderStroke(1.dp, Color(0xFF26262A))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         ) {
                             Column(
                                 modifier = Modifier
@@ -817,7 +817,7 @@ fun SearchScreen(
                                         Icon(
                                             imageVector = Icons.Default.History,
                                             contentDescription = null,
-                                            tint = Color(0xFFF5A623),
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(22.dp)
                                         )
                                         Spacer(modifier = Modifier.width(10.dp))
@@ -825,7 +825,7 @@ fun SearchScreen(
                                             text = "Recent Searches",
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
 
@@ -837,7 +837,7 @@ fun SearchScreen(
                                             text = "CLEAR ALL",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF8E8E93),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             letterSpacing = 0.5.sp
                                         )
                                     }
@@ -877,9 +877,9 @@ fun SearchScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFF141416)
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                         ),
-                        border = BorderStroke(1.dp, Color(0xFF26262A))
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     ) {
                         Column(
                             modifier = Modifier
@@ -890,7 +890,7 @@ fun SearchScreen(
                                 text = "Trending Searches",
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -1212,8 +1212,8 @@ private fun RecentSearchPill(
 ) {
     Surface(
         shape = RoundedCornerShape(22.dp),
-        color = Color(0xFF1E1E22),
-        border = BorderStroke(1.dp, Color(0xFF2E2E34)),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
@@ -1227,7 +1227,7 @@ private fun RecentSearchPill(
                 text = text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFFE6E6EA),
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1244,7 +1244,7 @@ private fun RecentSearchPill(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Remove search",
-                    tint = Color(0xFF9E9EA4),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(13.dp)
                 )
             }
@@ -1270,7 +1270,7 @@ private fun TrendingSearchItem(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                 contentDescription = null,
-                tint = Color(0xFFF5A623),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(10.dp))
@@ -1278,7 +1278,7 @@ private fun TrendingSearchItem(
                 text = title,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFFEDEDF0),
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

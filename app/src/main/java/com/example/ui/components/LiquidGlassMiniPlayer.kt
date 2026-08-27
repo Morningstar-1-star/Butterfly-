@@ -105,7 +105,7 @@ fun LiquidGlassMiniPlayer(
                 enterScale.animateTo(
                     targetValue = 1f,
                     animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        dampingRatio = Spring.DampingRatioNoBouncy,
                         stiffness = Spring.StiffnessMediumLow
                     )
                 )

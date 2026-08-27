@@ -72,6 +72,7 @@ fun UniversalVideoPlayer(
     initialPositionMs: Long = 0L,
     availableStreamOptions: List<PlayableStreamOption> = emptyList(),
     onSelectStreamOption: (PlayableStreamOption) -> Unit = {},
+    onSelectCaptionOption: (CaptionOption?) -> Unit = {},
     failedSourceLogs: List<com.example.model.FailedSourceLog> = emptyList(),
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     onBackClick: (() -> Unit)? = null,
@@ -1509,12 +1510,12 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.HighQuality,
                                     contentDescription = "Quality",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Quality",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
@@ -1542,12 +1543,12 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.Speed,
                                     contentDescription = "Playback Speed",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Playback Speed",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
@@ -1575,12 +1576,12 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.Language,
                                     contentDescription = "Audio Track & Language",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Audio Track & Language",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             val activeTrackLabel = audioTracks.find { it.isSelected }?.displayLanguage ?: "Auto"
@@ -1696,12 +1697,12 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = "Video Effects & Filters",
-                                    tint = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else Color.White
+                                    tint = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Video Effects & Filters",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
@@ -1709,7 +1710,7 @@ fun UniversalVideoPlayer(
                                 else if (videoEffectsConfig.selectedPreset != com.example.effects.PresetFilter.NONE) videoEffectsConfig.selectedPreset.displayName
                                 else "Active",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else Color.LightGray,
+                                color = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = if (videoEffectsConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -1735,19 +1736,19 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.GraphicEq,
                                     contentDescription = "Audio Enhancement",
-                                    tint = if (audioEnhancementConfig.isEnabled) Color(0xFFB388FF) else Color.White
+                                    tint = if (audioEnhancementConfig.isEnabled) Color(0xFFB388FF) else MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Audio Enhancement",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
                                 text = if (!audioEnhancementConfig.isEnabled) "Off"
                                 else audioEnhancementConfig.selectedPreset.displayName,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (audioEnhancementConfig.isEnabled) Color(0xFFB388FF) else Color.LightGray,
+                                color = if (audioEnhancementConfig.isEnabled) Color(0xFFB388FF) else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = if (audioEnhancementConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -1774,18 +1775,18 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.FastForward,
                                     contentDescription = "Smart Skip / SponsorBlock",
-                                    tint = if (isSmartSkipOn) Color(0xFF00E676) else Color.White
+                                    tint = if (isSmartSkipOn) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Smart Skip / SponsorBlock",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
                                 text = if (isSmartSkipOn) "Enabled (${smartSkipSegments.size} segments)" else "Off",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (isSmartSkipOn) Color(0xFF00E676) else Color.LightGray,
+                                color = if (isSmartSkipOn) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = if (isSmartSkipOn) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -1809,18 +1810,18 @@ fun UniversalVideoPlayer(
                                 Icon(
                                     imageVector = Icons.Default.Tune,
                                     contentDescription = "Additional settings",
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Additional settings",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Text(
                                 text = "Ambient (${if (isAmbientModeEnabled) "On" else "Off"}) • Loop (${if (isLoopVideoEnabled) "On" else "Off"})",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.LightGray,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Normal
                             )
                         }
@@ -1863,6 +1864,9 @@ fun UniversalVideoPlayer(
 
         if (showSubtitleSheet) {
             SubtitleSettingsSheet(
+                availableCaptions = streamData?.captionOptions ?: emptyList(),
+                selectedCaption = captionOption,
+                onSelectCaption = { caption -> onSelectCaptionOption(caption) },
                 onDismiss = { showSubtitleSheet = false }
             )
         }

@@ -598,8 +598,31 @@ object TMDBHelper {
         val rawTitle = streamData.title
         val videoId = streamData.videoId
         val cleanTitle = cleanTitleForSearch(rawTitle)
-        val providerId = streamData.providerId ?: "tmdb"
+        val providerId = (streamData.providerId ?: "tmdb").lowercase()
         val fallbackThumb = streamData.effectiveThumbnailUrl ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+
+        val isTorrentOrVega = providerId == "torrent" || providerId == "vega" || providerId.startsWith("vega_")
+        val isArchiveMulti = (providerId == "archive" || providerId == "archive_org" || providerId == "archive.org") && streamData.availableStreamOptions.size > 1
+
+        if (!isTorrentOrVega && !isArchiveMulti) {
+            return@withContext emptyList()
+        }
+
+        if (isArchiveMulti) {
+            val archiveSeasons = parseSeasonsFromStreamOptions(streamData)
+            return@withContext archiveSeasons
+        }
+
+        if (isTorrentOrVega) {
+            val titleLower = rawTitle.lowercase()
+            val isTvSeries = titleLower.contains("season") || titleLower.contains("s0") ||
+                    titleLower.contains("s1") || titleLower.contains("s2") ||
+                    titleLower.contains("episode") || titleLower.contains("ep0") ||
+                    titleLower.contains(" complete ") || videoId.contains("tv_")
+            if (!isTvSeries) {
+                return@withContext emptyList()
+            }
+        }
 
         val cacheKey = "${cleanTitle.lowercase()}_$videoId"
         tvSeasonsCache[cacheKey]?.let { return@withContext it }

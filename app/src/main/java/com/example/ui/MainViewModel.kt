@@ -333,6 +333,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var seasonsJob: Job? = null
     fun loadTvSeasons(streamData: StreamData) {
         seasonsJob?.cancel()
+        _tvSeasons.value = emptyList()
+        _isSeasonsLoading.value = false
+
+        val prov = (streamData.providerId ?: "").lowercase()
+        val isTorrentOrVega = prov == "torrent" || prov == "vega" || prov.startsWith("vega_")
+        val isArchive = prov == "archive" || prov == "archive_org" || prov == "archive.org"
+        val isArchiveMultiVideo = isArchive && streamData.availableStreamOptions.size > 1
+
+        if (!isTorrentOrVega && !isArchiveMultiVideo) {
+            return
+        }
+
+        if (isTorrentOrVega) {
+            val titleLower = streamData.title.lowercase()
+            val isTvSeries = titleLower.contains("season") || titleLower.contains("s0") ||
+                    titleLower.contains("s1") || titleLower.contains("s2") ||
+                    titleLower.contains("episode") || titleLower.contains("ep0") ||
+                    titleLower.contains(" complete ") || streamData.videoId.contains("tv_")
+            if (!isTvSeries) {
+                return
+            }
+        }
+
         seasonsJob = viewModelScope.launch(Dispatchers.IO) {
             _isSeasonsLoading.value = true
             try {
@@ -340,6 +363,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _tvSeasons.value = seasons
             } catch (e: Exception) {
                 Log.w("MainViewModel", "loadTvSeasons error: ${e.message}")
+                _tvSeasons.value = emptyList()
             } finally {
                 _isSeasonsLoading.value = false
             }
@@ -420,6 +444,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val vegaRepository = com.example.vega.VegaProviderRepository(getApplication())
     val installedVegaProviders: StateFlow<List<com.example.vega.InstalledVegaProvider>> = vegaRepository.installedProviders
+    val vegaServerUrl: StateFlow<String> = vegaRepository.serverUrl
 
     private val _availableVegaProviders = MutableStateFlow<List<String>>(emptyList())
     val availableVegaProviders: StateFlow<List<String>> = _availableVegaProviders.asStateFlow()
@@ -429,6 +454,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _vegaProviderError = MutableStateFlow<String?>(null)
     val vegaProviderError: StateFlow<String?> = _vegaProviderError.asStateFlow()
+
+    private val _providerHealthMap = MutableStateFlow<Map<String, String>>(emptyMap())
+    val providerHealthMap: StateFlow<Map<String, String>> = _providerHealthMap.asStateFlow()
+
+    private val _isTestingVegaHealth = MutableStateFlow(false)
+    val isTestingVegaHealth: StateFlow<Boolean> = _isTestingVegaHealth.asStateFlow()
 
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
@@ -1989,21 +2020,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getActiveProvider(): Any? = null
 
+    fun updateVegaServerUrl(newUrl: String) {
+        val cleanUrl = newUrl.trim().trimEnd('/')
+        if (cleanUrl.isNotBlank()) {
+            vegaRepository.setServerUrl(cleanUrl)
+            fetchAvailableVegaProviders()
+        }
+    }
+
     fun fetchAvailableVegaProviders() {
         _isFetchingVegaProviders.value = true
         _vegaProviderError.value = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val list = com.example.vega.VegaProviderClient.getAvailableProviders()
+                val currentServer = vegaRepository.getServerUrl()
+                val list = com.example.vega.VegaProviderClient.getAvailableProviders(currentServer)
                 _availableVegaProviders.value = list
                 if (list.isEmpty()) {
-                    _vegaProviderError.value = "No providers currently returned from server"
+                    _vegaProviderError.value = "No providers currently returned from server ($currentServer)"
                 }
             } catch (e: Exception) {
                 _vegaProviderError.value = e.message ?: "Failed to reach server"
             } finally {
                 _isFetchingVegaProviders.value = false
             }
+        }
+    }
+
+    fun installAllVegaProviders() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val available = _availableVegaProviders.value
+            if (available.isNotEmpty()) {
+                vegaRepository.installAllProviders(available)
+                val newKeys = available.map { "vega_${it.trim().lowercase()}" }.toSet()
+                _enabledProviderIds.value = _enabledProviderIds.value + newKeys
+                refreshProvidersList()
+                loadTrending(forceRefresh = true)
+            }
+        }
+    }
+
+    fun testVegaProvidersHealth() {
+        if (_isTestingVegaHealth.value) return
+        _isTestingVegaHealth.value = true
+        val currentInstalled = vegaRepository.getInstalledProviders()
+        val currentServer = vegaRepository.getServerUrl()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val map = mutableMapOf<String, String>()
+            currentInstalled.forEach { prov ->
+                map[prov.id] = "Testing..."
+            }
+            _providerHealthMap.value = map.toMap()
+
+            currentInstalled.forEach { prov ->
+                try {
+                    val res = com.example.vega.VegaProviderClient.search(prov.id, "2024", currentServer)
+                    if (res.isNotEmpty()) {
+                        map[prov.id] = "Online (${res.size} items)"
+                    } else {
+                        val altRes = com.example.vega.VegaProviderClient.search(prov.id, "spider", currentServer)
+                        if (altRes.isNotEmpty()) {
+                            map[prov.id] = "Online (${altRes.size} items)"
+                        } else {
+                            map[prov.id] = "Unresponsive / Empty"
+                        }
+                    }
+                } catch (e: Exception) {
+                    map[prov.id] = "Error: ${e.message ?: "Failed"}"
+                }
+                _providerHealthMap.value = map.toMap()
+            }
+            _isTestingVegaHealth.value = false
         }
     }
 
@@ -2068,16 +2156,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleProviderEnabled(providerId: String) {
-        val current = _enabledProviderIds.value.toMutableSet()
+        val current = _enabledProviderIds.value
         val newState = !current.contains(providerId)
-        if (newState) {
-            current.add(providerId)
-        } else {
-            if (providerId == _activeProviderId.value) return
-            current.remove(providerId)
-        }
-        _enabledProviderIds.value = current
-        refreshProvidersList()
+        toggleProviderEnabled(providerId, newState)
     }
 
     private fun refreshProvidersList() {
@@ -3290,12 +3371,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedStreamOption.value = null
         _selectedCaptionOption.value = null
         _isPlaying.value = true
+        _tvSeasons.value = emptyList()
+        _isSeasonsLoading.value = false
         com.example.ui.player.GlobalPlayerManager.resetFirstFrameState()
 
         // Immediately navigate to dedicated player screen
         _currentScreen.value = AppScreen.PLAYER
-        loadVideoComments(cleanIdOrUrl, targetProviderId, initialVideoItem.title)
 
+        // Launch extraction job immediately with top priority
         activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val result = if (cleanIdOrUrl.startsWith("torrent_") || targetProviderId == "torrent" || initialVideoItem.providerId == "torrent") {

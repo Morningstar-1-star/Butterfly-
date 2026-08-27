@@ -82,6 +82,7 @@ class MainApplication : Application() {
                     }
                     urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {
                         requestBuilder.header("Referer", "https://www.youporn.com/")
+                        requestBuilder.header("Cookie", "age_verified=1; platform=pc; premium_redirect_cookie=1")
                     }
                     urlStr.contains("rule34video.com") -> {
                         requestBuilder.header("Referer", "https://rule34video.com/")

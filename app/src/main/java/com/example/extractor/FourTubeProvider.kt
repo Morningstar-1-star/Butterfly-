@@ -318,16 +318,30 @@ object FourTubeProvider {
                 }
             }
 
-            if (hlsUrl != null || streamOptions.isNotEmpty()) {
-                val firstOption = streamOptions.firstOrNull()
+            if (hlsUrl != null && streamOptions.none { it.videoUrl == hlsUrl }) {
+                streamOptions.add(
+                    0,
+                    PlayableStreamOption(
+                        qualityLabel = "Auto (HLS)",
+                        format = "m3u8",
+                        isMuxed = true,
+                        videoUrl = hlsUrl,
+                        providerType = ProviderType.OTHER,
+                        headers = defaultHeaders
+                    )
+                )
+            }
+
+            if (streamOptions.isNotEmpty()) {
+                val primaryOption = streamOptions.first()
                 return StreamData(
                     videoId = videoId,
-                    videoUrl = fullUrl,
+                    videoUrl = primaryOption.videoUrl ?: hlsUrl ?: fullUrl,
                     title = extractTitleFromHtml(html) ?: "4tube Video",
                     channelName = "4tube",
                     thumbnailUrl = extractThumbnailFromHtml(html) ?: "",
                     availableStreamOptions = streamOptions,
-                    selectedStreamOption = firstOption,
+                    selectedStreamOption = primaryOption,
                     hlsUrl = hlsUrl,
                     providerId = PROVIDER_ID,
                     providerType = ProviderType.OTHER,

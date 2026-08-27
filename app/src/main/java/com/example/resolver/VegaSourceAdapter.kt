@@ -26,7 +26,7 @@ class VegaSourceAdapter(
 
     companion object {
         private const val TAG = "VegaSourceAdapter"
-        private const val PROVIDER_TIMEOUT_MS = 6000L
+        private const val PROVIDER_TIMEOUT_MS = 15000L
     }
 
     private val repository = VegaProviderRepository(context)

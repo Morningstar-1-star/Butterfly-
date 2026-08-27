@@ -406,6 +406,16 @@ object YouTubeExtractorHelper {
                 Log.i(TAG, "Resolved via BeegProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(beegData)
             }
+            if (context != null) {
+                val fullBeegUrl = if (urlOrId.startsWith("http")) urlOrId else "https://beeg.com/$urlOrId"
+                Log.i(TAG, "Routing Beeg to YtDlpResolver fallback for $fullBeegUrl")
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullBeegUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = BeegProvider.PROVIDER_ID)
+                    )
+                }
+            }
         }
 
         val isRedTube = providerId == "redtube" || urlOrId.contains("redtube.com")

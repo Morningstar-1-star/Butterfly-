@@ -14,8 +14,27 @@ class VegaProviderRepository(private val context: Context) {
     private val _installedProviders = MutableStateFlow<List<InstalledVegaProvider>>(emptyList())
     val installedProviders: StateFlow<List<InstalledVegaProvider>> = _installedProviders.asStateFlow()
 
+    private val _serverUrl = MutableStateFlow(
+        prefs.getString(KEY_SERVER_URL, VegaProviderClient.DEFAULT_SERVER_URL)
+            ?.ifBlank { VegaProviderClient.DEFAULT_SERVER_URL }
+            ?: VegaProviderClient.DEFAULT_SERVER_URL
+    )
+    val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
+
     init {
         loadInstalledProviders()
+    }
+
+    fun getServerUrl(): String {
+        return _serverUrl.value
+    }
+
+    fun setServerUrl(url: String) {
+        val cleanUrl = url.trim().trimEnd('/')
+        if (cleanUrl.isNotBlank()) {
+            _serverUrl.value = cleanUrl
+            prefs.edit().putString(KEY_SERVER_URL, cleanUrl).apply()
+        }
     }
 
     private fun loadInstalledProviders() {
@@ -46,9 +65,16 @@ class VegaProviderRepository(private val context: Context) {
                 // Ignore parse errors
             }
         } else {
-            // Seed default working providers
-            list.add(InstalledVegaProvider(id = "hdhub4u", name = "HDHub4U", isEnabled = true))
-            list.add(InstalledVegaProvider(id = "4khdhub", name = "4K HDHub", isEnabled = true))
+            // Seed all default working & available providers
+            val defaultSeeds = listOf(
+                "hdhub4u", "4khdhub", "vega", "topmovies", "world4u", "uhd", 
+                "showbox", "ridoMovies", "eonMovies", "movieBoxWeb", "mod", 
+                "ringz", "kissKh", "torrentio", "autoEmbed", "drive", 
+                "guardahd", "zeefliz", "anikoto", "movies4u"
+            )
+            defaultSeeds.forEach { id ->
+                list.add(InstalledVegaProvider(id = id, name = VegaProviderClient.formatProviderDisplayName(id), isEnabled = true))
+            }
             saveInstalledProviders(list)
         }
 
@@ -89,6 +115,23 @@ class VegaProviderRepository(private val context: Context) {
         saveInstalledProviders(current)
     }
 
+    fun installAllProviders(providerIds: List<String>) {
+        val currentMap = _installedProviders.value.associateBy { it.id.lowercase() }.toMutableMap()
+        providerIds.forEach { rawId ->
+            val cleanId = rawId.trim().lowercase()
+            if (cleanId.isNotBlank()) {
+                val displayName = VegaProviderClient.formatProviderDisplayName(cleanId)
+                val existing = currentMap[cleanId]
+                if (existing != null) {
+                    currentMap[cleanId] = existing.copy(name = displayName, isEnabled = true)
+                } else {
+                    currentMap[cleanId] = InstalledVegaProvider(id = cleanId, name = displayName, isEnabled = true)
+                }
+            }
+        }
+        saveInstalledProviders(currentMap.values.toList())
+    }
+
     fun uninstallProvider(id: String) {
         val current = _installedProviders.value.filterNot { it.id.equals(id, ignoreCase = true) }
         saveInstalledProviders(current)
@@ -116,5 +159,6 @@ class VegaProviderRepository(private val context: Context) {
     companion object {
         private const val PREFS_NAME = "butterfly_vega_providers_prefs"
         private const val KEY_INSTALLED_PROVIDERS = "installed_vega_providers_json"
+        private const val KEY_SERVER_URL = "vega_server_host_url"
     }
 }

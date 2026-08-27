@@ -125,6 +125,8 @@ fun VideoPlayerScreen(
             if (selectedPillTab == "RELATED") {
                 selectedPillTab = "EPISODES"
             }
+        } else {
+            selectedPillTab = "RELATED"
         }
     }
 
@@ -341,7 +343,7 @@ fun VideoPlayerScreen(
                         shape = RoundedCornerShape(roundedCornersDp)
                         alpha = if (dragFraction > 0.92f) 1.0f - ((dragFraction - 0.92f) * 12.5f).coerceIn(0f, 1f) else 1.0f
                     }
-                    .background(Color.Black.copy(alpha = bgOverlayAlpha))
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = bgOverlayAlpha))
                     .padding(paddingValues)
             ) {
                 // YouTube-style Dynamic Ambient Mode Lighting Effect
@@ -386,7 +388,7 @@ fun VideoPlayerScreen(
                                     if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 100f) {
                                         minimizePlayerAction()
                                     } else {
-                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
                                     }
                                 }
                             },
@@ -543,7 +545,7 @@ fun VideoPlayerScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                if (tvSeasons.isNotEmpty() || isSeasonsLoading) {
+                                if (tvSeasons.isNotEmpty()) {
                                     item {
                                         val totalEpCount = tvSeasons.sumOf { it.episodes.size }
                                         FilterChip(

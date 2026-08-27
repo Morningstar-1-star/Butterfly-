@@ -138,13 +138,13 @@ object VegaProviderClient {
         val cleanProv = providerId.trim().lowercase()
         val allResults = mutableListOf<VegaSearchResult>()
 
-        // Providers like 4khdhub, hdhub4u, vega, topmovies, showbox index movies/shows by year/genre/keyword
-        val discoveryQueries = listOf("2025", "2024", "movie", "action", "hindi", "dual", "web")
+        // Diverse search queries covering movies, series, anime, and general keywords
+        val discoveryQueries = listOf("2025", "2024", "spider", "the", "a", "action", "hindi", "dual", "movie", "one")
         
         coroutineScope {
-            val deferred = discoveryQueries.take(3).map { q ->
+            val deferred = discoveryQueries.take(4).map { q ->
                 async(Dispatchers.IO) {
-                    search(cleanProv, q, baseUrl)
+                    searchSingleQuery(cleanProv, q, baseUrl)
                 }
             }
             deferred.awaitAll().forEach { list ->
@@ -153,9 +153,9 @@ object VegaProviderClient {
         }
 
         if (allResults.isEmpty()) {
-            // Fallback sequentially with broader keywords
-            for (q in listOf("2023", "popular", "hd")) {
-                val list = search(cleanProv, q, baseUrl)
+            // Sequential fallback with additional terms and catalog/posts endpoints
+            for (q in listOf("avengers", "love", "man", "war", "2023", "popular")) {
+                val list = searchSingleQuery(cleanProv, q, baseUrl)
                 if (list.isNotEmpty()) {
                     allResults.addAll(list)
                     break
@@ -171,77 +171,111 @@ object VegaProviderClient {
         query: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
-        val results = mutableListOf<VegaSearchResult>()
-        if (providerId.isBlank() || query.isBlank()) return@withContext results
+        if (providerId.isBlank()) return@withContext emptyList()
+        val cleanProv = providerId.trim().lowercase()
+        val cleanQuery = query.trim()
 
-        try {
-            val cleanBase = baseUrl.trimEnd('/')
-            val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-            val encodedProvider = URLEncoder.encode(providerId, StandardCharsets.UTF_8.toString())
-            val url = "$cleanBase/search/$encodedProvider?q=$encodedQuery"
+        // 1. Primary search with given query
+        var results = searchSingleQuery(cleanProv, cleanQuery.ifBlank { "2024" }, baseUrl)
+        if (results.isNotEmpty()) return@withContext results
 
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Butterfly/1.0 (Android)")
-                .header("Accept", "application/json")
-                .build()
+        // 2. Query expansion fallback if original search returned empty
+        val fallbackTerms = listOf("a", "the", "spider", "avengers", "movie", "one")
+            .filterNot { it.equals(cleanQuery, ignoreCase = true) }
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "Search failed for provider $providerId, code: ${response.code}")
-                    return@withContext results
-                }
-
-                val bodyStr = response.body?.string() ?: return@withContext results
-                val trimmed = bodyStr.trim()
-
-                val jsonArray = when {
-                    trimmed.startsWith("[") -> JSONArray(trimmed)
-                    trimmed.startsWith("{") -> {
-                        val json = JSONObject(trimmed)
-                        json.optJSONArray("results")
-                            ?: json.optJSONArray("data")
-                            ?: json.optJSONArray("items")
-                            ?: JSONArray()
-                    }
-                    else -> JSONArray()
-                }
-
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.optJSONObject(i) ?: continue
-                    val title = obj.optString("title")
-                        .ifBlank { obj.optString("name") }
-                        .ifBlank { "Untitled" }
-                    val link = obj.optString("link")
-                        .ifBlank { obj.optString("url") }
-                        .ifBlank { obj.optString("id") }
-
-                    if (link.isNotBlank()) {
-                        val image = obj.optString("image")
-                            .ifBlank { obj.optString("poster") }
-                            .ifBlank { obj.optString("thumbnail") }
-                            .ifBlank { obj.optString("img") }
-                            .ifBlank { null }
-                        val extra = obj.optString("extra")
-                            .ifBlank { obj.optString("quality") }
-                            .ifBlank { obj.optString("year") }
-                            .ifBlank { null }
-
-                        results.add(
-                            VegaSearchResult(
-                                id = link,
-                                title = title,
-                                link = link,
-                                imageUrl = image,
-                                providerId = providerId,
-                                extraInfo = extra
-                            )
-                        )
-                    }
-                }
+        for (term in fallbackTerms) {
+            results = searchSingleQuery(cleanProv, term, baseUrl)
+            if (results.isNotEmpty()) {
+                Log.d(TAG, "Search for '$cleanProv' succeeded with fallback term '$term' (${results.size} items)")
+                return@withContext results
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error executing search for $providerId: ${e.message}")
+        }
+
+        return@withContext results
+    }
+
+    private suspend fun searchSingleQuery(
+        providerId: String,
+        query: String,
+        baseUrl: String
+    ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<VegaSearchResult>()
+        val cleanBase = baseUrl.trimEnd('/')
+        val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
+        val encodedProvider = URLEncoder.encode(providerId, StandardCharsets.UTF_8.toString())
+
+        // Endpoints to test: /search, /posts, /catalog
+        val endpointsToTest = listOf(
+            "$cleanBase/search/$encodedProvider?q=$encodedQuery",
+            "$cleanBase/posts/$encodedProvider?page=1",
+            "$cleanBase/catalog/$encodedProvider?page=1"
+        )
+
+        for (targetUrl in endpointsToTest) {
+            try {
+                val request = Request.Builder()
+                    .url(targetUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                    .header("Accept", "application/json")
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+
+                    val bodyStr = response.body?.string() ?: return@use
+                    val trimmed = bodyStr.trim()
+
+                    val jsonArray = when {
+                        trimmed.startsWith("[") -> JSONArray(trimmed)
+                        trimmed.startsWith("{") -> {
+                            val json = JSONObject(trimmed)
+                            json.optJSONArray("results")
+                                ?: json.optJSONArray("data")
+                                ?: json.optJSONArray("items")
+                                ?: json.optJSONArray("posts")
+                                ?: json.optJSONArray("catalog")
+                                ?: JSONArray()
+                        }
+                        else -> JSONArray()
+                    }
+
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.optJSONObject(i) ?: continue
+                        val title = obj.optString("title")
+                            .ifBlank { obj.optString("name") }
+                            .ifBlank { "Untitled" }
+                        val link = obj.optString("link")
+                            .ifBlank { obj.optString("url") }
+                            .ifBlank { obj.optString("id") }
+
+                        if (link.isNotBlank()) {
+                            val image = obj.optString("image")
+                                .ifBlank { obj.optString("poster") }
+                                .ifBlank { obj.optString("thumbnail") }
+                                .ifBlank { obj.optString("img") }
+                                .ifBlank { null }
+                            val extra = obj.optString("extra")
+                                .ifBlank { obj.optString("quality") }
+                                .ifBlank { obj.optString("year") }
+                                .ifBlank { null }
+
+                            results.add(
+                                VegaSearchResult(
+                                    id = link,
+                                    title = title,
+                                    link = link,
+                                    imageUrl = image,
+                                    providerId = providerId,
+                                    extraInfo = extra
+                                )
+                            )
+                        }
+                    }
+                }
+                if (results.isNotEmpty()) break
+            } catch (e: Exception) {
+                // Try next endpoint
+            }
         }
         return@withContext results
     }

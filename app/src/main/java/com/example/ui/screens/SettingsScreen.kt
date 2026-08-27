@@ -361,20 +361,87 @@ fun SettingsScreen(
                         val installedVega by viewModel.installedVegaProviders.collectAsState()
                         val availableVega by viewModel.availableVegaProviders.collectAsState()
                         val isFetching by viewModel.isFetchingVegaProviders.collectAsState()
+                        val currentServerUrl by viewModel.vegaServerUrl.collectAsState()
+                        val healthMap by viewModel.providerHealthMap.collectAsState()
+                        val isTestingHealth by viewModel.isTestingVegaHealth.collectAsState()
+
+                        var serverUrlInput by remember(currentServerUrl) { mutableStateOf(currentServerUrl) }
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(vertical = 8.dp)
                         ) {
+                            // 1. Server Settings Card
                             item {
-                                Text(
-                                    text = "INSTALLED EXTENSIONS (${installedVega.size})",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                )
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = "VEGA MEDIASERVER CONFIGURATION",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        OutlinedTextField(
+                                            value = serverUrlInput,
+                                            onValueChange = { serverUrlInput = it },
+                                            label = { Text("Server Host URL") },
+                                            placeholder = { Text("https://butterfly-mediaserver-1.onrender.com") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            Button(
+                                                onClick = { viewModel.updateVegaServerUrl(serverUrlInput) }
+                                            ) {
+                                                Text("Save & Connect")
+                                            }
+                                        }
+                                    }
+                                }
                             }
+
+                            // 2. Installed Extensions Section
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "INSTALLED EXTENSIONS (${installedVega.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    TextButton(
+                                        onClick = { viewModel.testVegaProvidersHealth() },
+                                        enabled = !isTestingHealth
+                                    ) {
+                                        if (isTestingHealth) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Testing...")
+                                        } else {
+                                            Text("Test Source Health")
+                                        }
+                                    }
+                                }
+                            }
+
                             if (installedVega.isEmpty()) {
                                 item {
                                     Text(
@@ -386,25 +453,49 @@ fun SettingsScreen(
                                 }
                             } else {
                                 items(installedVega) { vp ->
+                                    val health = healthMap[vp.id]
+                                    val subtitleText = if (health != null) {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
+                                    } else {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
+                                    }
+
                                     YouTubeSwitchRow(
                                         title = vp.name,
-                                        subtitle = "Status: ${if (vp.isEnabled) "Active" else "Disabled"}",
+                                        subtitle = subtitleText,
                                         checked = vp.isEnabled,
                                         onCheckedChange = { viewModel.toggleVegaProvider(vp.id, it) }
                                     )
                                 }
                             }
 
+                            // 3. Available Extensions Section
                             item {
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "AVAILABLE EXTENSIONS",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "AVAILABLE EXTENSIONS (${availableVega.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    if (availableVega.isNotEmpty()) {
+                                        Button(
+                                            onClick = { viewModel.installAllVegaProviders() },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("Install All (50+)")
+                                        }
+                                    }
+                                }
                             }
+
                             if (isFetching) {
                                 item {
                                     Row(

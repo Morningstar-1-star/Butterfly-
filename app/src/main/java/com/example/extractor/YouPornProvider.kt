@@ -138,10 +138,10 @@ object YouPornProvider {
                 // 2. Thumbnail Extraction
                 var thumb = ""
                 val thumbPatterns = listOf(
-                    Pattern.compile("""(?:data-src|data-poster|data-image|data-thumbnail)="([^"]+?\.jpg[^"]*)"""", Pattern.CASE_INSENSITIVE),
+                    Pattern.compile("""(?:data-src|data-poster|data-image|data-thumbnail|data-mediabook)="([^"]+?\.(?:jpg|jpeg|webp)[^"]*)"""", Pattern.CASE_INSENSITIVE),
                     Pattern.compile("""data-src="([^"]+)"""", Pattern.CASE_INSENSITIVE),
                     Pattern.compile("""data-poster="([^"]+)"""", Pattern.CASE_INSENSITIVE),
-                    Pattern.compile("""src="([^"]+?\.jpg[^"]*)"""", Pattern.CASE_INSENSITIVE)
+                    Pattern.compile("""src="([^"]+?\.(?:jpg|jpeg|webp)[^"]*)"""", Pattern.CASE_INSENSITIVE)
                 )
                 for (p in thumbPatterns) {
                     val m = p.matcher(aInner)
@@ -152,6 +152,18 @@ object YouPornProvider {
                             break
                         }
                     }
+                }
+                if (thumb.isBlank()) {
+                    val startPos = maxOf(0, aMatcher.start() - 350)
+                    val endPos = minOf(html.length, aMatcher.end() + 350)
+                    val surroundingChunk = html.substring(startPos, endPos)
+                    val cdnMatcher = Pattern.compile("""(https?://[a-z0-9\.\-]*ypncdn\.com/[^"'\s>]+?\.(?:jpg|jpeg|webp))""", Pattern.CASE_INSENSITIVE).matcher(surroundingChunk)
+                    if (cdnMatcher.find()) {
+                        thumb = cdnMatcher.group(1) ?: ""
+                    }
+                }
+                if (thumb.isBlank() && id.isNotBlank()) {
+                    thumb = "https://di-ph.ypncdn.com/videos/$id/1.jpg"
                 }
 
                 // 3. Duration Extraction

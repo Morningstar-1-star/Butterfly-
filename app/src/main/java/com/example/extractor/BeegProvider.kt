@@ -310,8 +310,8 @@ object BeegProvider {
                     }
 
                     val thumb = when {
-                        customThumb.isNotBlank() && !customThumb.contains("externulls.com") -> customThumb
-                        else -> "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)1.jpg"
+                        customThumb.isNotBlank() -> customThumb
+                        else -> "https://thumbs.externulls.com/480x360/$fileId.jpg"
                     }
 
                     val options = mutableListOf<PlayableStreamOption>()
