@@ -66,19 +66,19 @@ object VideoEnhancementEngine {
         // Select pipeline according to Auto logic
         val activePipeline = when (_config.value.preset) {
             VideoEnhancementPreset.OFF -> "Off (Native Passthrough)"
-            VideoEnhancementPreset.QUALITY -> "ArtCNN-style Shader + CfL + Anti-Ring"
-            VideoEnhancementPreset.PERFORMANCE -> "FSRCNNX-style Edge Sharpening Shader"
-            VideoEnhancementPreset.ANIME -> "Anime4K-style Line & Chroma Shader"
-            VideoEnhancementPreset.LIVE_ACTION -> "ArtCNN-style Spatial Contour Shader"
+            VideoEnhancementPreset.SHARPEN_HIGH -> "Fine-detail Unsharp Mask + CfL"
+            VideoEnhancementPreset.PERFORMANCE -> "Fast Laplacian Edge Sharpening"
+            VideoEnhancementPreset.SHARPEN_ANIME -> "Anime Spatial Gradient & Line Push"
+            VideoEnhancementPreset.LIVE_ACTION -> "Cinema Contour Sharpening"
             VideoEnhancementPreset.AUTO -> {
                 if (is4kNative) {
                     "Native 4K Passthrough Shader"
                 } else if (_config.value.animeMode == AnimeDetectionMode.ALWAYS_ON || (_config.value.animeMode == AnimeDetectionMode.AUTO && isCurrentAnime)) {
-                    "Anime4K-style Shader Filter"
+                    "Anime Line Sharpen Shader Filter"
                 } else if (height in 1..719) {
-                    "RAVU-style Directional Reconstruction Shader"
+                    "Directional Reconstruction Shader"
                 } else {
-                    "ArtCNN-style Spatial Enhancement Shader"
+                    "High-Precision Spatial Sharpen Shader"
                 }
             }
         }
@@ -113,10 +113,10 @@ object VideoEnhancementEngine {
                 antiRinging = true,
                 gpuPerformanceMode = false
             )
-            VideoEnhancementPreset.QUALITY -> _config.value.copy(
+            VideoEnhancementPreset.SHARPEN_HIGH -> _config.value.copy(
                 isEnabled = true,
-                preset = VideoEnhancementPreset.QUALITY,
-                upscalerEngine = UpscalerEngine.ART_CNN_C4F16,
+                preset = VideoEnhancementPreset.SHARPEN_HIGH,
+                upscalerEngine = UpscalerEngine.SHARPEN_CONV,
                 sharpen = 50f,
                 deband = 40f,
                 denoise = 20f,
@@ -127,7 +127,7 @@ object VideoEnhancementEngine {
             VideoEnhancementPreset.PERFORMANCE -> _config.value.copy(
                 isEnabled = true,
                 preset = VideoEnhancementPreset.PERFORMANCE,
-                upscalerEngine = UpscalerEngine.FSRCNNX_X2,
+                upscalerEngine = UpscalerEngine.EDGE_DECONV,
                 sharpen = 25f,
                 deband = 10f,
                 denoise = 0f,
@@ -135,10 +135,10 @@ object VideoEnhancementEngine {
                 antiRinging = false,
                 gpuPerformanceMode = true
             )
-            VideoEnhancementPreset.ANIME -> _config.value.copy(
+            VideoEnhancementPreset.SHARPEN_ANIME -> _config.value.copy(
                 isEnabled = true,
-                preset = VideoEnhancementPreset.ANIME,
-                upscalerEngine = UpscalerEngine.ANIME4K,
+                preset = VideoEnhancementPreset.SHARPEN_ANIME,
+                upscalerEngine = UpscalerEngine.ANIME_LINE_PUSH,
                 animeMode = AnimeDetectionMode.ALWAYS_ON,
                 sharpen = 55f,
                 deband = 30f,
@@ -150,7 +150,7 @@ object VideoEnhancementEngine {
             VideoEnhancementPreset.LIVE_ACTION -> _config.value.copy(
                 isEnabled = true,
                 preset = VideoEnhancementPreset.LIVE_ACTION,
-                upscalerEngine = UpscalerEngine.ART_CNN_C4F16,
+                upscalerEngine = UpscalerEngine.SHARPEN_CONV,
                 animeMode = AnimeDetectionMode.ALWAYS_OFF,
                 sharpen = 30f,
                 deband = 30f,

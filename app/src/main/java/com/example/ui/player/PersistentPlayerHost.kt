@@ -27,6 +27,9 @@ fun PersistentPlayerHost(
                 this.player = exoPlayer
                 this.useController = useController
                 this.resizeMode = resizeMode
+                this.isClickable = false
+                this.isFocusable = false
+                this.setOnTouchListener { _, _ -> false }
                 setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                 setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->

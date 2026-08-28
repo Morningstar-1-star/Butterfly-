@@ -88,26 +88,51 @@ class TorrentSessionManager(
 
         engine.start()
 
+        // Immediately register magnet with libtorrent so peer discovery & DHT start without blocking
+        val effectiveMagnetUrl = if (magnetUrl.startsWith("magnet:?", ignoreCase = true)) {
+            val parsed = MagnetParser.parse(magnetUrl)
+            if (parsed != null && parsed.trackers.size < MagnetParser.DEFAULT_TRACKERS.size) {
+                MagnetParser.buildMagnetUrl(parsed.infoHashHex, parsed.displayName, parsed.trackers)
+            } else {
+                magnetUrl
+            }
+        } else {
+            MagnetParser.buildMagnetUrl(infoHash, release.title)
+        }
+
+        val initialHandle = engine.downloadMagnet(effectiveMagnetUrl, engine.cacheDir, sequential = true)
+        currentHandle = initialHandle
+
         metadataJob = scope.launch {
             try {
                 _stats.value = _stats.value.copy(state = TorrentEngineState.FETCHING_METADATA)
 
-                var ti = engine.findHandle(infoHash)?.torrentFile()
-                if (ti == null) {
-                    Log.i(TAG, "Fetching metadata for magnet: $infoHash")
-                    ti = engine.fetchMagnetMetadata(magnetUrl, timeoutSec = 45)
+                var ti = initialHandle?.torrentFile() ?: engine.findHandle(infoHash)?.torrentFile()
+                var attempts = 0
+                while (ti == null && attempts < 30 && !isStopping.get()) {
+                    delay(400)
+                    ti = engine.findHandle(infoHash)?.torrentFile()
+                    attempts++
+                }
+
+                if (ti == null && !isStopping.get()) {
+                    Log.i(TAG, "Polling metadata for magnet: $infoHash via fetchMagnetMetadata fallback")
+                    ti = engine.fetchMagnetMetadata(effectiveMagnetUrl, timeoutSec = 15)
+                }
+
+                // Continuous retry loop for niche/low-seeder magnets until metadata arrives or session stops
+                while (ti == null && !isStopping.get()) {
+                    _stats.value = _stats.value.copy(
+                        state = TorrentEngineState.BUFFERING,
+                        errorMessage = "Searching DHT & trackers for swarm metadata..."
+                    )
+                    delay(2500)
+                    ti = engine.findHandle(infoHash)?.torrentFile()
+                        ?: engine.fetchMagnetMetadata(effectiveMagnetUrl, timeoutSec = 12)
                 }
 
                 if (ti != null && !isStopping.get()) {
-                    val saveDir = engine.cacheDir
-                    engine.download(ti, saveDir, sequential = true)
                     onMetadataLoaded(ti, release, streamPort)
-                } else if (!isStopping.get()) {
-                    Log.w(TAG, "Metadata loading taking longer than expected; entering background buffering...")
-                    _stats.value = _stats.value.copy(
-                        state = TorrentEngineState.BUFFERING,
-                        errorMessage = "Connecting to swarm & waiting for metadata..."
-                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in session startup: ${e.message}", e)
@@ -178,7 +203,12 @@ class TorrentSessionManager(
             saveDir = saveDir,
             filePriorities = priorities,
             sequential = true
-        )
+        ) ?: currentHandle
+        try {
+            th?.prioritizeFiles(priorities)
+        } catch (e: Exception) {
+            Log.d(TAG, "prioritizeFiles note: ${e.message}")
+        }
         currentHandle = th
 
         // Resolve absolute file path on disk
@@ -210,17 +240,17 @@ class TorrentSessionManager(
         for (i in 0 until HEAD_PIECES_COUNT) {
             val p = startPiece + i
             if (p in 0 until totalPieces) {
-                engine.setPiecePriority(infoHash, p, Priority.DEFAULT)
-                engine.setPieceDeadline(infoHash, p, 100) // 100ms deadline
+                engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
+                engine.setPieceDeadline(infoHash, p, 50) // 50ms deadline
             }
         }
 
-        // Boost last few pieces (tail) for MKV/MP4 indexes
+        // Boost last few pieces (tail) for MKV/MP4 container indexes & moov atom
         for (i in 0 until TAIL_PIECES_COUNT) {
             val p = endPiece - i
             if (p in 0 until totalPieces && p >= startPiece) {
-                engine.setPiecePriority(infoHash, p, Priority.DEFAULT)
-                engine.setPieceDeadline(infoHash, p, 200)
+                engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
+                engine.setPieceDeadline(infoHash, p, 100)
             }
         }
     }
@@ -243,8 +273,20 @@ class TorrentSessionManager(
             val p = currentPiece + i
             if (p in 0 until totalPieces) {
                 engine.setPiecePriority(infoHash, p, Priority.DEFAULT)
-                engine.setPieceDeadline(infoHash, p, (i + 1) * 250) // staged deadlines
+                engine.setPieceDeadline(infoHash, p, (i + 1) * 150) // staged deadlines
             }
+        }
+    }
+
+    private fun findVideoFileInCache(dir: File): File? {
+        if (!dir.exists()) return null
+        return try {
+            dir.walkTopDown()
+                .filter { it.isFile && it.length() > 0 && isVideoFile(it.name) }
+                .maxByOrNull { it.length() }
+                ?: dir.walkTopDown().filter { it.isFile && it.length() > 0 }.maxByOrNull { it.length() }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -258,9 +300,7 @@ class TorrentSessionManager(
         val resolvedFile: File = if (diskFile != null && diskFile.exists()) {
             diskFile
         } else {
-            val cacheFiles = engine.cacheDir.listFiles()
-            cacheFiles?.filter { isVideoFile(it.name) }?.maxByOrNull { it.length() }
-                ?: cacheFiles?.maxByOrNull { it.length() }
+            findVideoFileInCache(engine.cacheDir)
                 ?: File(engine.cacheDir, activeRelease?.title?.replace(Regex("[^a-zA-Z0-9._ -]"), "_") ?: "stream_temp.mkv")
         }
 
@@ -286,24 +326,29 @@ class TorrentSessionManager(
             }
         }
 
+        var currentFile = resolvedFile
+        var retries = 0
+        while ((!currentFile.exists() || currentFile.length() <= offset) && retries < 40 && !isStopping.get()) {
+            Thread.sleep(100)
+            retries++
+            val currentDisk = activeFileOnDisk
+            if (currentDisk != null && currentDisk.exists() && currentDisk.length() > offset) {
+                currentFile = currentDisk
+                break
+            }
+            val cached = findVideoFileInCache(engine.cacheDir)
+            if (cached != null && cached.exists() && cached.length() > offset) {
+                currentFile = cached
+                break
+            }
+        }
+
+        if (!currentFile.exists()) {
+            return 0
+        }
+
         return fileLock.withLock {
             try {
-                var currentFile = resolvedFile
-                var retries = 0
-                while ((!currentFile.exists() || currentFile.length() <= offset) && retries < 60 && !isStopping.get()) {
-                    Thread.sleep(150)
-                    retries++
-                    val currentDisk = activeFileOnDisk
-                    if (currentDisk != null && currentDisk.exists()) {
-                        currentFile = currentDisk
-                        break
-                    }
-                }
-
-                if (!currentFile.exists()) {
-                    return@withLock 0
-                }
-
                 RandomAccessFile(currentFile, "r").use { raf ->
                     val fileLength = raf.length()
                     if (offset >= fileLength) {

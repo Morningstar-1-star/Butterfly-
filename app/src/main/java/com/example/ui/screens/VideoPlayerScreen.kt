@@ -164,6 +164,9 @@ fun VideoPlayerScreen(
 
     val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
     val isAmbientEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
+    val isPowerSaveActive by viewModel.isPowerSaveActive.collectAsState()
+    val batterySaverDisableAmbient by viewModel.batterySaverDisableAmbient.collectAsState()
+    val effectiveAmbient = isAmbientEnabled && (!isPowerSaveActive || !batterySaverDisableAmbient)
     val ambientPalette = rememberAmbientPalette(
         thumbnailUrl = currentStreamData?.thumbnailUrl ?: currentVideoItem?.thumbnailUrl
     )
@@ -349,7 +352,7 @@ fun VideoPlayerScreen(
                 // YouTube-style Dynamic Ambient Mode Lighting Effect
                 AmbientPlayerGlow(
                     palette = ambientPalette,
-                    isEnabled = isAmbientEnabled && contentAlpha > 0.1f
+                    isEnabled = effectiveAmbient && contentAlpha > 0.1f
                 )
 
                 Column(

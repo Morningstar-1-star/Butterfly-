@@ -30,8 +30,26 @@ class DownloaderImpl private constructor(
         if (headers["User-Agent"].isNullOrEmpty()) {
             requestBuilder.header(
                 "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             )
+        }
+
+        if (headers["Accept-Language"].isNullOrEmpty()) {
+            requestBuilder.header("Accept-Language", "en-US,en;q=0.9")
+        }
+
+        if (url.contains("youtube.com") || url.contains("googlevideo.com")) {
+            if (headers["Referer"].isNullOrEmpty()) {
+                requestBuilder.header("Referer", "https://www.youtube.com/")
+            }
+            if (headers["Origin"].isNullOrEmpty()) {
+                requestBuilder.header("Origin", "https://www.youtube.com")
+            }
+        }
+
+        val customPoToken = com.example.util.AppConfig.getCustomPoToken()
+        if (customPoToken.isNotBlank() && (url.contains("youtube.com") || url.contains("googlevideo.com"))) {
+            requestBuilder.header("X-Youtube-Identity-Token", customPoToken)
         }
 
         val body = if (dataToSend != null && (httpMethod == "POST" || httpMethod == "PUT")) {

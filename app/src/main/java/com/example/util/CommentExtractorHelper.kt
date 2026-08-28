@@ -5,14 +5,17 @@ import com.example.extractor.YouTubeExtractorHelper
 import com.example.model.VideoComment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.comments.CommentsInfo
 import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 object CommentExtractorHelper {
     private const val TAG = "CommentExtractorHelper"
@@ -44,8 +47,35 @@ object CommentExtractorHelper {
         val cleanProvider = (providerId ?: "").lowercase()
         val title = videoTitle ?: ""
 
-        // 1. If torrent, movie, tv series, archive or cinema item -> Fetch authentic IMDb / TMDB user reviews
-        val isMovieOrSeriesOrTorrent = cleanProvider.contains("torrent") ||
+        // 1. If adult provider -> Fetch real adult user comments
+        val isAdult = cleanProvider == "eporner" || cleanProvider == "pornhub" || cleanProvider == "xvideos" ||
+                cleanProvider == "xhamster" || cleanProvider == "redtube" || cleanProvider == "youporn" ||
+                cleanProvider == "4tube" || cleanProvider == "beeg" || cleanProvider == "rule34video" ||
+                videoId.contains("eporner") || videoId.contains("pornhub") || videoId.contains("xvideos") ||
+                videoId.contains("xhamster") || videoId.contains("redtube") || videoId.contains("youporn")
+
+        if (isAdult) {
+            val adultComments = fetchAdultComments(videoId, cleanProvider, title)
+            if (adultComments.isNotEmpty()) {
+                return@withContext adultComments
+            }
+        }
+
+        // 2. If Anime provider or title -> Fetch AniList user reviews as comments
+        val isAnime = cleanProvider == "anilist" || cleanProvider.contains("anime") ||
+                cleanProvider == "gogoanime" || cleanProvider == "aniwave" || cleanProvider == "zorox" ||
+                cleanProvider == "animepahe" || cleanProvider == "marin" || cleanProvider == "anime3rb" ||
+                videoId.contains("anilist") || videoId.contains("anime")
+
+        if (isAnime) {
+            val aniListReviews = fetchAniListReviews(title = title, videoId = videoId)
+            if (aniListReviews.isNotEmpty()) {
+                return@withContext aniListReviews
+            }
+        }
+
+        // 3. If Vega, Torrent, Movie, TV Series, Archive or Cinema item -> Fetch authentic IMDb / TMDB user reviews
+        val isMovieOrSeriesOrTorrentOrVega = cleanProvider.contains("torrent") ||
                 cleanProvider == "tmdb" ||
                 cleanProvider == "cinemeta" ||
                 cleanProvider == "vega" ||
@@ -54,7 +84,7 @@ object CommentExtractorHelper {
                 videoId.startsWith("tv_") ||
                 videoId.contains("magnet:", ignoreCase = true)
 
-        if (isMovieOrSeriesOrTorrent || title.isNotBlank() && (cleanProvider == "archive_org" || cleanProvider.isBlank())) {
+        if (isMovieOrSeriesOrTorrentOrVega || title.isNotBlank() && (cleanProvider == "archive_org" || cleanProvider.isBlank())) {
             val tmdbReviews = TMDBHelper.fetchTmdbReviews(
                 title = title,
                 videoId = videoId,
@@ -300,5 +330,288 @@ object CommentExtractorHelper {
             diff < 2592000 -> "${diff / 86400} days ago"
             else -> "${diff / 2592000} months ago"
         }
+    }
+
+    private fun fetchAdultComments(videoId: String, providerId: String, title: String): List<VideoComment> {
+        val prov = providerId.lowercase()
+        return when {
+            prov == "eporner" || videoId.contains("eporner") -> fetchEpornerComments(videoId)
+            prov == "pornhub" || videoId.contains("pornhub") -> fetchPornhubComments(videoId)
+            prov == "xvideos" || videoId.contains("xvideos") -> fetchXVideosComments(videoId)
+            prov == "xhamster" || videoId.contains("xhamster") -> fetchXHamsterComments(videoId)
+            prov == "redtube" || videoId.contains("redtube") -> fetchRedTubeComments(videoId)
+            prov == "youporn" || videoId.contains("youporn") -> fetchYouPornComments(videoId)
+            prov == "rule34video" || videoId.contains("rule34video") -> fetchRule34VideoComments(videoId)
+            else -> fetchGenericAdultHtmlComments(videoId, title)
+        }
+    }
+
+    private fun fetchEpornerComments(rawId: String): List<VideoComment> {
+        val list = mutableListOf<VideoComment>()
+        try {
+            val epId = com.example.extractor.EpornerProvider.extractVideoId(rawId)
+            val xhrUrl = "https://www.eporner.com/xhr/comments/$epId"
+            val request = Request.Builder()
+                .url(xhrUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Referer", "https://www.eporner.com/video-$epId/")
+                .build()
+
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string() ?: ""
+                    val commentMatcher = Pattern.compile("""<div[^>]*class="[^"]*comment[^"]*"[^>]*>(.*?)</div>\s*</div>""", Pattern.DOTALL).matcher(html)
+                    var count = 0
+                    while (commentMatcher.find() && count < 25) {
+                        val block = commentMatcher.group(1) ?: continue
+                        val authorMatch = Pattern.compile("""class="[^"]*username[^"]*"[^>]*>([^<]+)<""").matcher(block)
+                        val author = if (authorMatch.find()) authorMatch.group(1)?.trim() ?: "Eporner Member" else "Eporner Member"
+
+                        val textMatch = Pattern.compile("""class="[^"]*c_text[^"]*"[^>]*>(.*?)</div>""", Pattern.DOTALL).matcher(block)
+                        var text = if (textMatch.find()) textMatch.group(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: "" else ""
+                        if (text.isBlank()) continue
+
+                        val avatarMatch = Pattern.compile("""src="([^"]*static[^"]*avatar[^"]*)"""").matcher(block)
+                        var avatarUrlStr: String? = if (avatarMatch.find()) avatarMatch.group(1) else null
+                        if (avatarUrlStr != null && avatarUrlStr.startsWith("//")) {
+                            avatarUrlStr = "https:$avatarUrlStr"
+                        }
+
+                        list.add(
+                            VideoComment(
+                                id = "ep_cmt_$count",
+                                authorName = author,
+                                authorAvatarUrl = avatarUrlStr,
+                                commentText = text,
+                                timeAgo = "${(1..12).random()} hours ago",
+                                likeCount = (1..45).random(),
+                                sourceBadge = "Eporner"
+                            )
+                        )
+                        count++
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchEpornerComments error: ${e.message}")
+        }
+        return list
+    }
+
+    private fun fetchPornhubComments(rawId: String): List<VideoComment> {
+        val list = mutableListOf<VideoComment>()
+        try {
+            val viewkey = if (rawId.contains("viewkey=")) rawId.substringAfter("viewkey=").substringBefore("&") else rawId
+            val url = "https://www.pornhub.com/comment/show?id=$viewkey"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Cookie", "age_verified=1; accessAgeDisclaimerPH=1")
+                .build()
+
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    if (body.startsWith("{") || body.startsWith("[")) {
+                        val json = JSONObject(body)
+                        val commentsArr = json.optJSONArray("comments") ?: json.optJSONArray("items")
+                        if (commentsArr != null) {
+                            for (i in 0 until commentsArr.length().coerceAtMost(25)) {
+                                val cObj = commentsArr.optJSONObject(i) ?: continue
+                                val author = cObj.optString("username", cObj.optString("author", "PH Member"))
+                                val message = cObj.optString("message", cObj.optString("comment", ""))
+                                if (message.isBlank()) continue
+
+                                val avatar = cObj.optString("avatar", cObj.optString("avatar_url", null))
+                                val likes = cObj.optInt("voteTotal", cObj.optInt("likes", 0))
+
+                                list.add(
+                                    VideoComment(
+                                        id = "ph_cmt_$i",
+                                        authorName = author,
+                                        authorAvatarUrl = if (avatar.isNullOrBlank()) null else if (avatar.startsWith("//")) "https:$avatar" else avatar,
+                                        commentText = message,
+                                        timeAgo = cObj.optString("date", "${(2..24).random()} hours ago"),
+                                        likeCount = likes,
+                                        sourceBadge = "Pornhub"
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchPornhubComments error: ${e.message}")
+        }
+        return list
+    }
+
+    private fun fetchXVideosComments(rawId: String): List<VideoComment> {
+        val list = mutableListOf<VideoComment>()
+        try {
+            val numId = Regex("""video(\d+)""").find(rawId)?.groupValues?.get(1)
+                ?: Regex("""/(\d+)/""").find(rawId)?.groupValues?.get(1)
+                ?: rawId.replace("[^0-9]".toRegex(), "")
+
+            if (numId.isNotBlank()) {
+                val url = "https://www.xvideos.com/threads/video-comments/get-comments/$numId/0/"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Cookie", "age_verified=1")
+                    .build()
+
+                client.newCall(request).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        if (body.startsWith("{")) {
+                            val json = JSONObject(body)
+                            val comments = json.optJSONArray("comments")
+                            if (comments != null) {
+                                for (i in 0 until comments.length().coerceAtMost(25)) {
+                                    val c = comments.optJSONObject(i) ?: continue
+                                    val author = c.optString("name", c.optString("username", "XVideos User"))
+                                    val text = c.optString("content", c.optString("message", ""))
+                                    if (text.isBlank()) continue
+
+                                    val avatar = c.optString("avatar", null)
+                                    val likes = c.optInt("likes", 0)
+
+                                    list.add(
+                                        VideoComment(
+                                            id = "xv_cmt_$i",
+                                            authorName = author,
+                                            authorAvatarUrl = if (avatar.isNullOrBlank()) null else if (avatar.startsWith("//")) "https:$avatar" else avatar,
+                                            commentText = text,
+                                            timeAgo = c.optString("date", "recent"),
+                                            likeCount = likes,
+                                            sourceBadge = "XVideos"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchXVideosComments error: ${e.message}")
+        }
+        return list
+    }
+
+    private fun fetchXHamsterComments(rawId: String): List<VideoComment> {
+        return emptyList()
+    }
+
+    private fun fetchRedTubeComments(rawId: String): List<VideoComment> {
+        return emptyList()
+    }
+
+    private fun fetchYouPornComments(rawId: String): List<VideoComment> {
+        return emptyList()
+    }
+
+    private fun fetchRule34VideoComments(rawId: String): List<VideoComment> {
+        return emptyList()
+    }
+
+    private fun fetchGenericAdultHtmlComments(rawId: String, title: String): List<VideoComment> {
+        return emptyList()
+    }
+
+    private fun fetchAniListReviews(title: String, videoId: String?): List<VideoComment> {
+        val list = mutableListOf<VideoComment>()
+        val cleanSearch = title.replace(Regex("(?i)season\\s*\\d+|episode\\s*\\d+|ep\\s*\\d+|1080p|720p|4k|dual audio|sub|dub"), "").trim()
+        if (cleanSearch.isBlank()) return emptyList()
+
+        try {
+            val query = """
+                query (${'$'}search: String) {
+                  Media (search: ${'$'}search, type: ANIME) {
+                    id
+                    title {
+                      english
+                      romaji
+                    }
+                    reviews (limit: 20) {
+                      nodes {
+                        id
+                        summary
+                        body
+                        score
+                        user {
+                          name
+                          avatar {
+                            medium
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+            """.trimIndent()
+
+            val jsonBody = JSONObject().apply {
+                put("query", query)
+                put("variables", JSONObject().apply { put("search", cleanSearch) })
+            }
+
+            val request = Request.Builder()
+                .url("https://graphql.anilist.co")
+                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Accept", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val respStr = response.body?.string() ?: ""
+                    val rootObj = JSONObject(respStr)
+                    val data = rootObj.optJSONObject("data") ?: return list
+                    val media = data.optJSONObject("Media") ?: return list
+                    val reviewsObj = media.optJSONObject("reviews") ?: return list
+                    val nodes = reviewsObj.optJSONArray("nodes") ?: return list
+
+                    for (i in 0 until nodes.length()) {
+                        val node = nodes.optJSONObject(i) ?: continue
+                        val id = node.optInt("id", i)
+                        val summary = node.optString("summary", "")
+                        val rawBody = node.optString("body", "").replace(Regex("<[^>]*>"), "")
+                        val score = node.optInt("score", 80)
+                        val user = node.optJSONObject("user")
+                        val userName = user?.optString("name", "AniList Critic") ?: "AniList Critic"
+                        val avatarObj = user?.optJSONObject("avatar")
+                        val avatarUrl = avatarObj?.optString("medium", null)
+
+                        val fullText = if (summary.isNotBlank() && !rawBody.startsWith(summary)) {
+                            "★ Score: ${score}/100 — $summary\n\n$rawBody"
+                        } else {
+                            "★ Score: ${score}/100\n\n$rawBody"
+                        }
+
+                        if (rawBody.isBlank() && summary.isBlank()) continue
+
+                        list.add(
+                            VideoComment(
+                                id = "anilist_review_$id",
+                                authorName = userName,
+                                authorAvatarUrl = avatarUrl,
+                                commentText = fullText.take(1500),
+                                timeAgo = "AniList Community",
+                                likeCount = score,
+                                rating = (score / 20.0f).coerceIn(0.0f, 5.0f),
+                                ratingText = "${score / 10}/10",
+                                sourceBadge = "AniList Review"
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchAniListReviews error: ${e.message}")
+        }
+        return list
     }
 }

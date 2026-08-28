@@ -12,15 +12,15 @@ object ShaderEnhancementLoader {
 
         val mode = when (config.preset) {
             VideoEnhancementPreset.OFF -> 0
-            VideoEnhancementPreset.QUALITY -> 2 // ArtCNN
-            VideoEnhancementPreset.PERFORMANCE -> 3 // FSRCNNX
-            VideoEnhancementPreset.ANIME -> 1 // Anime4K
-            VideoEnhancementPreset.LIVE_ACTION -> 2 // ArtCNN
+            VideoEnhancementPreset.SHARPEN_HIGH -> 2 // High precision
+            VideoEnhancementPreset.PERFORMANCE -> 3 // Fast Edge
+            VideoEnhancementPreset.SHARPEN_ANIME -> 1 // Anime Line
+            VideoEnhancementPreset.LIVE_ACTION -> 2 // Cinema Contour
             VideoEnhancementPreset.AUTO -> {
                 if (config.animeMode == AnimeDetectionMode.ALWAYS_ON || (config.animeMode == AnimeDetectionMode.AUTO && isAnime)) {
-                    1 // Anime4K
+                    1 // Anime
                 } else {
-                    2 // ArtCNN
+                    2 // High precision
                 }
             }
         }

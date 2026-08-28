@@ -1,7 +1,7 @@
 package com.example.torrent.provider
 
 import android.util.Log
-import com.example.torrent.model.TorrentRelease
+import com.example.torrent.model.TorrentResult
 import com.example.torrent.protocol.MagnetParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,8 +10,13 @@ import okhttp3.Request
 import org.json.JSONArray
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+/**
+ * Nyaa / AnimeTosho Torrent Indexer Provider.
+ * Queries AnimeTosho mirror API for anime episodes, movies, and dual-audio packs.
+ */
 class NyaaProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -28,11 +33,11 @@ class NyaaProvider(
         private const val BASE_URL = "https://animetosho.org/api/v1/search"
     }
 
-    override suspend fun search(query: String, identity: MediaIdentity): List<TorrentRelease> = withContext(Dispatchers.IO) {
+    override suspend fun search(query: String, identity: MediaIdentity): List<TorrentResult> = withContext(Dispatchers.IO) {
         val titleQuery = if (identity.title.isNotBlank()) {
             var q = identity.title
             if (identity.episode != null) {
-                val epStr = String.format("%02d", identity.episode)
+                val epStr = String.format(Locale.US, "%02d", identity.episode)
                 q = "$q $epStr"
             }
             q
@@ -56,7 +61,7 @@ class NyaaProvider(
 
             val body = resp.body?.string() ?: return@withContext emptyList()
             val array = JSONArray(body)
-            val results = mutableListOf<TorrentRelease>()
+            val results = mutableListOf<TorrentResult>()
 
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
@@ -89,19 +94,20 @@ class NyaaProvider(
 
                 val formattedSize = if (totalBytes > 0) {
                     val gb = totalBytes / (1024.0 * 1024.0 * 1024.0)
-                    if (gb >= 1.0) String.format("%.2f GB", gb) else String.format("%d MB", totalBytes / (1024 * 1024))
+                    if (gb >= 1.0) String.format(Locale.US, "%.2f GB", gb) else String.format(Locale.US, "%d MB", totalBytes / (1024 * 1024))
                 } else ""
 
                 results.add(
-                    TorrentRelease(
+                    TorrentResult(
                         title = releaseTitle,
-                        infoHash = finalHash,
-                        magnetUrl = if (magnetUrl.isNotBlank()) magnetUrl else MagnetParser.buildMagnetUrl(finalHash, releaseTitle),
-                        provider = "Nyaa",
+                        magnet = if (magnetUrl.isNotBlank()) magnetUrl else MagnetParser.buildMagnetUrl(finalHash, releaseTitle),
+                        infoHash = finalHash.lowercase(),
+                        size = totalBytes,
+                        formattedSize = formattedSize,
                         seeders = seeders,
                         leechers = leechers,
-                        sizeBytes = totalBytes,
-                        formattedSize = formattedSize,
+                        source = "Nyaa",
+                        category = "Anime",
                         quality = quality,
                         codec = codec,
                         hdr = if (releaseTitle.contains("HDR", ignoreCase = true)) "HDR" else "",

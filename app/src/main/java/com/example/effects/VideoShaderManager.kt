@@ -110,8 +110,8 @@ object VideoShaderManager {
             return color;
         }
         
-        // 1. Anime4K Line Restoration & Dark Line Push
-        vec3 anime4kPass(vec2 uv, vec2 dx, vec2 dy) {
+        // 1. Anime Spatial Gradient & Dark Line Refinement Pass
+        vec3 sharpenAnimePass(vec2 uv, vec2 dx, vec2 dy) {
             vec3 c = texture(uTexture, uv).rgb;
             vec3 t = texture(uTexture, uv - dy).rgb;
             vec3 b = texture(uTexture, uv + dy).rgb;
@@ -128,7 +128,7 @@ object VideoShaderManager {
             float gradY = (lumB - lumT);
             float gradMag = sqrt(gradX * gradX + gradY * gradY);
             
-            // Push dark lines for anime outlines
+            // Push dark lines for anime outlines and line contrast
             if (gradMag > 0.06) {
                 float lineDarken = clamp(1.0 - (gradMag * 0.40 * (uSharpen / 50.0)), 0.65, 1.0);
                 c = c * lineDarken;
@@ -136,8 +136,8 @@ object VideoShaderManager {
             return c;
         }
         
-        // 2. ArtCNN Spatial Convolution Pass
-        vec3 artCnnPass(vec2 uv, vec2 dx, vec2 dy) {
+        // 2. High-Precision Spatial Convolution & Anti-Ringing Edge Pass
+        vec3 highPrecisionEdgePass(vec2 uv, vec2 dx, vec2 dy) {
             vec3 c = texture(uTexture, uv).rgb;
             vec3 tl = texture(uTexture, uv - dx - dy).rgb;
             vec3 tr = texture(uTexture, uv + dx - dy).rgb;
@@ -164,8 +164,8 @@ object VideoShaderManager {
             return enhanced;
         }
         
-        // 3. FSRCNNX Edge Scaler Pass
-        vec3 fsrcnnxPass(vec2 uv, vec2 dx, vec2 dy) {
+        // 3. Fast Laplacian Edge Sharpening Pass
+        vec3 fastEdgeSharpenPass(vec2 uv, vec2 dx, vec2 dy) {
             vec3 c = texture(uTexture, uv).rgb;
             vec3 tl = texture(uTexture, uv - dx - dy).rgb;
             vec3 tr = texture(uTexture, uv + dx - dy).rgb;
@@ -178,15 +178,15 @@ object VideoShaderManager {
             vec3 r = texture(uTexture, uv + dx).rgb;
             
             // 5x5 deconvolution approximation kernel
-            vec3 fsrcnnxEdge = (c * 4.0) - (t + b + l + r);
-            vec3 fsrcnnxDiag = (c * 2.0) - (tl + tr + bl + br) * 0.5;
+            vec3 edgeGrad = (c * 4.0) - (t + b + l + r);
+            vec3 diagGrad = (c * 2.0) - (tl + tr + bl + br) * 0.5;
             
-            vec3 sharpened = c + (fsrcnnxEdge + fsrcnnxDiag) * (uSharpen / 60.0);
+            vec3 sharpened = c + (edgeGrad + diagGrad) * (uSharpen / 60.0);
             return clamp(sharpened, 0.0, 1.0);
         }
 
-        // 4. RAVU-Zoom Directional Reconstruction
-        vec3 ravuZoomPass(vec2 uv, vec2 dx, vec2 dy) {
+        // 4. Directional Edge Reconstruction Pass
+        vec3 directionalEdgePass(vec2 uv, vec2 dx, vec2 dy) {
             vec3 c = texture(uTexture, uv).rgb;
             vec3 t = texture(uTexture, uv - dy).rgb;
             vec3 b = texture(uTexture, uv + dy).rgb;
@@ -215,13 +215,13 @@ object VideoShaderManager {
             
             // Step 2: Primary enhancement filter
             if (uPipelineMode == 1) {
-                color = anime4kPass(vTexCoord, dx, dy);
+                color = sharpenAnimePass(vTexCoord, dx, dy);
             } else if (uPipelineMode == 2) {
-                color = artCnnPass(vTexCoord, dx, dy);
+                color = highPrecisionEdgePass(vTexCoord, dx, dy);
             } else if (uPipelineMode == 3) {
-                color = fsrcnnxPass(vTexCoord, dx, dy);
+                color = fastEdgeSharpenPass(vTexCoord, dx, dy);
             } else if (uPipelineMode == 4) {
-                color = ravuZoomPass(vTexCoord, dx, dy);
+                color = directionalEdgePass(vTexCoord, dx, dy);
             }
             
             // Step 3: Deband if enabled

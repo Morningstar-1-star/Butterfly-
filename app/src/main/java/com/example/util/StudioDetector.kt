@@ -100,4 +100,45 @@ object StudioDetector {
             }
         }
     }
+
+    fun isStudioName(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        val lower = name.trim().lowercase()
+        return lower.contains("marvel") || lower.contains("dc studios") || lower.contains("dc comics") ||
+               lower.contains("warner") || lower.contains("wb") || lower.contains("disney") ||
+               lower.contains("pixar") || lower.contains("universal") || lower.contains("paramount") ||
+               lower.contains("sony") || lower.contains("columbia") || lower.contains("20th century") ||
+               lower.contains("fox") || lower.contains("lionsgate") || lower.contains("new line") ||
+               lower.contains("legendary") || lower.contains("blumhouse") || lower.contains("a24") ||
+               lower.contains("metro-goldwyn") || lower.contains("mgm") || lower.contains("ghibli") ||
+               lower.contains("mappa") || lower.contains("toei") || lower.contains("pierrot") ||
+               lower.contains("bones") || lower.contains("madhouse") || lower.contains("production i.g") ||
+               lower.contains("kyoani") || lower.contains("netflix") || lower.contains("hbo") ||
+               lower.contains("amc") || lower.contains("amazon") || lower.contains("apple tv") ||
+               lower.contains("torrent stream") || lower.contains("p2p") || lower.contains("vegamovies") ||
+               lower.contains("hdhub") || lower.contains("movie studio") || lower.contains("television")
+    }
+
+    fun getStudioSearchQuery(studioName: String): String {
+        val lower = studioName.lowercase()
+        return when {
+            lower.contains("marvel") -> "Marvel"
+            lower.contains("dc") -> "DC"
+            lower.contains("warner") -> "Warner Bros"
+            lower.contains("disney") -> "Disney"
+            lower.contains("pixar") -> "Pixar"
+            lower.contains("universal") -> "Universal"
+            lower.contains("paramount") -> "Paramount"
+            lower.contains("sony") -> "Sony"
+            lower.contains("20th") || lower.contains("fox") -> "Avatar"
+            lower.contains("a24") -> "A24"
+            lower.contains("lionsgate") -> "John Wick"
+            lower.contains("legendary") -> "Dune"
+            lower.contains("netflix") -> "Netflix"
+            lower.contains("hbo") -> "HBO"
+            lower.contains("ghibli") -> "Studio Ghibli"
+            lower.contains("mappa") -> "MAPPA"
+            else -> studioName.replace("Pictures", "").replace("Studios", "").replace("Films", "").trim()
+        }
+    }
 }

@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 object ExploreMediaHelper {
 
     private val TAG = "ExploreMediaHelper"
-    private val TMDB_API_KEY = AppConfig.TMDB_API_KEY
+    private val TMDB_API_KEY get() = AppConfig.TMDB_API_KEY
     private val TMDB_IMAGE_BASE = AppConfig.TMDB_IMAGE_BASE_W500
     private val TMDB_BACKDROP_BASE = AppConfig.TMDB_BACKDROP_BASE
 

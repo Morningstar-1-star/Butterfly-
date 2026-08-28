@@ -918,9 +918,9 @@ private fun VideoUpscalerSection(
 
         val presets = listOf(
             VideoEnhancementPreset.AUTO to Icons.Outlined.AutoFixHigh,
-            VideoEnhancementPreset.QUALITY to Icons.Outlined.HighQuality,
+            VideoEnhancementPreset.SHARPEN_HIGH to Icons.Outlined.HighQuality,
             VideoEnhancementPreset.PERFORMANCE to Icons.Outlined.Speed,
-            VideoEnhancementPreset.ANIME to Icons.Outlined.Brush,
+            VideoEnhancementPreset.SHARPEN_ANIME to Icons.Outlined.Brush,
             VideoEnhancementPreset.LIVE_ACTION to Icons.Outlined.Movie,
             VideoEnhancementPreset.OFF to Icons.Outlined.Block
         )

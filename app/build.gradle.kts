@@ -21,6 +21,9 @@ android {
     ndk {
       abiFilters += listOf("arm64-v8a")
     }
+
+    val poTokenUrl: String = (project.findProperty("PO_TOKEN_SERVER_URL") as String?) ?: "http://127.0.0.1:4416"
+    buildConfigField("String", "PO_TOKEN_SERVER_URL", "\"$poTokenUrl\"")
   }
 
   packaging {
@@ -42,8 +45,9 @@ android {
 
   buildTypes {
     release {
-      isCrunchPngs = false
-      isMinifyEnabled = false
+      isCrunchPngs = true
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro"

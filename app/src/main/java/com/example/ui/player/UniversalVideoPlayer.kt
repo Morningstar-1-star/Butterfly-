@@ -25,6 +25,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -40,6 +42,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -284,164 +287,116 @@ fun UniversalVideoPlayer(
             .background(Color.Black)
     }
 
+    var lastTapTimestamp by remember { mutableLongStateOf(0L) }
+    var lastTapPosition by remember { mutableStateOf(Offset.Zero) }
+
     Box(
         modifier = playerContainerModifier
-            .pointerInput(seekSecs) {
-                detectTapGestures(
-                    onTap = {
-                        GlobalPlayerManager.toggleControlsVisibility()
-                    },
-                    onDoubleTap = { offset ->
-                        val totalWidth = size.width
-                        val leftBoundary = totalWidth * 0.35f
-                        val rightBoundary = totalWidth * 0.65f
-                        val stepSecs = seekSecs
+            .pointerInput(isLandscape, seekSecs) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val startPos = down.position
+                    val startTime = System.currentTimeMillis()
+                    val touchSlop = viewConfiguration.touchSlop
+                    var hasPassedSlop = false
+                    var isSwipingDownToMinimize = false
 
-                        if (offset.x < leftBoundary) {
-                            val newSeconds = if (doubleTapSeekDirection == "LEFT") {
-                                doubleTapAccumulatedSeconds + stepSecs
-                            } else {
-                                stepSecs
-                            }
-                            doubleTapSeekDirection = "LEFT"
-                            doubleTapAccumulatedSeconds = newSeconds
+                    accumulatedDx = 0f
+                    accumulatedDy = 0f
+                    dragStartPosMs = GlobalPlayerManager.currentPositionMs.value
+                    initialBrightness = brightnessLevel
+                    initialVolume = volumeLevel
+                    isDraggingHorizontally = false
+                    isDraggingVertically = false
 
-                            val seekMs = stepSecs * 1000L
-                            val targetPos = (exoPlayer.currentPosition - seekMs).coerceAtLeast(0L)
-                            GlobalPlayerManager.seekTo(targetPos)
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        val currentPos = change.position
+                        val dx = currentPos.x - startPos.x
+                        val dy = currentPos.y - startPos.y
+                        val distSq = dx * dx + dy * dy
 
-                            doubleTapSeekJob?.cancel()
-                            doubleTapSeekJob = coroutineScope.launch {
-                                delay(650)
-                                doubleTapSeekDirection = null
-                                doubleTapAccumulatedSeconds = 0
-                            }
-                        } else if (offset.x > rightBoundary) {
-                            val newSeconds = if (doubleTapSeekDirection == "RIGHT") {
-                                doubleTapAccumulatedSeconds + stepSecs
-                            } else {
-                                stepSecs
-                            }
-                            doubleTapSeekDirection = "RIGHT"
-                            doubleTapAccumulatedSeconds = newSeconds
-
-                            val seekMs = stepSecs * 1000L
-                            val targetPos = exoPlayer.currentPosition + seekMs
-                            GlobalPlayerManager.seekTo(targetPos)
-
-                            doubleTapSeekJob?.cancel()
-                            doubleTapSeekJob = coroutineScope.launch {
-                                delay(650)
-                                doubleTapSeekDirection = null
-                                doubleTapAccumulatedSeconds = 0
-                            }
-                        } else {
-                            // Center Double Tap: Play / Pause toggle with clean animation
-                            val isCurrentlyPlaying = GlobalPlayerManager.isPlaying.value
-                            if (isCurrentlyPlaying) {
-                                GlobalPlayerManager.pause()
-                                centerPlayPauseFeedback = false
-                            } else {
-                                GlobalPlayerManager.play()
-                                centerPlayPauseFeedback = true
-                            }
-
-                            centerPlayPauseJob?.cancel()
-                            centerPlayPauseJob = coroutineScope.launch {
-                                delay(600)
-                                centerPlayPauseFeedback = null
-                            }
-                        }
-                    }
-                )
-            }
-            .pointerInput(isLandscape) {
-                var isSwipingDownToMinimize = false
-                detectDragGestures(
-                    onDragStart = {
-                        accumulatedDx = 0f
-                        accumulatedDy = 0f
-                        dragStartPosMs = GlobalPlayerManager.currentPositionMs.value
-                        initialBrightness = brightnessLevel
-                        initialVolume = volumeLevel
-                        isDraggingHorizontally = false
-                        isDraggingVertically = false
-                        isSwipingDownToMinimize = false
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        accumulatedDx += dragAmount.x
-                        accumulatedDy += dragAmount.y
-                        val absDx = kotlin.math.abs(accumulatedDx)
-                        val absDy = kotlin.math.abs(accumulatedDy)
-
-                        // Swipe down to minimize in portrait mode
-                        if (!isLandscape && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
-                            if (isSwipingDownToMinimize || (accumulatedDy > 6f && accumulatedDy > absDx * 1.1f)) {
-                                isSwipingDownToMinimize = true
-                                onSwipeDownDrag?.invoke(dragAmount.y)
-                                return@detectDragGestures
-                            }
+                        if (!hasPassedSlop && distSq > touchSlop * touchSlop) {
+                            hasPassedSlop = true
                         }
 
-                        if (!isDraggingHorizontally && !isDraggingVertically) {
-                            if (absDx > 12f && absDx > absDy) {
-                                isDraggingHorizontally = true
-                            } else if (absDy > 12f && absDy > absDx) {
-                                isDraggingVertically = true
-                            }
-                        }
+                        if (hasPassedSlop) {
+                            change.consume()
+                            val dragAmountX = currentPos.x - (startPos.x + accumulatedDx)
+                            val dragAmountY = currentPos.y - (startPos.y + accumulatedDy)
+                            accumulatedDx += dragAmountX
+                            accumulatedDy += dragAmountY
+                            val absDx = kotlin.math.abs(accumulatedDx)
+                            val absDy = kotlin.math.abs(accumulatedDy)
 
-                        if (isDraggingHorizontally) {
-                            val totalWidth = size.width.toFloat().coerceAtLeast(100f)
-                            val durationMs = GlobalPlayerManager.durationMs.value.coerceAtLeast(1L)
-                            val maxSweepSecs = (durationMs / 1000L * 0.20f).coerceIn(30f, 180f)
-                            val deltaSecs = ((accumulatedDx / totalWidth) * maxSweepSecs).toLong()
-                            val targetPos = (dragStartPosMs + (deltaSecs * 1000L)).coerceIn(0L, durationMs)
-
-                            GlobalPlayerManager.seekTo(targetPos)
-                            val sign = if (deltaSecs >= 0) "+" else ""
-                            gestureNoticeText = "$sign${deltaSecs}s (${formatVideoTimestamp(targetPos)} / ${formatVideoTimestamp(durationMs)})"
-                            gestureNoticeIcon = if (deltaSecs >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
-                        } else if (isDraggingVertically) {
-                            val totalHeight = size.height.toFloat().coerceAtLeast(100f)
-                            val isLeftHalf = change.position.x < size.width * 0.5f
-
-                            if (isLeftHalf) {
-                                // Left side = Brightness
-                                activeVerticalGestureType = "BRIGHTNESS"
-                                val delta = -accumulatedDy / totalHeight
-                                brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
-                                verticalGestureValue = brightnessLevel
-                                val activity = context as? Activity
-                                    ?: (context as? ContextWrapper)?.baseContext as? Activity
-                                activity?.let { act ->
-                                    val lp = act.window.attributes
-                                    lp.screenBrightness = brightnessLevel
-                                    act.window.attributes = lp
+                            // Swipe down to minimize in portrait mode
+                            if (!isLandscape && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
+                                if (isSwipingDownToMinimize || (accumulatedDy > 8f && accumulatedDy > absDx * 1.1f)) {
+                                    isSwipingDownToMinimize = true
+                                    onSwipeDownDrag?.invoke(dragAmountY)
+                                    continue
                                 }
-                            } else {
-                                // Right side = Volume
-                                activeVerticalGestureType = "VOLUME"
-                                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                                if (audioManager != null) {
-                                    val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                            }
+
+                            if (!isDraggingHorizontally && !isDraggingVertically) {
+                                if (absDx > 12f && absDx > absDy) {
+                                    isDraggingHorizontally = true
+                                } else if (absDy > 12f && absDy > absDx) {
+                                    isDraggingVertically = true
+                                }
+                            }
+
+                            if (isDraggingHorizontally) {
+                                val totalWidth = size.width.toFloat().coerceAtLeast(100f)
+                                val durationMs = GlobalPlayerManager.durationMs.value.coerceAtLeast(1L)
+                                val maxSweepSecs = (durationMs / 1000L * 0.20f).coerceIn(30f, 180f)
+                                val deltaSecs = ((accumulatedDx / totalWidth) * maxSweepSecs).toLong()
+                                val targetPos = (dragStartPosMs + (deltaSecs * 1000L)).coerceIn(0L, durationMs)
+
+                                GlobalPlayerManager.seekTo(targetPos)
+                                val sign = if (deltaSecs >= 0) "+" else ""
+                                gestureNoticeText = "$sign${deltaSecs}s (${formatVideoTimestamp(targetPos)} / ${formatVideoTimestamp(durationMs)})"
+                                gestureNoticeIcon = if (deltaSecs >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
+                            } else if (isDraggingVertically) {
+                                val totalHeight = size.height.toFloat().coerceAtLeast(100f)
+                                val isLeftHalf = startPos.x < size.width * 0.5f
+
+                                if (isLeftHalf) {
+                                    activeVerticalGestureType = "BRIGHTNESS"
                                     val delta = -accumulatedDy / totalHeight
-                                    volumeLevel = (initialVolume + delta).coerceIn(0f, 1f)
-                                    verticalGestureValue = volumeLevel
-                                    val targetVol = (volumeLevel * maxVol).toInt()
-                                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                    brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
+                                    verticalGestureValue = brightnessLevel
+                                    val activity = context as? Activity
+                                        ?: (context as? ContextWrapper)?.baseContext as? Activity
+                                    activity?.let { act ->
+                                        val lp = act.window.attributes
+                                        lp.screenBrightness = brightnessLevel
+                                        act.window.attributes = lp
+                                    }
+                                } else {
+                                    activeVerticalGestureType = "VOLUME"
+                                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                    if (audioManager != null) {
+                                        val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                                        val delta = -accumulatedDy / totalHeight
+                                        volumeLevel = (initialVolume + delta).coerceIn(0f, 1f)
+                                        verticalGestureValue = volumeLevel
+                                        val targetVol = (volumeLevel * maxVol).toInt()
+                                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                    }
+                                }
+
+                                verticalGestureJob?.cancel()
+                                verticalGestureJob = coroutineScope.launch {
+                                    delay(900)
+                                    activeVerticalGestureType = null
                                 }
                             }
-
-                            verticalGestureJob?.cancel()
-                            verticalGestureJob = coroutineScope.launch {
-                                delay(900)
-                                activeVerticalGestureType = null
-                            }
                         }
-                    },
-                    onDragEnd = {
+                    } while (event.changes.any { it.pressed })
+
+                    if (hasPassedSlop) {
                         if (isSwipingDownToMinimize) {
                             if (onSwipeDownEnd != null) {
                                 onSwipeDownEnd.invoke(accumulatedDy)
@@ -457,22 +412,83 @@ fun UniversalVideoPlayer(
                             delay(400)
                             activeVerticalGestureType = null
                         }
-                    },
-                    onDragCancel = {
-                        if (isSwipingDownToMinimize) {
-                            if (onSwipeDownEnd != null) {
-                                onSwipeDownEnd.invoke(accumulatedDy)
+                    } else {
+                        val upTime = System.currentTimeMillis()
+                        val duration = upTime - startTime
+                        if (duration < 400) {
+                            val timeSinceLastTap = upTime - lastTapTimestamp
+                            val tapDistSq = (startPos.x - lastTapPosition.x) * (startPos.x - lastTapPosition.x) + (startPos.y - lastTapPosition.y) * (startPos.y - lastTapPosition.y)
+                            if (timeSinceLastTap < 350 && tapDistSq < touchSlop * touchSlop * 4) {
+                                // DOUBLE TAP
+                                lastTapTimestamp = 0L
+                                val totalWidth = size.width
+                                val leftBoundary = totalWidth * 0.35f
+                                val rightBoundary = totalWidth * 0.65f
+                                val stepSecs = seekSecs
+
+                                if (startPos.x < leftBoundary) {
+                                    val newSeconds = if (doubleTapSeekDirection == "LEFT") {
+                                        doubleTapAccumulatedSeconds + stepSecs
+                                    } else {
+                                        stepSecs
+                                    }
+                                    doubleTapSeekDirection = "LEFT"
+                                    doubleTapAccumulatedSeconds = newSeconds
+
+                                    val seekMs = stepSecs * 1000L
+                                    val targetPos = (exoPlayer.currentPosition - seekMs).coerceAtLeast(0L)
+                                    GlobalPlayerManager.seekTo(targetPos)
+
+                                    doubleTapSeekJob?.cancel()
+                                    doubleTapSeekJob = coroutineScope.launch {
+                                        delay(650)
+                                        doubleTapSeekDirection = null
+                                        doubleTapAccumulatedSeconds = 0
+                                    }
+                                } else if (startPos.x > rightBoundary) {
+                                    val newSeconds = if (doubleTapSeekDirection == "RIGHT") {
+                                        doubleTapAccumulatedSeconds + stepSecs
+                                    } else {
+                                        stepSecs
+                                    }
+                                    doubleTapSeekDirection = "RIGHT"
+                                    doubleTapAccumulatedSeconds = newSeconds
+
+                                    val seekMs = stepSecs * 1000L
+                                    val targetPos = exoPlayer.currentPosition + seekMs
+                                    GlobalPlayerManager.seekTo(targetPos)
+
+                                    doubleTapSeekJob?.cancel()
+                                    doubleTapSeekJob = coroutineScope.launch {
+                                        delay(650)
+                                        doubleTapSeekDirection = null
+                                        doubleTapAccumulatedSeconds = 0
+                                    }
+                                } else {
+                                    val isCurrentlyPlaying = GlobalPlayerManager.isPlaying.value
+                                    if (isCurrentlyPlaying) {
+                                        GlobalPlayerManager.pause()
+                                        centerPlayPauseFeedback = false
+                                    } else {
+                                        GlobalPlayerManager.play()
+                                        centerPlayPauseFeedback = true
+                                    }
+
+                                    centerPlayPauseJob?.cancel()
+                                    centerPlayPauseJob = coroutineScope.launch {
+                                        delay(600)
+                                        centerPlayPauseFeedback = null
+                                    }
+                                }
                             } else {
-                                onBackClick?.invoke()
+                                // SINGLE TAP -> Immediately toggle controls visibility
+                                lastTapTimestamp = upTime
+                                lastTapPosition = startPos
+                                GlobalPlayerManager.toggleControlsVisibility()
                             }
-                            isSwipingDownToMinimize = false
                         }
-                        isDraggingHorizontally = false
-                        isDraggingVertically = false
-                        verticalGestureJob?.cancel()
-                        activeVerticalGestureType = null
                     }
-                )
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -516,6 +532,51 @@ fun UniversalVideoPlayer(
                 config = videoEffectsConfig,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Buffering & Torrent Live Telemetry Overlay
+            if (showLoadingIndicator && playerError == null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(20.dp)
+                        .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = Color(0xFF00E5FF),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(38.dp)
+                        )
+                        val isTorrent = streamOption?.providerType == com.example.model.ProviderType.TORRENT ||
+                                streamOption?.videoUrl?.contains("/stream") == true ||
+                                activeStreamData?.providerId == "torrent"
+                        if (isTorrent && torrentStats.infoHash.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            val speedKb = torrentStats.downloadSpeedBps / 1024
+                            val speedStr = if (speedKb > 1024) String.format("%.1f MB/s", speedKb / 1024f) else "$speedKb KB/s"
+                            val seedsDisplay = if (torrentStats.activeSeeders > 0) "${torrentStats.activeSeeders} seeds" else "${torrentStats.connectedPeers} peers"
+                            Text(
+                                text = "P2P Swarm: $seedsDisplay • $speedStr",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (torrentStats.state == com.example.torrent.model.TorrentEngineState.FETCHING_METADATA) {
+                                Text(
+                                    text = "Retrieving swarm metadata...",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             // Error Overlay if playerError != null
             if (playerError != null) {
@@ -1485,6 +1546,72 @@ fun UniversalVideoPlayer(
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = Color.White,
                                         checkedTrackColor = Color(0xFF2196F3),
+                                        uncheckedThumbColor = Color.LightGray,
+                                        uncheckedTrackColor = Color.DarkGray
+                                    )
+                                )
+                            }
+
+                            // 3. Battery Saver Quick Toggle
+                            val batterySaverManager = remember(context) { com.example.util.BatterySaverManager.getInstance(context) }
+                            val isBatterySaverActive by batterySaverManager.isPowerSaveActive.collectAsState()
+                            val batterySaverManual by batterySaverManager.manualEnabled.collectAsState()
+                            val batteryLevel by batterySaverManager.batteryLevel.collectAsState()
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable {
+                                        batterySaverManager.setManualEnabled(!batterySaverManual)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isBatterySaverActive) Color(0xFF4CAF50).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Bolt,
+                                            contentDescription = "Battery Saver",
+                                            tint = if (isBatterySaverActive) Color(0xFF81C784) else Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Battery Saver Mode",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = if (isBatterySaverActive) "Active ($batteryLevel%) • Limiting GPU & network drain" else "Optimizes decoding, caps resolution & disables glow",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (isBatterySaverActive) Color(0xFF81C784) else Color.LightGray.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Switch(
+                                    checked = batterySaverManual,
+                                    onCheckedChange = {
+                                        batterySaverManager.setManualEnabled(it)
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = Color(0xFF4CAF50),
                                         uncheckedThumbColor = Color.LightGray,
                                         uncheckedTrackColor = Color.DarkGray
                                     )

@@ -1,7 +1,9 @@
 package com.example.torrent.provider
 
 import android.util.Log
+import com.example.torrent.engine.TorrentSearchEngine
 import com.example.torrent.model.TorrentRelease
+import com.example.torrent.model.TorrentResult
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,13 +15,13 @@ import java.util.concurrent.TimeUnit
 
 class TorrentProviderManager(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 ) {
     companion object {
-        private val TAG = "TorrentProviderManager"
-        private val TMDB_API_KEY = com.example.util.AppConfig.TMDB_API_KEY
+        private const val TAG = "TorrentProviderManager"
+        private val TMDB_API_KEY get() = com.example.util.AppConfig.TMDB_API_KEY
 
         @Volatile
         private var instance: TorrentProviderManager? = null
@@ -31,55 +33,27 @@ class TorrentProviderManager(
         }
     }
 
-    private val providers = listOf<TorrentProvider>(
-        TorrentioProvider(client),
-        YtsProvider(client),
-        EztvProvider(client),
-        NyaaProvider(client)
-    )
-
+    private val searchEngine = TorrentSearchEngine(client)
     private val imdbIdCache = ConcurrentHashMap<String, String>()
+
+    val providers: List<TorrentProvider>
+        get() = searchEngine.getAllProviders()
+
+    suspend fun searchTorrents(
+        query: String,
+        identity: MediaIdentity
+    ): List<TorrentResult> = withContext(Dispatchers.IO) {
+        val effectiveIdentity = resolveImdbIdIfNeeded(identity)
+        searchEngine.search(query, effectiveIdentity)
+    }
 
     suspend fun searchReleases(
         query: String,
         identity: MediaIdentity
     ): List<TorrentRelease> = withContext(Dispatchers.IO) {
         val effectiveIdentity = resolveImdbIdIfNeeded(identity)
-
-        val results = supervisorScope {
-            providers.filter { it.isEnabled }.map { provider ->
-                async {
-                    try {
-                        provider.search(query, effectiveIdentity)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Provider ${provider.name} failed: ${e.message}")
-                        emptyList()
-                    }
-                }
-            }.awaitAll().flatten()
-        }
-
-        // Deduplicate by infoHash
-        val distinct = LinkedHashMap<String, TorrentRelease>()
-        for (rel in results) {
-            val key = rel.infoHash.lowercase()
-            if (key.isBlank()) continue
-            val existing = distinct[key]
-            if (existing == null || rel.seeders > existing.seeders) {
-                distinct[key] = rel
-            }
-        }
-
-        // Enrich and sort
-        val sortedList = distinct.values.map { enrichRelease(it) }
-            .sortedWith(
-                compareByDescending<TorrentRelease> { it.seeders > 0 }
-                    .thenByDescending { it.qualityScore }
-                    .thenByDescending { it.seeders }
-            )
-
-        Log.i(TAG, "Found ${sortedList.size} releases for \"${identity.title}\"")
-        sortedList
+        val results = searchEngine.search(query, effectiveIdentity)
+        results.map { it.toTorrentRelease() }
     }
 
     private suspend fun resolveImdbIdIfNeeded(identity: MediaIdentity): MediaIdentity {
@@ -183,61 +157,5 @@ class TorrentProviderManager(
         } catch (_: Exception) {
             return null
         }
-    }
-
-    private fun enrichRelease(release: TorrentRelease): TorrentRelease {
-        val text = release.title + " " + release.quality + " " + release.codec
-
-        var quality = release.quality
-        if (quality.isBlank() || quality == "1080p") {
-            quality = when {
-                text.contains("2160p", ignoreCase = true) || text.contains("4K", ignoreCase = true) || text.contains("UHD", ignoreCase = true) -> "4K UHD"
-                text.contains("1080p", ignoreCase = true) || text.contains("FHD", ignoreCase = true) -> "1080p"
-                text.contains("720p", ignoreCase = true) || text.contains("HD", ignoreCase = true) -> "720p"
-                text.contains("480p", ignoreCase = true) -> "480p"
-                else -> "1080p"
-            }
-        }
-
-        var codec = release.codec
-        if (codec.isBlank()) {
-            codec = when {
-                text.contains("x265", ignoreCase = true) || text.contains("HEVC", ignoreCase = true) || text.contains("H.265", ignoreCase = true) -> "x265 HEVC"
-                text.contains("AV1", ignoreCase = true) -> "AV1"
-                text.contains("x264", ignoreCase = true) || text.contains("H.264", ignoreCase = true) || text.contains("AVC", ignoreCase = true) -> "x264"
-                else -> ""
-            }
-        }
-
-        var hdr = release.hdr
-        if (hdr.isBlank()) {
-            hdr = when {
-                text.contains("DV", ignoreCase = true) && text.contains("HDR", ignoreCase = true) -> "Dolby Vision + HDR"
-                text.contains("Dolby Vision", ignoreCase = true) || text.contains("DV", ignoreCase = true) -> "Dolby Vision"
-                text.contains("HDR10+", ignoreCase = true) -> "HDR10+"
-                text.contains("HDR", ignoreCase = true) -> "HDR"
-                else -> ""
-            }
-        }
-
-        var audio = release.audioChannels
-        if (audio.isBlank()) {
-            audio = when {
-                text.contains("Atmos", ignoreCase = true) -> "Dolby Atmos"
-                text.contains("TrueHD", ignoreCase = true) -> "TrueHD"
-                text.contains("DTS-HD", ignoreCase = true) || text.contains("DTS", ignoreCase = true) -> "DTS-HD"
-                text.contains("7.1", ignoreCase = true) -> "7.1"
-                text.contains("5.1", ignoreCase = true) || text.contains("DD5.1", ignoreCase = true) || text.contains("AC3", ignoreCase = true) || text.contains("EAC3", ignoreCase = true) -> "5.1 Surround"
-                text.contains("AAC", ignoreCase = true) -> "AAC"
-                else -> ""
-            }
-        }
-
-        return release.copy(
-            quality = quality,
-            codec = codec,
-            hdr = hdr,
-            audioChannels = audio
-        )
     }
 }

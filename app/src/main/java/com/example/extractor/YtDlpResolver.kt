@@ -62,13 +62,13 @@ object YtDlpResolver {
             if (versionMatch != null) {
                 versionMatch.value
             } else if (output.isNotBlank()) {
-                output.lines().firstOrNull { it.isNotBlank() } ?: "2024.12.13"
+                output.lines().firstOrNull { it.isNotBlank() } ?: "2024.12.13 (AAR-bundled)"
             } else {
-                "2024.12.13"
+                "2024.12.13 (AAR-bundled)"
             }
         } catch (e: Throwable) {
             Log.w(TAG, "Failed to retrieve yt-dlp engine version: ${e.message}")
-            "2024.12.13"
+            "2024.12.13 (AAR-bundled)"
         }
     }
 
@@ -269,6 +269,12 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://www.twitch.tv/")
                     domainHeaders["Referer"] = "https://www.twitch.tv/"
                 }
+            }
+
+            val updatedDir = java.io.File(ctx.filesDir, "yt_dlp_updated")
+            if (updatedDir.exists() && java.io.File(updatedDir, "yt_dlp").exists()) {
+                request.addOption("--pythonpath", updatedDir.absolutePath)
+                Log.d(TAG, "Applied OTA updated pythonpath: ${updatedDir.absolutePath}")
             }
 
             ensureInitialized(ctx)

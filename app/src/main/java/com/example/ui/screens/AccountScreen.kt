@@ -715,25 +715,28 @@ fun AccountScreen(
                 confirmButton = {
                     Button(
                         onClick = {
+                            val finalName = inputName.ifBlank { "Google User" }
+                            val finalEmail = inputEmail.ifBlank { "user@gmail.com" }
                             com.example.util.GoogleDriveSyncManager.signInWithGoogle(
                                 context = context,
-                                email = inputEmail.ifBlank { "user@gmail.com" },
-                                displayName = inputName.ifBlank { "Lucifer" }
+                                email = finalEmail,
+                                displayName = finalName
                             )
-                            viewModel.updateUserProfile(
-                                name = inputName.ifBlank { "Lucifer" },
-                                handle = "@${inputName.lowercase().replace(" ", "")}",
-                                bio = userProfile.bio,
-                                avatarUrl = userProfile.avatarUrl,
-                                avatarPreset = userProfile.avatarPreset
-                            )
+                            if (inputName.isNotBlank()) {
+                                viewModel.updateUserProfile(
+                                    name = finalName,
+                                    handle = "@${finalName.lowercase().replace(" ", "")}",
+                                    bio = userProfile.bio,
+                                    avatarUrl = userProfile.avatarUrl,
+                                    avatarPreset = userProfile.avatarPreset
+                                )
+                            }
                             showGoogleSignInDialog = false
                             coroutineScope.launch {
+                                val backupJson = viewModel.exportUserDataJson()
                                 com.example.util.GoogleDriveSyncManager.backupToGoogleDrive(
                                     context = context,
-                                    history = watchHistory,
-                                    likedVideos = likedVideos,
-                                    watchLaterList = watchLaterList
+                                    jsonString = backupJson
                                 )
                             }
                         }

@@ -93,17 +93,25 @@ class TorrentHttpServer(
                 return
             }
 
-            // Wait for engine metadata to load (up to 10 seconds), then fallback to virtual stream length if needed
+            // Wait for engine metadata to load (up to 15 seconds)
             var totalLength = engine.getFileLength()
             var retries = 0
-            while (totalLength <= 0 && retries < 20 && !socket.isClosed) {
+            while (totalLength <= 0 && retries < 30 && !socket.isClosed) {
                 kotlinx.coroutines.delay(500)
                 totalLength = engine.getFileLength()
                 retries++
             }
 
             if (totalLength <= 0) {
-                totalLength = 1024L * 1024L * 1024L // 1 GB virtual length fallback
+                Log.w(TAG, "Torrent file metadata not ready yet; returning 503 Service Unavailable to client")
+                val msg = "Torrent metadata initializing. Please retry in a moment."
+                sendResponse(
+                    outStream,
+                    "503 Service Unavailable",
+                    mapOf("Content-Type" to "text/plain", "Retry-After" to "3"),
+                    msg.toByteArray(StandardCharsets.UTF_8)
+                )
+                return
             }
 
             val fileName = engine.getFileName()
@@ -160,7 +168,7 @@ class TorrentHttpServer(
             var currentOffset = startByte
             val buffer = ByteArray(BUFFER_SIZE)
 
-            while (currentOffset <= endByte && isRunning.get()) {
+            while (currentOffset <= endByte && isRunning.get() && !socket.isClosed) {
                 val bytesToRead = minOf(BUFFER_SIZE.toLong(), (endByte - currentOffset + 1)).toInt()
                 val bytesRead = engine.readBytesForStream(currentOffset, bytesToRead, buffer, 0)
 
@@ -168,9 +176,12 @@ class TorrentHttpServer(
                     outStream.write(buffer, 0, bytesRead)
                     currentOffset += bytesRead
                     outStream.flush()
+                } else if (bytesRead == -1) {
+                    // End of file / stream boundary reached
+                    break
                 } else {
                     // Piece not yet downloaded - wait briefly for peer swarm blocks to arrive
-                    if (!isRunning.get()) break
+                    if (!isRunning.get() || socket.isClosed) break
                     kotlinx.coroutines.delay(100)
                 }
             }

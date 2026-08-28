@@ -3,6 +3,7 @@ package com.example.torrent.core
 import android.content.Context
 import android.util.Log
 import com.example.torrent.model.*
+import com.example.torrent.protocol.MagnetParser
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -71,7 +72,18 @@ class LibtorrentEngine(private val context: Context) {
             val sp = SettingsPack()
             sp.setBoolean(settings_pack.bool_types.enable_dht.swigValue(), settings.dhtEnabled)
             sp.setBoolean(settings_pack.bool_types.enable_lsd.swigValue(), settings.lsdEnabled)
-            sp.setInteger(settings_pack.int_types.connections_limit.swigValue(), settings.maxConnections)
+            sp.setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), true)
+            sp.setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), true)
+            sp.setBoolean(settings_pack.bool_types.enable_incoming_tcp.swigValue(), true)
+            sp.setBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue(), true)
+            sp.setBoolean(settings_pack.bool_types.enable_outgoing_tcp.swigValue(), true)
+            sp.setBoolean(settings_pack.bool_types.enable_outgoing_utp.swigValue(), true)
+            sp.setString(settings_pack.string_types.listen_interfaces.swigValue(), "0.0.0.0:6881,[::]:6881")
+            sp.setString(settings_pack.string_types.dht_bootstrap_nodes.swigValue(), "router.bittorrent.com:6881,dht.transmissionbt.com:6881,router.utorrent.com:6881,dht.aelitis.com:6881,dht.libtorrent.org:25401")
+            val batterySaver = try { com.example.util.BatterySaverManager.getInstance(context) } catch (_: Exception) { null }
+            val isSaverActive = batterySaver?.isPowerSaveActive?.value == true && batterySaver.lowPowerTorrent.value
+            val connLimit = if (isSaverActive) 30 else settings.maxConnections.coerceAtLeast(120)
+            sp.setInteger(settings_pack.int_types.connections_limit.swigValue(), connLimit)
             sp.setString(settings_pack.string_types.user_agent.swigValue(), "Butterfly/1.0 libtorrent/2.1.0")
 
             if (settings.maxDownloadSpeedBps > 0) {
@@ -79,6 +91,33 @@ class LibtorrentEngine(private val context: Context) {
             }
             if (settings.maxUploadSpeedBps > 0) {
                 sp.setInteger(settings_pack.int_types.upload_rate_limit.swigValue(), settings.maxUploadSpeedBps.toInt())
+            } else if (isSaverActive) {
+                // Throttle background upload traffic on battery
+                sp.setInteger(settings_pack.int_types.upload_rate_limit.swigValue(), 10 * 1024)
+            }
+
+            // SOCKS5 Proxy Configuration
+            if (com.example.util.AppConfig.isTorrentProxyEnabled()) {
+                val pHost = com.example.util.AppConfig.getTorrentProxyHost()
+                val pPort = com.example.util.AppConfig.getTorrentProxyPort()
+                val pUser = com.example.util.AppConfig.getTorrentProxyUser()
+                val pPass = com.example.util.AppConfig.getTorrentProxyPass()
+
+                if (pHost.isNotBlank() && pPort > 0) {
+                    sp.setInteger(settings_pack.int_types.proxy_type.swigValue(), settings_pack.proxy_type_t.socks5.swigValue())
+                    sp.setString(settings_pack.string_types.proxy_hostname.swigValue(), pHost)
+                    sp.setInteger(settings_pack.int_types.proxy_port.swigValue(), pPort)
+                    if (pUser.isNotBlank()) {
+                        sp.setString(settings_pack.string_types.proxy_username.swigValue(), pUser)
+                    }
+                    if (pPass.isNotBlank()) {
+                        sp.setString(settings_pack.string_types.proxy_password.swigValue(), pPass)
+                    }
+                    sp.setBoolean(settings_pack.bool_types.proxy_peer_connections.swigValue(), true)
+                    sp.setBoolean(settings_pack.bool_types.proxy_tracker_connections.swigValue(), true)
+                    sp.setBoolean(settings_pack.bool_types.proxy_hostnames.swigValue(), true)
+                    Log.i(TAG, "Configured SOCKS5 proxy on startup: $pHost:$pPort")
+                }
             }
 
             val sessionParams = SessionParams(sp)
@@ -91,6 +130,35 @@ class LibtorrentEngine(private val context: Context) {
     }
 
     fun isRunning(): Boolean = isRunning.get() && sessionManager.isRunning
+
+    fun setProxy(host: String, port: Int, username: String? = null, password: String? = null) {
+        try {
+            val sp = SettingsPack()
+            if (host.isNotBlank() && port in 1..65535) {
+                sp.setInteger(settings_pack.int_types.proxy_type.swigValue(), settings_pack.proxy_type_t.socks5.swigValue())
+                sp.setString(settings_pack.string_types.proxy_hostname.swigValue(), host)
+                sp.setInteger(settings_pack.int_types.proxy_port.swigValue(), port)
+                if (!username.isNullOrBlank()) {
+                    sp.setString(settings_pack.string_types.proxy_username.swigValue(), username)
+                }
+                if (!password.isNullOrBlank()) {
+                    sp.setString(settings_pack.string_types.proxy_password.swigValue(), password)
+                }
+                sp.setBoolean(settings_pack.bool_types.proxy_peer_connections.swigValue(), true)
+                sp.setBoolean(settings_pack.bool_types.proxy_tracker_connections.swigValue(), true)
+                sp.setBoolean(settings_pack.bool_types.proxy_hostnames.swigValue(), true)
+                Log.i(TAG, "Dynamic SOCKS5 proxy applied: $host:$port")
+            } else {
+                sp.setInteger(settings_pack.int_types.proxy_type.swigValue(), settings_pack.proxy_type_t.none.swigValue())
+                Log.i(TAG, "Disabled BitTorrent proxy (direct connection mode)")
+            }
+            if (isRunning()) {
+                sessionManager.swig().apply_settings(sp.swig())
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to apply dynamic proxy settings: ${e.message}", e)
+        }
+    }
 
     fun getDhtNodes(): Long {
         return if (isRunning()) sessionManager.dhtNodes() else 0L
@@ -135,6 +203,32 @@ class LibtorrentEngine(private val context: Context) {
             th
         } catch (e: Exception) {
             Log.e(TAG, "download failed: ${e.message}", e)
+            null
+        }
+    }
+
+    fun downloadMagnet(
+        magnetUri: String,
+        saveDir: File = cacheDir,
+        sequential: Boolean = true
+    ): TorrentHandle? {
+        if (!isRunning()) start()
+        return try {
+            val flags = if (sequential) TorrentFlags.SEQUENTIAL_DOWNLOAD else org.libtorrent4j.swig.torrent_flags_t()
+            sessionManager.download(magnetUri, saveDir, flags)
+            val parsed = MagnetParser.parse(magnetUri)
+            val infoHash = parsed?.infoHashHex ?: ""
+            if (infoHash.isNotBlank()) {
+                val th = findHandle(infoHash)
+                if (sequential) {
+                    th?.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                }
+                th
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadMagnet failed: ${e.message}", e)
             null
         }
     }

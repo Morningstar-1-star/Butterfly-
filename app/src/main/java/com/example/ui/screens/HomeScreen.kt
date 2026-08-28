@@ -485,7 +485,11 @@ fun HomeScreen(
                                         val shelfInsertIndex = 2.coerceAtMost(feedList.size)
 
                                         // Render first batch of feed items before the shelf
-                                        items(feedList.take(shelfInsertIndex), key = { "${it.providerId}_${it.id}" }) { video ->
+                                        items(
+                                            items = feedList.take(shelfInsertIndex),
+                                            key = { "${it.providerId}_${it.id}" },
+                                            contentType = { "video_card" }
+                                        ) { video ->
                                             VideoCard(
                                                 video = video,
                                                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
@@ -523,7 +527,10 @@ fun HomeScreen(
 
                                         // CONTEXTUAL SEARCH-DRIVEN RECOMMENDATIONS SHELF
                                         if (showSearchRecsShelf) {
-                                            item(key = "search_recommendations_shelf") {
+                                            item(
+                                                key = "search_recommendations_shelf",
+                                                contentType = "search_shelf"
+                                            ) {
                                                 SearchDrivenRecommendationsShelf(
                                                     searchQuery = latestSearchIntent!!,
                                                     videos = searchDrivenRecommendations,
@@ -535,7 +542,7 @@ fun HomeScreen(
                                                         viewModel.updateSearchQuery(query)
                                                         viewModel.performSearch(query)
                                                         viewModel.setSearchExpanded(true)
-                                                    },
+                                                     },
                                                     modifier = Modifier.padding(vertical = 12.dp)
                                                 )
                                             }
@@ -543,7 +550,11 @@ fun HomeScreen(
 
                                         // Render remaining feed items after the shelf
                                         if (feedList.size > shelfInsertIndex) {
-                                            items(feedList.drop(shelfInsertIndex), key = { "${it.providerId}_${it.id}" }) { video ->
+                                            items(
+                                                items = feedList.drop(shelfInsertIndex),
+                                                key = { "${it.providerId}_${it.id}" },
+                                                contentType = { "video_card" }
+                                            ) { video ->
                                                 VideoCard(
                                                     video = video,
                                                     watchProgressFraction = watchProgressMap[video.id] ?: 0f,

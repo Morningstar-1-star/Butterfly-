@@ -249,6 +249,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsPrefs.edit().putString("accent_color", accent.name).apply()
     }
 
+    // --- Battery Saver & Performance Optimization Engine ---
+    val batterySaverManager: com.example.util.BatterySaverManager = com.example.util.BatterySaverManager.getInstance(getApplication())
+    val isPowerSaveActive: StateFlow<Boolean> = batterySaverManager.isPowerSaveActive
+    val batteryLevel: StateFlow<Int> = batterySaverManager.batteryLevel
+    val isBatteryCharging: StateFlow<Boolean> = batterySaverManager.isCharging
+    val isOsPowerSave: StateFlow<Boolean> = batterySaverManager.isOsPowerSave
+    val batterySaverManualEnabled: StateFlow<Boolean> = batterySaverManager.manualEnabled
+    val batterySaverAutoOnLow: StateFlow<Boolean> = batterySaverManager.autoOnLowBattery
+    val batterySaverLowBatteryThreshold: StateFlow<Int> = batterySaverManager.lowBatteryThreshold
+    val batterySaverResolutionCap: StateFlow<String> = batterySaverManager.resolutionCap
+    val batterySaverDisableAmbient: StateFlow<Boolean> = batterySaverManager.disableAmbientGlow
+    val batterySaverLowPowerTorrent: StateFlow<Boolean> = batterySaverManager.lowPowerTorrent
+    val batterySaverDisableAnimations: StateFlow<Boolean> = batterySaverManager.disableAnimations
+    val batterySaverPureBlackAmoled: StateFlow<Boolean> = batterySaverManager.pureBlackAmoled
+    val batterySaverAudioOnlyForMusic: StateFlow<Boolean> = batterySaverManager.audioOnlyForMusic
+
+    private val _appCacheSizeBytes = MutableStateFlow(0L)
+    val appCacheSizeBytes: StateFlow<Long> = _appCacheSizeBytes.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            _appCacheSizeBytes.value = batterySaverManager.calculateCacheSizeBytes()
+        }
+    }
+
+    fun refreshAppCacheSize() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _appCacheSizeBytes.value = batterySaverManager.calculateCacheSizeBytes()
+        }
+    }
+
+    fun clearAppCache(): Long {
+        val freed = batterySaverManager.clearAppCaches()
+        _appCacheSizeBytes.value = batterySaverManager.calculateCacheSizeBytes()
+        return freed
+    }
+
+    fun setBatterySaverManual(enabled: Boolean) {
+        batterySaverManager.setManualEnabled(enabled)
+    }
+
+    fun setBatterySaverAutoOnLow(enabled: Boolean) {
+        batterySaverManager.setAutoOnLowBattery(enabled)
+    }
+
+    fun setBatterySaverLowThreshold(threshold: Int) {
+        batterySaverManager.setLowBatteryThreshold(threshold)
+    }
+
+    fun setBatterySaverResolutionCap(cap: String) {
+        batterySaverManager.setResolutionCap(cap)
+    }
+
+    fun setBatterySaverDisableAmbient(disabled: Boolean) {
+        batterySaverManager.setDisableAmbientGlow(disabled)
+    }
+
+    fun setBatterySaverLowPowerTorrent(enabled: Boolean) {
+        batterySaverManager.setLowPowerTorrent(enabled)
+    }
+
+    fun setBatterySaverDisableAnimations(disabled: Boolean) {
+        batterySaverManager.setDisableAnimations(disabled)
+    }
+
+    fun setBatterySaverPureBlackAmoled(enabled: Boolean) {
+        batterySaverManager.setPureBlackAmoled(enabled)
+    }
+
+    fun setBatterySaverAudioOnlyForMusic(enabled: Boolean) {
+        batterySaverManager.setAudioOnlyForMusic(enabled)
+    }
+
     val repositories: StateFlow<List<String>> = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
     val extensionStatuses: StateFlow<List<String>> = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
 
@@ -545,7 +618,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
-    private val _trendingVideos = MutableStateFlow<List<VideoItem>>(emptyList())
+    private val initialCachedHomeFeed: List<VideoItem> = try {
+        com.example.util.HomeFeedCacheManager.loadCachedFeed(application)
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    private val _trendingVideos = MutableStateFlow<List<VideoItem>>(initialCachedHomeFeed)
     val trendingVideos: StateFlow<List<VideoItem>> = combine(
         _trendingVideos,
         _hiddenVideoIds,
@@ -556,9 +635,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         list.filter { item ->
             !isBlockedVideo(item) && (adultEnabled || !isAdultVideoItem(item))
         }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, initialCachedHomeFeed)
 
-    private val _isLoadingTrending = MutableStateFlow(true)
+    private val _isLoadingTrending = MutableStateFlow(initialCachedHomeFeed.isEmpty())
     val isLoadingTrending: StateFlow<Boolean> = _isLoadingTrending.asStateFlow()
 
     private val _isLoadingMore = MutableStateFlow(false)
@@ -1139,7 +1218,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             dislikedVideoIds = _dislikedVideoIds.value,
             bookmarks = _watchLaterList.value,
             notInterestedChannels = _notInterestedChannels.value,
-            recentSearches = _recentSearches.value
+            recentSearches = _recentSearches.value,
+            watchPositionMsMap = _watchPositionMsMap.value
         )
 
         val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
@@ -1165,7 +1245,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             dislikedVideoIds = _dislikedVideoIds.value,
             bookmarks = _watchLaterList.value,
             notInterestedChannels = _notInterestedChannels.value,
-            recentSearches = _recentSearches.value
+            recentSearches = _recentSearches.value,
+            watchPositionMsMap = _watchPositionMsMap.value
         )
 
         return com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
@@ -1175,6 +1256,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value,
             blockedChannels = _notInterestedChannels.value
         )
+    }
+
+    /**
+     * Retrieves the current user AI taste profile summary based on all tracked signals.
+     */
+    fun getUserTasteSummary(): com.example.recommendation.SmartRecommendationEngine.TasteSummary {
+        val tasteVector = com.example.recommendation.SmartRecommendationEngine.computeTasteVector(
+            watchHistory = _watchHistory.value,
+            watchProgressMap = _watchProgressMap.value,
+            likedVideoIds = _likedVideoIds.value,
+            dislikedVideoIds = _dislikedVideoIds.value,
+            bookmarks = _watchLaterList.value,
+            notInterestedChannels = _notInterestedChannels.value,
+            recentSearches = _recentSearches.value,
+            watchPositionMsMap = _watchPositionMsMap.value
+        )
+        return com.example.recommendation.SmartRecommendationEngine.buildTasteSummary(tasteVector)
     }
 
     // Contextual Search-Driven Recommendations for Home Screen
@@ -1238,7 +1336,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     dislikedVideoIds = _dislikedVideoIds.value,
                     bookmarks = _watchLaterList.value,
                     notInterestedChannels = _notInterestedChannels.value,
-                    recentSearches = _recentSearches.value
+                    recentSearches = _recentSearches.value,
+                    watchPositionMsMap = _watchPositionMsMap.value
                 )
 
                 val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
@@ -2554,43 +2653,123 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isChannelLoading.value = true
             try {
                 val brand = com.example.util.ChannelLogoHelper.getBrandInfo(channelName, avatarUrl)
-                val initialVideos = (_trendingVideos.value + _recommendedVideos.value).filter { item ->
-                    item.uploaderName.equals(channelName, ignoreCase = true) ||
-                    item.uploaderName.contains(channelName, ignoreCase = true)
+                val isAdult = com.example.extractor.AdultChannelExtractor.isAdultChannel(channelName, channelUrlOrId)
+                val isStudio = com.example.util.StudioDetector.isStudioName(channelName) ||
+                                (channelUrlOrId != null && (channelUrlOrId.contains("torrent") || channelUrlOrId.contains("vega")))
+
+                if (isAdult) {
+                    val adultDetails = com.example.extractor.AdultChannelExtractor.fetchAdultChannelDetails(
+                        channelName = channelName,
+                        fallbackAvatar = avatarUrl,
+                        channelUrlOrId = channelUrlOrId
+                    )
+                    _channelDetails.value = adultDetails
+                    _channelVideos.value = adultDetails.videos
+                } else if (isStudio) {
+                    val targetStudioName = brand.brandName.ifBlank { channelName }
+                    val targetLogo = avatarUrl ?: brand.logoUrls.firstOrNull()
+                    val studioVideos = fetchStudioCatalogVideos(targetStudioName, targetLogo)
+
+                    val studioDetails = com.example.model.ChannelDetails(
+                        channelId = channelName.lowercase().replace("[^a-z0-9]".toRegex(), "_").take(30),
+                        name = targetStudioName,
+                        handle = "@${targetStudioName.replace(" ", "").lowercase()}",
+                        avatarUrl = targetLogo,
+                        subscriberCount = brand.subscriberCountText.ifBlank { "Official Studio • Verified" },
+                        videoCount = "${studioVideos.size} Movies & Series",
+                        description = "Official Studio Channel for $targetStudioName. Featuring movie & series releases, BitTorrent streams, and studio catalog.",
+                        isSubscribed = isSubscribed(channelName),
+                        videos = studioVideos
+                    )
+                    _channelDetails.value = studioDetails
+                    _channelVideos.value = studioVideos
+                } else {
+                    val initialVideos = (_trendingVideos.value + _recommendedVideos.value).filter { item ->
+                        item.uploaderName.equals(channelName, ignoreCase = true) ||
+                        item.uploaderName.contains(channelName, ignoreCase = true)
+                    }
+
+                    val initialDetails = com.example.model.ChannelDetails(
+                        channelId = channelName.lowercase().replace("[^a-z0-9]".toRegex(), "_").take(30),
+                        name = channelName,
+                        handle = "@${channelName.replace(" ", "").lowercase()}",
+                        avatarUrl = avatarUrl ?: brand.logoUrls.firstOrNull(),
+                        subscriberCount = brand.subscriberCountText.ifBlank { "850K subscribers" },
+                        videoCount = if (initialVideos.isNotEmpty()) "${initialVideos.size} videos" else "90+ videos",
+                        isSubscribed = isSubscribed(channelName),
+                        videos = initialVideos
+                    )
+                    _channelDetails.value = initialDetails
+                    _channelVideos.value = initialVideos
+
+                    // Fetch real channel information and uploads
+                    val fetched = YouTubeExtractorHelper.fetchChannelDetails(
+                        channelNameOrUrl = channelUrlOrId ?: channelName,
+                        context = getApplication(),
+                        fallbackAvatar = avatarUrl
+                    )
+                    val isSub = isSubscribed(fetched.name) || isSubscribed(channelName)
+                    val finalDetails = fetched.copy(
+                        isSubscribed = isSub,
+                        avatarUrl = fetched.avatarUrl ?: avatarUrl ?: brand.logoUrls.firstOrNull()
+                    )
+                    _channelDetails.value = finalDetails
+                    _channelVideos.value = finalDetails.videos
                 }
-
-                val initialDetails = com.example.model.ChannelDetails(
-                    channelId = channelName.lowercase().replace("[^a-z0-9]".toRegex(), "_").take(30),
-                    name = channelName,
-                    handle = "@${channelName.replace(" ", "").lowercase()}",
-                    avatarUrl = avatarUrl ?: brand.logoUrls.firstOrNull(),
-                    subscriberCount = brand.subscriberCountText.ifBlank { "850K subscribers" },
-                    videoCount = if (initialVideos.isNotEmpty()) "${initialVideos.size} videos" else "90+ videos",
-                    isSubscribed = isSubscribed(channelName),
-                    videos = initialVideos
-                )
-                _channelDetails.value = initialDetails
-                _channelVideos.value = initialVideos
-
-                // Fetch real channel information and uploads
-                val fetched = YouTubeExtractorHelper.fetchChannelDetails(
-                    channelNameOrUrl = channelUrlOrId ?: channelName,
-                    context = getApplication(),
-                    fallbackAvatar = avatarUrl
-                )
-                val isSub = isSubscribed(fetched.name) || isSubscribed(channelName)
-                val finalDetails = fetched.copy(
-                    isSubscribed = isSub,
-                    avatarUrl = fetched.avatarUrl ?: avatarUrl ?: brand.logoUrls.firstOrNull()
-                )
-                _channelDetails.value = finalDetails
-                _channelVideos.value = finalDetails.videos
             } catch (e: Exception) {
                 Log.w("MainViewModel", "loadChannelDetails failed for $channelName: ${e.message}")
             } finally {
                 _isChannelLoading.value = false
             }
         }
+    }
+
+    private suspend fun fetchStudioCatalogVideos(studioName: String, studioLogoUrl: String?): List<VideoItem> {
+        val resultList = mutableListOf<VideoItem>()
+        val cleanLogo = studioLogoUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(studioName, studioLogoUrl).logoUrls.firstOrNull()
+
+        // 1. Local feed matches
+        val localMatches = (_trendingVideos.value + _recommendedVideos.value + _searchResults.value).filter { item ->
+            item.uploaderName.equals(studioName, ignoreCase = true) ||
+            item.uploaderName.contains(studioName, ignoreCase = true) ||
+            com.example.util.StudioDetector.detectStudio(item.title, item.id.contains("tv")).equals(studioName, ignoreCase = true)
+        }.map { item ->
+            item.copy(uploaderName = studioName, uploaderAvatarUrl = cleanLogo ?: item.uploaderAvatarUrl)
+        }
+        resultList.addAll(localMatches)
+
+        // 2. Fetch ExploreMedia / TMDB items matching studio
+        try {
+            val helper = com.example.util.ExploreMediaHelper
+            val searchQuery = com.example.util.StudioDetector.getStudioSearchQuery(studioName)
+            val exploreItems = helper.searchAll(searchQuery) +
+                               helper.fetchCategoryItems(com.example.model.ExploreMediaType.MOVIE) +
+                               helper.fetchCategoryItems(com.example.model.ExploreMediaType.TV)
+
+            val studioMatched = exploreItems.filter { item ->
+                val detected = com.example.util.StudioDetector.detectStudio(item.title, item.mediaType == com.example.model.ExploreMediaType.TV)
+                detected.equals(studioName, ignoreCase = true) || item.title.contains(searchQuery, ignoreCase = true)
+            }.map { item ->
+                val yearStr = if (!item.releaseYear.isNullOrBlank()) " (${item.releaseYear})" else ""
+                val thumb = item.backdropUrl?.ifBlank { null } ?: item.posterUrl
+                VideoItem(
+                    id = "torrent_media_${item.id}",
+                    title = "${item.title}$yearStr",
+                    uploaderName = studioName,
+                    uploaderAvatarUrl = cleanLogo,
+                    thumbnailUrl = thumb,
+                    durationSeconds = -1L,
+                    providerId = "torrent",
+                    description = item.overview ?: "",
+                    uploadDate = item.releaseYear
+                )
+            }
+            resultList.addAll(studioMatched)
+        } catch (e: Exception) {
+            Log.w("MainViewModel", "fetchStudioCatalogVideos error for $studioName: ${e.message}")
+        }
+
+        return resultList.distinctBy { if (it.id.isNotBlank()) it.id else it.title }
     }
 
     private var suggestionJob: kotlinx.coroutines.Job? = null
@@ -2830,10 +3009,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 } ?: emptyList()
                                 if (vResults.isNotEmpty()) {
                                     val videoItems = vResults.map { vItem ->
+                                        val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
+                                        val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
+                                        val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, vItem.title).logoUrls.firstOrNull()
                                         VideoItem(
                                             id = "vega_${vegaProv.id}::${vItem.link}",
                                             title = vItem.title,
-                                            uploaderName = vegaProv.name,
+                                            uploaderName = studio,
+                                            uploaderAvatarUrl = studioLogo,
                                             thumbnailUrl = vItem.imageUrl ?: "",
                                             durationSeconds = -1L,
                                             providerId = "vega_${vegaProv.id}"
@@ -2866,7 +3049,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadTrending(forceRefresh: Boolean = false) {
         currentTrendingPage = 1
-        // Only set loading to true if we currently have no items to display
         if (_trendingVideos.value.isEmpty()) {
             _isLoadingTrending.value = true
         }
@@ -2882,12 +3064,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val collectedFeed = mutableListOf<VideoItem>()
 
-                fun updateTrendingUi() {
-                    val currentSnapshot: List<VideoItem>
-                    synchronized(collectedFeed) {
-                        currentSnapshot = ArrayList(collectedFeed)
-                    }
-                    val filtered = currentSnapshot
+                // Helper to produce a stable balanced feed without random reshuffling shifts
+                fun buildBalancedFeed(items: List<VideoItem>): List<VideoItem> {
+                    val filtered = items
                         .distinctBy { it.id }
                         .filter {
                             if (activeProv != "all") {
@@ -2911,24 +3090,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         index++
                     }
-                    val result = if (balancedList.isNotEmpty()) balancedList else filtered
-                    if (result.isNotEmpty()) {
-                        _trendingVideos.value = result
-                        _isLoadingTrending.value = false
-                    }
+                    return if (balancedList.isNotEmpty()) balancedList else filtered
                 }
 
+                // --- BATCH 1: FAST PRIMARY PROVIDERS (YouTube, Archive, Eporner, Dailymotion, Bilibili, Vimeo, Hotstar) ---
+                // We fetch primary providers concurrently and update the UI ONCE when Batch 1 completes!
                 supervisorScope {
                     // 1. YouTube
                     if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                         launch(Dispatchers.IO) {
                             try {
-                                val ytItems = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                val ytItems = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                     com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
                                 } ?: emptyList()
                                 if (ytItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(ytItems.shuffled()) }
-                                    updateTrendingUi()
+                                    synchronized(collectedFeed) { collectedFeed.addAll(ytItems) }
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "YouTube trending note: ${e.message}")
@@ -2940,12 +3116,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                         launch(Dispatchers.IO) {
                             try {
-                                val arcItems = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                val arcItems = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                     com.example.extractor.ArchiveOrgProvider.getHome(1)
                                 } ?: emptyList()
                                 if (arcItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(arcItems.shuffled()) }
-                                    updateTrendingUi()
+                                    synchronized(collectedFeed) { collectedFeed.addAll(arcItems) }
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "ArchiveOrg note: ${e.message}")
@@ -2957,12 +3132,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         launch(Dispatchers.IO) {
                             try {
-                                val epItems = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                val epItems = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                     com.example.extractor.EpornerProvider.getHome(25)
                                 } ?: emptyList()
                                 if (epItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(epItems.shuffled()) }
-                                    updateTrendingUi()
+                                    synchronized(collectedFeed) { collectedFeed.addAll(epItems) }
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "Eporner note: ${e.message}")
@@ -2970,31 +3144,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 4. MultiSource providers
-                    val ytDlpSources = listOf("dailymotion", "bilibili", "vimeo", "hotstar", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
-
-                    val targetSources = when {
-                        activeProv == "all" -> ytDlpSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
-                        else -> if (ytDlpSources.contains(activeProv)) listOf(activeProv) else emptyList()
+                    // 4. MultiSource fast providers
+                    val fastMultiSources = listOf("dailymotion", "bilibili", "vimeo", "hotstar")
+                    val targetFastSources = when {
+                        activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
+                        else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
                     }
 
-                    targetSources.forEach { prov ->
+                    targetFastSources.forEach { prov ->
                         launch(Dispatchers.IO) {
                             try {
-                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                     com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15)
                                 } ?: emptyList()
                                 if (srcItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(srcItems.shuffled()) }
-                                    updateTrendingUi()
+                                    synchronized(collectedFeed) { collectedFeed.addAll(srcItems) }
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "Source note for $prov: ${e.message}")
                             }
                         }
                     }
+                }
 
-                    // 5. Installed & Enabled Vega Providers
+                // Batch 1 Primary Load Complete! Emit single atomic update to UI.
+                val batch1Feed: List<VideoItem>
+                synchronized(collectedFeed) {
+                    batch1Feed = ArrayList(collectedFeed)
+                }
+                val primaryResult = buildBalancedFeed(batch1Feed)
+                if (primaryResult.isNotEmpty()) {
+                    _trendingVideos.value = primaryResult
+                    _isLoadingTrending.value = false
+                }
+
+                // --- BATCH 2: HEAVY SCRAPERS, VEGA & TORRENT (APPEND-ONLY) ---
+                // We fetch secondary sources in background and append them to the bottom so top visible items NEVER shift!
+                val secondaryCollected = mutableListOf<VideoItem>()
+
+                val heavyAdultSources = listOf("pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn")
+                val targetHeavySources = when {
+                    activeProv == "all" -> heavyAdultSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
+                    else -> if (heavyAdultSources.contains(activeProv)) listOf(activeProv) else emptyList()
+                }
+
+                supervisorScope {
+                    targetHeavySources.forEach { prov ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                    com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15)
+                                } ?: emptyList()
+                                if (srcItems.isNotEmpty()) {
+                                    synchronized(secondaryCollected) { secondaryCollected.addAll(srcItems) }
+                                }
+                            } catch (e: Exception) {
+                                Log.w("MainViewModel", "Heavy source note for $prov: ${e.message}")
+                            }
+                        }
+                    }
+
+                    // Vega Providers
                     val installedVega = vegaRepository.getInstalledProviders().filter { it.isEnabled }
                     val targetVega = when {
                         activeProv.startsWith("vega_") -> {
@@ -3008,22 +3218,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     targetVega.forEach { vegaProv ->
                         launch(Dispatchers.IO) {
                             try {
-                                val vResults = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                                val vResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                                     com.example.vega.VegaProviderClient.getHomeContent(vegaProv.id)
                                 } ?: emptyList()
                                 if (vResults.isNotEmpty()) {
                                     val vItems = vResults.map { vItem ->
+                                        val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
+                                        val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
+                                        val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, vItem.title).logoUrls.firstOrNull()
                                         VideoItem(
                                             id = "vega_${vegaProv.id}::${vItem.link}",
                                             title = vItem.title,
-                                            uploaderName = vegaProv.name,
+                                            uploaderName = studio,
+                                            uploaderAvatarUrl = studioLogo,
                                             thumbnailUrl = vItem.imageUrl ?: "",
                                             durationSeconds = -1L,
                                             providerId = "vega_${vegaProv.id}"
                                         )
                                     }
-                                    synchronized(collectedFeed) { collectedFeed.addAll(vItems) }
-                                    updateTrendingUi()
+                                    synchronized(secondaryCollected) { secondaryCollected.addAll(vItems) }
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "Vega trending note for ${vegaProv.id}: ${e.message}")
@@ -3031,16 +3244,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 6. Torrent Trending Feed
+                    // Torrent Feed
                     if ((activeProv == "all" || activeProv == "torrent") && enabledSet.contains("torrent")) {
                         launch(Dispatchers.IO) {
                             try {
-                                val torrentItems = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                                val torrentItems = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                                     fetchTorrentTrendingFeed()
                                 } ?: emptyList()
                                 if (torrentItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(torrentItems) }
-                                    updateTrendingUi()
+                                    synchronized(secondaryCollected) { secondaryCollected.addAll(torrentItems) }
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "Torrent trending note: ${e.message}")
@@ -3049,9 +3261,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                updateTrendingUi()
+                // Append secondary items to the end of the existing feed without shifting existing top items!
+                val secondarySnapshot: List<VideoItem>
+                synchronized(secondaryCollected) {
+                    secondarySnapshot = ArrayList(secondaryCollected)
+                }
+                if (secondarySnapshot.isNotEmpty()) {
+                    val currentList = _trendingVideos.value
+                    val currentIds = currentList.mapTo(HashSet()) { it.id }
+                    val newUniqueSecondary = secondarySnapshot.filter { !currentIds.contains(it.id) }
+                    if (newUniqueSecondary.isNotEmpty()) {
+                        _trendingVideos.value = currentList + newUniqueSecondary
+                    }
+                }
+
                 // Save loaded feed to disk cache
                 if (_trendingVideos.value.isNotEmpty()) {
+                    com.example.util.HomeFeedCacheManager.saveCachedFeed(getApplication(), _trendingVideos.value)
                     com.example.util.HomeFeedCache.saveFeed(getApplication(), _trendingVideos.value)
                 }
             } catch (e: Exception) {
@@ -3225,7 +3451,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     likedVideoIds = _likedVideoIds.value,
                     dislikedVideoIds = _dislikedVideoIds.value,
                     bookmarks = _watchLaterList.value,
-                    notInterestedChannels = _notInterestedChannels.value
+                    notInterestedChannels = _notInterestedChannels.value,
+                    recentSearches = _recentSearches.value,
+                    watchPositionMsMap = _watchPositionMsMap.value
                 )
 
                 val rankedDiscovered = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
@@ -3398,6 +3626,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                         val session = torrentEngine.startSession(topRelease, streamPort = 8899)
+                        releases.forEach { rel ->
+                            val streamUrl = "http://127.0.0.1:8899/stream?hash=${rel.infoHash}"
+                            activeTorrentReleasesMap[streamUrl] = rel
+                            activeTorrentReleasesMap[rel.infoHash] = rel
+                        }
                         val options = releases.map { rel: com.example.torrent.model.TorrentRelease ->
                             val label = buildString {
                                 append(rel.quality)
@@ -3409,17 +3642,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 qualityLabel = label,
                                 format = "mkv",
                                 isMuxed = true,
-                                videoUrl = session.httpStreamUrl,
+                                videoUrl = "http://127.0.0.1:8899/stream?hash=${rel.infoHash}",
                                 audioUrl = null,
                                 providerType = com.example.model.ProviderType.TORRENT,
                                 headers = mapOf("Accept-Ranges" to "bytes")
                             )
                         }
+                        val studio = com.example.util.StudioDetector.detectStudio(initialVideoItem.title, cleanIdOrUrl.contains("tv"))
+                        val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, initialVideoItem.title).logoUrls.firstOrNull()
                         val streamData = StreamData(
                             videoId = cleanIdOrUrl,
                             title = initialVideoItem.title,
-                            channelName = "${topRelease.provider} P2P (${topRelease.seeders} seeds)",
-                            channelAvatarUrl = initialVideoItem.thumbnailUrl,
+                            channelName = studio,
+                            channelAvatarUrl = studioLogo,
                             description = "Native BitTorrent Stream • Size: ${topRelease.formattedSize} • Seeds: ${topRelease.seeders}",
                             availableStreamOptions = options,
                             selectedStreamOption = options.first(),
@@ -3474,12 +3709,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val updatedTitle = resolvedMeta?.title?.ifBlank { null } ?: initialVideoItem.title
                         val updatedThumbnail = resolvedMeta?.poster ?: resolvedMeta?.image ?: initialVideoItem.thumbnailUrl
                         val updatedDescription = resolvedMeta?.synopsis ?: initialVideoItem.description
+                        val isTv = cleanIdOrUrl.contains("tv") || cleanIdOrUrl.contains("series")
+                        val studio = com.example.util.StudioDetector.detectStudio(updatedTitle, isTv)
+                        val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, updatedTitle).logoUrls.firstOrNull()
 
                         val streamData = StreamData(
                             videoId = cleanIdOrUrl,
                             title = updatedTitle,
-                            channelName = initialVideoItem.uploaderName,
-                            channelAvatarUrl = updatedThumbnail,
+                            channelName = studio,
+                            channelAvatarUrl = studioLogo,
                             description = updatedDescription,
                             availableStreamOptions = options,
                             selectedStreamOption = options.first(),
@@ -3599,6 +3837,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val currentPos = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
             val updatedStreamData = ext.streamData.copy(selectedStreamOption = option)
             _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(updatedStreamData)
+
+            val url = option.videoUrl ?: ""
+            if (option.providerType == com.example.model.ProviderType.TORRENT || url.contains("/stream")) {
+                val matchingRelease = activeTorrentReleasesMap[url]
+                    ?: activeTorrentReleasesMap.values.firstOrNull { url.contains(it.infoHash) }
+                    ?: activeTorrentReleasesMap.values.firstOrNull { option.qualityLabel.contains(it.quality) && option.qualityLabel.contains(it.provider) }
+                if (matchingRelease != null) {
+                    if (torrentHttpServer == null) {
+                        torrentHttpServer = com.example.torrent.server.TorrentHttpServer(torrentEngine, port = 8899).also { it.start() }
+                    }
+                    torrentEngine.startSession(matchingRelease, streamPort = 8899)
+                }
+            }
+
             com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
                 context = getApplication(),
                 streamData = updatedStreamData,
@@ -3671,6 +3923,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- BitTorrent Native Engine & P2P Stream Pipeline ---
     private val torrentEngine = com.example.torrent.engine.TorrentEngine.getInstance(getApplication())
     private var torrentHttpServer: com.example.torrent.server.TorrentHttpServer? = null
+    private val activeTorrentReleasesMap = java.util.concurrent.ConcurrentHashMap<String, com.example.torrent.model.TorrentRelease>()
 
     val torrentEngineStats: StateFlow<com.example.torrent.model.TorrentEngineStats> = torrentEngine.stats
 
@@ -3714,13 +3967,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val combined = (movies + tv + anime).shuffled()
         return combined.map { item ->
-            val typeStr = item.mediaType.name.lowercase().replaceFirstChar { it.uppercase() }
+            val isTv = item.mediaType == com.example.model.ExploreMediaType.TV
             val yearStr = if (!item.releaseYear.isNullOrBlank()) " (${item.releaseYear})" else ""
             val thumb = item.backdropUrl?.ifBlank { null } ?: item.posterUrl
+            val studio = com.example.util.StudioDetector.detectStudio(item.title, isTv)
+            val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, item.title).logoUrls.firstOrNull()
             VideoItem(
                 id = "torrent_media_${item.id}",
                 title = "${item.title}$yearStr",
-                uploaderName = "Torrent Stream • $typeStr",
+                uploaderName = studio,
+                uploaderAvatarUrl = studioLogo,
                 thumbnailUrl = thumb,
                 durationSeconds = -1L,
                 providerId = "torrent",
@@ -3734,13 +3990,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val helper = com.example.util.ExploreMediaHelper
         val results = helper.searchAll(query)
         return results.map { item ->
-            val typeStr = item.mediaType.name.lowercase().replaceFirstChar { it.uppercase() }
+            val isTv = item.mediaType == com.example.model.ExploreMediaType.TV
             val yearStr = if (!item.releaseYear.isNullOrBlank()) " (${item.releaseYear})" else ""
             val thumb = item.backdropUrl?.ifBlank { null } ?: item.posterUrl
+            val studio = com.example.util.StudioDetector.detectStudio(item.title, isTv)
+            val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, item.title).logoUrls.firstOrNull()
             VideoItem(
                 id = "torrent_media_${item.id}",
                 title = "${item.title}$yearStr",
-                uploaderName = "Torrent Stream • $typeStr",
+                uploaderName = studio,
+                uploaderAvatarUrl = studioLogo,
                 thumbnailUrl = thumb,
                 durationSeconds = -1L,
                 providerId = "torrent",
@@ -3770,32 +4029,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // 3. Start engine session
         val session = torrentEngine.startSession(release, streamPort = 8899)
 
-        // 4. Construct stream option & media data
-        val qualityLabel = buildString {
-            append(release.quality)
-            if (release.codec.isNotBlank()) append(" • ").append(release.codec)
-            if (release.hdr.isNotBlank()) append(" • ").append(release.hdr)
-            append(" [${release.provider}]")
+        // 4. Construct stream options & media data
+        val currentReleases = _torrentReleases.value.ifEmpty { listOf(release) }
+        currentReleases.forEach { rel ->
+            val streamUrl = "http://127.0.0.1:8899/stream?hash=${rel.infoHash}"
+            activeTorrentReleasesMap[streamUrl] = rel
+            activeTorrentReleasesMap[rel.infoHash] = rel
         }
 
-        val streamOption = PlayableStreamOption(
-            qualityLabel = qualityLabel,
-            format = "mkv",
-            isMuxed = true,
-            videoUrl = session.httpStreamUrl,
-            audioUrl = null,
-            providerType = com.example.model.ProviderType.TORRENT,
-            headers = mapOf("Accept-Ranges" to "bytes")
-        )
+        val options = currentReleases.map { rel ->
+            val label = buildString {
+                append(rel.quality)
+                if (rel.codec.isNotBlank()) append(" • ").append(rel.codec)
+                if (rel.hdr.isNotBlank()) append(" • ").append(rel.hdr)
+                append(" [${rel.provider} - ${rel.seeders} seeds]")
+            }
+            PlayableStreamOption(
+                qualityLabel = label,
+                format = "mkv",
+                isMuxed = true,
+                videoUrl = "http://127.0.0.1:8899/stream?hash=${rel.infoHash}",
+                audioUrl = null,
+                providerType = com.example.model.ProviderType.TORRENT,
+                headers = mapOf("Accept-Ranges" to "bytes")
+            )
+        }
+
+        val primaryOption = options.firstOrNull { it.videoUrl?.contains(release.infoHash) == true } ?: options.first()
 
         val displayTitle = if (release.title.isNotBlank()) release.title else identity.title
-        val uploader = "${release.provider} P2P (${release.seeders} seeds)"
-        val desc = "Native BitTorrent Stream • Size: ${release.formattedSize} • Audio: ${release.audioChannels}"
+        val isTv = identity.mediaType.equals("tv", ignoreCase = true)
+        val studio = com.example.util.StudioDetector.detectStudio(displayTitle, isTv)
+        val studioLogo = posterUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, displayTitle).logoUrls.firstOrNull()
+        val desc = "Native BitTorrent Stream • Size: ${release.formattedSize} • Studio: $studio"
 
         val videoItem = VideoItem(
             id = "torrent_${release.infoHash}",
             title = displayTitle,
-            uploaderName = uploader,
+            uploaderName = studio,
+            uploaderAvatarUrl = studioLogo,
             thumbnailUrl = posterUrl,
             providerId = "torrent"
         )
@@ -3806,17 +4078,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val streamData = StreamData(
             videoId = videoItem.id,
             title = displayTitle,
-            channelName = uploader,
-            channelAvatarUrl = posterUrl,
+            channelName = studio,
+            channelAvatarUrl = studioLogo,
             description = desc,
-            availableStreamOptions = listOf(streamOption),
-            selectedStreamOption = streamOption,
+            availableStreamOptions = options,
+            selectedStreamOption = primaryOption,
             providerId = "torrent",
             providerType = com.example.model.ProviderType.TORRENT
         )
 
         _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(streamData)
-        _selectedStreamOption.value = streamOption
+        _selectedStreamOption.value = primaryOption
         _isPlaying.value = true
         com.example.ui.player.GlobalPlayerManager.resetFirstFrameState()
 
@@ -3826,7 +4098,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
             context = getApplication(),
             streamData = streamData,
-            streamOption = streamOption,
+            streamOption = primaryOption,
             hlsUrl = null,
             captionOption = null
         )
@@ -3861,7 +4133,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resolveUnifiedSourcesForMedia(identity: com.example.model.MediaIdentity, force: Boolean = false) {
         val activeProv = _activeVideoItem.value?.providerId ?: ""
         val titleLower = identity.title.lowercase()
-        val isMultiSourceMedia = force || activeProv == "torrent" || activeProv == "vega" || activeProv.startsWith("vega_") ||
+        val isJav = com.example.metadata.JavIdParser.isJavCode(identity.title) || com.example.metadata.JavIdParser.isJavCode(identity.rawQueryOrUrl)
+        val isMultiSourceMedia = force || isJav || activeProv == "torrent" || activeProv == "vega" || activeProv.startsWith("vega_") ||
                 titleLower.contains("movie") || titleLower.contains("season") || titleLower.contains("s0") || titleLower.contains("s1")
 
         if (!isMultiSourceMedia) {
@@ -3872,7 +4145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         unifiedResolutionJob?.cancel()
         _isResolvingUnifiedSources.value = true
         _unifiedCandidates.value = emptyList()
-        _unifiedStatusMessage.value = "Searching Vega & Torrent swarms..."
+        _unifiedStatusMessage.value = if (isJav) "Resolving JAV streams & swarms..." else "Searching Vega, Debrid & Torrent swarms..."
 
         unifiedResolutionJob = viewModelScope.launch(Dispatchers.IO) {
             try {

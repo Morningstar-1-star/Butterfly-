@@ -27,8 +27,44 @@ class MainApplication : Application() {
         super.onCreate()
         appContext = this
 
+        com.example.util.AppConfig.init(this)
         com.example.util.SecureDnsManager.init(this)
         com.example.util.GoogleDriveSyncManager.init(this)
+
+        // Configure YouTube Proof-of-Origin Token Provider for NewPipe extractor
+        com.example.extractor.YouTubeExtractorHelper.setPoTokenProvider(object : com.example.extractor.YouTubeExtractorHelper.CustomPoTokenProvider {
+            private val httpClient = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            override fun getPoToken(visitorData: String?): String? {
+                // 1. Check user-configured static custom token first
+                val customToken = com.example.util.AppConfig.getCustomPoToken()
+                if (customToken.isNotBlank()) return customToken
+
+                // 2. Fetch from PO token generation server if configured
+                val serverUrl = com.example.util.AppConfig.getPoTokenServerUrl().ifBlank { BuildConfig.PO_TOKEN_SERVER_URL }
+                if (serverUrl.isBlank()) return null
+
+                return try {
+                    val query = if (visitorData.isNullOrBlank()) "" else "?visitor_data=$visitorData"
+                    val url = "${serverUrl.trimEnd('/')}/get_pot$query"
+                    val req = okhttp3.Request.Builder().url(url).build()
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val bodyStr = resp.body?.string() ?: return null
+                            val json = org.json.JSONObject(bodyStr)
+                            json.optString("po_token", null)?.ifBlank { null }
+                                ?: json.optString("potoken", null)?.ifBlank { null }
+                        } else null
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainApplication", "PO token server request note: ${e.message}")
+                    null
+                }
+            }
+        })
 
         // Configure optimized Coil ImageLoader with moderate concurrency and low memory footprint
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
@@ -124,12 +160,18 @@ class MainApplication : Application() {
             .build()
         Coil.setImageLoader(imageLoader)
 
-        // Asynchronously initialize yt-dlp engine and sys.path without blocking main UI or downloading on launch
+        // Asynchronously initialize yt-dlp engine and check for OTA updates on launch
         applicationScope.launch(Dispatchers.IO) {
             try {
                 dev.ffmpegkit_maintained.ytdlp.YtDlp.init(this@MainApplication)
                 com.example.extractor.YtDlpUpdateManager.injectUpdatedPathIntoPython(this@MainApplication)
+                com.example.extractor.YtDlpUpdateManager.refreshVersion(this@MainApplication)
                 Log.i("MainApplication", "yt-dlp engine initialized successfully")
+                
+                // Perform background update check
+                if (com.example.extractor.YtDlpUpdateManager.isAutoUpdateEnabled.value) {
+                    com.example.extractor.YtDlpUpdateManager.updateYtDlpEngine(this@MainApplication)
+                }
             } catch (e: Throwable) {
                 Log.w("MainApplication", "yt-dlp init note: ${e.message}")
             }

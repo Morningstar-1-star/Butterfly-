@@ -1,7 +1,7 @@
 package com.example.torrent.provider
 
 import android.util.Log
-import com.example.torrent.model.TorrentRelease
+import com.example.torrent.model.TorrentResult
 import com.example.torrent.protocol.MagnetParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,6 +12,10 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
+/**
+ * YTS (YIFY) Torrent Indexer Provider.
+ * High-speed JSON API for official YTS releases (720p, 1080p, 4K BluRay/WEBRip).
+ */
 class YtsProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -28,13 +32,13 @@ class YtsProvider(
         private const val BASE_URL = "https://yts.mx/api/v2/list_movies.json"
     }
 
-    override suspend fun search(query: String, identity: MediaIdentity): List<TorrentRelease> = withContext(Dispatchers.IO) {
-        if (identity.mediaType.equals("tv", ignoreCase = true)) {
-            // YTS only has movies
+    override suspend fun search(query: String, identity: MediaIdentity): List<TorrentResult> = withContext(Dispatchers.IO) {
+        if (identity.mediaType.equals("tv", ignoreCase = true) || identity.mediaType.equals("anime", ignoreCase = true)) {
+            // YTS only indexes movies
             return@withContext emptyList()
         }
 
-        val searchTerm = if (!identity.imdbId.isNullOrBlank()) {
+        val searchTerm = if (!identity.imdbId.isNullOrBlank() && identity.imdbId.startsWith("tt")) {
             identity.imdbId
         } else if (identity.title.isNotBlank()) {
             identity.title
@@ -46,7 +50,7 @@ class YtsProvider(
 
         try {
             val encodedQuery = URLEncoder.encode(searchTerm, StandardCharsets.UTF_8.name())
-            val url = "$BASE_URL?query_term=$encodedQuery&limit=10"
+            val url = "$BASE_URL?query_term=$encodedQuery&limit=15"
 
             val req = Request.Builder()
                 .url(url)
@@ -61,7 +65,7 @@ class YtsProvider(
             val data = json.optJSONObject("data") ?: return@withContext emptyList()
             val movies = data.optJSONArray("movies") ?: return@withContext emptyList()
 
-            val results = mutableListOf<TorrentRelease>()
+            val results = mutableListOf<TorrentResult>()
 
             for (i in 0 until movies.length()) {
                 val movie = movies.getJSONObject(i)
@@ -94,19 +98,21 @@ class YtsProvider(
                     val displayQuality = if (quality.contains("2160", ignoreCase = true)) "4K UHD" else quality
 
                     results.add(
-                        TorrentRelease(
+                        TorrentResult(
                             title = releaseTitle,
-                            infoHash = hash,
-                            magnetUrl = magnetUrl,
-                            provider = "YTS",
+                            magnet = magnetUrl,
+                            infoHash = hash.lowercase(),
+                            size = sizeBytes,
+                            formattedSize = sizeFormatted,
                             seeders = seeders,
                             leechers = leechers,
-                            sizeBytes = sizeBytes,
-                            formattedSize = sizeFormatted,
+                            source = "YTS",
+                            category = "Movies",
                             quality = displayQuality,
                             codec = videoCodec,
                             hdr = if (quality.contains("2160")) "HDR" else "",
-                            audioChannels = "5.1 Surround"
+                            audioChannels = "5.1 Surround",
+                            uploadDate = movie.optString("date_uploaded", "")
                         )
                     )
                 }

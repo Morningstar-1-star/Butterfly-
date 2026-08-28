@@ -3,12 +3,17 @@ package com.example.resolver
 import android.content.Context
 import android.util.Log
 import com.example.model.MediaIdentity
+import com.example.resolver.providers.CometSourceProvider
+import com.example.resolver.providers.JableMissAvSourceProvider
+import com.example.resolver.providers.JavPySourceProvider
+import com.example.resolver.providers.MediaFusionSourceProvider
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 /**
- * Unified Source Resolver: Central orchestration engine merging Vega direct streams
- * and BitTorrent swarm indexers into a unified, progressively resolved source stream.
+ * Unified Source Resolver: Central orchestration engine merging Vega direct streams,
+ * BitTorrent swarm indexers, Jable/MissAV direct HLS, JavPy multi-source, MediaFusion,
+ * and Comet debrid/torrent scrapers into a unified, progressively resolved source stream.
  */
 class UnifiedSourceResolver(private val context: Context) {
 
@@ -27,12 +32,23 @@ class UnifiedSourceResolver(private val context: Context) {
 
     private val vegaAdapter = VegaSourceAdapter(context)
     private val torrentAdapter = TorrentSourceAdapter()
+    private val jableMissAvProvider = JableMissAvSourceProvider()
+    private val javPyProvider = JavPySourceProvider()
+    private val mediaFusionProvider = MediaFusionSourceProvider()
+    private val cometProvider = CometSourceProvider()
 
     val activeProviders: List<SourceProvider>
-        get() = listOf(vegaAdapter, torrentAdapter).filter { it.isEnabled }
+        get() = listOf(
+            jableMissAvProvider,
+            javPyProvider,
+            mediaFusionProvider,
+            cometProvider,
+            vegaAdapter,
+            torrentAdapter
+        ).filter { it.isEnabled }.sortedByDescending { it.priority }
 
     /**
-     * Searches all active providers (Vega + Torrent) in parallel with complete isolation.
+     * Searches all active stream providers in parallel with complete isolation.
      * Emits progressively ranked candidate lists as providers return results.
      */
     fun resolveSources(identity: MediaIdentity): Flow<List<SourceCandidate>> = channelFlow {

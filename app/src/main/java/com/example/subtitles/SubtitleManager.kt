@@ -5,10 +5,14 @@ import android.util.Log
 import com.example.model.CaptionOption
 import com.example.model.MediaIdentity
 import com.example.model.StreamData
+import com.example.subtitles.providers.AssrtProvider
+import com.example.subtitles.providers.BazarrSubtitleProvider
 import com.example.subtitles.providers.JimakuProvider
 import com.example.subtitles.providers.OpenSubtitlesProvider
+import com.example.subtitles.providers.PodnapisiProvider
 import com.example.subtitles.providers.SubDlProvider
 import com.example.subtitles.providers.SubSourceProvider
+import com.example.subtitles.providers.SubsceneProvider
 import com.example.util.SubtitleCue
 import com.example.util.SubtitleTranslator
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +30,7 @@ import kotlinx.coroutines.withContext
  * External Subtitle Provider Manager orchestrates the strict fallback hierarchy:
  * 1. Embedded subtitles (detected from Media3/stream)
  * 2. Bilibili subtitles (native API JSON subtitles)
- * 3. External subtitle providers (OpenSubtitles, SubDL, Jimaku, SubSource, etc.)
+ * 3. External subtitle providers (OpenSubtitles, SubDL, Jimaku, SubSource, Bazarr Catalog, etc.)
  * 4. Cached transcript / Cached Subtitle
  * 5. Voice Activity Detection (RMS detection)
  */
@@ -37,7 +41,11 @@ object SubtitleManager {
         OpenSubtitlesProvider(),
         SubDlProvider(),
         JimakuProvider(),
-        SubSourceProvider()
+        SubSourceProvider(),
+        AssrtProvider(),
+        SubsceneProvider(),
+        PodnapisiProvider(),
+        BazarrSubtitleProvider()
     )
 
     private val _discoveredSubtitles = MutableStateFlow<List<SubtitleItem>>(emptyList())
@@ -281,19 +289,25 @@ object SubtitleManager {
     private fun rankSubtitles(items: List<SubtitleItem>, targetLang: String): List<SubtitleItem> {
         return items.sortedWith(
             compareByDescending<SubtitleItem> {
-                // Priority 1: Source hierarchy (Embedded/Bilibili -> External)
+                // Priority 1: Inbuilt Video Captions First (YouTube/Bilibili/Video Container)
                 when (it.sourceType) {
-                    SubtitleSourceType.EMBEDDED -> 500
-                    SubtitleSourceType.BILIBILI -> 400
+                    SubtitleSourceType.EMBEDDED -> 2000
+                    SubtitleSourceType.BILIBILI -> 2000
                     SubtitleSourceType.EXTERNAL_PROVIDER -> 300
                     SubtitleSourceType.CACHED -> 200
                     SubtitleSourceType.VOICE_ACTIVITY_DETECTION -> 100
                 }
             }.thenByDescending {
                 // Priority 2: Exact Language Match
-                if (it.languageCode.equals(targetLang, ignoreCase = true)) 100 else 0
+                if (it.languageCode.equals(targetLang, ignoreCase = true)) 1000
+                else if (it.languageCode.startsWith(targetLang, ignoreCase = true)) 500
+                else if (it.languageCode.contains("en", ignoreCase = true)) 200
+                else 0
             }.thenByDescending {
-                // Priority 3: Match score
+                // Priority 3: Non-auto-generated human captions
+                if (!it.title.contains("auto", ignoreCase = true) && !it.title.contains("generated", ignoreCase = true)) 200 else 50
+            }.thenByDescending {
+                // Priority 4: Match score
                 it.matchScore
             }
         )

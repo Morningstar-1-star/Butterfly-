@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
  * High-quality movie and TV subtitles with multi-language coverage.
  */
 class OpenSubtitlesProvider(
+    private val customApiKey: String? = null,
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -63,10 +64,11 @@ class OpenSubtitlesProvider(
                 urlBuilder.append("&languages=").append(query.languageCode)
             }
 
+            val key = customApiKey ?: com.example.util.AppConfig.getOpenSubtitlesApiKey()
             val request = Request.Builder()
                 .url(urlBuilder.toString())
                 .header("User-Agent", "Butterfly v1.0")
-                .header("Api-Key", "p1Q8N8Z6eB0s6Z6A5t8Y4U1I3O9P2L5K") // Public community consumer key
+                .header("Api-Key", key)
                 .build()
 
             val responseBody = okHttpClient.newCall(request).execute().use { resp ->

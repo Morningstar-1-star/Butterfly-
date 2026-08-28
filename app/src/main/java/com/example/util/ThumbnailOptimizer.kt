@@ -24,10 +24,10 @@ object ThumbnailOptimizer {
 
     /**
      * Optimizes thumbnail URL resolution for instant network loading:
-     * - Rewrites heavy 1080p `maxresdefault.jpg` (400KB+) or `hq720.jpg` to lightweight `hqdefault.jpg` (~25KB).
-     * - Rewrites heavy TMDB 4K/Original/w500 poster images to lightweight `w342` or `w185` (~15-30KB).
-     * - Rewrites Unsplash full-res queries to optimized `w=360&q=75&auto=format`.
-     * - Rewrites Dailymotion 720p/1080p thumbnails to 360p.
+     * - Rewrites heavy 1080p `maxresdefault.jpg` (400KB+) or `hq720.jpg` to ultra-fast `mqdefault.jpg` (~10-15KB).
+     * - Rewrites heavy TMDB 4K/Original/w500 poster images to lightweight `w185` (~12KB).
+     * - Rewrites Unsplash full-res queries to optimized `w=360&q=65&auto=format`.
+     * - Rewrites Dailymotion 720p/1080p thumbnails to 240p/360p.
      */
     fun getOptimizedThumbnailUrl(rawUrl: String?, preferCompact: Boolean = false): String? {
         if (rawUrl.isNullOrBlank()) return null
@@ -36,7 +36,7 @@ object ThumbnailOptimizer {
             trimmed = "https:$trimmed"
         }
 
-        // 1. Optimize YouTube thumbnails (use lightweight mqdefault.jpg ~12KB for maximum speed)
+        // 1. Optimize YouTube thumbnails (use ultra-lightweight mqdefault.jpg ~10-15KB for instant loading)
         if (trimmed.contains("i.ytimg.com") || trimmed.contains("img.youtube.com")) {
             val vIdPattern = java.util.regex.Pattern.compile("/(vi|vi_webp)/([a-zA-Z0-9_-]{11})/")
             val matcher = vIdPattern.matcher(trimmed)
@@ -67,16 +67,27 @@ object ThumbnailOptimizer {
         // 3. Optimize Unsplash dynamic images
         if (trimmed.contains("images.unsplash.com")) {
             return if (trimmed.contains("w=")) {
-                trimmed.replace(Regex("w=\\d+"), "w=300")
+                trimmed.replace(Regex("w=\\d+"), "w=360")
             } else {
-                "$trimmed&w=300&q=65&auto=format"
+                "$trimmed&w=360&q=65&auto=format"
             }
         }
 
-        // 4. Optimize Dailymotion thumbnails
+        // 4. Optimize Dailymotion thumbnails (downscale to fast 240p/360p)
         if (trimmed.contains("dailymotion.com/thumbnail/")) {
-            if (trimmed.contains("thumbnail_720_url") || trimmed.contains("/720")) {
-                return trimmed.replace("/720", "/360").replace("thumbnail_720_url", "thumbnail_360_url")
+            if (trimmed.contains("thumbnail_720_url") || trimmed.contains("/720") || trimmed.contains("thumbnail_1080_url") || trimmed.contains("/1080")) {
+                return trimmed
+                    .replace("/1080", "/360")
+                    .replace("/720", "/360")
+                    .replace("thumbnail_1080_url", "thumbnail_360_url")
+                    .replace("thumbnail_720_url", "thumbnail_360_url")
+            }
+        }
+
+        // 5. Optimize Vimeo thumbnails
+        if (trimmed.contains("vimeocdn.com")) {
+            if (trimmed.contains("_640") || trimmed.contains("_960") || trimmed.contains("_1280")) {
+                return trimmed.replace(Regex("_\\d+x?\\d*"), "_320")
             }
         }
 
@@ -85,13 +96,13 @@ object ThumbnailOptimizer {
 
     /**
      * Build an optimized ImageRequest with aggressive memory + disk caching,
-     * low-memory RGB_565 bitmap config for low RAM overhead, rapid decoding,
-     * and provider-appropriate headers (User-Agent, Referer, Accept) to prevent hotlinking 403 blocks.
+     * downsampled 480x270 decode size, low-memory RGB_565 bitmap config for low RAM overhead,
+     * rapid native decoding, and provider-appropriate headers to prevent hotlinking 403 blocks.
      */
     fun buildThumbnailRequest(
         context: Context,
         url: String?,
-        crossfadeMillis: Int = 80,
+        crossfadeMillis: Int = 120,
         preferCompact: Boolean = false
     ): ImageRequest? {
         val optimizedUrl = getOptimizedThumbnailUrl(url, preferCompact = preferCompact) ?: return null
@@ -104,10 +115,12 @@ object ThumbnailOptimizer {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
+            .size(coil.size.Size(width = 480, height = 270))
+            .precision(coil.size.Precision.INEXACT)
             .bitmapConfig(Bitmap.Config.RGB_565)
             .allowHardware(true)
             .allowRgb565(true)
-            .crossfade(0)
+            .crossfade(crossfadeMillis)
             .dispatcher(Dispatchers.IO)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
             .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")

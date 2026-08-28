@@ -1,7 +1,7 @@
 package com.example.torrent.provider
 
 import android.util.Log
-import com.example.torrent.model.TorrentRelease
+import com.example.torrent.model.TorrentResult
 import com.example.torrent.protocol.MagnetParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,6 +10,10 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+/**
+ * Torrentio Stremio Addon Provider.
+ * Queries Torrentio stream endpoint with Real-Debrid / AllDebrid / P2P Swarm resolution.
+ */
 class TorrentioProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -23,19 +27,29 @@ class TorrentioProvider(
 
     companion object {
         private const val TAG = "TorrentioProvider"
-        private const val BASE_URL = "https://torrentio.strem.fun"
     }
 
-    override suspend fun search(query: String, identity: MediaIdentity): List<TorrentRelease> = withContext(Dispatchers.IO) {
+    private val baseUrl: String get() = com.example.util.PlaybackPreferences.torrentioBaseUrl
+
+    override suspend fun search(query: String, identity: MediaIdentity): List<TorrentResult> = withContext(Dispatchers.IO) {
         val imdbId = identity.imdbId?.trim()
         if (imdbId.isNullOrBlank() || !imdbId.startsWith("tt")) {
             return@withContext emptyList()
         }
 
+        var rootUrl = baseUrl.trim().trimEnd('/')
+        if (rootUrl.endsWith("/manifest.json")) {
+            rootUrl = rootUrl.removeSuffix("/manifest.json")
+        }
+        val debridKey = com.example.util.AppConfig.getDebridApiKey().trim()
+        if (debridKey.isNotBlank() && !rootUrl.contains("realdebrid=") && !rootUrl.contains("alldebrid=") && !rootUrl.contains("premiumize=")) {
+            rootUrl = "$rootUrl/realdebrid=$debridKey"
+        }
+
         val url = if (identity.mediaType.equals("tv", ignoreCase = true) && identity.season != null && identity.episode != null) {
-            "$BASE_URL/stream/series/$imdbId:${identity.season}:${identity.episode}.json"
+            "$rootUrl/stream/series/$imdbId:${identity.season}:${identity.episode}.json"
         } else {
-            "$BASE_URL/stream/movie/$imdbId.json"
+            "$rootUrl/stream/movie/$imdbId.json"
         }
 
         try {
@@ -51,21 +65,24 @@ class TorrentioProvider(
             val json = JSONObject(body)
             val streams = json.optJSONArray("streams") ?: return@withContext emptyList()
 
-            val results = mutableListOf<TorrentRelease>()
+            val results = mutableListOf<TorrentResult>()
 
             for (i in 0 until streams.length()) {
                 val stream = streams.getJSONObject(i)
-                val infoHash = stream.optString("infoHash", "").trim()
-                if (infoHash.isBlank()) continue
+                val directUrl = stream.optString("url", "").trim()
+                var infoHash = stream.optString("infoHash", "").trim()
+                if (infoHash.isBlank() && directUrl.isBlank()) continue
+                if (infoHash.isBlank()) {
+                    infoHash = "debrid_" + Math.abs(directUrl.hashCode()).toString(16)
+                }
 
-                val streamName = stream.optString("name", "") // e.g. "Torrentio\n1080p"
+                val streamName = stream.optString("name", "") // e.g. "[RD+] Torrentio\n1080p"
                 val streamTitle = stream.optString("title", "") // e.g. "Spider-Man.No.Way.Home.2021.1080p.WEBRip.x264\n💾 2.4 GB 👤 142"
-                val fileIdx = if (stream.has("fileIdx")) stream.optInt("fileIdx") else null
 
                 val titleLines = streamTitle.split("\n")
                 val releaseName = titleLines.firstOrNull()?.trim() ?: identity.title
 
-                var seeders = 0
+                var seeders = if (directUrl.isNotBlank() || streamName.contains("RD") || streamName.contains("AD") || streamName.contains("PM")) 999 else 0
                 var sizeBytes = 0L
                 var formattedSize = ""
 
@@ -73,7 +90,7 @@ class TorrentioProvider(
                     if (line.contains("👤") || line.contains("seed", ignoreCase = true)) {
                         val seederMatch = Regex("👤\\s*(\\d+)").find(line)
                         if (seederMatch != null) {
-                            seeders = seederMatch.groupValues[1].toIntOrNull() ?: 0
+                            seeders = seederMatch.groupValues[1].toIntOrNull() ?: seeders
                         }
                     }
                     if (line.contains("💾") || line.contains("GB", ignoreCase = true) || line.contains("MB", ignoreCase = true)) {
@@ -89,22 +106,33 @@ class TorrentioProvider(
                 val hdr = parseHdr(streamTitle)
                 val audio = parseAudio(streamTitle)
 
-                val magnetUrl = MagnetParser.buildMagnetUrl(infoHash, releaseName)
+                val magnetUrl = if (directUrl.isNotBlank()) directUrl else MagnetParser.buildMagnetUrl(infoHash, releaseName)
+
+                val providerLabel = if (streamName.contains("[RD+]") || streamName.contains("RD")) {
+                    "Torrentio (Real-Debrid)"
+                } else if (streamName.contains("[AD+]") || streamName.contains("AD")) {
+                    "Torrentio (AllDebrid)"
+                } else if (streamName.contains("[PM+]") || streamName.contains("PM")) {
+                    "Torrentio (Premiumize)"
+                } else {
+                    "Torrentio"
+                }
 
                 results.add(
-                    TorrentRelease(
+                    TorrentResult(
                         title = releaseName,
-                        infoHash = infoHash,
-                        magnetUrl = magnetUrl,
-                        provider = "Torrentio",
-                        seeders = seeders,
-                        sizeBytes = sizeBytes,
+                        magnet = magnetUrl,
+                        infoHash = infoHash.lowercase(),
+                        size = sizeBytes,
                         formattedSize = formattedSize,
+                        seeders = seeders,
+                        leechers = 0,
+                        source = providerLabel,
+                        category = if (identity.mediaType.equals("tv", ignoreCase = true)) "TV" else "Movies",
                         quality = quality,
                         codec = codec,
                         hdr = hdr,
                         audioChannels = audio,
-                        fileIndex = fileIdx,
                         season = identity.season,
                         episode = identity.episode
                     )

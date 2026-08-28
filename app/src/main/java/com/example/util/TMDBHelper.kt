@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 object TMDBHelper {
 
     private val TAG = "TMDBHelper"
-    private val TMDB_API_KEY = AppConfig.TMDB_API_KEY
+    private val TMDB_API_KEY get() = AppConfig.TMDB_API_KEY
 
     private val WEB_AND_ADULT_PROVIDERS = setOf(
         "youtube", "vimeo", "dailymotion", "bilibili",
@@ -123,6 +123,20 @@ object TMDBHelper {
         providerId: String? = null,
         forceTmdb: Boolean = false
     ): MediaDetailInfo? = withContext(Dispatchers.IO) {
+        // Step 0: Check if title or videoId matches a JAV code and resolve via JAV Metadata & Enrichment pipeline
+        val javCode = com.example.metadata.JavIdParser.parse(rawTitle)
+            ?: (videoId?.let { com.example.metadata.JavIdParser.parse(it) })
+        if (javCode != null) {
+            try {
+                val javMeta = com.example.metadata.JavMetadataResolver.resolve(javCode)
+                if (javMeta != null) {
+                    return@withContext javMeta.toMediaDetailInfo()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "JAV metadata resolution fallback for $javCode: ${e.message}")
+            }
+        }
+
         if (!forceTmdb && !shouldUseTmdb(providerId, videoId)) {
             Log.i(TAG, "Skipping TMDB auto-matching for web/adult provider: providerId=$providerId, title=$rawTitle")
             return@withContext null

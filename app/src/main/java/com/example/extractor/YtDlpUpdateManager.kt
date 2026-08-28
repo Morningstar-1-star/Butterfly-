@@ -56,21 +56,10 @@ object YtDlpUpdateManager {
         try {
             val targetDir = File(context.filesDir, "yt_dlp_updated")
             if (targetDir.exists() && File(targetDir, "yt_dlp").exists()) {
-                if (com.chaquo.python.Python.isStarted()) {
-                    val python = com.chaquo.python.Python.getInstance()
-                    val sys = python.getModule("sys")
-                    val path = sys.get("path")
-                    val absPath = targetDir.absolutePath
-                    val currentPathList = path?.callAttr("copy")
-                    val containsPath = currentPathList?.callAttr("__contains__", absPath)?.toJava(Boolean::class.java) ?: false
-                    if (!containsPath) {
-                        path?.callAttr("insert", 0, absPath)
-                        Log.i(TAG, "Injected updated yt-dlp package ($absPath) into sys.path")
-                    }
-                }
+                Log.i(TAG, "Active OTA updated yt-dlp package present at ${targetDir.absolutePath}")
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Note on sys.path injection: ${e.message}")
+            Log.d(TAG, "OTA update path note: ${e.message}")
         }
     }
 

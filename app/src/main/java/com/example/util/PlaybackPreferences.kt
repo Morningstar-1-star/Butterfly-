@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class PlaybackPreferences private constructor(context: Context) {
 
+    val prefsContext: Context = context.applicationContext
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _forceCustomSpeed = MutableStateFlow(
@@ -81,6 +82,24 @@ class PlaybackPreferences private constructor(context: Context) {
 
         @Volatile
         private var INSTANCE: PlaybackPreferences? = null
+
+        var torrentioBaseUrl: String
+            get() = AppConfig.getTorrentioBaseUrl()
+            set(value) {
+                INSTANCE?.let { AppConfig.setTorrentioBaseUrl(it.prefsContext, value) }
+            }
+
+        var torznabBaseUrl: String
+            get() = AppConfig.getTorznabBaseUrl()
+            set(value) {
+                INSTANCE?.let { AppConfig.setTorznabBaseUrl(it.prefsContext, value) }
+            }
+
+        var torznabApiKey: String
+            get() = AppConfig.getTorznabApiKey()
+            set(value) {
+                INSTANCE?.let { AppConfig.setTorznabApiKey(it.prefsContext, value) }
+            }
 
         fun getInstance(context: Context): PlaybackPreferences {
             return INSTANCE ?: synchronized(this) {

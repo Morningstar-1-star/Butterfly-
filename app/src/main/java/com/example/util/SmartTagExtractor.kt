@@ -68,6 +68,23 @@ object SmartTagExtractor {
             detected.add(TagInfo("series", "Series", "📺", 20))
         }
 
+        // 3b. Action, Anime, Romance, Reality & Genres
+        if (titleLower.contains("anime") || titleLower.contains("manga") || titleLower.contains("shonen") || titleLower.contains("isekai") || fullText.contains("subbed")) {
+            detected.add(TagInfo("anime", "Anime", "🎌", 12))
+        }
+        if (titleLower.contains("action") || titleLower.contains("fight") || titleLower.contains("battle") || titleLower.contains("combat") || titleLower.contains("stunt") || titleLower.contains("chase")) {
+            detected.add(TagInfo("action", "Action", "💥", 12))
+        }
+        if (titleLower.contains("romance") || titleLower.contains("romantic") || titleLower.contains("love story") || titleLower.contains("relationship") || titleLower.contains("dating")) {
+            detected.add(TagInfo("romance", "Romance", "💕", 14))
+        }
+        if (titleLower.contains("reality") || titleLower.contains("bigg boss") || titleLower.contains("big boss") || titleLower.contains("vlog") || titleLower.contains("influencer") || titleLower.contains("drama")) {
+            detected.add(TagInfo("reality", "Reality & Drama", "🎭", 14))
+        }
+        if (titleLower.contains("sci-fi") || titleLower.contains("scifi") || titleLower.contains("fantasy") || titleLower.contains("superhero") || titleLower.contains("marvel") || titleLower.contains("dc")) {
+            detected.add(TagInfo("scifi", "Sci-Fi & Fantasy", "⚡", 14))
+        }
+
         // 4. Video Essays & Deep Dives / Philosophy
         if (titleLower.contains("essay") || titleLower.contains("deep dive") || titleLower.contains("retrospective") || 
             titleLower.contains("why ") || titleLower.contains("sin ") || titleLower.contains("life") || titleLower.contains("monsters") || 

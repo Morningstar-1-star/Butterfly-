@@ -20,6 +20,8 @@ data class DnsTestResult(
     val providerName: String,
     val resolvedIps: List<String>,
     val latencyMs: Long,
+    val protocol: String = "DNS-over-HTTPS",
+    val testedDomain: String = "youtube.com",
     val errorMessage: String? = null
 )
 
@@ -131,43 +133,124 @@ object SecureDnsManager {
         }
     }
 
-    suspend fun testDnsResolution(context: Context, testHostname: String = "pornhub.com"): DnsTestResult {
+    suspend fun testDnsResolution(context: Context, testHostname: String = "youtube.com"): DnsTestResult {
         return withContext(Dispatchers.IO) {
             val startTime = System.currentTimeMillis()
             val prefs = SecureDnsPreferences.getInstance(context)
-            val providerName = if (prefs.isSecureDnsEnabled.value) {
-                prefs.selectedProvider.value.displayName
-            } else {
-                "System Default (ISP)"
-            }
+            val isEnabled = prefs.isSecureDnsEnabled.value
+            val provider = if (isEnabled) prefs.selectedProvider.value else DnsProvider.SYSTEM
+            val providerName = if (isEnabled) provider.displayName else "System Default (ISP)"
+
+            val targetHost = if (testHostname.isBlank()) "youtube.com" else testHostname.trim()
 
             try {
-                val ips = appDns.lookup(testHostname)
-                val latency = System.currentTimeMillis() - startTime
-                if (ips.isNotEmpty()) {
+                if (isEnabled && provider != DnsProvider.SYSTEM) {
+                    // Perform real DoH HTTP JSON query to test provider directly
+                    val dohApiUrl = when (provider) {
+                        DnsProvider.CLOUDFLARE -> "https://1.1.1.1/dns-query?name=$targetHost&type=A"
+                        DnsProvider.GOOGLE -> "https://dns.google/resolve?name=$targetHost&type=A"
+                        DnsProvider.OPENDNS -> "https://doh.opendns.com/dns-query?name=$targetHost&type=A"
+                        DnsProvider.QUAD9 -> "https://dns.quad9.net/dns-query?name=$targetHost&type=A"
+                        DnsProvider.ADGUARD -> "https://dns.adguard-dns.com/dns-query?name=$targetHost&type=A"
+                        else -> provider.url
+                    }
+
+                    val req = okhttp3.Request.Builder()
+                        .url(dohApiUrl)
+                        .header("Accept", "application/dns-json")
+                        .build()
+
+                    bootstrapClient.newCall(req).execute().use { response ->
+                        val latency = System.currentTimeMillis() - startTime
+                        if (response.isSuccessful) {
+                            val bodyStr = response.body?.string() ?: ""
+                            val json = org.json.JSONObject(bodyStr)
+                            val answerArray = json.optJSONArray("Answer")
+                            val resolvedIps = mutableListOf<String>()
+                            if (answerArray != null) {
+                                for (i in 0 until answerArray.length()) {
+                                    val item = answerArray.getJSONObject(i)
+                                    val data = item.optString("data")
+                                    if (data.isNotBlank()) {
+                                        resolvedIps.add(data)
+                                    }
+                                }
+                            }
+
+                            if (resolvedIps.isEmpty()) {
+                                // Fallback to appDns.lookup
+                                val fallbackIps = appDns.lookup(targetHost).map { it.hostAddress ?: "" }
+                                DnsTestResult(
+                                    isSuccess = fallbackIps.isNotEmpty(),
+                                    providerName = providerName,
+                                    resolvedIps = fallbackIps,
+                                    latencyMs = latency,
+                                    protocol = "DoH HTTPS (200 OK)",
+                                    testedDomain = targetHost,
+                                    errorMessage = if (fallbackIps.isEmpty()) "No IP records returned" else null
+                                )
+                            } else {
+                                DnsTestResult(
+                                    isSuccess = true,
+                                    providerName = providerName,
+                                    resolvedIps = resolvedIps,
+                                    latencyMs = latency,
+                                    protocol = "DoH HTTPS (200 OK)",
+                                    testedDomain = targetHost
+                                )
+                            }
+                        } else {
+                            val fallbackIps = appDns.lookup(targetHost).map { it.hostAddress ?: "" }
+                            DnsTestResult(
+                                isSuccess = fallbackIps.isNotEmpty(),
+                                providerName = providerName,
+                                resolvedIps = fallbackIps,
+                                latencyMs = latency,
+                                protocol = "DoH Fallback (HTTP ${response.code})",
+                                testedDomain = targetHost,
+                                errorMessage = if (fallbackIps.isEmpty()) "HTTP ${response.code} error" else null
+                            )
+                        }
+                    }
+                } else {
+                    // System UDP/TCP socket lookup
+                    val ips = InetAddress.getAllByName(targetHost).toList()
+                    val latency = System.currentTimeMillis() - startTime
                     DnsTestResult(
-                        isSuccess = true,
+                        isSuccess = ips.isNotEmpty(),
                         providerName = providerName,
                         resolvedIps = ips.map { it.hostAddress ?: "" },
-                        latencyMs = latency
-                    )
-                } else {
-                    DnsTestResult(
-                        isSuccess = false,
-                        providerName = providerName,
-                        resolvedIps = emptyList(),
                         latencyMs = latency,
-                        errorMessage = "No IP addresses returned"
+                        protocol = "System UDP/TCP Socket",
+                        testedDomain = targetHost,
+                        errorMessage = if (ips.isEmpty()) "No host record found" else null
                     )
                 }
             } catch (e: Exception) {
                 val latency = System.currentTimeMillis() - startTime
+                // Fallback attempt via appDns
+                try {
+                    val ips = appDns.lookup(targetHost).map { it.hostAddress ?: "" }
+                    if (ips.isNotEmpty()) {
+                        return@withContext DnsTestResult(
+                            isSuccess = true,
+                            providerName = providerName,
+                            resolvedIps = ips,
+                            latencyMs = latency,
+                            protocol = "DNS App Resolver",
+                            testedDomain = targetHost
+                        )
+                    }
+                } catch (_: Exception) {}
+
                 DnsTestResult(
                     isSuccess = false,
                     providerName = providerName,
                     resolvedIps = emptyList(),
                     latencyMs = latency,
-                    errorMessage = e.message ?: "Resolution error"
+                    protocol = if (isEnabled) "DoH HTTPS" else "System DNS",
+                    testedDomain = targetHost,
+                    errorMessage = e.message ?: "Network DNS lookup failed"
                 )
             }
         }

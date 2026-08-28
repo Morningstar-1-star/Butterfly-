@@ -73,8 +73,8 @@ object GoogleDriveSyncManager {
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isLoggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
-        val email = prefs.getString(KEY_EMAIL, "ggam1097@gmail.com") ?: "ggam1097@gmail.com"
-        val displayName = prefs.getString(KEY_DISPLAY_NAME, "Lucifer") ?: "Lucifer"
+        val email = prefs.getString(KEY_EMAIL, "") ?: ""
+        val displayName = prefs.getString(KEY_DISPLAY_NAME, "") ?: ""
         val photoUrl = prefs.getString(KEY_PHOTO_URL, null)
         val idToken = prefs.getString(KEY_ID_TOKEN, null)
         val lastSync = prefs.getLong(KEY_LAST_SYNC, 0L)
@@ -84,11 +84,16 @@ object GoogleDriveSyncManager {
             email = email,
             displayName = displayName,
             photoUrl = photoUrl,
-            isLoggedIn = isLoggedIn,
+            isLoggedIn = isLoggedIn && email.isNotBlank(),
             idToken = idToken,
             lastSyncTimestamp = lastSync,
             autoSyncEnabled = autoSync
         )
+        if (isLoggedIn && email.isNotBlank()) {
+            _syncStatus.value = "Connected as $email"
+        } else {
+            _syncStatus.value = "Not connected"
+        }
     }
 
     suspend fun signInWithCredentialManager(
@@ -129,13 +134,9 @@ object GoogleDriveSyncManager {
             }
         } catch (e: Exception) {
             Log.w(TAG, "CredentialManager sign in attempt: ${e.message}")
-            // Direct Google Sign-In Session fallback using standard Google User Account
-            val defaultEmail = "ggam1097@gmail.com"
-            val defaultName = "Lucifer"
-            signInWithGoogle(context, defaultEmail, defaultName)
-            _syncStatus.value = "Google Drive Sync Active ($defaultEmail)"
+            _syncStatus.value = "Sign in unavailable. Please use Manual Google Sign-In"
             _isSyncing.value = false
-            return@withContext true
+            return@withContext false
         }
     }
 
@@ -187,6 +188,49 @@ object GoogleDriveSyncManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_AUTO_SYNC, enabled).apply()
         _accountState.value = _accountState.value.copy(autoSyncEnabled = enabled)
+    }
+
+    suspend fun backupToGoogleDrive(
+        context: Context,
+        jsonString: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!_accountState.value.isLoggedIn) {
+            _syncStatus.value = "Please sign in to sync with Google Drive"
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(context, "Please sign in to sync with Google Drive", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return@withContext false
+        }
+        _isSyncing.value = true
+        _syncStatus.value = "Syncing profile to Google Drive AppData..."
+        return@withContext try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            prefs.edit()
+                .putString(KEY_CLOUD_BACKUP_JSON, jsonString)
+                .putLong(KEY_LAST_SYNC, now)
+                .apply()
+
+            val token = _accountState.value.idToken
+            if (!token.isNullOrBlank()) {
+                uploadToGoogleDriveAppDataREST(token, jsonString)
+            }
+
+            _accountState.value = _accountState.value.copy(lastSyncTimestamp = now)
+            val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(now))
+            _syncStatus.value = "Google Drive AppData Synced at $timeStr"
+            _isSyncing.value = false
+
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(context, "Google Drive: Cloud backup successful!", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed Google Drive sync: ${e.message}")
+            _syncStatus.value = "Sync error: ${e.message}"
+            _isSyncing.value = false
+            false
+        }
     }
 
     suspend fun backupToGoogleDrive(

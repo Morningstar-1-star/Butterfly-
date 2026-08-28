@@ -23,7 +23,7 @@ import java.util.zip.ZipInputStream
  * Uses the official SubDL v1 API contract with support for TMDB, IMDb, and title queries.
  */
 class SubDlProvider(
-    private val apiKey: String = "subdl_Mp42hcrZJOddEWEGyUjzp1q2A1NsdWxkAd2pDD8PCwg",
+    private val customApiKey: String? = null,
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -36,7 +36,8 @@ class SubDlProvider(
     override suspend fun search(query: SubtitleSearchQuery): List<SubtitleItem> = withContext(Dispatchers.IO) {
         val results = mutableListOf<SubtitleItem>()
         try {
-            val urlBuilder = StringBuilder("https://api.subdl.com/api/v1/subtitles?api_key=").append(apiKey)
+            val key = customApiKey ?: com.example.util.AppConfig.getSubdlApiKey()
+            val urlBuilder = StringBuilder("https://api.subdl.com/api/v1/subtitles?api_key=").append(key)
             var hasParam = false
 
             if (!query.imdbId.isNullOrBlank()) {

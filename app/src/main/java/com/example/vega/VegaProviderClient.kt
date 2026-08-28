@@ -179,8 +179,8 @@ object VegaProviderClient {
         var results = searchSingleQuery(cleanProv, cleanQuery.ifBlank { "2024" }, baseUrl)
         if (results.isNotEmpty()) return@withContext results
 
-        // 2. Query expansion fallback if original search returned empty
-        val fallbackTerms = listOf("a", "the", "spider", "avengers", "movie", "one")
+        // 2. Query expansion fallback if original search returned empty (capped fast fallback)
+        val fallbackTerms = listOf("a", "movie")
             .filterNot { it.equals(cleanQuery, ignoreCase = true) }
 
         for (term in fallbackTerms) {
@@ -211,6 +211,11 @@ object VegaProviderClient {
             "$cleanBase/catalog/$encodedProvider?page=1"
         )
 
+        val queryClient = httpClient.newBuilder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .build()
+
         for (targetUrl in endpointsToTest) {
             try {
                 val request = Request.Builder()
@@ -219,7 +224,7 @@ object VegaProviderClient {
                     .header("Accept", "application/json")
                     .build()
 
-                httpClient.newCall(request).execute().use { response ->
+                queryClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use
 
                     val bodyStr = response.body?.string() ?: return@use
