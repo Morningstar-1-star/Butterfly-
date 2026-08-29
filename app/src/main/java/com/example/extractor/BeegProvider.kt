@@ -19,19 +19,20 @@ object BeegProvider {
 
     private val httpClient = OkHttpClient.Builder()
         .dns(com.example.util.SecureDnsManager.appDns)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
     fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
+        val effectiveLimit = maxOf(limit, 20)
         val offset = ((page - 1) * limit).coerceAtLeast(0)
         try {
             val urls = listOf(
-                "https://store.externulls.com/tag/videos/home?limit=$limit&offset=$offset",
-                "https://store.externulls.com/tag/videos/main?limit=$limit&offset=$offset"
+                "https://store.externulls.com/tag/videos/home?limit=$effectiveLimit&offset=$offset",
+                "https://store.externulls.com/tag/videos/main?limit=$effectiveLimit&offset=$offset"
             )
             var jsonStr: String? = null
             for (u in urls) {
@@ -76,7 +77,7 @@ object BeegProvider {
                             if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
                                 title = v
                             } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
-                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/240x180/$v.jpg"
+                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/videos/$fileId/$v.webp?w=480&h=270"
                             } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
                                 uploader = v
                             }
@@ -85,6 +86,7 @@ object BeegProvider {
 
                     val fcFacts = item.optJSONArray("fc_facts")
                     var modelOrStudioName = ""
+                    val previewOffsets = mutableListOf<String>()
                     if (fcFacts != null && fcFacts.length() > 0) {
                         for (fIdx in 0 until fcFacts.length()) {
                             val factObj = fcFacts.optJSONObject(fIdx) ?: continue
@@ -99,6 +101,16 @@ object BeegProvider {
                                     modelOrStudioName = tgName
                                 }
                             }
+
+                            val factThumbs = factObj.optJSONArray("fc_thumbs")
+                            if (factThumbs != null) {
+                                for (t in 0 until factThumbs.length()) {
+                                    val off = factThumbs.opt(t)?.toString() ?: ""
+                                    if (off.isNotBlank() && !previewOffsets.contains(off)) {
+                                        previewOffsets.add(off)
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -107,25 +119,15 @@ object BeegProvider {
                     }
 
                     val duration = fileObj.optLong("fl_duration", 0L)
-                    var thumb = customThumb
-                    if (thumb.isBlank()) {
-                        val tagsArr = item.optJSONArray("tags")
-                        if (tagsArr != null) {
-                            for (tIdx in 0 until tagsArr.length()) {
-                                val tObj = tagsArr.optJSONObject(tIdx) ?: continue
-                                val tThumbs = tObj.optJSONArray("thumbs")
-                                if (tThumbs != null && tThumbs.length() > 0) {
-                                    val tId = tThumbs.optJSONObject(0)?.optString("id", "") ?: ""
-                                    if (tId.isNotBlank()) {
-                                        thumb = "https://cdn34769805.ahacdn.me/thumbs/$tId.jpg"
-                                        break
-                                    }
-                                }
-                            }
-                        }
+                    val primaryOffset = previewOffsets.firstOrNull() ?: "0"
+                    val thumb = if (customThumb.isNotBlank()) {
+                        customThumb
+                    } else {
+                        "https://thumbs.externulls.com/videos/$fileId/$primaryOffset.webp?w=480&h=270"
                     }
-                    if (thumb.isBlank()) {
-                        thumb = "https://thumbs.externulls.com/480x360/$fileId.jpg"
+
+                    val previewList = previewOffsets.take(10).map { off ->
+                        "https://thumbs.externulls.com/videos/$fileId/$off.webp?w=480&h=270"
                     }
 
                     list.add(
@@ -135,7 +137,8 @@ object BeegProvider {
                             uploaderName = uploader,
                             thumbnailUrl = thumb,
                             durationSeconds = duration,
-                            providerId = PROVIDER_ID
+                            providerId = PROVIDER_ID,
+                            previewThumbnails = previewList
                         )
                     )
                 }
@@ -149,10 +152,11 @@ object BeegProvider {
     fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
         if (query.isBlank()) return list
+        val effectiveLimit = maxOf(limit, 20)
         val offset = ((page - 1) * limit).coerceAtLeast(0)
         try {
             val encodedQ = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-            val url = "https://store.externulls.com/tag/videos/$encodedQ?limit=$limit&offset=$offset"
+            val url = "https://store.externulls.com/tag/videos/$encodedQ?limit=$effectiveLimit&offset=$offset"
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", DEFAULT_USER_AGENT)
@@ -185,7 +189,7 @@ object BeegProvider {
                             if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
                                 title = v
                             } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
-                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/240x180/$v.jpg"
+                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/videos/$fileId/$v.webp?w=480&h=270"
                             } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
                                 uploader = v
                             }
@@ -194,6 +198,7 @@ object BeegProvider {
 
                     val fcFacts = item.optJSONArray("fc_facts")
                     var modelOrStudioName = ""
+                    val previewOffsets = mutableListOf<String>()
                     if (fcFacts != null && fcFacts.length() > 0) {
                         for (fIdx in 0 until fcFacts.length()) {
                             val factObj = fcFacts.optJSONObject(fIdx) ?: continue
@@ -208,6 +213,16 @@ object BeegProvider {
                                     modelOrStudioName = tgName
                                 }
                             }
+
+                            val factThumbs = factObj.optJSONArray("fc_thumbs")
+                            if (factThumbs != null) {
+                                for (t in 0 until factThumbs.length()) {
+                                    val off = factThumbs.opt(t)?.toString() ?: ""
+                                    if (off.isNotBlank() && !previewOffsets.contains(off)) {
+                                        previewOffsets.add(off)
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -216,9 +231,15 @@ object BeegProvider {
                     }
 
                     val duration = fileObj.optLong("fl_duration", 0L)
-                    var thumb = customThumb
-                    if (thumb.isBlank()) {
-                        thumb = "https://thumbs.externulls.com/480x360/$fileId.jpg"
+                    val primaryOffset = previewOffsets.firstOrNull() ?: "0"
+                    val thumb = if (customThumb.isNotBlank()) {
+                        customThumb
+                    } else {
+                        "https://thumbs.externulls.com/videos/$fileId/$primaryOffset.webp?w=480&h=270"
+                    }
+
+                    val previewList = previewOffsets.take(10).map { off ->
+                        "https://thumbs.externulls.com/videos/$fileId/$off.webp?w=480&h=270"
                     }
 
                     list.add(
@@ -228,7 +249,8 @@ object BeegProvider {
                             uploaderName = uploader,
                             thumbnailUrl = thumb,
                             durationSeconds = duration,
-                            providerId = PROVIDER_ID
+                            providerId = PROVIDER_ID,
+                            previewThumbnails = previewList
                         )
                     )
                 }
@@ -241,7 +263,8 @@ object BeegProvider {
 
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val cleanInput = urlOrId.trim()
-        val fileId = Regex("""\d+""").find(cleanInput)?.value ?: ""
+        val digitsOnly = Regex("""\d+""").find(cleanInput)?.value ?: ""
+        val fileId = digitsOnly.trimStart('0').ifEmpty { digitsOnly }
         if (fileId.isBlank()) return@withContext null
 
         val beegHeaders = mapOf(
@@ -267,90 +290,131 @@ object BeegProvider {
             if (!jsonStr.isNullOrBlank() && jsonStr.trim().startsWith("{")) {
                 val json = JSONObject(jsonStr)
                 val fileObj = json.optJSONObject("file")
-                if (fileObj != null) {
-                    var title = "Beeg Video"
-                    var uploader = "Beeg"
-                    var customThumb = ""
-                    val dataArr = fileObj.optJSONArray("data")
-                    if (dataArr != null) {
-                        for (j in 0 until dataArr.length()) {
-                            val d = dataArr.optJSONObject(j) ?: continue
-                            val col = d.optString("cd_column", "")
-                            val v = d.optString("cd_value", "")
-                            if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
-                                title = v
-                            } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
-                                customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/240x180/$v.jpg"
-                            } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
-                                uploader = v
-                            }
+                val fcFacts = json.optJSONArray("fc_facts")
+
+                var title = "Beeg Video"
+                var uploader = "Beeg"
+                var customThumb = ""
+
+                val dataArr = fileObj?.optJSONArray("data")
+                if (dataArr != null) {
+                    for (j in 0 until dataArr.length()) {
+                        val d = dataArr.optJSONObject(j) ?: continue
+                        val col = d.optString("cd_column", "")
+                        val v = d.optString("cd_value", "")
+                        if (col == "sf_name" && v.isNotBlank() && title == "Beeg Video") {
+                            title = v
+                        } else if ((col == "sf_thumb" || col == "sf_preview" || col == "sf_image" || col == "sf_poster") && v.isNotBlank() && customThumb.isBlank()) {
+                            customThumb = if (v.startsWith("http")) v else "https://thumbs.externulls.com/videos/$fileId/$v.webp?w=480&h=270"
+                        } else if ((col == "sf_author" || col == "sf_studio" || col == "sf_user_name" || col == "sf_channel_name") && v.isNotBlank()) {
+                            uploader = v
                         }
                     }
+                }
 
-                    val fcFacts = json.optJSONArray("fc_facts")
-                    var modelOrStudioName = ""
-                    if (fcFacts != null && fcFacts.length() > 0) {
-                        for (fIdx in 0 until fcFacts.length()) {
-                            val factObj = fcFacts.optJSONObject(fIdx) ?: continue
-                            val tagObj = factObj.optJSONObject("tag")
-                            val tgType = tagObj?.optString("tg_type", "") ?: ""
-                            val tgName = tagObj?.optString("tg_name", "") ?: factObj.optString("fc_name", "")
-                            if (tgName.isNotBlank()) {
-                                if (tgType.equals("model", ignoreCase = true) || tgType.equals("studio", ignoreCase = true) || tgType.equals("site", ignoreCase = true)) {
-                                    modelOrStudioName = tgName
-                                    break
-                                } else if (modelOrStudioName.isBlank()) {
-                                    modelOrStudioName = tgName
+                var modelOrStudioName = ""
+                val previewOffsets = mutableListOf<String>()
+                if (fcFacts != null && fcFacts.length() > 0) {
+                    for (fIdx in 0 until fcFacts.length()) {
+                        val factObj = fcFacts.optJSONObject(fIdx) ?: continue
+                        val tagObj = factObj.optJSONObject("tag")
+                        val tgType = tagObj?.optString("tg_type", "") ?: ""
+                        val tgName = tagObj?.optString("tg_name", "") ?: factObj.optString("fc_name", "")
+                        if (tgName.isNotBlank()) {
+                            if (tgType.equals("model", ignoreCase = true) || tgType.equals("studio", ignoreCase = true) || tgType.equals("site", ignoreCase = true)) {
+                                modelOrStudioName = tgName
+                                break
+                            } else if (modelOrStudioName.isBlank()) {
+                                modelOrStudioName = tgName
+                            }
+                        }
+
+                        val factThumbs = factObj.optJSONArray("fc_thumbs")
+                        if (factThumbs != null) {
+                            for (t in 0 until factThumbs.length()) {
+                                val off = factThumbs.opt(t)?.toString() ?: ""
+                                if (off.isNotBlank() && !previewOffsets.contains(off)) {
+                                    previewOffsets.add(off)
                                 }
                             }
                         }
                     }
-                    if (uploader == "Beeg" && modelOrStudioName.isNotBlank()) {
-                        uploader = modelOrStudioName
-                    }
+                }
 
-                    val thumb = when {
-                        customThumb.isNotBlank() -> customThumb
-                        else -> "https://thumbs.externulls.com/480x360/$fileId.jpg"
-                    }
+                if (uploader == "Beeg" && modelOrStudioName.isNotBlank()) {
+                    uploader = modelOrStudioName
+                }
 
-                    val options = mutableListOf<PlayableStreamOption>()
+                val primaryOffset = previewOffsets.firstOrNull() ?: "0"
+                val thumb = when {
+                    customThumb.isNotBlank() -> customThumb
+                    else -> "https://thumbs.externulls.com/videos/$fileId/$primaryOffset.webp?w=480&h=270"
+                }
 
-                    val hlsObj = fileObj.optJSONObject("hls_resources")
-                    val hlsMulti = hlsObj?.optString("fl_cdn_multi", "") ?: ""
-                    if (hlsMulti.isNotBlank()) {
+                val options = mutableListOf<PlayableStreamOption>()
+
+                // 1. Extract HLS streams from fileObj and fc_facts
+                fun addHlsCandidate(hlsMulti: String?) {
+                    if (!hlsMulti.isNullOrBlank()) {
                         val fullHlsUrl = "https://video.beeg.com/$hlsMulti"
-                        options.add(
-                            PlayableStreamOption(
-                                qualityLabel = "Auto (HLS)",
-                                format = "m3u8",
-                                isMuxed = true,
-                                videoUrl = fullHlsUrl,
-                                headers = beegHeaders
+                        if (options.none { it.videoUrl == fullHlsUrl }) {
+                            options.add(
+                                PlayableStreamOption(
+                                    qualityLabel = "Auto (HLS)",
+                                    format = "m3u8",
+                                    isMuxed = true,
+                                    videoUrl = fullHlsUrl,
+                                    headers = beegHeaders
+                                )
                             )
-                        )
+                        }
                     }
+                }
 
-                    val fallback = fileObj.optString("fallback", "")
-                    if (fallback.isNotBlank()) {
-                        val fullFallbackUrl = "https://video.beeg.com/$fallback"
-                        options.add(
-                            PlayableStreamOption(
-                                qualityLabel = "480p (MP4)",
-                                format = "mp4",
-                                isMuxed = true,
-                                videoUrl = fullFallbackUrl,
-                                headers = beegHeaders
+                addHlsCandidate(fileObj?.optJSONObject("hls_resources")?.optString("fl_cdn_multi"))
+                addHlsCandidate(fileObj?.optJSONObject("hls_resources_tmp")?.optString("fl_cdn_multi"))
+
+                if (fcFacts != null) {
+                    for (fIdx in 0 until fcFacts.length()) {
+                        val f = fcFacts.optJSONObject(fIdx) ?: continue
+                        addHlsCandidate(f.optJSONObject("hls_resources")?.optString("fl_cdn_multi"))
+                        addHlsCandidate(f.optJSONObject("hls_resources_tmp")?.optString("fl_cdn_multi"))
+                    }
+                }
+
+                // 2. Extract direct fallback MP4 streams
+                fun addFallbackCandidate(fallbackPath: String?) {
+                    if (!fallbackPath.isNullOrBlank()) {
+                        val fullFallbackUrl = "https://video.beeg.com/$fallbackPath"
+                        if (options.none { it.videoUrl == fullFallbackUrl }) {
+                            options.add(
+                                PlayableStreamOption(
+                                    qualityLabel = "480p (MP4)",
+                                    format = "mp4",
+                                    isMuxed = true,
+                                    videoUrl = fullFallbackUrl,
+                                    headers = beegHeaders
+                                )
                             )
-                        )
+                        }
                     }
+                }
 
-                    val resources = fileObj.optJSONObject("resources")
-                    if (resources != null) {
-                        val keys = resources.keys()
+                addFallbackCandidate(fileObj?.optString("fallback"))
+                if (fcFacts != null) {
+                    for (fIdx in 0 until fcFacts.length()) {
+                        val f = fcFacts.optJSONObject(fIdx) ?: continue
+                        addFallbackCandidate(f.optString("fallback"))
+                    }
+                }
+
+                // 3. Extract resource MP4 streams (fl_cdn_240, fl_cdn_480, fl_cdn_720, etc.)
+                fun addResourcesCandidates(resObj: JSONObject?) {
+                    if (resObj != null) {
+                        val keys = resObj.keys()
                         while (keys.hasNext()) {
                             val k = keys.next()
-                            val pathVal = resources.optString(k, "")
+                            val pathVal = resObj.optString(k, "")
                             if (pathVal.isNotBlank()) {
                                 val qualLabel = if (k.startsWith("fl_cdn_")) k.removePrefix("fl_cdn_") + "p (MP4)" else "360p (MP4)"
                                 val fullResUrl = "https://video.beeg.com/$pathVal"
@@ -368,23 +432,31 @@ object BeegProvider {
                             }
                         }
                     }
+                }
 
-                    if (options.isNotEmpty()) {
-                        val primaryOption = options.first()
-                        val hlsUrl = options.firstOrNull { it.format == "m3u8" }?.videoUrl
-                        return@withContext StreamData(
-                            videoId = fileId,
-                            videoUrl = primaryOption.videoUrl ?: "",
-                            title = title,
-                            channelName = uploader,
-                            thumbnailUrl = thumb,
-                            availableStreamOptions = options,
-                            selectedStreamOption = primaryOption,
-                            hlsUrl = hlsUrl,
-                            providerId = PROVIDER_ID,
-                            headers = beegHeaders
-                        )
+                addResourcesCandidates(fileObj?.optJSONObject("resources"))
+                if (fcFacts != null) {
+                    for (fIdx in 0 until fcFacts.length()) {
+                        val f = fcFacts.optJSONObject(fIdx) ?: continue
+                        addResourcesCandidates(f.optJSONObject("resources"))
                     }
+                }
+
+                if (options.isNotEmpty()) {
+                    val primaryOption = options.first()
+                    val hlsUrl = options.firstOrNull { it.format == "m3u8" }?.videoUrl
+                    return@withContext StreamData(
+                        videoId = fileId,
+                        videoUrl = primaryOption.videoUrl ?: "",
+                        title = title,
+                        channelName = uploader,
+                        thumbnailUrl = thumb,
+                        availableStreamOptions = options,
+                        selectedStreamOption = primaryOption,
+                        hlsUrl = hlsUrl,
+                        providerId = PROVIDER_ID,
+                        headers = beegHeaders
+                    )
                 }
             }
         } catch (e: Exception) {

@@ -121,14 +121,18 @@ fun SubtitleSettingsSheet(
             Spacer(modifier = Modifier.height(6.dp))
 
             // Option: AI Live Captions
+            val isWhisperNativeAvailable = com.example.subtitles.whisper.WhisperJni.isAvailable()
             SubtitleOptionRow(
                 title = "Whisper AI Live Captions",
-                subtitle = "Generate real-time speech-to-text captions",
+                subtitle = if (isWhisperNativeAvailable) "Generate real-time speech-to-text captions" else "Speech-to-text (Native whisper.cpp engine not bundled in build)",
                 icon = Icons.Default.GraphicEq,
-                isSelected = currentSubMode == GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS,
+                isSelected = isWhisperNativeAvailable && currentSubMode == GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS,
+                enabled = isWhisperNativeAvailable,
                 onClick = {
-                    GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS)
-                    onDismiss()
+                    if (isWhisperNativeAvailable) {
+                        GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS)
+                        onDismiss()
+                    }
                 }
             )
 
@@ -155,6 +159,7 @@ private fun SubtitleOptionRow(
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     isSelected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Surface(
@@ -162,8 +167,9 @@ private fun SubtitleOptionRow(
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            .clickable(enabled = enabled, onClick = onClick),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.35f else 0.15f),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
@@ -173,7 +179,8 @@ private fun SubtitleOptionRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.4f),
                 modifier = Modifier.size(22.dp)
             )
             Spacer(modifier = Modifier.width(14.dp))
@@ -182,12 +189,12 @@ private fun SubtitleOptionRow(
                     text = title,
                     fontSize = 15.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.45f)
                 )
                 Text(
                     text = subtitle,
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.4f)
                 )
             }
             if (isSelected) {

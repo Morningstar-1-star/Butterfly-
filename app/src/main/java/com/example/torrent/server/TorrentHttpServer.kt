@@ -25,49 +25,83 @@ class TorrentHttpServer(
     private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var serverSocket: ServerSocket? = null
     private val isRunning = AtomicBoolean(false)
+    private val _isReady = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isReady: kotlinx.coroutines.flow.StateFlow<Boolean> = _isReady
 
     val assignedPort: Int
-        get() = serverSocket?.localPort ?: if (port > 0) port else 8899
+        get() = serverSocket?.localPort ?: if (port > 0) port else 0
 
     val streamUrl: String
         get() = "http://127.0.0.1:$assignedPort/stream"
 
-    fun start() {
-        if (isRunning.getAndSet(true)) return
+    suspend fun awaitReady(): Int {
+        if (isRunning.get() && serverSocket != null && !serverSocket!!.isClosed) {
+            return assignedPort
+        }
+        return start()
+    }
 
-        serverScope.launch {
-            try {
-                // If port is 0 or fails on specific port, bind to free ephemeral port
-                val boundSocket = try {
-                    ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
-                } catch (e: Exception) {
+    fun start(): Int {
+        if (isRunning.get() && serverSocket != null && !serverSocket!!.isClosed) {
+            return assignedPort
+        }
+
+        synchronized(this) {
+            if (isRunning.get() && serverSocket != null && !serverSocket!!.isClosed) {
+                return assignedPort
+            }
+
+            // Close existing socket if lingering
+            try { serverSocket?.close() } catch (_: Exception) {}
+
+            val boundSocket = try {
+                if (port > 0) {
+                    try {
+                        ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Port $port occupied or unavailable, falling back to OS allocated dynamic port: ${e.message}")
+                        ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+                    }
+                } else {
                     ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
                 }
-                serverSocket = boundSocket
-                Log.i(TAG, "Torrent HTTP bridge server listening on http://127.0.0.1:${boundSocket.localPort}")
-
-                while (isRunning.get()) {
-                    val clientSocket = try {
-                        boundSocket.accept()
-                    } catch (_: Exception) {
-                        break
-                    }
-
-                    launch {
-                        handleClient(clientSocket)
-                    }
-                }
             } catch (e: Exception) {
-                Log.e(TAG, "Server socket error: ${e.message}")
-            } finally {
-                stop()
+                Log.e(TAG, "Failed to bind TorrentHttpServer: ${e.message}", e)
+                throw IllegalStateException("Failed to bind Torrent HTTP server", e)
             }
+
+            serverSocket = boundSocket
+            isRunning.set(true)
+            _isReady.value = true
+            val listeningPort = boundSocket.localPort
+            Log.i(TAG, "Torrent HTTP bridge server listening on http://127.0.0.1:$listeningPort")
+
+            serverScope.launch {
+                try {
+                    while (isRunning.get() && !boundSocket.isClosed) {
+                        val clientSocket = try {
+                            boundSocket.accept()
+                        } catch (_: Exception) {
+                            break
+                        }
+
+                        launch {
+                            handleClient(clientSocket)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Server socket accept loop error: ${e.message}")
+                } finally {
+                    stop()
+                }
+            }
+            return listeningPort
         }
     }
 
     private suspend fun handleClient(socket: Socket) {
         try {
-            socket.soTimeout = 30000
+            socket.soTimeout = 60000
             val inStream = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII))
             val outStream = BufferedOutputStream(socket.getOutputStream())
 
@@ -93,25 +127,19 @@ class TorrentHttpServer(
                 return
             }
 
-            // Wait for engine metadata to load (up to 15 seconds)
+            // Wait for engine metadata or length to load
             var totalLength = engine.getFileLength()
             var retries = 0
-            while (totalLength <= 0 && retries < 30 && !socket.isClosed) {
-                kotlinx.coroutines.delay(500)
+            while (totalLength <= 0 && retries < 40 && isRunning.get() && !socket.isClosed) {
+                kotlinx.coroutines.delay(250)
                 totalLength = engine.getFileLength()
                 retries++
             }
 
+            // If metadata is still resolving, fallback to a generous default size (1.5 GB) rather than failing with 503
             if (totalLength <= 0) {
-                Log.w(TAG, "Torrent file metadata not ready yet; returning 503 Service Unavailable to client")
-                val msg = "Torrent metadata initializing. Please retry in a moment."
-                sendResponse(
-                    outStream,
-                    "503 Service Unavailable",
-                    mapOf("Content-Type" to "text/plain", "Retry-After" to "3"),
-                    msg.toByteArray(StandardCharsets.UTF_8)
-                )
-                return
+                totalLength = 1_500_000_000L
+                Log.i(TAG, "Torrent metadata resolving in background; streaming with estimated size $totalLength")
             }
 
             val fileName = engine.getFileName()
@@ -120,19 +148,56 @@ class TorrentHttpServer(
 
             var startByte = 0L
             var endByte = totalLength - 1
-            val isRangeRequest = rangeHeader != null && rangeHeader.startsWith("bytes=")
+            var isRangeRequest = rangeHeader != null && rangeHeader.startsWith("bytes=")
+            var isRangeInvalid = false
 
             if (isRangeRequest) {
                 val rangeSpec = rangeHeader!!.substring(6).trim()
-                val rangeParts = rangeSpec.split("-", limit = 2)
-                if (rangeParts[0].isNotEmpty()) {
-                    startByte = rangeParts[0].toLongOrNull() ?: 0L
+                if (rangeSpec.startsWith("-")) {
+                    // Suffix byte range: e.g. bytes=-500 (last 500 bytes)
+                    val suffixLen = rangeSpec.substring(1).toLongOrNull() ?: -1L
+                    if (suffixLen <= 0L) {
+                        isRangeInvalid = true
+                    } else {
+                        startByte = (totalLength - suffixLen).coerceAtLeast(0L)
+                        endByte = totalLength - 1
+                    }
+                } else {
+                    val rangeParts = rangeSpec.split("-", limit = 2)
+                    if (rangeParts[0].isNotEmpty()) {
+                        val parsedStart = rangeParts[0].toLongOrNull()
+                        if (parsedStart == null || parsedStart < 0L || parsedStart >= totalLength) {
+                            isRangeInvalid = true
+                        } else {
+                            startByte = parsedStart
+                        }
+                    }
+                    if (!isRangeInvalid && rangeParts.size > 1 && rangeParts[1].isNotEmpty()) {
+                        val parsedEnd = rangeParts[1].toLongOrNull()
+                        if (parsedEnd == null || parsedEnd < startByte) {
+                            isRangeInvalid = true
+                        } else {
+                            endByte = minOf(parsedEnd, totalLength - 1)
+                        }
+                    }
                 }
-                if (rangeParts.size > 1 && rangeParts[1].isNotEmpty()) {
-                    endByte = rangeParts[1].toLongOrNull() ?: (totalLength - 1)
+
+                if (startByte > endByte || startByte >= totalLength) {
+                    isRangeInvalid = true
                 }
-                if (startByte < 0) startByte = 0
-                if (endByte >= totalLength) endByte = totalLength - 1
+            }
+
+            if (isRangeInvalid) {
+                sendResponse(
+                    outStream,
+                    "416 Range Not Satisfiable",
+                    mapOf(
+                        "Content-Range" to "bytes */$totalLength",
+                        "Content-Type" to "text/plain"
+                    ),
+                    "Requested Range Not Satisfiable".toByteArray(StandardCharsets.UTF_8)
+                )
+                return
             }
 
             val contentLength = (endByte - startByte + 1).coerceAtLeast(0L)
@@ -220,6 +285,7 @@ class TorrentHttpServer(
 
     fun stop() {
         if (isRunning.getAndSet(false)) {
+            _isReady.value = false
             try {
                 serverSocket?.close()
                 serverSocket = null

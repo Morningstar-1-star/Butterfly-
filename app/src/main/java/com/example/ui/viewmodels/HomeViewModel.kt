@@ -69,6 +69,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val list = mutableListOf(
             ProviderUiItem("all", "All Sources", "🌐", true),
             ProviderUiItem("youtube", "YouTube", "▶️", true),
+            ProviderUiItem("twitch", "Twitch", "🟣", true),
             ProviderUiItem("torrent", "Torrents", "🧲", true),
             ProviderUiItem("archive_org", "Internet Archive", "🏛️", true),
             ProviderUiItem("dailymotion", "Dailymotion", "📺", true),

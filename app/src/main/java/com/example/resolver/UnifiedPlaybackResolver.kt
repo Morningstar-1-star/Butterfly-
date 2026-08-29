@@ -1,9 +1,13 @@
 package com.example.resolver
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
+import com.example.resolver.health.FailureType
+import com.example.resolver.health.ProviderHealthManager
+import com.example.resolver.mirror.MirrorManager
 import com.example.torrent.engine.TorrentEngine
 import com.example.torrent.model.TorrentRelease
 import com.example.torrent.server.TorrentHttpServer
@@ -23,9 +27,14 @@ data class ResolvedPlayback(
 )
 
 /**
- * High-performance playback engine responsible for converting a SourceCandidate
- * (Vega direct stream or BitTorrent magnet) into an active Media3 playback session
- * with seamless state preservation (position, speed, audio tracks).
+ * High-performance playback engine with Multi-Stage Intelligent Fallback.
+ * (Adapted from Cauldron resilient playback & Nuvio mirror failover specifications).
+ *
+ * Fallback Chain:
+ * 1. Primary candidate
+ * 2. Same-provider healthy mirrors (via [MirrorManager])
+ * 3. Next best ranked candidate from the active pool
+ * 4. Fallback notification & seamless playback position / speed recovery
  */
 class UnifiedPlaybackResolver private constructor(private val context: Context) {
 
@@ -113,14 +122,94 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
                 GlobalPlayerManager.getExoPlayer(context).setPlaybackSpeed(currentSpeed)
             } catch (_: Exception) {}
 
+            MirrorManager.recordMirrorSuccess(candidate.providerId, candidate.urlOrMagnet)
             onStatus("Playing via ${candidate.serverName}")
             _isResolving.value = false
             true
         } catch (e: Exception) {
             Log.e(TAG, "Source switch failed: ${e.message}", e)
+            MirrorManager.recordMirrorFailure(
+                providerId = candidate.providerId,
+                mirrorUrl = candidate.urlOrMagnet,
+                failureType = FailureType.EXTRACTION_FAILED,
+                errorMessage = e.message
+            )
             onStatus("Playback error: ${e.message}")
             _isResolving.value = false
             false
+        }
+    }
+
+    /**
+     * Attempts playback on [primaryCandidate], and automatically cascades through:
+     * 1. Same-provider mirrors (via [MirrorManager])
+     * 2. Secondary candidate options in [candidatePool]
+     * 3. Best surviving stream candidate
+     */
+    suspend fun playWithFallback(
+        primaryCandidate: SourceCandidate,
+        candidatePool: List<SourceCandidate>,
+        onStatus: (String) -> Unit = {}
+    ): Boolean = withContext(Dispatchers.Main) {
+        val currentPos = GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
+
+        // Stage 1: Try Primary Candidate
+        val primarySuccess = switchSource(primaryCandidate, currentPos, onStatus)
+        if (primarySuccess) return@withContext true
+
+        Log.w(TAG, "Primary candidate ${primaryCandidate.serverName} failed. Triggering mirror failover...")
+
+        // Stage 2: Try Same-Provider Mirrors
+        val mirrors = MirrorManager.getOrderedMirrors(primaryCandidate.providerId)
+        if (mirrors.size > 1 && !primaryCandidate.isTorrent) {
+            for (mirrorDomain in mirrors) {
+                if (!primaryCandidate.urlOrMagnet.contains(mirrorDomain, ignoreCase = true)) {
+                    val replacedUrl = replaceDomain(primaryCandidate.urlOrMagnet, mirrorDomain)
+                    if (replacedUrl != primaryCandidate.urlOrMagnet) {
+                        onStatus("Failing over to mirror: $mirrorDomain")
+                        val mirrorCandidate = primaryCandidate.copy(
+                            id = "${primaryCandidate.id}_mirror",
+                            serverName = "${primaryCandidate.serverName} (Mirror)",
+                            urlOrMagnet = replacedUrl
+                        )
+                        val mirrorSuccess = switchSource(mirrorCandidate, currentPos, onStatus)
+                        if (mirrorSuccess) {
+                            Log.i(TAG, "Same-provider mirror failover succeeded: $mirrorDomain")
+                            return@withContext true
+                        }
+                    }
+                }
+            }
+        }
+
+        // Stage 3: Cascade to Secondary Candidates in Pool
+        val secondaryCandidates = candidatePool
+            .filter { it.id != primaryCandidate.id && it.providerId != primaryCandidate.providerId }
+            .sortedByDescending { SourceRankingEngine.calculateCompositeScore(it) }
+
+        for (candidate in secondaryCandidates.take(3)) {
+            onStatus("Cascading to fallback provider: ${candidate.providerName}...")
+            val secondarySuccess = switchSource(candidate, currentPos, onStatus)
+            if (secondarySuccess) {
+                Log.i(TAG, "Secondary provider fallback succeeded: ${candidate.providerName}")
+                onStatus("Recovered playback via ${candidate.providerName}")
+                return@withContext true
+            }
+        }
+
+        onStatus("All available stream candidates and mirrors failed")
+        false
+    }
+
+    private fun replaceDomain(originalUrl: String, newDomain: String): String {
+        return try {
+            val uri = Uri.parse(originalUrl)
+            val path = uri.encodedPath ?: ""
+            val query = if (uri.encodedQuery != null) "?${uri.encodedQuery}" else ""
+            val cleanDomain = newDomain.trimEnd('/')
+            "$cleanDomain$path$query"
+        } catch (_: Exception) {
+            originalUrl
         }
     }
 
@@ -194,7 +283,6 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             onStatus("Connecting to BitTorrent swarm (${candidate.seeders} seeds)...")
             torrentEngine.startSession(release, streamPort = server.assignedPort)
 
-            // Wait up to 30s for metadata & file length to be ready before handing URL to ExoPlayer
             var metadataWaitMs = 0
             val maxWaitMs = 30000
             while (torrentEngine.getFileLength() <= 0 && metadataWaitMs < maxWaitMs) {

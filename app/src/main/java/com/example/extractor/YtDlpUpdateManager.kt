@@ -54,9 +54,29 @@ object YtDlpUpdateManager {
 
     fun injectUpdatedPathIntoPython(context: Context) {
         try {
-            val targetDir = File(context.filesDir, "yt_dlp_updated")
-            if (targetDir.exists() && File(targetDir, "yt_dlp").exists()) {
-                Log.i(TAG, "Active OTA updated yt-dlp package present at ${targetDir.absolutePath}")
+            val targetDir = File(context.filesDir, "yt_dlp_updated/yt_dlp")
+            if (targetDir.exists() && targetDir.isDirectory) {
+                // Find all candidate package directories in filesDir and noBackupFilesDir
+                val searchRoots = listOfNotNull(
+                    context.filesDir,
+                    context.noBackupFilesDir
+                )
+                for (root in searchRoots) {
+                    val matchingDirs = root.walkTopDown()
+                        .maxDepth(5)
+                        .filter { it.isDirectory && it.name == "yt_dlp" && it.absolutePath != targetDir.absolutePath }
+                        .toList()
+
+                    for (dest in matchingDirs) {
+                        try {
+                            targetDir.copyRecursively(dest, overwrite = true)
+                            Log.i(TAG, "Successfully synced OTA updated yt-dlp to: ${dest.absolutePath}")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed copying updated yt-dlp to ${dest.absolutePath}: ${e.message}")
+                        }
+                    }
+                }
+                Log.i(TAG, "Active OTA updated yt-dlp package verified at ${targetDir.absolutePath}")
             }
         } catch (e: Throwable) {
             Log.d(TAG, "OTA update path note: ${e.message}")

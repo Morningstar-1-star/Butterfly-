@@ -49,17 +49,8 @@ object PlaybackResumeManager {
         val cleanId = videoId.trim()
         if (cleanId.isEmpty() || positionMs < 0L) return
 
-        val fraction = if (durationMs > 0L) positionMs.toFloat() / durationMs.toFloat() else 0f
-
-        // If the user watched >= 95% of the video or is within 5 seconds of the end,
-        // treat it as completed so subsequent clicks start from the beginning.
-        // If position is less than 3 seconds, also start from beginning.
-        val targetPos = when {
-            durationMs > 0L && fraction >= 0.95f -> 0L
-            durationMs > 0L && (durationMs - positionMs) <= 5000L -> 0L
-            positionMs < 3000L -> 0L
-            else -> positionMs
-        }
+        // Always save the true position so progress indicators and watch history reflect reality
+        val targetPos = if (positionMs < 1000L) 0L else positionMs
 
         positionMemoryCache[cleanId] = targetPos
         if (durationMs > 0L) {
@@ -79,39 +70,47 @@ object PlaybackResumeManager {
     }
 
     /**
-     * Retrieve the saved playback position in milliseconds. Returns 0L if none or completed.
+     * Retrieve the raw saved position without applying completion reset.
+     */
+    fun getRawSavedPosition(context: Context, videoId: String): Long {
+        val cleanId = videoId.trim()
+        if (cleanId.isEmpty()) return 0L
+        initCacheIfNeeded(context)
+        return positionMemoryCache[cleanId] ?: try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val pos = prefs.getLong("$KEY_PREFIX_POS$cleanId", 0L)
+            positionMemoryCache[cleanId] = pos
+            pos
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * Retrieve the saved playback position in milliseconds for resuming. Returns 0L if completed (>= 95%).
      */
     fun getSavedPosition(context: Context, videoId: String): Long {
         val cleanId = videoId.trim()
         if (cleanId.isEmpty()) return 0L
         initCacheIfNeeded(context)
 
-        val cachedPos = positionMemoryCache[cleanId]
-        if (cachedPos != null) {
-            val dur = durationMemoryCache[cleanId] ?: 0L
-            if (dur > 0L && cachedPos > 0L) {
-                val fraction = cachedPos.toFloat() / dur.toFloat()
-                if (fraction >= 0.95f) return 0L
-            }
-            return cachedPos
-        }
-
-        return try {
+        val rawPos = getRawSavedPosition(context, cleanId)
+        val dur = durationMemoryCache[cleanId] ?: try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val pos = prefs.getLong("$KEY_PREFIX_POS$cleanId", 0L)
-            val dur = prefs.getLong("$KEY_PREFIX_DUR$cleanId", 0L)
-            positionMemoryCache[cleanId] = pos
-            if (dur > 0L) durationMemoryCache[cleanId] = dur
-
-            if (dur > 0L && pos > 0L) {
-                val fraction = pos.toFloat() / dur.toFloat()
-                if (fraction >= 0.95f) 0L else pos
-            } else {
-                pos
-            }
-        } catch (e: Exception) {
+            val d = prefs.getLong("$KEY_PREFIX_DUR$cleanId", 0L)
+            if (d > 0L) durationMemoryCache[cleanId] = d
+            d
+        } catch (_: Exception) {
             0L
         }
+
+        if (dur > 0L && rawPos > 0L) {
+            val fraction = rawPos.toFloat() / dur.toFloat()
+            if (fraction >= 0.95f || (dur - rawPos) <= 5000L) {
+                return 0L // Finished video starts fresh when opened
+            }
+        }
+        return if (rawPos < 3000L) 0L else rawPos
     }
 
     /**
@@ -120,10 +119,18 @@ object PlaybackResumeManager {
     fun getSavedFraction(context: Context, videoId: String): Float {
         val cleanId = videoId.trim()
         if (cleanId.isEmpty()) return 0f
-        val pos = getSavedPosition(context, cleanId)
-        val dur = durationMemoryCache[cleanId] ?: 0L
-        return if (dur > 0L && pos > 0L) {
-            (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+        initCacheIfNeeded(context)
+        val rawPos = getRawSavedPosition(context, cleanId)
+        val dur = durationMemoryCache[cleanId] ?: try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val d = prefs.getLong("$KEY_PREFIX_DUR$cleanId", 0L)
+            if (d > 0L) durationMemoryCache[cleanId] = d
+            d
+        } catch (_: Exception) {
+            0L
+        }
+        return if (dur > 0L && rawPos > 0L) {
+            (rawPos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
         } else 0f
     }
 

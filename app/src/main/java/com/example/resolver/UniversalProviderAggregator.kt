@@ -3,9 +3,10 @@ package com.example.resolver
 import android.content.Context
 import android.util.Log
 import com.example.model.MediaIdentity
-import com.example.model.ProviderResult
 import com.example.model.StreamResult
 import com.example.remote.MediaFlowProxyHelper
+import com.example.resolver.dedup.SourceDeduplicator
+import com.example.resolver.validation.MediaIdentityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -14,21 +15,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 
 /**
- * Universal Provider Aggregation Engine (Adapted from Steven-Shirley/aioStreams).
+ * Universal Provider Aggregator 2.0 (Inspired by Cauldron, Nuvio & AIOStreams architectures).
  *
- * Enforces the standardized 7-step pipeline:
- * 1. Provider Query Dispatch (Parallel with complete fault isolation)
- * 2. Standardized Output Normalization into StreamResult
- * 3. Strict URL / Magnet Validation & Connectivity Health Checks
- * 4. Deduplication by canonical URL and BitTorrent InfoHash
- * 5. MediaFlow Proxying (Automatic proxy wrapping for streams requiring headers/CORS)
- * 6. Multi-Factor Quality & Health Score Ranking
- * 7. Progressive Flow Emission to the UI and Player
+ * Enforces the unified resilient aggregation pipeline:
+ * 1. Concurrent Isolated Query Dispatch via [UnifiedSourceResolver] & [com.example.resolver.health.ProviderIsolationController]
+ * 2. Strict Media Identity Validation via [MediaIdentityValidator]
+ * 3. Standardized Output Normalization into [StreamResult]
+ * 4. 4-Tier Deduplication & Stream Merging via [SourceDeduplicator]
+ * 5. MediaFlow Proxying (Dynamic CORS/Header negotiation)
+ * 6. Multi-Factor Quality & Reliability Ranking via [SourceRankingEngine]
+ * 7. Progressive Flow Emission to UI & Media Player
  */
 class UniversalProviderAggregator(private val context: Context) {
 
     companion object {
-        private const val TAG = "AIOStreamsAggregator"
+        private const val TAG = "UniversalAggregator"
 
         @Volatile
         private var instance: UniversalProviderAggregator? = null
@@ -43,41 +44,46 @@ class UniversalProviderAggregator(private val context: Context) {
     private val unifiedResolver = UnifiedSourceResolver.getInstance(context)
 
     /**
-     * Resolves, aggregates, normalizes, validates, deduplicates, and ranks streams
-     * returning an ongoing progressive Flow of [StreamResult]s.
+     * Resolves, validates, aggregates, deduplicates, and ranks streams
+     * returning an ongoing progressive Flow of [StreamResult] items.
      */
-    fun aggregateStreams(identity: MediaIdentity): Flow<List<StreamResult>> = channelFlow {
-        val streamMap = mutableMapOf<String, StreamResult>()
+    fun aggregateStreams(
+        identity: MediaIdentity,
+        requiredCapabilities: Set<ProviderCapability> = emptySet()
+    ): Flow<List<StreamResult>> = channelFlow {
+        val collectedStreams = mutableListOf<StreamResult>()
 
         supervisorScope {
             launch {
-                unifiedResolver.resolveSources(identity).collect { candidates ->
+                unifiedResolver.resolveSources(identity, requiredCapabilities).collect { candidates ->
                     if (candidates.isNotEmpty()) {
-                        synchronized(streamMap) {
-                            for (candidate in candidates) {
-                                val normalized = normalizeCandidate(candidate)
-                                if (isValidStream(normalized)) {
-                                    val key = getDeduplicationKey(normalized)
-                                    val existing = streamMap[key]
-                                    if (existing == null || normalized.rankingScore > existing.rankingScore) {
-                                        streamMap[key] = normalized
-                                    }
-                                }
+                        val normalizedList = mutableListOf<StreamResult>()
+
+                        for (candidate in candidates) {
+                            val stream = normalizeCandidate(candidate)
+                            if (isValidStream(stream)) {
+                                normalizedList.add(stream)
                             }
                         }
 
-                        // Rank and emit current snapshot
-                        val rankedResults = rankStreams(streamMap.values.toList())
-                        send(rankedResults)
+                        synchronized(collectedStreams) {
+                            collectedStreams.clear()
+                            collectedStreams.addAll(normalizedList)
+                        }
+
+                        // 4-Tier Deduplication & Merging
+                        val deduplicated = SourceDeduplicator.deduplicateStreams(collectedStreams)
+
+                        // Multi-Factor Ranking
+                        val ranked = SourceRankingEngine.rankStreams(deduplicated)
+
+                        send(ranked)
                     }
                 }
             }
         }
     }.flowOn(Dispatchers.IO)
 
-    /**
-     * Normalizes a SourceCandidate into a standard StreamResult and applies MediaFlow proxying if needed.
-     */
     private fun normalizeCandidate(candidate: SourceCandidate): StreamResult {
         val isTorrent = candidate.type == SourceStreamType.TORRENT || candidate.urlOrMagnet.startsWith("magnet:")
         val isHls = candidate.type == SourceStreamType.HLS || candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true)
@@ -88,7 +94,7 @@ class UniversalProviderAggregator(private val context: Context) {
                 com.example.torrent.protocol.MagnetParser.parse(candidate.urlOrMagnet)?.infoHashHex
             } else null
 
-        // Determine if stream needs MediaFlow proxying (custom headers or user preference)
+        // Determine if stream needs MediaFlow proxying
         val needsProxy = !isTorrent && (candidate.headers.isNotEmpty() || MediaFlowProxyHelper.isMediaFlowEnabled())
         val proxiedUrl = if (needsProxy) {
             MediaFlowProxyHelper.buildProxiedUrl(
@@ -99,7 +105,7 @@ class UniversalProviderAggregator(private val context: Context) {
             )
         } else null
 
-        val rankingScore = computeRankingScore(candidate)
+        val rankingScore = SourceRankingEngine.calculateCompositeScore(candidate)
 
         return StreamResult(
             id = candidate.id,
@@ -134,40 +140,14 @@ class UniversalProviderAggregator(private val context: Context) {
     }
 
     private fun isValidStream(result: StreamResult): Boolean {
-        if (result.url.isBlank()) return false
+        val trimmed = result.url.trim()
+        if (trimmed.isBlank()) return false
         if (result.isTorrent) {
-            return !result.infoHash.isNullOrBlank() || result.url.startsWith("magnet:")
+            return !result.infoHash.isNullOrBlank() || trimmed.startsWith("magnet:?xt=urn:btih:", ignoreCase = true) || trimmed.startsWith("magnet:", ignoreCase = true)
         }
-        return result.url.startsWith("http://") || result.url.startsWith("https://")
-    }
-
-    private fun getDeduplicationKey(result: StreamResult): String {
-        return when {
-            result.isTorrent && !result.infoHash.isNullOrBlank() -> "torrent_${result.infoHash.lowercase()}"
-            else -> "url_${result.url.substringBefore("?").lowercase()}"
-        }
-    }
-
-    private fun computeRankingScore(candidate: SourceCandidate): Int {
-        var score = candidate.qualityScore
-        if (candidate.type == SourceStreamType.DIRECT || candidate.type == SourceStreamType.HLS) {
-            score += 200 // Bonus for instantaneous direct playback
-        }
-        if (candidate.seeders > 0) {
-            score += minOf(candidate.seeders * 3, 150)
-        }
-        if (candidate.healthScore > 80) {
-            score += 50
-        }
-        return score
-    }
-
-    private fun rankStreams(streams: List<StreamResult>): List<StreamResult> {
-        return streams.sortedWith(
-            compareByDescending<StreamResult> { it.rankingScore }
-                .thenByDescending { it.qualityScore }
-                .thenByDescending { it.seeders }
-                .thenByDescending { it.healthScore }
-        )
+        return trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) ||
+                trimmed.startsWith("file://", ignoreCase = true) ||
+                trimmed.startsWith("content://", ignoreCase = true)
     }
 }

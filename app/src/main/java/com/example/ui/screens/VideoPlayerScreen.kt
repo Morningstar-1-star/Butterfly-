@@ -215,9 +215,15 @@ fun VideoPlayerScreen(
 
     val minimizePlayerAction: () -> Unit = {
         coroutineScope.launch {
-            dragOffsetY.animateTo(maxDockDistancePx, tween(160, easing = FastOutSlowInEasing))
+            if (dragOffsetY.value < maxDockDistancePx) {
+                dragOffsetY.animateTo(maxDockDistancePx, tween(140, easing = FastOutSlowInEasing))
+            }
             onBackClick()
         }
+    }
+
+    LaunchedEffect(activeVideoId) {
+        dragOffsetY.snapTo(0f)
     }
 
     val landscapeVideos = remember(relatedContent, activeVideoId) {
@@ -402,10 +408,10 @@ fun VideoPlayerScreen(
                             },
                             onSwipeDownEnd = { accumulatedDy ->
                                 coroutineScope.launch {
-                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 60f) {
+                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 50f) {
                                         minimizePlayerAction()
                                     } else {
-                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow))
+                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
                                     }
                                 }
                             },

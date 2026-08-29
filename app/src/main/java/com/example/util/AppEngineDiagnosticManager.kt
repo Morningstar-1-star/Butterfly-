@@ -789,8 +789,8 @@ object AppEngineDiagnosticManager {
             componentName = "Whisper AI Speech Recognition",
             isSuccess = isReady,
             latencyMs = latency,
-            statusSummary = if (isReady) "GGML Engine Ready" else "Ready (Model on Demand)",
-            details = "Native C++ GGML transcription pipeline • Real-time live AI captions ready"
+            statusSummary = if (isReady) "GGML Engine Ready" else "Native Engine Not Bundled",
+            details = if (isReady) "Native C++ GGML transcription pipeline ready" else "Native whisper_jni binary is not compiled in this build; online subtitles active."
         )
     }
 

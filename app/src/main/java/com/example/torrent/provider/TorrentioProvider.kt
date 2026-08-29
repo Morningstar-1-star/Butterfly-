@@ -97,8 +97,13 @@ class TorrentioProvider(
                         val sizeMatch = Regex("💾\\s*([0-9.]+\\s*[GM]B)").find(line)
                         if (sizeMatch != null) {
                             formattedSize = sizeMatch.groupValues[1]
+                            sizeBytes = TorrentResult.parseBytes(formattedSize)
                         }
                     }
+                }
+
+                if (sizeBytes <= 0L && formattedSize.isNotBlank()) {
+                    sizeBytes = TorrentResult.parseBytes(formattedSize)
                 }
 
                 val quality = parseQuality(streamName + " " + streamTitle)

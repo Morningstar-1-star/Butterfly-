@@ -2,11 +2,15 @@ package com.example.extractor
 
 import android.content.Context
 import android.util.Log
+import com.example.model.PlayableStreamOption
+import com.example.model.ProviderType
+import com.example.model.StreamData
 import com.example.model.VideoItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -20,159 +24,92 @@ object RedTubeProvider {
 
     private val httpClient = OkHttpClient.Builder()
         .dns(com.example.util.SecureDnsManager.appDns)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
-    // Verified fallback catalogue with valid RedTube IDs, high quality thumbnails and durations
-    private val fallbackRedTubeCatalog = listOf(
-        VideoItem(
-            id = "https://www.redtube.com/4318721",
-            title = "Passionate Evening Encounter 1080p",
-            uploaderName = "RedTube Studios",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)1.jpg",
-            durationSeconds = 1140L,
-            viewCount = 485000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4333918",
-            title = "Luxury Spa Relaxation and Sensual Touch",
-            uploaderName = "Glamour Red",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)2.jpg",
-            durationSeconds = 1560L,
-            viewCount = 620000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4349120",
-            title = "Romantic Honeymoon Suite Experience 4K",
-            uploaderName = "Velvet Dreams",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)3.jpg",
-            durationSeconds = 1380L,
-            viewCount = 780000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4379124",
-            title = "Stunning Beauty Sunset Private Session",
-            uploaderName = "LustCinema",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)4.jpg",
-            durationSeconds = 1720L,
-            viewCount = 590000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4388125",
-            title = "Private Penthouse Meeting & Champagne",
-            uploaderName = "Elegance Direct",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)5.jpg",
-            durationSeconds = 1450L,
-            viewCount = 810000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4402123",
-            title = "Sensory Massage Session in Tokyo Resort",
-            uploaderName = "Tokyo Sensations",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)6.jpg",
-            durationSeconds = 1890L,
-            viewCount = 940000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4414128",
-            title = "Midnight Rendezvous in Milan Hotel",
-            uploaderName = "Milano Nights",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)7.jpg",
-            durationSeconds = 1290L,
-            viewCount = 510000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.redtube.com/4430129",
-            title = "Coastal Villa Romantic Escape HD",
-            uploaderName = "Sun & Sand Studios",
-            thumbnailUrl = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)8.jpg",
-            durationSeconds = 1640L,
-            viewCount = 670000L,
-            providerId = PROVIDER_ID
-        )
-    )
-
-    fun getHome(page: Int = 1, limit: Int = 25): List<VideoItem> {
-        // Strategy 1: Official RedTube Public JSON API
-        val apiUrls = listOf(
-            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&ordering=mostviewed&page=$page&thumbsize=all",
-            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&ordering=rating&page=$page&thumbsize=all",
-            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&search=trending&page=$page&thumbsize=all",
-            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&category=all&page=$page&thumbsize=all"
+    fun getHome(page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val urls = listOf(
+            if (page == 1) "https://www.redtube.com/top" else "https://www.redtube.com/top?page=$page",
+            if (page == 1) "https://www.redtube.com/" else "https://www.redtube.com/?page=$page",
+            if (page == 1) "https://www.redtube.com/mostviewed" else "https://www.redtube.com/mostviewed?page=$page",
+            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&ordering=mostviewed&page=$page&thumbsize=all"
         )
 
-        for (apiUrl in apiUrls) {
-            val apiList = parseRedTubeJsonApi(apiUrl, limit)
-            if (apiList.isNotEmpty()) {
-                Log.d(TAG, "RedTube getHome API returned ${apiList.size} videos from $apiUrl")
-                return apiList
+        for (targetUrl in urls) {
+            val list = if (targetUrl.contains("api.redtube.com")) {
+                parseRedTubeJsonApi(targetUrl, limit)
+            } else {
+                parseRedTubeHtml(targetUrl, limit)
+            }
+            if (list.isNotEmpty()) {
+                Log.d(TAG, "RedTube getHome page $page fetched ${list.size} videos from $targetUrl")
+                return list
             }
         }
 
-        // Strategy 2: HTML Scraping Fallback
-        val htmlUrls = listOf(
-            "https://www.redtube.com/mostviewed",
-            "https://www.redtube.com/top",
-            "https://www.redtube.com/"
+        return emptyList()
+    }
+
+    fun search(query: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val cleanQuery = query.trim()
+        val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
+
+        val urls = listOf(
+            if (page == 1) "https://www.redtube.com/?search=$encoded" else "https://www.redtube.com/?search=$encoded&page=$page",
+            "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&search=$encoded&page=$page&thumbsize=all",
+            "https://www.redtube.com/search/$encoded?page=$page"
         )
-        for (u in htmlUrls) {
-            val htmlList = parseRedTubeHtml(u, limit)
-            if (htmlList.isNotEmpty()) {
-                Log.d(TAG, "RedTube getHome HTML returned ${htmlList.size} videos from $u")
-                return htmlList
+
+        for (targetUrl in urls) {
+            val list = if (targetUrl.contains("api.redtube.com")) {
+                parseRedTubeJsonApi(targetUrl, limit)
+            } else {
+                parseRedTubeHtml(targetUrl, limit)
+            }
+            if (list.isNotEmpty()) {
+                Log.d(TAG, "RedTube search '$query' page $page fetched ${list.size} videos from $targetUrl")
+                return list
             }
         }
 
-        Log.i(TAG, "Using fallback catalog for RedTube getHome")
-        return fallbackRedTubeCatalog.take(limit)
+        return emptyList()
     }
 
-    fun search(query: String, page: Int = 1, limit: Int = 25): List<VideoItem> {
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        val apiUrl = "https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&search=$encoded&page=$page&thumbsize=all"
-        val apiList = parseRedTubeJsonApi(apiUrl, limit)
-        if (apiList.isNotEmpty()) {
-            return apiList
-        }
+    fun getCreatorVideos(slugOrName: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val clean = slugOrName.trim().lowercase().replace(" ", "-")
+        val urls = listOf(
+            "https://www.redtube.com/amateur/$clean?page=$page",
+            "https://www.redtube.com/pornstar/$clean?page=$page",
+            "https://www.redtube.com/channel/$clean?page=$page",
+            "https://www.redtube.com/users/$clean/videos?page=$page"
+        )
 
-        val htmlUrl = "https://www.redtube.com/?search=$encoded&page=$page"
-        val htmlList = parseRedTubeHtml(htmlUrl, limit)
-        if (htmlList.isNotEmpty()) {
-            return htmlList
+        for (u in urls) {
+            val list = parseRedTubeHtml(u, limit)
+            if (list.isNotEmpty()) return list
         }
-
-        val matched = fallbackRedTubeCatalog.filter {
-            it.title.contains(query, ignoreCase = true) || it.uploaderName.contains(query, ignoreCase = true)
-        }
-        return if (matched.isNotEmpty()) matched else fallbackRedTubeCatalog.take(limit)
+        return search(slugOrName, page, limit)
     }
 
-    suspend fun getStreamData(urlOrId: String, context: Context?): com.example.model.StreamData? = withContext(Dispatchers.IO) {
-        val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.redtube.com/$urlOrId"
-        val cleanId = urlOrId.substringAfterLast("/").substringBefore("?").substringBefore("&")
+    suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
+        val cleanId = extractVideoId(urlOrId)
+        val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.redtube.com/$cleanId"
         val defaultHeaders = mapOf(
             "User-Agent" to DEFAULT_USER_AGENT,
             "Referer" to "https://www.redtube.com/",
             "Origin" to "https://www.redtube.com",
-            "Cookie" to "age_verified=1; platform=pc"
+            "Cookie" to "age_verified=1; platform=pc; has_consent=1"
         )
 
-        // 1. Direct RedTube Web & Media API Scraping
+        // 1. Direct RedTube HTML & Media API Scraping
         try {
             val req = Request.Builder()
                 .url(fullUrl)
                 .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Cookie", "age_verified=1; platform=pc")
+                .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 .header("Referer", "https://www.redtube.com/")
                 .build()
 
@@ -181,46 +118,113 @@ object RedTubeProvider {
             }
 
             if (!html.isNullOrBlank()) {
-                val streamOptions = mutableListOf<com.example.model.PlayableStreamOption>()
-                var hlsUrl: String? = null
+                val streamOptions = mutableListOf<PlayableStreamOption>()
+                var hlsMasterUrl: String? = null
                 var title = "RedTube Video"
                 var thumb = ""
+                var channelName = "RedTube"
+                var channelAvatar: String? = null
+                var duration = 0L
 
-                val metaTitle = Pattern.compile("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
-                if (metaTitle.find()) {
-                    title = metaTitle.group(1)?.trim() ?: title
+                // Extract Title
+                val titleMatch = Pattern.compile("""<meta\s+property="og:title"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (titleMatch.find()) {
+                    title = titleMatch.group(1)?.replace(" - RedTube", "")?.trim() ?: title
+                } else {
+                    val h1Match = Pattern.compile("""<h1[^>]*class="[^"]*video-title[^"]*"[^>]*>(.*?)</h1>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (h1Match.find()) title = h1Match.group(1)?.trim() ?: title
                 }
 
-                val metaThumb = Pattern.compile("<meta\\s+property=\"og:image\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
-                if (metaThumb.find()) {
-                    thumb = metaThumb.group(1)?.trim() ?: ""
+                // Extract Thumb
+                val thumbMatch = Pattern.compile("""<meta\s+property="og:image"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (thumbMatch.find()) {
+                    thumb = thumbMatch.group(1)?.trim() ?: ""
                 }
 
-                // Media definitions pattern
-                val mediaDefPattern = Pattern.compile("""mediaDefinitions\s*:\s*(\[[^\]]+\])""", Pattern.DOTALL)
+                // Extract Channel / Author Info
+                val authorMatch = Pattern.compile("""<a[^>]*class="[^"]*(?:video-infobar__link|author-title-text|video_author_link)[^"]*"[^>]*>(.*?)</a>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE).matcher(html)
+                if (authorMatch.find()) {
+                    val aName = authorMatch.group(1)?.trim() ?: ""
+                    if (aName.isNotBlank()) channelName = aName
+                }
+
+                val avatarMatch = Pattern.compile("""<img[^>]*class="[^"]*(?:user-image|avatar|channel-logo)[^"]*"[^>]*src="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (avatarMatch.find()) {
+                    channelAvatar = avatarMatch.group(1)?.trim()
+                }
+
+                // Extract Media Definitions JSON
+                val mediaDefPattern = Pattern.compile("""mediaDefinitions?\s*:\s*(\[[^\]]+\])""", Pattern.DOTALL)
                 val mDef = mediaDefPattern.matcher(html)
                 if (mDef.find()) {
                     try {
-                        val arr = org.json.JSONArray(mDef.group(1))
+                        val arr = JSONArray(mDef.group(1))
                         for (i in 0 until arr.length()) {
                             val obj = arr.optJSONObject(i) ?: continue
                             val format = obj.optString("format", "")
-                            val videoUrl = obj.optString("videoUrl", "")
-                            val quality = obj.optString("quality", "720p")
+                            var videoEndpoint = obj.optString("videoUrl", "")
+                            if (videoEndpoint.isBlank()) continue
 
-                            if (format.equals("hls", ignoreCase = true) || videoUrl.contains(".m3u8")) {
-                                hlsUrl = videoUrl
-                            } else if (videoUrl.isNotBlank()) {
-                                streamOptions.add(
-                                    com.example.model.PlayableStreamOption(
-                                        qualityLabel = "${quality}p",
-                                        format = "mp4",
-                                        isMuxed = true,
-                                        videoUrl = videoUrl,
-                                        providerType = com.example.model.ProviderType.OTHER,
-                                        headers = defaultHeaders
+                            if (videoEndpoint.startsWith("/")) {
+                                videoEndpoint = "https://www.redtube.com$videoEndpoint"
+                            }
+
+                            // If videoEndpoint is a media dispatcher (/media/mp4 or /media/hls), call it to get actual stream URLs
+                            if (videoEndpoint.contains("/media/")) {
+                                try {
+                                    val mReq = Request.Builder()
+                                        .url(videoEndpoint)
+                                        .header("User-Agent", DEFAULT_USER_AGENT)
+                                        .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
+                                        .header("Referer", fullUrl)
+                                        .build()
+
+                                    val mRespStr = httpClient.newCall(mReq).execute().use { it.body?.string() }
+                                    if (!mRespStr.isNullOrBlank() && mRespStr.startsWith("[")) {
+                                        val streamArr = JSONArray(mRespStr)
+                                        for (j in 0 until streamArr.length()) {
+                                            val sObj = streamArr.optJSONObject(j) ?: continue
+                                            val sFormat = sObj.optString("format", "mp4")
+                                            val sQuality = sObj.optString("quality", "720")
+                                            val sUrl = sObj.optString("videoUrl", "")
+
+                                            if (sUrl.isNotBlank()) {
+                                                if (sFormat.equals("hls", ignoreCase = true) || sUrl.contains(".m3u8")) {
+                                                    if (hlsMasterUrl == null) hlsMasterUrl = sUrl
+                                                }
+                                                val qInt = sQuality.toIntOrNull() ?: 720
+                                                val isDefault = sObj.optBoolean("defaultQuality", false)
+                                                streamOptions.add(
+                                                    PlayableStreamOption(
+                                                        qualityLabel = "${sQuality}p",
+                                                        format = if (sFormat.equals("hls", true)) "m3u8" else "mp4",
+                                                        isMuxed = true,
+                                                        videoUrl = sUrl,
+                                                        providerType = ProviderType.OTHER,
+                                                        headers = defaultHeaders
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Error resolving RedTube media endpoint $videoEndpoint: ${e.message}")
+                                }
+                            } else if (videoEndpoint.startsWith("http")) {
+                                if (format.equals("hls", ignoreCase = true) || videoEndpoint.contains(".m3u8")) {
+                                    hlsMasterUrl = videoEndpoint
+                                } else {
+                                    streamOptions.add(
+                                        PlayableStreamOption(
+                                            qualityLabel = "Auto Quality",
+                                            format = "mp4",
+                                            isMuxed = true,
+                                            videoUrl = videoEndpoint,
+                                            providerType = ProviderType.OTHER,
+                                            headers = defaultHeaders
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
                     } catch (e: Exception) {
@@ -228,39 +232,28 @@ object RedTubeProvider {
                     }
                 }
 
-                // Direct video_url pattern fallback
-                if (streamOptions.isEmpty() && hlsUrl == null) {
-                    val cleanHtml = html.replace("\\/", "/")
-                    val vUrlMatch = Pattern.compile(""""videoUrl"\s*:\s*"([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(cleanHtml)
-                    while (vUrlMatch.find()) {
-                        val candidate = vUrlMatch.group(1) ?: continue
-                        if (candidate.contains(".m3u8")) {
-                            hlsUrl = candidate
-                        } else if (candidate.startsWith("http")) {
-                            streamOptions.add(
-                                com.example.model.PlayableStreamOption(
-                                    qualityLabel = "Auto Quality",
-                                    format = "mp4",
-                                    isMuxed = true,
-                                    videoUrl = candidate,
-                                    providerType = com.example.model.ProviderType.OTHER,
-                                    headers = defaultHeaders
-                                )
-                            )
-                        }
-                    }
-                }
+                // If streams found, sort by resolution (1080p -> 720p -> 480p -> 240p)
+                if (streamOptions.isNotEmpty() || hlsMasterUrl != null) {
+                    val sortedOptions = streamOptions
+                        .distinctBy { it.videoUrl }
+                        .sortedByDescending { it.qualityLabel.replace("p", "").toIntOrNull() ?: 0 }
 
-                if (streamOptions.isNotEmpty() || hlsUrl != null) {
-                    return@withContext com.example.model.StreamData(
+                    val primaryStream = sortedOptions.firstOrNull { it.qualityLabel == "720p" || it.qualityLabel == "1080p" }
+                        ?: sortedOptions.firstOrNull()
+
+                    val primaryUrl = primaryStream?.videoUrl ?: hlsMasterUrl ?: ""
+
+                    Log.i(TAG, "Successfully extracted RedTube stream for $cleanId (${sortedOptions.size} options)")
+                    return@withContext StreamData(
                         videoId = cleanId,
-                        videoUrl = fullUrl,
+                        videoUrl = primaryUrl,
                         title = title,
-                        channelName = "RedTube",
+                        channelName = channelName,
+                        channelAvatarUrl = channelAvatar,
                         thumbnailUrl = thumb,
-                        availableStreamOptions = streamOptions,
-                        selectedStreamOption = streamOptions.firstOrNull(),
-                        hlsUrl = hlsUrl,
+                        availableStreamOptions = sortedOptions,
+                        selectedStreamOption = primaryStream,
+                        hlsUrl = hlsMasterUrl,
                         providerId = PROVIDER_ID,
                         headers = defaultHeaders
                     )
@@ -282,11 +275,9 @@ object RedTubeProvider {
             }
         }
 
-        // 3. Fallback to resilient search resolver
+        // 3. Fallback search resolver via title across MultiSource
         try {
-            val matchedItem = fallbackRedTubeCatalog.firstOrNull { it.id.contains(cleanId) }
-            val candidateTitle = matchedItem?.title ?: cleanId.replace("-", " ")
-            val cleanQuery = candidateTitle.replace(Regex("""(?i)(?:redtube|video|hd|4k|1080p|720p)"""), "").trim()
+            val cleanQuery = cleanId.replace(Regex("""[-_]"""), " ").replace(Regex("""(?i)(?:redtube|video|hd|4k|1080p|720p|\d{6,})"""), "").trim()
             if (cleanQuery.isNotBlank()) {
                 val searchResults = EpornerProvider.search(cleanQuery, page = 1, limit = 5)
                 if (searchResults.isNotEmpty()) {
@@ -295,7 +286,7 @@ object RedTubeProvider {
                         return@withContext streamData.copy(
                             videoId = cleanId,
                             videoUrl = fullUrl,
-                            title = candidateTitle,
+                            title = streamData.title,
                             providerId = PROVIDER_ID,
                             headers = streamData.headers
                         )
@@ -303,67 +294,23 @@ object RedTubeProvider {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Fallback resolver error: ${e.message}")
+            Log.w(TAG, "Fallback search error: ${e.message}")
         }
 
         throw java.io.IOException("Unable to extract stream for RedTube video $cleanId")
     }
 
-    private fun parseRedTubeJsonApi(apiUrl: String, limit: Int): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder()
-                .url(apiUrl)
-                .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Accept", "application/json,text/javascript,*/*")
-                .build()
-
-            val jsonStr = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val root = JSONObject(jsonStr)
-            val videosArray = root.optJSONArray("videos") ?: return list
-
-            for (i in 0 until videosArray.length()) {
-                if (list.size >= limit) break
-                val itemObj = videosArray.optJSONObject(i) ?: continue
-                val videoObj = itemObj.optJSONObject("video") ?: itemObj
-
-                val videoId = videoObj.optString("video_id", "").ifBlank { videoObj.optString("id", "") }
-                if (videoId.isBlank()) continue
-
-                val title = videoObj.optString("title", "RedTube Video")
-                val url = videoObj.optString("url", "https://www.redtube.com/$videoId")
-                val durationStr = videoObj.optString("duration", "0")
-                val durationSeconds = parseDuration(durationStr)
-                val views = videoObj.optLong("views", -1L)
-
-                var thumb = videoObj.optString("default_thumb", "")
-                if (thumb.isBlank()) {
-                    val thumbsArray = videoObj.optJSONArray("thumbs")
-                    if (thumbsArray != null && thumbsArray.length() > 0) {
-                        thumb = thumbsArray.optJSONObject(thumbsArray.length() - 1)?.optString("src", "") ?: ""
-                    }
-                }
-                if (thumb.startsWith("//")) thumb = "https:$thumb"
-
-                list.add(
-                    VideoItem(
-                        id = if (url.startsWith("http")) url else "https://www.redtube.com/$videoId",
-                        title = title,
-                        uploaderName = "RedTube",
-                        thumbnailUrl = thumb,
-                        durationSeconds = durationSeconds,
-                        viewCount = views,
-                        providerId = PROVIDER_ID
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "RedTube JSON API parse error: ${e.message}")
+    private fun extractVideoId(urlOrId: String): String {
+        val clean = urlOrId.trim()
+        val numMatch = Pattern.compile("""redtube\.com/(\d+)""", Pattern.CASE_INSENSITIVE).matcher(clean)
+        if (numMatch.find()) {
+            return numMatch.group(1) ?: clean
         }
-        return list
+        val justNum = Pattern.compile("""^(\d+)$""").matcher(clean)
+        if (justNum.find()) {
+            return clean
+        }
+        return clean.substringAfterLast("/").substringBefore("?").substringBefore("&")
     }
 
     private fun parseRedTubeHtml(targetUrl: String, limit: Int): List<VideoItem> {
@@ -372,7 +319,7 @@ object RedTubeProvider {
             val req = Request.Builder()
                 .url(targetUrl)
                 .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Cookie", "age_verified=1; platform=pc")
+                .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 .header("Referer", "https://www.redtube.com/")
                 .build()
 
@@ -381,37 +328,99 @@ object RedTubeProvider {
             } ?: return list
 
             val seen = mutableSetOf<String>()
-            val pattern = Pattern.compile("""<a\s+[^>]*href="(/(\d+)[^"]*)"[^>]*>(.*?)</a>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
+
+            // Pattern for Redtube videoblock li items
+            val blockPattern = Pattern.compile("""<li[^>]*class="[^"]*(?:videoblock_list|tm_video_block|thumbnail-card)[^"]*"[^>]*data-video-id="(\d+)"[^>]*>(.*?)</li>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+            val matcher = blockPattern.matcher(html)
 
             while (matcher.find() && list.size < limit) {
-                val path = matcher.group(1) ?: continue
-                val id = matcher.group(2) ?: continue
-                val inner = matcher.group(3) ?: ""
+                val videoId = matcher.group(1) ?: continue
+                val block = matcher.group(2) ?: continue
+                if (seen.contains(videoId)) continue
+                seen.add(videoId)
 
-                if (seen.contains(id)) continue
-                seen.add(id)
+                val fullUrl = "https://www.redtube.com/$videoId"
 
-                var title = "RedTube Video $id"
-                val titleMatch = Pattern.compile("""(?:title|alt)="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(inner)
-                if (titleMatch.find()) {
-                    val t = titleMatch.group(1) ?: ""
-                    if (t.isNotBlank()) title = t
+                // Title
+                var title = "RedTube Video $videoId"
+                val titleMatch = Pattern.compile("""(?:title|alt)="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(block)
+                while (titleMatch.find()) {
+                    val t = titleMatch.group(1)?.trim() ?: continue
+                    if (t.isNotBlank() && !t.equals("RedTube", ignoreCase = true) && !t.startsWith("http") && t.length > 3) {
+                        title = t
+                        break
+                    }
                 }
 
+                // Thumbnail & Preview Frames
                 var thumb = ""
-                val thumbMatch = Pattern.compile("""(?:data-src|data-thumb_url|src)="([^"]*(?:jpg|jpeg|webp|png)[^"]*)"""", Pattern.CASE_INSENSITIVE).matcher(inner)
-                if (thumbMatch.find()) {
-                    thumb = thumbMatch.group(1) ?: ""
+                val thumbMatch = Pattern.compile("""(?:data-o_thumb|data-src|data-srcset|src)=["']([^"'\s,]+)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
+                while (thumbMatch.find()) {
+                    val candidate = thumbMatch.group(1)?.trim() ?: continue
+                    if (candidate.startsWith("http") && !candidate.contains("data:image") && !candidate.endsWith(".svg")) {
+                        thumb = candidate
+                        break
+                    }
                 }
-                if (thumb.startsWith("//")) thumb = "https:$thumb"
+
+                // Teaser Video Preview MP4 (data-mediabook)
+                var previewVideoUrl: String? = null
+                val mbMatch = Pattern.compile("""data-mediabook=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (mbMatch.find()) {
+                    previewVideoUrl = mbMatch.group(1)?.replace("&amp;", "&")
+                }
+
+                // Storyboard Scrubbing Frames (data-path with {index}.jpg)
+                val previewThumbnails = mutableListOf<String>()
+                val pathMatch = Pattern.compile("""data-path=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (pathMatch.find()) {
+                    val pathTemplate = pathMatch.group(1)?.trim() ?: ""
+                    if (pathTemplate.contains("{index}")) {
+                        for (idx in 1..16) {
+                            previewThumbnails.add(pathTemplate.replace("{index}", idx.toString()))
+                        }
+                    }
+                }
+
+                // Duration
+                var duration = -1L
+                val durMatch = Pattern.compile("""class="[^"]*(?:tm_video_duration|video-properties|duration)[^"]*"[^>]*>([^<]+)</span>""", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (durMatch.find()) {
+                    duration = parseDuration(durMatch.group(1) ?: "")
+                }
+
+                // Uploader / Creator Name & Url
+                var uploader = "RedTube"
+                var uploaderUrl: String? = null
+                val uploaderIdMatch = Pattern.compile("""data-uploader-name=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (uploaderIdMatch.find()) {
+                    uploader = uploaderIdMatch.group(1)?.trim() ?: uploader
+                } else {
+                    val authorLinkMatch = Pattern.compile("""<a[^>]*class="[^"]*author-title-text[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (authorLinkMatch.find()) {
+                        uploaderUrl = "https://www.redtube.com" + (authorLinkMatch.group(1) ?: "")
+                        uploader = authorLinkMatch.group(2)?.trim() ?: uploader
+                    }
+                }
+
+                // View Count
+                var viewCount = 0L
+                val viewsMatch = Pattern.compile("""<span[^>]*class=['"][^'"]*info-views[^'"]*['"][^>]*>([^<]+)</span>""", Pattern.CASE_INSENSITIVE).matcher(block)
+                if (viewsMatch.find()) {
+                    viewCount = parseViewCount(viewsMatch.group(1) ?: "")
+                }
 
                 list.add(
                     VideoItem(
-                        id = "https://www.redtube.com/$id",
+                        id = fullUrl,
                         title = title,
-                        uploaderName = "RedTube",
+                        uploaderName = uploader,
+                        uploaderUrl = uploaderUrl,
                         thumbnailUrl = thumb,
+                        durationSeconds = duration,
+                        viewCount = viewCount,
+                        previewClipUrl = previewVideoUrl,
+                        previewThumbnails = previewThumbnails,
                         providerId = PROVIDER_ID
                     )
                 )
@@ -422,14 +431,94 @@ object RedTubeProvider {
         return list
     }
 
+    private fun parseRedTubeJsonApi(apiUrl: String, limit: Int): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val req = Request.Builder()
+                .url(apiUrl)
+                .header("User-Agent", DEFAULT_USER_AGENT)
+                .build()
+
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val root = JSONObject(jsonStr)
+            val videosArr = root.optJSONArray("videos") ?: return list
+
+            for (i in 0 until videosArr.length()) {
+                if (list.size >= limit) break
+                val item = videosArr.optJSONObject(i) ?: continue
+                val videoObj = item.optJSONObject("video") ?: item
+
+                val id = videoObj.optString("video_id", "")
+                if (id.isBlank()) continue
+
+                val title = videoObj.optString("title", "RedTube Video")
+                val url = videoObj.optString("url", "https://www.redtube.com/$id")
+                val durStr = videoObj.optString("duration", "")
+                val duration = parseDuration(durStr)
+                val views = videoObj.optLong("views", 0L)
+
+                // Pick highest resolution valid thumbnail from thumbs array
+                var thumb = ""
+                val previewThumbnails = mutableListOf<String>()
+                val thumbsArr = videoObj.optJSONArray("thumbs")
+                if (thumbsArr != null) {
+                    for (tIdx in 0 until thumbsArr.length()) {
+                        val tObj = thumbsArr.optJSONObject(tIdx) ?: continue
+                        val src = tObj.optString("src", "")
+                        if (src.isNotBlank() && !src.contains("//original/")) {
+                            previewThumbnails.add(src)
+                            if (tObj.optString("size") == "big" || tObj.optString("size") == "medium2" || thumb.isBlank()) {
+                                thumb = src
+                            }
+                        }
+                    }
+                }
+                if (thumb.isBlank()) {
+                    thumb = videoObj.optString("default_thumb", "").takeIf { !it.contains("//original/") }
+                        ?: videoObj.optString("thumb", "").takeIf { !it.contains("//original/") }
+                        ?: "https://pix-cdn77.rdtcdn.com/videos/$id/original/(m=e0YH8f)0.jpg"
+                }
+
+                list.add(
+                    VideoItem(
+                        id = url,
+                        title = title,
+                        uploaderName = "RedTube",
+                        thumbnailUrl = thumb,
+                        durationSeconds = duration,
+                        viewCount = views,
+                        previewThumbnails = previewThumbnails,
+                        providerId = PROVIDER_ID
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "RedTube JSON API parse error: ${e.message}")
+        }
+        return list
+    }
+
     private fun parseDuration(raw: String): Long {
-        if (raw.isBlank()) return -1L
-        if (raw.all { it.isDigit() }) return raw.toLongOrNull() ?: -1L
-        val parts = raw.split(":")
+        val clean = raw.trim()
+        if (clean.isBlank()) return -1L
+        val parts = clean.split(":")
         return when (parts.size) {
             2 -> (parts[0].toLongOrNull() ?: 0L) * 60L + (parts[1].toLongOrNull() ?: 0L)
             3 -> (parts[0].toLongOrNull() ?: 0L) * 3600L + (parts[1].toLongOrNull() ?: 0L) * 60L + (parts[2].toLongOrNull() ?: 0L)
             else -> -1L
+        }
+    }
+
+    private fun parseViewCount(raw: String): Long {
+        val clean = raw.trim().uppercase().replace(",", "")
+        return when {
+            clean.endsWith("B") -> ((clean.dropLast(1).toDoubleOrNull() ?: 0.0) * 1_000_000_000).toLong()
+            clean.endsWith("M") -> ((clean.dropLast(1).toDoubleOrNull() ?: 0.0) * 1_000_000).toLong()
+            clean.endsWith("K") -> ((clean.dropLast(1).toDoubleOrNull() ?: 0.0) * 1_000).toLong()
+            else -> clean.replace("[^0-9]".toRegex(), "").toLongOrNull() ?: 0L
         }
     }
 }

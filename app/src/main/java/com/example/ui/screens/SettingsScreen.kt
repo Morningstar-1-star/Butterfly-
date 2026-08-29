@@ -44,8 +44,8 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     SMART_SKIP("Smart Skip & SponsorBlock", "Auto-skip sponsors, intros & previews", Icons.Outlined.FastForward),
     HISTORY_PRIVACY("History & Privacy", "Watch history, search cache & blocked channels", Icons.Outlined.History),
     BACKUP_RESTORE("Backup & Restore", "Export/import profile data & Google Drive sync", Icons.Outlined.CloudUpload),
-    ABOUT("About Butterfly", "Version, legal & open-source details", Icons.Outlined.Info),
     ADDITIONAL_SETTINGS("Additional Settings", "DNS & Network, API keys, Diagnostics & Battery Saver", Icons.Outlined.Tune),
+    ABOUT("About Butterfly", "Version, legal & open-source details", Icons.Outlined.Info),
 
     // Sub-categories housed exclusively inside ADDITIONAL_SETTINGS
     BATTERY_SAVER("Battery Saver & Performance", "Power saving mode, RAM & speed optimizations", Icons.Outlined.Bolt),
@@ -237,8 +237,8 @@ fun SettingsScreen(
                     SettingsCategory.SMART_SKIP,
                     SettingsCategory.HISTORY_PRIVACY,
                     SettingsCategory.BACKUP_RESTORE,
-                    SettingsCategory.ABOUT,
-                    SettingsCategory.ADDITIONAL_SETTINGS
+                    SettingsCategory.ADDITIONAL_SETTINGS,
+                    SettingsCategory.ABOUT
                 )
                 // ROOT YOUTUBE-STYLE SETTINGS LIST
                 LazyColumn(
@@ -652,6 +652,9 @@ fun SettingsScreen(
                                     "pornhub" to "Pornhub",
                                     "xvideos" to "XVideos",
                                     "eporner" to "Eporner",
+                                    "spankbang" to "SpankBang",
+                                    "hanime1" to "Hanime1 Anime",
+                                    "hqporner" to "HQPorner 4K",
                                     "redtube" to "RedTube",
                                     "xhamster" to "XHamster",
                                     "beeg" to "Beeg",
@@ -679,6 +682,7 @@ fun SettingsScreen(
                         ) {
                             val normalProviders = listOf(
                                 "youtube" to "YouTube",
+                                "twitch" to "Twitch",
                                 "archive_org" to "Internet Archive",
                                 "dailymotion" to "Dailymotion",
                                 "bilibili" to "Bilibili",

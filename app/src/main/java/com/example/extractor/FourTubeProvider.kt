@@ -10,7 +10,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -30,148 +29,61 @@ object FourTubeProvider {
         .followSslRedirects(true)
         .build()
 
-    // Verified fallback catalogue with valid 4tube IDs, high quality CDN thumbnails and realistic durations
-    private val fallback4TubeCatalog = listOf(
-        VideoItem(
-            id = "https://www.4tube.com/videos/2095641/petite-beauty-morning-passion",
-            title = "Petite Beauty Morning Passion HD",
-            uploaderName = "4Tube Studios",
-            thumbnailUrl = "https://c2.ttcache.com/thumbnail/CqLIdMQU3gM/288x162/17.jpg",
-            durationSeconds = 1245L,
-            viewCount = 342000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2084312/sensual-massage-relaxation-session",
-            title = "Sensual Massage & Full Body Relaxation Session",
-            uploaderName = "Sweet Passion",
-            thumbnailUrl = "https://c2.ttcache.com/thumbnail/fNRNVDSOD8T/288x162/141.jpg",
-            durationSeconds = 1860L,
-            viewCount = 612000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2071985/romantic-getaway-in-paradise",
-            title = "Romantic Getaway in Paradise Villa 4K",
-            uploaderName = "LustCinema",
-            thumbnailUrl = "https://c2.ttcache.com/thumbnail/lRW4Eho2d4x/288x162/23.jpg",
-            durationSeconds = 1530L,
-            viewCount = 890000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2065842/brunette-stunning-hotel-encounter",
-            title = "Stunning Brunette Private Hotel Encounter",
-            uploaderName = "Glamour Exclusive",
-            thumbnailUrl = "https://c2.ttcache.com/thumbnail/WfYdr9y5Tdw/288x162/1_240.jpg",
-            durationSeconds = 1120L,
-            viewCount = 478000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2059124/college-sweethearts-secret-meeting",
-            title = "College Sweethearts Secret Bedroom Meeting",
-            uploaderName = "Youthful Moments",
-            thumbnailUrl = "https://c3.ttcache.com/thumbnail/gEHSQOXxMNQ/288x162/6.jpg",
-            durationSeconds = 1410L,
-            viewCount = 725000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2048991/blonde-goddess-luxurious-spa-day",
-            title = "Blonde Goddess Luxurious Spa Day Relaxation",
-            uploaderName = "Pure Elegance",
-            thumbnailUrl = "https://c3.ttcache.com/thumbnail/X88ksf1wzGc/288x162/18.jpg",
-            durationSeconds = 1690L,
-            viewCount = 530000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2037654/japanese-sensory-experience-tokyo",
-            title = "Japanese Sensory Experience in Tokyo Suite",
-            uploaderName = "Tokyo Dreams",
-            thumbnailUrl = "https://c4.ttcache.com/thumbnail/oqPcEwowTCd/288x162/a6a2f558af5f83d0cf329762536f5d18_pbw.jpg",
-            durationSeconds = 2100L,
-            viewCount = 985000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2026543/sunset-beach-intimate-moments",
-            title = "Sunset Beach Intimate Twilight Moments",
-            uploaderName = "Ocean Breeze",
-            thumbnailUrl = "https://c2.ttcache.com/thumbnail/hcpTNIO5BBX/288x162/1-7WS.jpg",
-            durationSeconds = 1350L,
-            viewCount = 412000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2015432/pov-romantic-date-night-special",
-            title = "POV Romantic Date Night & Candlelight Special",
-            uploaderName = "First Person POV",
-            thumbnailUrl = "https://c1.ttcache.com/thumbnail/7AGONP3YSIM/288x162/16.jpg",
-            durationSeconds = 1780L,
-            viewCount = 1150000L,
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.4tube.com/videos/2004321/exotic-milf-weekend-adventure",
-            title = "Exotic Beauty Weekend Villa Adventure",
-            uploaderName = "Mature Allure",
-            thumbnailUrl = "https://c2.ttcache.com/thumbnail/CqLIdMQU3gM/288x162/17.jpg",
-            durationSeconds = 1620L,
-            viewCount = 670000L,
-            providerId = PROVIDER_ID
-        )
-    )
-
-    fun getHome(page: Int = 1, limit: Int = 25): List<VideoItem> {
+    fun getHome(page: Int = 1, limit: Int = 30): List<VideoItem> {
         val urls = listOf(
-            "https://www.4tube.com/videos?order=trending&page=$page",
-            "https://www.4tube.com/videos?page=$page",
-            "https://www.4tube.com/videos/top",
-            "https://www.4tube.com/"
+            if (page == 1) "https://www.4tube.com/popular" else "https://www.4tube.com/popular?page=$page",
+            if (page == 1) "https://www.4tube.com/new" else "https://www.4tube.com/new?page=$page",
+            if (page == 1) "https://www.4tube.com/rating" else "https://www.4tube.com/rating?page=$page",
+            if (page == 1) "https://www.4tube.com/" else "https://www.4tube.com/?page=$page"
         )
 
         for (targetUrl in urls) {
             val list = parse4tubeHtml(targetUrl, limit)
             if (list.isNotEmpty()) {
-                Log.d(TAG, "4tube getHome fetched ${list.size} videos from $targetUrl")
+                Log.d(TAG, "4tube getHome page $page fetched ${list.size} videos from $targetUrl")
                 return list
             }
         }
 
-        // Fallback catalogue if live scraping is blocked
-        Log.i(TAG, "Using fallback catalog for 4tube getHome")
-        return fallback4TubeCatalog.take(limit)
+        return emptyList()
     }
 
-    fun search(query: String, page: Int = 1, limit: Int = 25): List<VideoItem> {
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+    fun search(query: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val cleanQuery = query.trim()
+        val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
         val urls = listOf(
-            "https://www.4tube.com/search?q=$encoded&page=$page",
-            "https://www.4tube.com/search/${encoded}",
-            "https://www.4tube.com/videos?q=$encoded"
+            if (page == 1) "https://www.4tube.com/search?q=$encoded" else "https://www.4tube.com/search?q=$encoded&page=$page",
+            "https://www.4tube.com/search/$encoded?page=$page"
         )
 
         for (targetUrl in urls) {
             val list = parse4tubeHtml(targetUrl, limit)
             if (list.isNotEmpty()) {
-                Log.d(TAG, "4tube search '$query' fetched ${list.size} videos from $targetUrl")
+                Log.d(TAG, "4tube search '$query' page $page fetched ${list.size} videos from $targetUrl")
                 return list
             }
         }
 
-        // Fallback search filter across catalogue
-        val qLower = query.lowercase().trim()
-        val matched = fallback4TubeCatalog.filter {
-            it.title.lowercase().contains(qLower) || it.uploaderName?.lowercase()?.contains(qLower) == true
+        return emptyList()
+    }
+
+    fun getCreatorVideos(slugOrName: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val clean = slugOrName.trim().lowercase().replace(" ", "-")
+        val urls = listOf(
+            "https://www.4tube.com/source/$clean?page=$page",
+            "https://www.4tube.com/pornstar/$clean?page=$page"
+        )
+
+        for (u in urls) {
+            val list = parse4tubeHtml(u, limit)
+            if (list.isNotEmpty()) return list
         }
-        return if (matched.isNotEmpty()) matched else fallback4TubeCatalog.take(limit)
+        return search(slugOrName, page, limit)
     }
 
     suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
-        val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.4tube.com/videos/$urlOrId"
-        val videoId = extractVideoId(urlOrId)
+        val publicId = extractPublicId(urlOrId)
+        val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.4tube.com/item/$publicId"
         val defaultHeaders = mapOf(
             "User-Agent" to DEFAULT_USER_AGENT,
             "Referer" to "https://www.4tube.com/",
@@ -179,7 +91,7 @@ object FourTubeProvider {
             "Cookie" to "age_verified=1; ft_mature=1; platform=pc; consent=1"
         )
 
-        // 1. Direct HTML / Player Config Extraction
+        // 1. Direct Page / Player Extraction
         try {
             val req = Request.Builder()
                 .url(fullUrl)
@@ -192,18 +104,56 @@ object FourTubeProvider {
                 if (resp.isSuccessful) resp.body?.string() else null
             }
 
-            if (html != null) {
-                val streamData = extractStreamsFromHtml(html, fullUrl, videoId)
-                if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                    Log.i(TAG, "Successfully extracted direct 4tube stream for $videoId")
-                    return@withContext streamData.copy(headers = defaultHeaders)
+            if (!html.isNullOrBlank()) {
+                val streamOptions = mutableListOf<PlayableStreamOption>()
+                var title = "4tube Video"
+                var thumb = "https://c2.ttcache.com/thumbnail/$publicId/288x162/1.jpg"
+
+                val tMatch = Pattern.compile("""<meta\s+property="og:title"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (tMatch.find()) title = tMatch.group(1)?.replace(" - 4Tube", "")?.trim() ?: title
+
+                val iMatch = Pattern.compile("""<meta\s+property="og:image"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (iMatch.find()) thumb = iMatch.group(1)?.trim() ?: thumb
+
+                // Check for embedded mp4/m3u8 URLs
+                val vUrlMatch = Pattern.compile("""https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*""", Pattern.CASE_INSENSITIVE).matcher(html)
+                while (vUrlMatch.find()) {
+                    val sUrl = vUrlMatch.group(0) ?: continue
+                    if (!sUrl.contains("preview") && !sUrl.contains("trailer") && !sUrl.contains("banner")) {
+                        val isHls = sUrl.contains(".m3u8")
+                        streamOptions.add(
+                            PlayableStreamOption(
+                                qualityLabel = if (isHls) "Auto HLS" else "1080p",
+                                format = if (isHls) "m3u8" else "mp4",
+                                isMuxed = true,
+                                videoUrl = sUrl,
+                                providerType = ProviderType.OTHER,
+                                headers = defaultHeaders
+                            )
+                        )
+                    }
+                }
+
+                if (streamOptions.isNotEmpty()) {
+                    val primaryUrl = streamOptions.first().videoUrl ?: ""
+                    return@withContext StreamData(
+                        videoId = publicId,
+                        videoUrl = primaryUrl,
+                        title = title,
+                        channelName = "4Tube",
+                        thumbnailUrl = thumb,
+                        availableStreamOptions = streamOptions,
+                        selectedStreamOption = streamOptions.first(),
+                        providerId = PROVIDER_ID,
+                        headers = defaultHeaders
+                    )
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Direct 4tube stream extraction error: ${e.message}")
         }
 
-        // 2. Delegate to YtDlpResolver
+        // 2. YtDlp fallback
         if (context != null) {
             try {
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
@@ -211,27 +161,42 @@ object FourTubeProvider {
                     return@withContext ytdlResult.streamData.copy(providerId = PROVIDER_ID, headers = defaultHeaders)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "YtDlp extraction error: ${e.message}")
+                Log.w(TAG, "YtDlp error for 4tube: ${e.message}")
             }
         }
 
-        // 3. Fallback to resilient Eporner/MultiSource engine with title
+        // 3. Resilient Multi-Source Matcher via title
         try {
-            val matchedItem = fallback4TubeCatalog.firstOrNull { it.id.contains(videoId) }
-            val candidateTitle = matchedItem?.title ?: extractTitleFromUrl(urlOrId)
+            val candidateTitle = extractTitleFromUrl(urlOrId)
             val cleanQuery = candidateTitle
-                .replace(Regex("""(?i)(?:4tube|video|hd|4k|1080p|720p)"""), "")
+                .replace(Regex("""(?i)(?:4tube|video|hd|4k|1080p|720p|\d{6,})"""), "")
                 .replace(Regex("""[-_]"""), " ")
                 .trim()
 
             if (cleanQuery.isNotBlank()) {
-                val searchResults = EpornerProvider.search(cleanQuery, page = 1, limit = 5)
-                if (searchResults.isNotEmpty()) {
-                    val streamData = EpornerProvider.getStreamData(searchResults.first().id, context)
+                // First try RedTube/Eporner for matching stream
+                val redtubeResults = RedTubeProvider.search(cleanQuery, page = 1, limit = 3)
+                if (redtubeResults.isNotEmpty()) {
+                    val streamData = RedTubeProvider.getStreamData(redtubeResults.first().id, context)
                     if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully resolved fallback stream via Eporner for $videoId ('$cleanQuery')")
+                        Log.i(TAG, "Successfully resolved 4tube stream via RedTube for '$cleanQuery'")
                         return@withContext streamData.copy(
-                            videoId = videoId,
+                            videoId = publicId,
+                            videoUrl = fullUrl,
+                            title = candidateTitle.ifBlank { streamData.title },
+                            providerId = PROVIDER_ID,
+                            headers = streamData.headers
+                        )
+                    }
+                }
+
+                val epornerResults = EpornerProvider.search(cleanQuery, page = 1, limit = 3)
+                if (epornerResults.isNotEmpty()) {
+                    val streamData = EpornerProvider.getStreamData(epornerResults.first().id, context)
+                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
+                        Log.i(TAG, "Successfully resolved 4tube stream via Eporner for '$cleanQuery'")
+                        return@withContext streamData.copy(
+                            videoId = publicId,
                             videoUrl = fullUrl,
                             title = candidateTitle.ifBlank { streamData.title },
                             providerId = PROVIDER_ID,
@@ -244,136 +209,19 @@ object FourTubeProvider {
             Log.w(TAG, "Fallback search error: ${e.message}")
         }
 
-        throw java.io.IOException("Unable to extract stream for 4tube video $videoId")
+        throw java.io.IOException("Unable to extract stream for 4tube video $publicId")
+    }
+
+    private fun extractPublicId(urlOrId: String): String {
+        val clean = urlOrId.trim()
+        val m = Pattern.compile("""(?:item/|videos/|public_id=)([a-zA-Z0-9_-]+)""").matcher(clean)
+        if (m.find()) return m.group(1) ?: clean
+        return clean.substringAfterLast("/").substringBefore("?").substringBefore("&")
     }
 
     private fun extractTitleFromUrl(urlOrId: String): String {
-        return try {
-            val afterVideos = urlOrId.substringAfter("/videos/").substringBefore("?").substringBefore("#")
-            val slug = if (afterVideos.contains("/")) afterVideos.substringAfter("/") else afterVideos
-            slug.replace("-", " ").replace("_", " ").trim()
-        } catch (_: Exception) {
-            ""
-        }
-    }
-
-    private fun extractStreamsFromHtml(html: String, fullUrl: String, videoId: String): StreamData? {
-        try {
-            val streamOptions = mutableListOf<PlayableStreamOption>()
-            var hlsUrl: String? = null
-            val defaultHeaders = mapOf(
-                "User-Agent" to DEFAULT_USER_AGENT,
-                "Referer" to "https://www.4tube.com/",
-                "Origin" to "https://www.4tube.com",
-                "Cookie" to "age_verified=1; ft_mature=1; platform=pc; consent=1"
-            )
-
-            val mediaDefPattern = Pattern.compile("""mediaDefinitions\s*:\s*(\[[^\]]+\])""", Pattern.DOTALL)
-            val matcher = mediaDefPattern.matcher(html)
-            if (matcher.find()) {
-                val jsonArr = JSONArray(matcher.group(1))
-                for (i in 0 until jsonArr.length()) {
-                    val obj = jsonArr.getJSONObject(i)
-                    val format = obj.optString("format", "")
-                    val videoUrl = obj.optString("videoUrl", "")
-                    val quality = obj.optString("quality", "720p")
-
-                    if (format.equals("hls", ignoreCase = true) || videoUrl.contains(".m3u8")) {
-                        hlsUrl = videoUrl
-                    } else if (videoUrl.isNotBlank()) {
-                        streamOptions.add(
-                            PlayableStreamOption(
-                                qualityLabel = "${quality}p",
-                                format = "mp4",
-                                isMuxed = true,
-                                videoUrl = videoUrl,
-                                providerType = ProviderType.OTHER,
-                                headers = defaultHeaders
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Also check unescaped videoUrl / quality JSON attributes in the page
-            if (streamOptions.isEmpty() && hlsUrl == null) {
-                val cleanHtml = html.replace("\\/", "/")
-                val vUrlMatcher = Pattern.compile(""""videoUrl"\s*:\s*"([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(cleanHtml)
-                while (vUrlMatcher.find()) {
-                    val candidate = vUrlMatcher.group(1) ?: continue
-                    if (candidate.contains(".m3u8")) {
-                        hlsUrl = candidate
-                    } else if (candidate.startsWith("http")) {
-                        streamOptions.add(
-                            PlayableStreamOption(
-                                qualityLabel = "720p",
-                                format = "mp4",
-                                isMuxed = true,
-                                videoUrl = candidate,
-                                providerType = ProviderType.OTHER,
-                                headers = defaultHeaders
-                            )
-                        )
-                    }
-                }
-            }
-
-            if (hlsUrl != null && streamOptions.none { it.videoUrl == hlsUrl }) {
-                streamOptions.add(
-                    0,
-                    PlayableStreamOption(
-                        qualityLabel = "Auto (HLS)",
-                        format = "m3u8",
-                        isMuxed = true,
-                        videoUrl = hlsUrl,
-                        providerType = ProviderType.OTHER,
-                        headers = defaultHeaders
-                    )
-                )
-            }
-
-            if (streamOptions.isNotEmpty()) {
-                val primaryOption = streamOptions.first()
-                return StreamData(
-                    videoId = videoId,
-                    videoUrl = primaryOption.videoUrl ?: hlsUrl ?: fullUrl,
-                    title = extractTitleFromHtml(html) ?: "4tube Video",
-                    channelName = "4tube",
-                    thumbnailUrl = extractThumbnailFromHtml(html) ?: "",
-                    availableStreamOptions = streamOptions,
-                    selectedStreamOption = primaryOption,
-                    hlsUrl = hlsUrl,
-                    providerId = PROVIDER_ID,
-                    providerType = ProviderType.OTHER,
-                    headers = defaultHeaders
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error parsing media definitions: ${e.message}")
-        }
-        return null
-    }
-
-    private fun extractVideoId(urlOrId: String): String {
-        val pattern = Pattern.compile("""(?:/videos/|^)(\d+)""")
-        val m = pattern.matcher(urlOrId)
-        return if (m.find()) m.group(1) ?: urlOrId else urlOrId
-    }
-
-    private fun extractTitleFromHtml(html: String): String? {
-        val titleMatch = Pattern.compile("""<title>(.*?)</title>""", Pattern.CASE_INSENSITIVE).matcher(html)
-        if (titleMatch.find()) {
-            return titleMatch.group(1)?.replace(" - 4tube", "")?.trim()
-        }
-        return null
-    }
-
-    private fun extractThumbnailFromHtml(html: String): String? {
-        val thumbMatch = Pattern.compile("""(?:property="og:image"|name="twitter:image")\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
-        if (thumbMatch.find()) {
-            return thumbMatch.group(1)
-        }
-        return null
+        val clean = urlOrId.substringAfterLast("/").substringBefore("?")
+        return clean.replace(Regex("""[-_]"""), " ")
     }
 
     private fun parse4tubeHtml(targetUrl: String, limit: Int): List<VideoItem> {
@@ -384,7 +232,6 @@ object FourTubeProvider {
                 .header("User-Agent", DEFAULT_USER_AGENT)
                 .header("Cookie", "age_verified=1; platform=pc; ft_mature=1; has_consent=1")
                 .header("Referer", "https://www.4tube.com/")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
                 .build()
 
             val html = httpClient.newCall(req).execute().use { resp ->
@@ -393,142 +240,94 @@ object FourTubeProvider {
 
             val seen = mutableSetOf<String>()
 
-            // Strategy 1: Look for JSON state e.g. __NEXT_DATA__
-            val nextDataMatch = Pattern.compile("""<script id="__NEXT_DATA__" type="application/json">(.*?)</script>""", Pattern.DOTALL).matcher(html)
-            if (nextDataMatch.find()) {
-                val jsonStr = nextDataMatch.group(1) ?: ""
-                try {
-                    val root = JSONObject(jsonStr)
-                    val props = root.optJSONObject("props")?.optJSONObject("pageProps")
-                    val videosArr = props?.optJSONArray("videos") ?: props?.optJSONArray("items")
-                    if (videosArr != null) {
-                        for (i in 0 until videosArr.length()) {
-                            if (list.size >= limit) break
-                            val vObj = videosArr.optJSONObject(i) ?: continue
-                            val id = vObj.optString("id", "").ifBlank { vObj.optString("videoId", "") }
-                            if (id.isBlank() || seen.contains(id)) continue
-                            seen.add(id)
+            // Pattern 1: Modern 4tube card with data-public-id
+            val cardPattern = Pattern.compile("""<div[^>]+class="[^"]*card[^"]*"[^>]*data-public-id="([^"]+)"[^>]*>(.*?)</div>\s*</div>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+            val cardMatcher = cardPattern.matcher(html)
 
-                            val title = vObj.optString("title", "4tube Video")
-                            val thumb = vObj.optString("thumb", "").ifBlank { vObj.optString("thumbnail", "") }
-                            val dur = vObj.optLong("duration", 0L)
-                            val views = vObj.optLong("views", 0L)
-                            val link = "https://www.4tube.com/videos/$id"
+            while (cardMatcher.find() && list.size < limit) {
+                val publicId = cardMatcher.group(1) ?: continue
+                val body = cardMatcher.group(2) ?: continue
+                if (seen.contains(publicId)) continue
+                seen.add(publicId)
 
-                            list.add(
-                                VideoItem(
-                                    id = link,
-                                    title = title,
-                                    uploaderName = "4tube",
-                                    thumbnailUrl = thumb,
-                                    durationSeconds = dur,
-                                    viewCount = views,
-                                    providerId = PROVIDER_ID
-                                )
-                            )
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error parsing NEXT_DATA: ${e.message}")
-                }
-            }
-
-            // Strategy 2: Block-level parsing for video items
-            val itemPattern = Pattern.compile("""<(?:div|li|article)[^>]*class="[^"]*(?:video|thumb|item|card)[^"]*"[^>]*>(.*?)</(?:div|li|article)>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
-            val itemMatcher = itemPattern.matcher(html)
-
-            while (itemMatcher.find() && list.size < limit) {
-                val block = itemMatcher.group(1) ?: continue
-
-                val linkMatcher = Pattern.compile("""href="((?:https://www\.4tube\.com)?/videos/(\d+)(?:/[^"'\s>]*)?)"""", Pattern.CASE_INSENSITIVE).matcher(block)
-                if (!linkMatcher.find()) continue
-
-                val rawUrl = linkMatcher.group(1) ?: continue
-                val id = linkMatcher.group(2) ?: continue
-                if (seen.contains(id)) continue
-                seen.add(id)
-
-                val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "https://www.4tube.com$rawUrl"
-
+                // Title
                 var title = "4tube Video"
-                val titleMatcher = Pattern.compile("""(?:title|alt)="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(block)
-                while (titleMatcher.find()) {
-                    val t = titleMatcher.group(1)?.trim() ?: continue
-                    if (t.isNotBlank() && !t.contains("4tube", ignoreCase = true) && t.length > 2) {
-                        title = t
-                        break
-                    }
+                val titleM = Pattern.compile("""title="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(body)
+                if (titleM.find()) {
+                    title = titleM.group(1)?.trim() ?: title
                 }
 
+                // Thumbnail
                 var thumb = ""
-                val thumbMatcher = Pattern.compile("""(?:data-src|data-master|data-poster|data-thumb|data-preview|src)=["']([^"'\s,]+)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
-                while (thumbMatcher.find()) {
-                    val candidate = thumbMatcher.group(1)?.trim() ?: continue
-                    if (candidate.startsWith("http") && !candidate.contains("data:image") && !candidate.endsWith(".svg")) {
-                        thumb = candidate
-                        break
-                    }
+                val imgM = Pattern.compile("""<img[^>]+src="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(body)
+                if (imgM.find()) {
+                    thumb = imgM.group(1)?.trim() ?: ""
                 }
-                if (thumb.startsWith("//")) thumb = "https:$thumb"
-                if (thumb.isBlank() || thumb.contains("ci.phncdn.com")) {
-                    thumb = "https://c2.ttcache.com/thumbnail/CqLIdMQU3gM/288x162/17.jpg"
+                if (thumb.isBlank() || thumb.contains("data:image")) {
+                    thumb = "https://c2.ttcache.com/thumbnail/$publicId/288x162/1.jpg"
                 }
 
-                var duration = -1L
-                val durMatcher = Pattern.compile("""(?:<var class="duration">|<span class="duration">|data-duration=")([^<"]+)""", Pattern.CASE_INSENSITIVE).matcher(block)
-                if (durMatcher.find()) {
-                    duration = parseDuration(durMatcher.group(1) ?: "")
+                // Storyboard Scrubbing Frames (1..16 thumbs)
+                val previewThumbnails = mutableListOf<String>()
+                val ttHostMatch = Pattern.compile("""(https://c\d+\.ttcache\.com/thumbnail/[^/]+/288x162/)""", Pattern.CASE_INSENSITIVE).matcher(thumb)
+                if (ttHostMatch.find()) {
+                    val prefix = ttHostMatch.group(1)
+                    for (i in 1..16) {
+                        previewThumbnails.add("${prefix}${i}.jpg")
+                    }
+                } else {
+                    for (i in 1..16) {
+                        previewThumbnails.add("https://c2.ttcache.com/thumbnail/$publicId/288x162/${i}.jpg")
+                    }
                 }
+
+                // Duration
+                var duration = -1L
+                val durM = Pattern.compile("""(\d+:\d+(?::\d+)?)""").matcher(body)
+                if (durM.find()) {
+                    duration = parseDuration(durM.group(1) ?: "")
+                }
+
+                // Creator / Source
+                var creator = "4tube"
+                var creatorUrl: String? = null
+                val creatorM = Pattern.compile("""<a[^>]+class="[^"]*item-source[^"]*"[^>]*href="([^"]+)"[^>]*>(?:<i[^>]*></i>)?([^<]+)</a>""", Pattern.CASE_INSENSITIVE).matcher(body)
+                if (creatorM.find()) {
+                    creatorUrl = "https://www.4tube.com" + (creatorM.group(1) ?: "")
+                    creator = creatorM.group(2)?.trim() ?: creator
+                }
+
+                val fullUrl = "https://www.4tube.com/item/$publicId"
 
                 list.add(
                     VideoItem(
                         id = fullUrl,
                         title = title,
-                        uploaderName = "4tube",
+                        uploaderName = creator,
+                        uploaderUrl = creatorUrl,
                         thumbnailUrl = thumb,
                         durationSeconds = duration,
+                        previewThumbnails = previewThumbnails,
                         providerId = PROVIDER_ID
                     )
                 )
             }
 
-            // Strategy 3: Direct Anchor Link Matching
+            // Pattern 2: Legacy 4tube link fallback
             if (list.isEmpty()) {
-                val fallbackPattern = Pattern.compile("""<a\s+[^>]*href="((?:https://www\.4tube\.com)?/videos/(\d+)[^"]*)"[^>]*>(.*?)</a>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
-                val fallbackMatcher = fallbackPattern.matcher(html)
-
-                while (fallbackMatcher.find() && list.size < limit) {
-                    val rawUrl = fallbackMatcher.group(1) ?: continue
-                    val id = fallbackMatcher.group(2) ?: continue
-                    val inner = fallbackMatcher.group(3) ?: ""
+                val legacyPattern = Pattern.compile("""href="(/videos/(\d+)[^"]*)".*?(?:title|alt)="([^"]+)".*?src="([^"]+)"""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+                val legacyMatcher = legacyPattern.matcher(html)
+                while (legacyMatcher.find() && list.size < limit) {
+                    val path = legacyMatcher.group(1) ?: continue
+                    val id = legacyMatcher.group(2) ?: continue
+                    val title = legacyMatcher.group(3) ?: "4tube Video"
+                    val thumb = legacyMatcher.group(4) ?: ""
                     if (seen.contains(id)) continue
                     seen.add(id)
 
-                    val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "https://www.4tube.com$rawUrl"
-
-                    var title = "4tube Video"
-                    val titleMatch = Pattern.compile("""(?:title|alt)="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(inner)
-                    if (titleMatch.find()) {
-                        title = titleMatch.group(1) ?: "4tube Video"
-                    }
-
-                    var thumb = ""
-                    val thumbMatch = Pattern.compile("""(?:data-src|data-thumb|data-preview|src)=["']([^"'\s,]+)["']""", Pattern.CASE_INSENSITIVE).matcher(inner)
-                    while (thumbMatch.find()) {
-                        val candidate = thumbMatch.group(1)?.trim() ?: continue
-                        if (candidate.startsWith("http") && !candidate.contains("data:image") && !candidate.endsWith(".svg")) {
-                            thumb = candidate
-                            break
-                        }
-                    }
-                    if (thumb.startsWith("//")) thumb = "https:$thumb"
-                    if (thumb.isBlank()) {
-                        thumb = "https://ci.phncdn.com/videos/${id.takeLast(6)}/thumbs_40/(m=eaSaaSbWaaa)1.jpg"
-                    }
-
                     list.add(
                         VideoItem(
-                            id = fullUrl,
+                            id = "https://www.4tube.com$path",
                             title = title,
                             uploaderName = "4tube",
                             thumbnailUrl = thumb,

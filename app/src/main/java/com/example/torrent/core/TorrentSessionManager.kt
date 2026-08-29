@@ -32,9 +32,9 @@ class TorrentSessionManager(
 ) {
     companion object {
         private const val TAG = "TorrentSessionMgr"
-        private const val BUFFER_WINDOW_BYTES = 25 * 1024 * 1024L // 25 MB playback buffer window
-        private const val HEAD_PIECES_COUNT = 4
-        private const val TAIL_PIECES_COUNT = 3
+        private const val BUFFER_WINDOW_BYTES = 30 * 1024 * 1024L // 30 MB playback buffer window
+        private const val HEAD_PIECES_COUNT = 8
+        private const val TAIL_PIECES_COUNT = 6
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())

@@ -45,7 +45,7 @@ class MainApplication : Application() {
 
                 // 2. Fetch from PO token generation server if configured
                 val serverUrl = com.example.util.AppConfig.getPoTokenServerUrl().ifBlank { BuildConfig.PO_TOKEN_SERVER_URL }
-                if (serverUrl.isBlank()) return null
+                if (serverUrl.isBlank() || serverUrl.contains(".local")) return null
 
                 return try {
                     val query = if (visitorData.isNullOrBlank()) "" else "?visitor_data=$visitorData"

@@ -27,9 +27,9 @@ object PreviewFrameResolver {
 
         return provider.contains("eporner") || thumbLower.contains("eporner.com") ||
                provider.contains("xvideos") || thumbLower.contains("xvideos") ||
-               provider.contains("xhamster") || thumbLower.contains("xhcdn.com") ||
                provider.contains("pornhub") || thumbLower.contains("phncdn.com") ||
-               provider.contains("redtube") || thumbLower.contains("redtube") ||
+               provider.contains("redtube") || thumbLower.contains("redtube") || thumbLower.contains("rdtcdn.com") ||
+               provider.contains("4tube") || thumbLower.contains("4tube") || thumbLower.contains("ttcache.com") ||
                provider.contains("youporn") || thumbLower.contains("youporn") ||
                provider.contains("rule34") || thumbLower.contains("rule34video")
     }
@@ -136,7 +136,21 @@ object PreviewFrameResolver {
             }
         }
 
-        // 6. RULE34VIDEO & KVS (10-15 frames: /1.jpg .. /10.jpg)
+        // 6. 4TUBE (16 storyboard teaser frames: 1.jpg .. 16.jpg)
+        if (provider.contains("4tube") || thumbLower.contains("ttcache.com") || thumbLower.contains("4tube")) {
+            val ttHostMatch = Regex("""(https://c\d+\.ttcache\.com/thumbnail/[^/]+/288x162/)[^/]+""").find(rawThumb)
+            if (ttHostMatch != null) {
+                val prefix = ttHostMatch.groupValues[1]
+                return (1..16).map { idx -> "${prefix}${idx}.jpg" }
+            }
+            val numMatch = Regex("""/(\d+)\.jpg""").find(rawThumb)
+            if (numMatch != null) {
+                val base = rawThumb.substring(0, numMatch.range.first)
+                return (1..16).map { idx -> "$base/$idx.jpg" }
+            }
+        }
+
+        // 7. RULE34VIDEO & KVS (10-15 frames: /1.jpg .. /10.jpg)
         if (provider.contains("rule34") || thumbLower.contains("rule34video") || thumbLower.contains("videos_screenshots")) {
             val r34Matcher = Regex("""/(\d+)\.jpg""").find(rawThumb)
             if (r34Matcher != null) {

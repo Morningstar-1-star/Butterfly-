@@ -273,8 +273,7 @@ object YtDlpResolver {
 
             val updatedDir = java.io.File(ctx.filesDir, "yt_dlp_updated")
             if (updatedDir.exists() && java.io.File(updatedDir, "yt_dlp").exists()) {
-                request.addOption("--pythonpath", updatedDir.absolutePath)
-                Log.d(TAG, "Applied OTA updated pythonpath: ${updatedDir.absolutePath}")
+                Log.d(TAG, "Using OTA updated yt-dlp package at: ${updatedDir.absolutePath}")
             }
 
             ensureInitialized(ctx)

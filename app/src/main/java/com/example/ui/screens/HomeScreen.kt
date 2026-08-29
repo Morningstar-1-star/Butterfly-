@@ -840,10 +840,10 @@ fun HomeScreen(
 
         AnimatedVisibility(
             visible = (playingStreamData != null && currentScreen != AppScreen.PLAYER),
-            enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
-                    scaleIn(initialScale = 0.9f, animationSpec = tween(160, easing = FastOutSlowInEasing)),
+            enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                    scaleIn(initialScale = 0.95f, animationSpec = tween(180, easing = FastOutSlowInEasing)),
             exit = fadeOut(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
-                    scaleOut(targetScale = 0.9f, animationSpec = tween(120, easing = FastOutSlowInEasing)),
+                    scaleOut(targetScale = 0.95f, animationSpec = tween(120, easing = FastOutSlowInEasing)),
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(92f)
@@ -933,19 +933,15 @@ fun HomeScreen(
             )
         }
 
-        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH YOUTUBE-STYLE SLIDE-UP
+        // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH YOUTUBE-STYLE EXPAND/COLLAPSE
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.PLAYER),
             enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
                     slideInVertically(
-                        initialOffsetY = { (it * 0.35f).toInt() },
+                        initialOffsetY = { (it * 0.20f).toInt() },
                         animationSpec = tween(220, easing = FastOutSlowInEasing)
                     ),
-            exit = fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
-                   slideOutVertically(
-                       targetOffsetY = { (it * 0.35f).toInt() },
-                       animationSpec = tween(180, easing = FastOutSlowInEasing)
-                   ),
+            exit = fadeOut(animationSpec = tween(140, easing = FastOutSlowInEasing)),
             modifier = Modifier.fillMaxSize().zIndex(100f)
         ) {
             VideoPlayerScreen(

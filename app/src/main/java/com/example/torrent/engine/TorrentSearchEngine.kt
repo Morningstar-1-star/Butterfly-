@@ -301,13 +301,22 @@ class TorrentSearchEngine(
             }
         }
 
+        val effectiveSize = if (item.size > 0L) {
+            item.size
+        } else if (item.formattedSize.isNotBlank()) {
+            TorrentResult.parseBytes(item.formattedSize)
+        } else {
+            0L
+        }
+
         val formattedSize = if (item.formattedSize.isNotBlank()) {
             item.formattedSize
         } else {
-            TorrentResult.formatBytes(item.size)
+            TorrentResult.formatBytes(effectiveSize)
         }
 
         return item.copy(
+            size = effectiveSize,
             quality = quality,
             codec = codec,
             hdr = hdr,

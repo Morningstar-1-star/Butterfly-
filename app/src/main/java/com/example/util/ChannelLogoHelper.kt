@@ -414,6 +414,42 @@ object ChannelLogoHelper {
                 subscriberCountText = "Official Partner"
             )
 
+            combined.contains("twitch") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Twitch_Glitch_Logo_Purple.svg/200px-Twitch_Glitch_Logo_Purple.svg.png"),
+                brandName = cleanName,
+                brandShortText = "TW",
+                backgroundColor = Color(0xFF9146FF),
+                textColor = Color.White,
+                subscriberCountText = "Twitch Verified Partner"
+            )
+
+            combined.contains("spankbang") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = cleanName,
+                brandShortText = "SB",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "4K Studio Partner"
+            )
+
+            combined.contains("hanime1") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = cleanName,
+                brandShortText = "H1",
+                backgroundColor = Color(0xFFFF4081),
+                textColor = Color.White,
+                subscriberCountText = "Anime Network"
+            )
+
+            combined.contains("hqporner") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = cleanName,
+                brandShortText = "HQ",
+                backgroundColor = Color(0xFF00C853),
+                textColor = Color.White,
+                subscriberCountText = "Ultra HD 4K CDN"
+            )
+
             combined.contains("beeg") -> BrandLogoInfo(
                 logoUrls = emptyList(),
                 brandName = cleanName,

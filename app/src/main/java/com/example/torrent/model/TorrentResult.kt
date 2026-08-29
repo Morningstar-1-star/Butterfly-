@@ -124,5 +124,23 @@ data class TorrentResult(
                 String.format(Locale.US, "%.1f MB", mb)
             }
         }
+
+        fun parseBytes(formatted: String): Long {
+            if (formatted.isBlank()) return 0L
+            return try {
+                val clean = formatted.trim().uppercase(Locale.US)
+                val numMatch = Regex("""([0-9]+(?:\.[0-9]+)?)""").find(clean) ?: return 0L
+                val num = numMatch.groupValues[1].toDoubleOrNull() ?: return 0L
+                when {
+                    clean.contains("TB") || clean.contains("TIB") -> (num * 1024.0 * 1024.0 * 1024.0 * 1024.0).toLong()
+                    clean.contains("GB") || clean.contains("GIB") -> (num * 1024.0 * 1024.0 * 1024.0).toLong()
+                    clean.contains("MB") || clean.contains("MIB") -> (num * 1024.0 * 1024.0).toLong()
+                    clean.contains("KB") || clean.contains("KIB") -> (num * 1024.0).toLong()
+                    else -> num.toLong()
+                }
+            } catch (_: Exception) {
+                0L
+            }
+        }
     }
 }

@@ -55,10 +55,24 @@ class DownloadWorker(
         }
 
         val isM3u8 = downloadUrl.contains(".m3u8", ignoreCase = true)
-        val ext = if (isM3u8) "m3u8" else "mp4"
         val dir = File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "OfflineDownloads").apply { mkdirs() }
-        val targetFile = File(dir, "video_${videoId.replace("[^a-zA-Z0-9_-]".toRegex(), "_")}.$ext")
+        val safeId = videoId.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
 
+        if (isM3u8) {
+            return@withContext downloadM3u8Stream(
+                videoId = videoId,
+                title = title,
+                channelName = channelName,
+                thumbnailUrl = thumbnailUrl,
+                qualityLabel = qualityLabel,
+                m3u8Url = downloadUrl,
+                outputDir = dir,
+                safeId = safeId,
+                db = db
+            )
+        }
+
+        val targetFile = File(dir, "video_$safeId.mp4")
         var existingDownloaded = if (targetFile.exists()) targetFile.length() else 0L
 
         val initialEntity = OfflineDownloadEntity(
@@ -79,7 +93,7 @@ class DownloadWorker(
                 .url(downloadUrl)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-            if (existingDownloaded > 0L && !isM3u8) {
+            if (existingDownloaded > 0L) {
                 reqBuilder.header("Range", "bytes=$existingDownloaded-")
             }
 
@@ -186,6 +200,139 @@ class DownloadWorker(
             Log.e(TAG, "Download worker failed for $videoId: ${e.message}", e)
             db.userDataDao().insertOrUpdateDownload(initialEntity.copy(status = "FAILED"))
             Result.failure(workDataOf("error" to (e.message ?: "Unknown download failure")))
+        }
+    }
+
+    private suspend fun downloadM3u8Stream(
+        videoId: String,
+        title: String,
+        channelName: String,
+        thumbnailUrl: String?,
+        qualityLabel: String,
+        m3u8Url: String,
+        outputDir: File,
+        safeId: String,
+        db: AppDatabase
+    ): Result = withContext(Dispatchers.IO) {
+        val hlsFolder = File(outputDir, "hls_$safeId").apply { mkdirs() }
+        val localIndexFile = File(hlsFolder, "index.m3u8")
+
+        val initialEntity = OfflineDownloadEntity(
+            videoId = videoId,
+            title = title,
+            channelName = channelName,
+            thumbnailUrl = thumbnailUrl,
+            localFilePath = localIndexFile.absolutePath,
+            qualityLabel = qualityLabel,
+            totalBytes = 0L,
+            downloadedBytes = 0L,
+            status = "DOWNLOADING"
+        )
+        db.userDataDao().insertOrUpdateDownload(initialEntity)
+
+        try {
+            val downloader = HlsSegmentDownloader(
+                httpClient = httpClient,
+                maxParallelWorkers = 4,
+                maxRetriesPerSegment = 3
+            )
+
+            val downloadResult = downloader.downloadPlaylist(
+                m3u8Url = m3u8Url,
+                outputFolder = hlsFolder,
+                headers = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer" to m3u8Url
+                )
+            ) { progress ->
+                if (isStopped) {
+                    downloader.cancel()
+                    db.userDataDao().insertOrUpdateDownload(
+                        initialEntity.copy(
+                            downloadedBytes = progress.downloadedBytes,
+                            totalBytes = progress.estimatedTotalBytes,
+                            status = "PAUSED"
+                        )
+                    )
+                } else {
+                    setProgress(
+                        workDataOf(
+                            "downloadedBytes" to progress.downloadedBytes,
+                            "totalBytes" to progress.estimatedTotalBytes,
+                            "speedBps" to progress.speedBps,
+                            "progressPercent" to progress.progressPercent
+                        )
+                    )
+
+                    db.userDataDao().insertOrUpdateDownload(
+                        initialEntity.copy(
+                            downloadedBytes = progress.downloadedBytes,
+                            totalBytes = progress.estimatedTotalBytes,
+                            status = "DOWNLOADING"
+                        )
+                    )
+                }
+            }
+
+            if (isStopped) {
+                return@withContext Result.retry()
+            }
+
+            val savedIndex = downloadResult.getOrThrow()
+
+            db.userDataDao().insertOrUpdateDownload(
+                initialEntity.copy(
+                    downloadedBytes = savedIndex.parentFile?.listFiles()?.sumOf { it.length() } ?: 1024L,
+                    totalBytes = savedIndex.parentFile?.listFiles()?.sumOf { it.length() } ?: 1024L,
+                    status = "COMPLETED"
+                )
+            )
+
+            Log.i(TAG, "M3U8 segmented download completed successfully for $videoId at ${savedIndex.absolutePath}")
+            Result.success(workDataOf("localPath" to savedIndex.absolutePath))
+
+        } catch (e: Exception) {
+            Log.e(TAG, "M3U8 download failed for $videoId: ${e.message}", e)
+            db.userDataDao().insertOrUpdateDownload(initialEntity.copy(status = "FAILED"))
+            Result.failure(workDataOf("error" to (e.message ?: "M3U8 download failure")))
+        }
+    }
+
+    private fun resolveUrl(baseUrl: String, relativeOrAbsolute: String): String {
+        return try {
+            if (relativeOrAbsolute.startsWith("http://") || relativeOrAbsolute.startsWith("https://")) {
+                relativeOrAbsolute
+            } else {
+                java.net.URI(baseUrl).resolve(relativeOrAbsolute).toString()
+            }
+        } catch (_: Exception) {
+            if (relativeOrAbsolute.startsWith("/")) {
+                val host = baseUrl.substringBefore("/", "").ifEmpty { baseUrl }
+                "$host$relativeOrAbsolute"
+            } else {
+                val base = baseUrl.substringBeforeLast("/")
+                "$base/$relativeOrAbsolute"
+            }
+        }
+    }
+
+    private fun fetchText(url: String): String? {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .build()
+        return httpClient.newCall(req).execute().use { response ->
+            if (response.isSuccessful) response.body?.string() else null
+        }
+    }
+
+    private fun fetchBytes(url: String): ByteArray? {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .build()
+        return httpClient.newCall(req).execute().use { response ->
+            if (response.isSuccessful) response.body?.bytes() else null
         }
     }
 

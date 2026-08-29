@@ -130,9 +130,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.libtorrent4j)
   implementation(libs.libtorrent4j.android.arm64)
-  implementation(libs.libtorrent4j.android.arm)
   implementation(libs.libtorrent4j.android.x64)
-  implementation(libs.libtorrent4j.android.x86)
 
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

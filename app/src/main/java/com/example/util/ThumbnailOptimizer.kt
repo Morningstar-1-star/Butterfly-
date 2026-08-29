@@ -127,7 +127,7 @@ object ThumbnailOptimizer {
 
         // Domain-specific anti-hotlinking headers
         when {
-            lowerUrl.contains("externulls.com") || lowerUrl.contains("beeg.com") -> {
+            lowerUrl.contains("externulls.com") || lowerUrl.contains("beeg.com") || lowerUrl.contains("ahacdn.me") -> {
                 builder.setHeader("Referer", "https://beeg.com/")
                 builder.setHeader("Origin", "https://beeg.com")
             }

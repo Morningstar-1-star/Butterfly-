@@ -40,7 +40,7 @@ object MultiSourceProvider {
             "dailymotion" -> getDailymotionHome(limit, page)
             "vimeo" -> getVimeoHome(limit)
             "bilibili" -> getBilibiliHome(page, limit)
-            "pornhub" -> getPornhubHome(limit, page)
+            "pornhub" -> PornhubProvider.getHome(limit, page)
             "xvideos" -> getXVideosHome(limit, page)
             "xhamster" -> getXHamsterHome(limit, page)
             "redtube" -> RedTubeProvider.getHome(page, limit)
@@ -49,6 +49,10 @@ object MultiSourceProvider {
             "beeg" -> getBeegHome(limit)
             "4tube" -> FourTubeProvider.getHome(page, limit)
             "eporner" -> EpornerProvider.getHome(limit, page)
+            "spankbang" -> SpankBangProvider.getHome(page, limit)
+            "hanime1" -> Hanime1Provider.getHome(page, limit)
+            "hqporner" -> HQPornerProvider.getHome(page, limit)
+            "twitch" -> TwitchProvider.getHome(limit, page)
             "rule34video" -> parseRule34Html(if (page > 1) "https://rule34video.com/?page=$page" else "https://rule34video.com/", limit)
             else -> emptyList()
         }
@@ -64,7 +68,7 @@ object MultiSourceProvider {
             "dailymotion" -> searchDailymotion(query, limit, page)
             "vimeo" -> searchVimeo(query, limit)
             "bilibili" -> searchBilibili(query, page, limit)
-            "pornhub" -> searchPornhub(query, limit, page)
+            "pornhub" -> PornhubProvider.search(query, limit, page)
             "xvideos" -> searchXVideos(query, limit, page)
             "xhamster" -> searchXHamster(query, limit, page)
             "redtube" -> RedTubeProvider.search(query, page, limit)
@@ -73,6 +77,10 @@ object MultiSourceProvider {
             "beeg" -> BeegProvider.search(query, limit)
             "4tube" -> FourTubeProvider.search(query, page, limit)
             "eporner" -> EpornerProvider.search(query, limit, page)
+            "spankbang" -> SpankBangProvider.search(query, page, limit)
+            "hanime1" -> Hanime1Provider.search(query, page, limit)
+            "hqporner" -> HQPornerProvider.search(query, page, limit)
+            "twitch" -> TwitchProvider.search(query, limit, page)
             "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/${if (page > 1) "?page=$page" else ""}", limit)
             else -> emptyList()
         }
@@ -271,11 +279,15 @@ object MultiSourceProvider {
 
     // ------------------- PORNHUB -------------------
     fun getPornhubHome(limit: Int, page: Int = 1): List<VideoItem> {
+        val phList = PornhubProvider.getHome(limit, page)
+        if (phList.isNotEmpty()) return phList
         val pageParam = if (page > 1) "&page=$page" else ""
         return parsePornhubHtml("https://www.pornhub.com/video?o=trending$pageParam", limit)
     }
 
     fun searchPornhub(query: String, limit: Int, page: Int = 1): List<VideoItem> {
+        val phList = PornhubProvider.search(query, limit, page)
+        if (phList.isNotEmpty()) return phList
         val encoded = URLEncoder.encode(query, "UTF-8")
         val pageParam = if (page > 1) "&page=$page" else ""
         return parsePornhubHtml("https://www.pornhub.com/video/search?search=$encoded$pageParam", limit)

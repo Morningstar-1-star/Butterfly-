@@ -73,7 +73,7 @@ object GlobalPlayerManager {
             urlStr.contains("pornhub.com") || urlStr.contains("phncdn.com") -> {
                 builder.header("Referer", "https://www.pornhub.com/")
                 builder.header("Origin", "https://www.pornhub.com")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en")
             }
             urlStr.contains("beeg.com") || urlStr.contains("externulls.com") -> {
                 builder.header("Referer", "https://beeg.com/")
@@ -306,9 +306,9 @@ object GlobalPlayerManager {
         _firstFrameRendered.value = false
     }
 
-    private var playbackFailedListener: (() -> Unit)? = null
+    private var playbackFailedListener: ((Int?) -> Unit)? = null
 
-    fun setPlaybackFailedListener(listener: (() -> Unit)?) {
+    fun setPlaybackFailedListener(listener: ((Int?) -> Unit)?) {
         playbackFailedListener = listener
     }
 
@@ -449,7 +449,7 @@ object GlobalPlayerManager {
 
                     _playerError.value = detailedError.toString()
                     _isPlaying.value = false
-                    playbackFailedListener?.invoke()
+                    playbackFailedListener?.invoke(httpStatus)
                 }
             })
             exoPlayerInstance = player
@@ -777,13 +777,13 @@ object GlobalPlayerManager {
                             lowerTarget.contains("archive.org") || lowerTarget.contains("us.archive.org") || lowerTarget.contains("ia60") || lowerTarget.contains("ia80") || lowerTarget.contains("ia90") || streamData?.providerId == "archive_org" || streamData?.providerId == "archive" -> {
                                 reqHeaders["Referer"] = "https://archive.org/"
                             }
-                            lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") -> {
+                            lowerTarget.contains("pornhub.com") || lowerTarget.contains("phncdn.com") || (streamData?.providerId == "pornhub") -> {
                                 reqHeaders["Referer"] = "https://www.pornhub.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://www.pornhub.com"
                                 }
                                 if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
-                                    reqHeaders["Cookie"] = "age_verified=1"
+                                    reqHeaders["Cookie"] = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en"
                                 }
                             }
                             lowerTarget.contains("eporner") || lowerTarget.contains("static-cluster") || streamData?.providerId == "eporner" -> {
@@ -801,8 +801,14 @@ object GlobalPlayerManager {
                                     reqHeaders["Cookie"] = "age_verified=1; ft_mature=1; platform=pc; consent=1"
                                 }
                             }
-                            lowerTarget.contains("redtube.com") -> {
+                            lowerTarget.contains("redtube.com") || lowerTarget.contains("rdtcdn.com") || streamData?.providerId == "redtube" -> {
                                 reqHeaders["Referer"] = "https://www.redtube.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.redtube.com"
+                                }
+                                if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                                    reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
+                                }
                             }
                             lowerTarget.contains("youporn.com") || lowerTarget.contains("ypncdn.com") || streamData?.providerId == "youporn" -> {
                                 reqHeaders["Referer"] = "https://www.youporn.com/"
@@ -831,6 +837,12 @@ object GlobalPlayerManager {
                                 reqHeaders["Referer"] = "https://upload18.org/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://upload18.org"
+                                }
+                            }
+                            lowerTarget.contains("beeg.com") || lowerTarget.contains("externulls.com") || lowerTarget.contains("ahacdn.me") || (streamData?.providerId == "beeg") -> {
+                                reqHeaders["Referer"] = "https://beeg.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://beeg.com"
                                 }
                             }
                         }
@@ -997,7 +1009,7 @@ object GlobalPlayerManager {
 
             if (!mediaSourceSet) {
                 _playerError.value = "Unable to parse valid video stream URL"
-                playbackFailedListener?.invoke()
+                playbackFailedListener?.invoke(null)
                 return
             }
 

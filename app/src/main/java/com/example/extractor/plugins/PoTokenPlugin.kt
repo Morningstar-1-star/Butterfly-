@@ -46,11 +46,19 @@ object PoTokenPlugin : YouTubeExtractorHelper.CustomPoTokenProvider {
     }
 
     /**
-     * Refreshes PO token from remote or local WPC generation server.
+     * Refreshes PO token from remote or local WPC generation server if configured.
      */
     suspend fun refreshPoToken(serverUrl: String? = null): String? = withContext(Dispatchers.IO) {
-        val endpoint = serverUrl ?: "https://potoken.butterfly.local/generate"
+        val configuredUrl = serverUrl?.takeIf { it.isNotBlank() && !it.contains(".local") }
+            ?: com.example.util.AppConfig.getPoTokenServerUrl().takeIf { it.isNotBlank() && !it.contains(".local") }
+            ?: return@withContext null
+
         try {
+            val endpoint = if (configuredUrl.endsWith("/generate") || configuredUrl.endsWith("/get_pot")) {
+                configuredUrl
+            } else {
+                "${configuredUrl.trimEnd('/')}/generate"
+            }
             val jsonBody = JSONObject().apply {
                 put("client", "WEB")
                 put("timestamp", System.currentTimeMillis())
@@ -100,7 +108,8 @@ object RemoteCipherPlugin {
         playerUrl: String,
         remoteServerUrl: String? = null
     ): String? = withContext(Dispatchers.IO) {
-        val endpoint = remoteServerUrl ?: "https://cipher.butterfly.local/solve"
+        val endpoint = remoteServerUrl?.takeIf { it.isNotBlank() && !it.contains(".local") }
+            ?: return@withContext null
         try {
             val payload = JSONObject().apply {
                 put("cipher", cipherText)

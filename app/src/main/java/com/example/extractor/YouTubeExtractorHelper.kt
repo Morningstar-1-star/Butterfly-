@@ -429,7 +429,11 @@ object YouTubeExtractorHelper {
 
         val isRedTube = providerId == "redtube" || urlOrId.contains("redtube.com")
         if (isRedTube) {
-            if (context != null) {
+            val rtData = RedTubeProvider.getStreamData(urlOrId, context)
+            if (rtData != null) {
+                Log.i(TAG, "Resolved via RedTubeProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(rtData)
+            } else if (context != null) {
                 Log.i(TAG, "Routing RedTube to YtDlpResolver for $urlOrId")
                 val fullRtUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.redtube.com/$urlOrId"
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullRtUrl)
@@ -456,6 +460,48 @@ object YouTubeExtractorHelper {
                         ytdlResult.streamData.copy(providerId = FourTubeProvider.PROVIDER_ID)
                     )
                 }
+            }
+        }
+
+        val isSpankBang = providerId == "spankbang" || urlOrId.contains("spankbang.com") || urlOrId.contains("spankbang.")
+        if (isSpankBang) {
+            val sbData = SpankBangProvider.getStreamData(urlOrId, context)
+            if (sbData != null) {
+                Log.i(TAG, "Resolved via SpankBangProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(sbData)
+            } else if (context != null) {
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://spankbang.com/$urlOrId/video/"
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "spankbang"))
+                }
+            }
+        }
+
+        val isHanime1 = providerId == "hanime1" || urlOrId.contains("hanime1.me") || urlOrId.contains("hanime1.com")
+        if (isHanime1) {
+            val h1Data = Hanime1Provider.getStreamData(urlOrId, context)
+            if (h1Data != null) {
+                Log.i(TAG, "Resolved via Hanime1Provider for $urlOrId")
+                return@withContext ExtractionResult.Success(h1Data)
+            }
+        }
+
+        val isHQPorner = providerId == "hqporner" || urlOrId.contains("hqporner.com")
+        if (isHQPorner) {
+            val hqpData = HQPornerProvider.getStreamData(urlOrId, context)
+            if (hqpData != null) {
+                Log.i(TAG, "Resolved via HQPornerProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(hqpData)
+            }
+        }
+
+        val isTwitch = providerId == "twitch" || urlOrId.contains("twitch.tv")
+        if (isTwitch) {
+            val twitchData = TwitchProvider.getStreamData(urlOrId, context)
+            if (twitchData != null) {
+                Log.i(TAG, "Resolved via TwitchProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(twitchData)
             }
         }
 

@@ -139,11 +139,11 @@ object XHamsterProvider {
     }
 
     // ------------------- CATALOG / SEARCH -------------------
-    fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
+    fun getHome(limit: Int = 40, page: Int = 1): List<VideoItem> {
         val urls = listOf(
             if (page > 1) "https://xhamster.com/best/$page" else "https://xhamster.com/best",
-            if (page > 1) "https://xhamster.com/trending/$page" else "https://xhamster.com/trending",
-            "https://xhamster.com/"
+            if (page > 1) "https://xhamster.com/newest/$page" else "https://xhamster.com/newest",
+            if (page > 1) "https://xhamster.com/?page=$page" else "https://xhamster.com/"
         )
         for (u in urls) {
             val items = parseListingHtml(u, limit)
@@ -152,14 +152,28 @@ object XHamsterProvider {
         return emptyList()
     }
 
-    fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
+    fun search(query: String, limit: Int = 40, page: Int = 1): List<VideoItem> {
+        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
         val targetUrl = if (page > 1) "https://xhamster.com/search/$encoded?page=$page" else "https://xhamster.com/search/$encoded"
+        return parseListingHtml(targetUrl, limit)
+    }
+
+    fun getCreatorVideos(creatorUrlOrSlug: String, limit: Int = 40, page: Int = 1): List<VideoItem> {
+        val cleanSlug = creatorUrlOrSlug.trim().removePrefix("https://xhamster.com").removePrefix("/")
+        val targetUrl = if (cleanSlug.startsWith("creators/") || cleanSlug.startsWith("pornstars/") || cleanSlug.startsWith("channels/") || cleanSlug.startsWith("users/")) {
+            val base = "https://xhamster.com/$cleanSlug"
+            if (page > 1) "$base?page=$page" else base
+        } else {
+            val base = "https://xhamster.com/creators/$cleanSlug"
+            if (page > 1) "$base?page=$page" else base
+        }
         return parseListingHtml(targetUrl, limit)
     }
 
     private fun parseListingHtml(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
+        val seen = mutableSetOf<String>()
+
         try {
             val req = Request.Builder()
                 .url(targetUrl)
@@ -172,85 +186,247 @@ object XHamsterProvider {
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return list
 
-            // Find all video thumbnail cards (matching relative /videos/ links or full URLs)
-            val cardPattern = Pattern.compile(
-                """<a\s+[^>]*href="((?:https://xhamster\.com)?/videos/[^"]+)"[^>]*>(.*?)</a>""",
-                Pattern.DOTALL or Pattern.CASE_INSENSITIVE
-            )
-            val matcher = cardPattern.matcher(html)
-            val seen = mutableSetOf<String>()
+            // 1. PRIMARY PARSER: Extract window.initials structured JSON data
+            val initialsMatch = Pattern.compile("window\\.initials\\s*=\\s*(\\{.*?\\});</script>", Pattern.DOTALL).matcher(html)
+            if (initialsMatch.find()) {
+                try {
+                    val jsonStr = initialsMatch.group(1) ?: ""
+                    val root = JSONObject(jsonStr)
+                    val jsonItems = findVideoObjects(root)
+                    for (v in jsonItems) {
+                        if (list.size >= limit) break
+                        val pageUrl = v.optString("pageURL", "").trim()
+                        if (pageUrl.isBlank() || seen.contains(pageUrl) || pageUrl.contains("/shorts/")) continue
+                        seen.add(pageUrl)
 
-            while (matcher.find() && list.size < limit) {
-                val rawUrl = matcher.group(1) ?: continue
-                val videoUrl = if (rawUrl.startsWith("http")) rawUrl else "https://xhamster.com$rawUrl"
-                val body = matcher.group(2) ?: ""
+                        val title = v.optString("title", "xHamster Video").trim()
+                        val duration = v.optLong("duration", -1L)
+                        val views = v.optLong("views", -1L)
+                        val thumb = v.optString("imageURL", "").ifBlank {
+                            v.optString("thumbURL", "").ifBlank {
+                                v.optString("previewThumbURL", "")
+                            }
+                        }
+                        val trailerUrl = v.optString("trailerFallbackUrl", "").ifBlank {
+                            v.optString("trailerURL", "")
+                        }
 
-                if (seen.contains(videoUrl)) continue
-                seen.add(videoUrl)
+                        val landing = v.optJSONObject("landing")
+                        val uploaderName = landing?.optString("name")?.takeIf { it.isNotBlank() } ?: "xHamster"
+                        val uploaderAvatar = landing?.optString("logo")?.takeIf { it.isNotBlank() }
+                        val uploaderUrl = landing?.optString("link")?.takeIf { it.isNotBlank() }
 
-                // Title
-                var title = "xHamster Video"
-                val tMatch = Pattern.compile("""(?:aria-label|alt|title)="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(body)
-                if (tMatch.find()) {
-                    val candidateTitle = tMatch.group(1)?.trim() ?: ""
-                    if (candidateTitle.isNotBlank() && !candidateTitle.equals("thumb", ignoreCase = true)) {
-                        title = candidateTitle
+                        val previewList = if (thumb.isNotBlank()) listOf(thumb) else emptyList()
+
+                        list.add(
+                            VideoItem(
+                                id = pageUrl,
+                                title = title,
+                                uploaderName = uploaderName,
+                                uploaderUrl = uploaderUrl,
+                                uploaderAvatarUrl = uploaderAvatar,
+                                viewCount = views,
+                                durationSeconds = duration,
+                                thumbnailUrl = thumb,
+                                providerId = PROVIDER_ID,
+                                previewThumbnails = previewList,
+                                previewClipUrl = trailerUrl.takeIf { it.isNotBlank() }
+                            )
+                        )
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error parsing window.initials in parseListingHtml: ${e.message}")
                 }
+            }
 
-                // Thumbnail: Prioritize real CDN image URLs and avoid svg/data placeholder URIs
-                var thumb = ""
-                val imgCandidatePattern = Pattern.compile("""(?:data-src|data-lazy-src|data-preview|data-webp|data-thumb-url|data-poster|srcset|src)=["']([^"'\s,]+)["']""", Pattern.CASE_INSENSITIVE)
-                val imgMatcher = imgCandidatePattern.matcher(body)
-                while (imgMatcher.find()) {
-                    val candidate = imgMatcher.group(1)?.trim() ?: continue
-                    if (candidate.startsWith("http") && !candidate.contains("data:image") && !candidate.endsWith(".svg")) {
-                        thumb = candidate
-                        break
+            // 2. FALLBACK PARSER: HTML cards splitter & scraper
+            if (list.isEmpty()) {
+                val cardSplits = html.split(Regex("class=[\"'][^\"']*thumb-list__item[^\"']*[\"']"))
+                for (c in cardSplits) {
+                    if (list.size >= limit) break
+                    val vlinkMatcher = Pattern.compile("href=[\"']((?:https://xhamster\\.com)?/videos/[^\"']+)[\"']").matcher(c)
+                    if (!vlinkMatcher.find()) continue
+                    val rawUrl = vlinkMatcher.group(1) ?: continue
+                    val videoUrl = if (rawUrl.startsWith("http")) rawUrl else "https://xhamster.com$rawUrl"
+                    if (seen.contains(videoUrl) || videoUrl.contains("/shorts/")) continue
+                    seen.add(videoUrl)
+
+                    // Title
+                    var title = "xHamster Video"
+                    val ariaMatcher = Pattern.compile("aria-label=[\"']([^\"']+)[\"']").matcher(c)
+                    if (ariaMatcher.find()) {
+                        val candidate = ariaMatcher.group(1)?.trim() ?: ""
+                        if (candidate.isNotBlank() && !candidate.startsWith("thumb", ignoreCase = true)) {
+                            title = candidate
+                        }
                     }
-                }
-
-                if (thumb.isBlank()) {
-                    val genericUrlMatch = Pattern.compile("""(https?://[^"'\s>]*(?:xhcdn|xhamster|rdtcdn)[^"'\s>]*\.(?:jpg|jpeg|webp|png)[^"'\s>]*)""", Pattern.CASE_INSENSITIVE).matcher(body)
-                    if (genericUrlMatch.find()) {
-                        thumb = genericUrlMatch.group(1) ?: ""
+                    if (title == "xHamster Video") {
+                        val titleMatcher = Pattern.compile("title=[\"']([^\"']+)[\"']").matcher(c)
+                        if (titleMatcher.find()) {
+                            val candidate = titleMatcher.group(1)?.trim() ?: ""
+                            if (candidate.isNotBlank() && !candidate.startsWith("thumb", ignoreCase = true)) {
+                                title = candidate
+                            }
+                        }
                     }
-                }
 
-                if (thumb.isBlank()) {
-                    thumb = "https://ei-ph.rdtcdn.com/videos/original/(m=eaSaaSbWaaa)${list.size % 8 + 1}.jpg"
-                }
+                    // Thumbnail
+                    var thumb = ""
+                    val imgMatcher = Pattern.compile("<img[^>]+(?:src|data-src)=[\"']([^\"']+)[\"']").matcher(c)
+                    if (imgMatcher.find()) {
+                        val cand = imgMatcher.group(1)?.trim() ?: ""
+                        if (cand.startsWith("http") && !cand.contains("data:image")) {
+                            thumb = cand
+                        }
+                    }
+                    if (thumb.isBlank()) {
+                        val cdnMatcher = Pattern.compile("(https://[^\"'\\s>]*xhcdn[^\"'\\s>]*\\.(?:webp|jpg|jpeg)[^\"'\\s>]*)").matcher(c)
+                        if (cdnMatcher.find()) {
+                            thumb = cdnMatcher.group(1) ?: ""
+                        }
+                    }
 
-                // Duration
-                var durSec = -1L
-                val durMatch = Pattern.compile("([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)").matcher(body)
-                if (durMatch.find()) {
-                    val durStr = durMatch.group(1) ?: ""
-                    durSec = parseDurationToSeconds(durStr)
-                }
+                    // Duration
+                    var durSec = -1L
+                    val durMatcher = Pattern.compile("data-role=[\"']video-duration[\"'][^>]*>.*?([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)", Pattern.DOTALL).matcher(c)
+                    if (durMatcher.find()) {
+                        durSec = parseDurationToSeconds(durMatcher.group(1) ?: "")
+                    }
 
-                val previewList = if (thumb.isNotBlank()) {
-                    com.example.util.PreviewFrameResolver.resolvePreviewFrames(
-                        VideoItem(id = videoUrl, title = title, uploaderName = "xHamster", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                    // Uploader
+                    var uploaderName = "xHamster"
+                    val upNameMatcher = Pattern.compile("class=[\"'][^\"']*video-uploader__name[^\"']*[\"'][^>]*>(?:<!--.*?-->)*([^<]+)").matcher(c)
+                    if (upNameMatcher.find()) {
+                        val cand = upNameMatcher.group(1)?.trim() ?: ""
+                        if (cand.isNotBlank()) uploaderName = cand
+                    }
+
+                    var uploaderAvatar: String? = null
+                    val upLogoMatcher = Pattern.compile("class=[\"'][^\"']*video-uploader-logo[^\"']*[\"'][^>]*data-background-image=[\"']([^\"']+)[\"']").matcher(c)
+                    if (upLogoMatcher.find()) {
+                        uploaderAvatar = upLogoMatcher.group(1)?.trim()
+                    }
+
+                    var uploaderUrl: String? = null
+                    val upUrlMatcher = Pattern.compile("class=[\"'][^\"']*video-uploader__name[^\"']*[\"'][^>]*href=[\"']([^\"']+)[\"']").matcher(c)
+                    if (upUrlMatcher.find()) {
+                        uploaderUrl = upUrlMatcher.group(1)?.trim()
+                    }
+
+                    // Views
+                    var viewCount = -1L
+                    val viewsMatcher = Pattern.compile("class=[\"'][^\"']*video-thumb-views[^\"']*[\"'][^>]*>([^<]+)").matcher(c)
+                    if (viewsMatcher.find()) {
+                        val rawViews = viewsMatcher.group(1)?.trim() ?: ""
+                        viewCount = parseViewCount(rawViews)
+                    }
+
+                    // Teaser preview video
+                    var previewClip: String? = null
+                    val pvMatcher = Pattern.compile("data-previewvideo(?:-fallback)?=[\"']([^\"']+)[\"']").matcher(c)
+                    if (pvMatcher.find()) {
+                        previewClip = pvMatcher.group(1)?.trim()
+                    }
+
+                    val previewList = if (thumb.isNotBlank()) listOf(thumb) else emptyList()
+
+                    list.add(
+                        VideoItem(
+                            id = videoUrl,
+                            title = title,
+                            uploaderName = uploaderName,
+                            uploaderUrl = uploaderUrl,
+                            uploaderAvatarUrl = uploaderAvatar,
+                            viewCount = viewCount,
+                            durationSeconds = durSec,
+                            thumbnailUrl = thumb,
+                            providerId = PROVIDER_ID,
+                            previewThumbnails = previewList,
+                            previewClipUrl = previewClip
+                        )
                     )
-                } else emptyList()
-
-                list.add(
-                    VideoItem(
-                        id = videoUrl,
-                        title = title,
-                        uploaderName = "xHamster",
-                        thumbnailUrl = thumb,
-                        durationSeconds = durSec,
-                        providerId = PROVIDER_ID,
-                        previewThumbnails = previewList
-                    )
-                )
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Listing parse error for $targetUrl: ${e.message}")
         }
         return list
+    }
+
+    private fun findVideoObjects(root: JSONObject): List<JSONObject> {
+        val results = mutableListOf<JSONObject>()
+        
+        // 1. Common direct paths in initials
+        val layoutPage = root.optJSONObject("layoutPage")
+        val videoListProps = layoutPage?.optJSONObject("videoListProps")
+        val directThumbs = videoListProps?.optJSONArray("videoThumbProps")
+        if (directThumbs != null && directThumbs.length() > 0) {
+            for (i in 0 until directThumbs.length()) {
+                val obj = directThumbs.optJSONObject(i) ?: continue
+                results.add(obj)
+            }
+            return results
+        }
+
+        val searchResult = root.optJSONObject("searchResult")
+        val searchThumbs = searchResult?.optJSONArray("videoThumbProps")
+        if (searchThumbs != null && searchThumbs.length() > 0) {
+            for (i in 0 until searchThumbs.length()) {
+                val obj = searchThumbs.optJSONObject(i) ?: continue
+                results.add(obj)
+            }
+            return results
+        }
+
+        val userPage = root.optJSONObject("userPage")
+        val userThumbs = userPage?.optJSONObject("videoListProps")?.optJSONArray("videoThumbProps")
+        if (userThumbs != null && userThumbs.length() > 0) {
+            for (i in 0 until userThumbs.length()) {
+                val obj = userThumbs.optJSONObject(i) ?: continue
+                results.add(obj)
+            }
+            return results
+        }
+
+        // 2. Recursive fallback scanner
+        fun scan(obj: Any?) {
+            when (obj) {
+                is JSONObject -> {
+                    if (obj.has("pageURL") && (obj.has("thumbURL") || obj.has("imageURL") || obj.has("duration"))) {
+                        results.add(obj)
+                        return
+                    }
+                    val keys = obj.keys()
+                    while (keys.hasNext()) {
+                        scan(obj.opt(keys.next()))
+                    }
+                }
+                is org.json.JSONArray -> {
+                    for (i in 0 until obj.length()) {
+                        scan(obj.opt(i))
+                    }
+                }
+            }
+        }
+
+        scan(root)
+        return results
+    }
+
+    private fun parseViewCount(str: String): Long {
+        return try {
+            val clean = str.replace("views", "").replace("view", "").trim()
+            val numStr = Regex("""[\d\.,]+""").find(clean)?.value?.replace(",", "") ?: return -1L
+            val num = numStr.toDoubleOrNull() ?: return -1L
+            when {
+                clean.contains("B", ignoreCase = true) -> (num * 1_000_000_000).toLong()
+                clean.contains("M", ignoreCase = true) -> (num * 1_000_000).toLong()
+                clean.contains("K", ignoreCase = true) -> (num * 1_000).toLong()
+                else -> num.toLong()
+            }
+        } catch (_: Exception) {
+            -1L
+        }
     }
 
     private fun parseDurationToSeconds(durStr: String): Long {
@@ -281,6 +457,12 @@ object XHamsterProvider {
 
             // Title
             var title = "xHamster Video"
+            var thumb = ""
+            var channelName = "xHamster"
+            var channelAvatarUrl: String? = null
+            var viewCount = -1L
+            var durationSeconds = -1L
+
             val metaTitle = Pattern.compile("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
             if (metaTitle.find()) {
                 title = metaTitle.group(1)?.trim() ?: title
@@ -292,7 +474,6 @@ object XHamsterProvider {
             }
 
             // Thumbnail
-            var thumb = ""
             val metaThumb = Pattern.compile("<meta\\s+property=\"og:image\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
             if (metaThumb.find()) {
                 thumb = metaThumb.group(1)?.trim() ?: ""
@@ -314,8 +495,32 @@ object XHamsterProvider {
                     if (root.has("videoModel")) {
                         val vm = root.getJSONObject("videoModel")
                         if (thumb.isBlank()) {
-                            thumb = vm.optString("thumbURL", "")
+                            thumb = vm.optString("imageURL", "").ifBlank {
+                                vm.optString("thumbURL", "").ifBlank {
+                                    vm.optString("previewThumbURL", "")
+                                }
+                            }
                         }
+                        val vmTitle = vm.optString("title", "")
+                        if (vmTitle.isNotBlank() && title == "xHamster Video") {
+                            title = vmTitle
+                        }
+                        viewCount = vm.optLong("views", -1L)
+                        durationSeconds = vm.optLong("duration", -1L)
+
+                        val channelModel = vm.optJSONObject("channelModel")
+                        val landing = vm.optJSONObject("landing")
+                        val author = vm.optJSONObject("author")
+
+                        channelName = channelModel?.optString("name")?.takeIf { it.isNotBlank() }
+                            ?: landing?.optString("name")?.takeIf { it.isNotBlank() }
+                            ?: author?.optString("name")?.takeIf { it.isNotBlank() }
+                            ?: vm.optString("modelName").takeIf { it.isNotBlank() }
+                            ?: "xHamster"
+
+                        channelAvatarUrl = landing?.optString("logo")?.takeIf { it.isNotBlank() }
+                            ?: channelModel?.optString("logo")?.takeIf { it.isNotBlank() }
+                            ?: author?.optString("avatar")?.takeIf { it.isNotBlank() }
                     }
 
                     if (root.has("xplayerSettings")) {
@@ -419,7 +624,9 @@ object XHamsterProvider {
                     videoId = targetUrl,
                     videoUrl = primaryUrl,
                     title = title,
-                    channelName = "xHamster",
+                    channelName = channelName,
+                    channelAvatarUrl = channelAvatarUrl,
+                    viewCount = viewCount,
                     thumbnailUrl = thumb,
                     availableStreamOptions = sortedOptions,
                     selectedStreamOption = primaryStream,
