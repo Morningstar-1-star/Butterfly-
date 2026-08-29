@@ -57,6 +57,7 @@ data class StreamResult(
     val displayBadge: String
         get() = when {
             isTorrent -> if (seeders > 0) "Torrent • ${seeders}S" else "Torrent"
+            streamType == SourceStreamType.EMBED_WEBVIEW -> "Embed • $qualityLabel"
             streamType == SourceStreamType.HLS -> "HLS • $qualityLabel"
             streamType == SourceStreamType.DASH -> "DASH • $qualityLabel"
             isProxiedViaMediaFlow -> "MediaFlow • $qualityLabel"

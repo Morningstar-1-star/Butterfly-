@@ -228,48 +228,49 @@ fun VideoCard(
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
             context,
             activeImageUrl,
-            crossfadeMillis = if (isPreviewActive) 0 else 120,
+            crossfadeMillis = 0,
             preferCompact = true
         )
     }
 
-    val scrubModifier = if (isScrubbable) {
-        Modifier.pointerInput(previewFrames, isAutoPlaying) {
-            detectHorizontalDragGestures(
-                onDragStart = { offset ->
-                    dragAccumulator = 0f
-                    if (isAutoPlaying) {
+    val scrubModifier = remember(isScrubbable, previewFrames, isAutoPlaying) {
+        if (isScrubbable) {
+            Modifier.pointerInput(previewFrames, isAutoPlaying) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        dragAccumulator = 0f
+                        if (isAutoPlaying) {
+                            isAutoPlaying = false
+                        }
+                        isScrubbing = true
+                        val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
+                        scrubFraction = frac
+                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
+                    },
+                    onDragEnd = {
+                        isScrubbing = false
+                        if (dragAccumulator < -40f) {
+                            isAutoPlaying = true
+                        } else {
+                            isAutoPlaying = false
+                        }
+                    },
+                    onDragCancel = {
+                        isScrubbing = false
                         isAutoPlaying = false
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragAccumulator += dragAmount
+                        val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
+                        scrubFraction = frac
+                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
                     }
-                    isScrubbing = true
-                    val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
-                    scrubFraction = frac
-                    currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
-                },
-                onDragEnd = {
-                    isScrubbing = false
-                    // Only start auto teaser loop if user explicitly swiped LEFT (negative delta) with significant intent
-                    if (dragAccumulator < -40f) {
-                        isAutoPlaying = true
-                    } else {
-                        isAutoPlaying = false
-                    }
-                },
-                onDragCancel = {
-                    isScrubbing = false
-                    isAutoPlaying = false
-                },
-                onHorizontalDrag = { change, dragAmount ->
-                    change.consume()
-                    dragAccumulator += dragAmount
-                    val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
-                    scrubFraction = frac
-                    currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
-                }
-            )
+                )
+            }
+        } else {
+            Modifier
         }
-    } else {
-        Modifier
     }
 
     Card(

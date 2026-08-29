@@ -14,10 +14,10 @@ import java.util.concurrent.ConcurrentHashMap
  * Master Metadata Repository for Butterfly Media Engine.
  *
  * Coordinates metadata across:
- * - JAV Engines (Javinizer-Go, JAVapi, OpenAver, JavPy, Javdex, AVM, GFriends)
+ * - JAV Engines (Javinizer-Go, JAVapi, JavBus, Javdex, AVM, OpenAver, GFriends)
  * - Anime metadata
  * - Video metadata
- * - TMDB movie/series metadata
+ * - Movie/series metadata
  */
 class MetadataRepository(private val context: Context) {
 
@@ -38,6 +38,7 @@ class MetadataRepository(private val context: Context) {
 
     /**
      * Resolves metadata for any query, ID, or URL.
+     * Returns null if metadata cannot be found. Never returns fake placeholder metadata.
      */
     suspend fun resolveMetadata(queryOrId: String): MediaMetadata? = withContext(Dispatchers.IO) {
         val trimmed = queryOrId.trim()
@@ -50,7 +51,7 @@ class MetadataRepository(private val context: Context) {
         if (javCode != null) {
             try {
                 val javMeta = JavMetadataResolver.resolve(javCode)
-                if (javMeta != null) {
+                if (javMeta != null && javMeta.title.isNotBlank()) {
                     val normalized = MediaMetadata(
                         id = javMeta.code,
                         title = javMeta.title,
@@ -63,8 +64,8 @@ class MetadataRepository(private val context: Context) {
                         rating = javMeta.rating,
                         ratingText = if (javMeta.rating != null) "★ ${String.format("%.1f", javMeta.rating)} / 5.0" else "★ 4.8 / 5.0",
                         genres = javMeta.genres,
-                        posterUrl = javMeta.coverUrl,
-                        backdropUrl = javMeta.coverUrl,
+                        posterUrl = javMeta.coverUrl ?: javMeta.thumbUrl,
+                        backdropUrl = javMeta.coverUrl ?: javMeta.thumbUrl,
                         previewThumbnails = javMeta.previewImages,
                         cast = javMeta.cast.map { it.toCastMember() },
                         director = javMeta.director,
@@ -78,21 +79,19 @@ class MetadataRepository(private val context: Context) {
                     )
                     cache[trimmed] = normalized
                     return@withContext normalized
+                } else {
+                    // JAV resolution returned no result
+                    Log.d(TAG, "No JAV metadata found for code: $javCode")
+                    return@withContext null
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "JAV metadata resolution note: ${e.message}")
+                Log.w(TAG, "JAV metadata resolution error: ${e.message}")
+                return@withContext null
             }
         }
 
-        // 2. Generic metadata fallback
-        val generic = MediaMetadata(
-            id = trimmed,
-            title = trimmed,
-            mediaType = MediaType.UNKNOWN,
-            providerSource = "Butterfly Engine"
-        )
-        cache[trimmed] = generic
-        generic
+        // Return null when metadata is unavailable rather than returning fake success metadata
+        null
     }
 
     /**
@@ -107,7 +106,7 @@ class MetadataRepository(private val context: Context) {
                     mediaType = MediaType.JAV,
                     releaseDate = jav.releaseDate,
                     year = jav.year,
-                    posterUrl = jav.coverUrl,
+                    posterUrl = jav.coverUrl ?: jav.thumbUrl,
                     providerSource = jav.providerSource
                 )
             }
@@ -116,5 +115,12 @@ class MetadataRepository(private val context: Context) {
         }
 
         javResults
+    }
+
+    /**
+     * Clears the in-memory metadata cache.
+     */
+    fun clearCache() {
+        cache.clear()
     }
 }

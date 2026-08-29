@@ -5,18 +5,20 @@ import com.example.metadata.JavActor
 import com.example.metadata.JavIdParser
 import com.example.metadata.JavMetadata
 import com.example.metadata.MetadataProvider
+import com.example.metadata.ProviderClassification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * Javinizer Metadata Provider (Adapted from javinizer/javinizer-go).
- * Scrapes rich metadata, covers, sample preview images, and cast info from Javbus & DMM.
+ * JavBus HTML Scraper Metadata Fallback Provider.
+ * Scrapes metadata, covers, sample preview images, and cast info from JavBus.
  */
-class JavinizerMetadataProvider(
+class JavBusMetadataProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -25,18 +27,18 @@ class JavinizerMetadataProvider(
 ) : MetadataProvider {
 
     companion object {
-        private const val TAG = "JavinizerProvider"
+        private const val TAG = "JavBusProvider"
         private const val JAVBUS_BASE_URL = "https://www.javbus.com"
     }
 
-    override val id: String = "javinizer"
-    override val name: String = "Javinizer (Javbus & DMM)"
+    override val id: String = "javbus"
+    override val name: String = "JavBus (Direct Scraper Fallback)"
+    override val classification: ProviderClassification = ProviderClassification.SCRAPER
     override val priority: Int = 100
 
     override suspend fun getMetadata(javCode: String): JavMetadata? = withContext(Dispatchers.IO) {
         val parsedCode = JavIdParser.parse(javCode) ?: javCode
         try {
-            // Step 1: Scrape Javbus page
             val url = "$JAVBUS_BASE_URL/$parsedCode"
             val request = Request.Builder()
                 .url(url)
@@ -134,7 +136,7 @@ class JavinizerMetadataProvider(
                 detailUrl = url
             )
         } catch (e: Exception) {
-            Log.w(TAG, "Javinizer metadata fetch failed for $javCode: ${e.message}")
+            Log.w(TAG, "JavBus metadata fetch failed for $javCode: ${e.message}")
             null
         }
     }
@@ -147,7 +149,7 @@ class JavinizerMetadataProvider(
         }
 
         try {
-            val searchUrl = "$JAVBUS_BASE_URL/search/${java.net.URLEncoder.encode(query, "UTF-8")}"
+            val searchUrl = "$JAVBUS_BASE_URL/search/${URLEncoder.encode(query, "UTF-8")}"
             val request = Request.Builder()
                 .url(searchUrl)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
@@ -175,8 +177,11 @@ class JavinizerMetadataProvider(
                 )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Javinizer search failed for $query: ${e.message}")
+            Log.w(TAG, "JavBus search failed for $query: ${e.message}")
             emptyList()
         }
     }
 }
+
+/** Backward compatibility alias for deprecated JavinizerMetadataProvider */
+typealias JavinizerMetadataProvider = JavBusMetadataProvider

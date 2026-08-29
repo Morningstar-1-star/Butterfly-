@@ -45,6 +45,7 @@ object SourceRankingEngine {
             SourceStreamType.DIRECT -> score += 650 // Instant playback
             SourceStreamType.HLS -> score += 620   // Adaptive bitrate streaming
             SourceStreamType.DASH -> score += 580
+            SourceStreamType.EMBED_WEBVIEW -> score += 500 // Web embed player
             SourceStreamType.TORRENT -> {
                 score += when {
                     candidate.seeders >= 100 -> 600
@@ -143,6 +144,7 @@ object SourceRankingEngine {
             SourceStreamType.DIRECT -> score += 650
             SourceStreamType.HLS -> score += 620
             SourceStreamType.DASH -> score += 580
+            SourceStreamType.EMBED_WEBVIEW -> score += 500
             SourceStreamType.TORRENT -> {
                 score += when {
                     stream.seeders >= 100 -> 600

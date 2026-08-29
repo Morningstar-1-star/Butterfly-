@@ -706,7 +706,11 @@ fun SearchScreen(
                             }
                         }
                     }
-                    items(filteredResults, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
+                    items(
+                        items = filteredResults,
+                        key = { "${it.providerId ?: ""}_${it.id}" },
+                        contentType = { "video_card" }
+                    ) { video ->
                         VideoCard(
                             video = video,
                             showProviderBadge = showThumbnailTags,

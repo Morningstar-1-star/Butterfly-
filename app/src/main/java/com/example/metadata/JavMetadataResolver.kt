@@ -6,7 +6,6 @@ import com.example.metadata.person.PersonProvider
 import com.example.metadata.providers.*
 import com.example.metadata.trailer.JavPreviewTrailerProvider
 import com.example.metadata.trailer.TrailerProvider
-import com.example.model.MediaDetailInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -15,7 +14,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Master JAV Metadata & Enrichment Resolver.
- * Connects input parsing, provider cascades, actress enrichment, and preview discovery.
+ *
+ * Coordinates:
+ * - Javinizer-Go (Primary REST Service)
+ * - JAVapi / JavBus / Javdex / AVM / OpenAver / MDCx / FSS (Fallback Scrapers)
+ * - GFriends Actress Avatar & Biography Enrichment
+ * - JAV-Preview Sample Video & Trailer Discovery
  */
 object JavMetadataResolver {
 
@@ -26,7 +30,7 @@ object JavMetadataResolver {
     private val metadataProviders = listOf<MetadataProvider>(
         javinizerGoProvider,
         JavapiMetadataProvider(),
-        JavinizerMetadataProvider(),
+        JavBusMetadataProvider(),
         JavdexMetadataProvider(),
         AvmMetadataProvider(),
         OpenAverMetadataProvider(),
@@ -37,14 +41,15 @@ object JavMetadataResolver {
     private val personProvider: PersonProvider = GFriendsPersonProvider()
     private val trailerProvider: TrailerProvider = JavPreviewTrailerProvider()
 
-    // Cache parsed metadata
+    // Thread-safe in-memory metadata cache
     private val metadataCache = ConcurrentHashMap<String, JavMetadata>()
 
     /**
      * Resolves complete, rich metadata and cast enrichment for any JAV ID or search query.
+     * Returns null if metadata cannot be resolved. Never returns fake placeholder metadata.
      */
     suspend fun resolve(queryOrId: String): JavMetadata? = withContext(Dispatchers.IO) {
-        val parsedCode = JavIdParser.parse(queryOrId) ?: queryOrId.trim()
+        val parsedCode = JavIdParser.parse(queryOrId) ?: return@withContext null
         if (parsedCode.isBlank()) return@withContext null
 
         metadataCache[parsedCode]?.let { return@withContext it }
@@ -52,13 +57,13 @@ object JavMetadataResolver {
         var resolvedMetadata: JavMetadata? = null
         val fallbackEnabled = com.example.util.AppConfig.isJavinizerFallbackEnabled()
 
-        // Cascade through providers in priority order
+        // Cascade through providers in priority order (Javinizer-Go first)
         for (provider in metadataProviders) {
             if (!provider.isEnabled) continue
             try {
                 val meta = provider.getMetadata(parsedCode)
                 if (meta != null && meta.title.isNotBlank()) {
-                    Log.i(TAG, "Resolved metadata for [$parsedCode] using provider: ${provider.name}")
+                    Log.i(TAG, "Resolved metadata for [$parsedCode] via ${provider.name} (${provider.classification.displayName})")
                     resolvedMetadata = meta
                     break
                 }
@@ -77,7 +82,7 @@ object JavMetadataResolver {
             return@withContext null
         }
 
-        // Enrich Actresses via GFriends
+        // Enrich Actresses via GFriends (if cast names exist)
         val enrichedCast = if (resolvedMetadata.cast.isNotEmpty()) {
             val castDeferred = resolvedMetadata.cast.map { actor ->
                 async {
@@ -112,7 +117,7 @@ object JavMetadataResolver {
     }
 
     /**
-     * Searches metadata across providers for discovery.
+     * Searches metadata across providers for discovery with deduplication.
      */
     suspend fun search(query: String): List<JavMetadata> = withContext(Dispatchers.IO) {
         val parsed = JavIdParser.parse(query)
@@ -121,16 +126,22 @@ object JavMetadataResolver {
             if (direct != null) return@withContext listOf(direct)
         }
 
+        val aggregatedResults = mutableListOf<JavMetadata>()
         for (provider in metadataProviders) {
+            if (!provider.isEnabled) continue
             try {
                 val results = provider.search(query)
                 if (results.isNotEmpty()) {
-                    return@withContext results
+                    aggregatedResults.addAll(results)
+                    // If high-priority provider returns rich results, avoid querying all 7 providers
+                    if (aggregatedResults.size >= 10) break
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Search provider ${provider.name} error: ${e.message}")
             }
         }
-        emptyList()
+
+        // Deduplicate results by JAV code
+        aggregatedResults.distinctBy { it.code.uppercase() }
     }
 }

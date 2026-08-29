@@ -347,7 +347,11 @@ fun ExploreScreen(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                items(searchResults, key = { it.id }) { item ->
+                                items(
+                                    items = searchResults,
+                                    key = { it.id },
+                                    contentType = { "explore_poster" }
+                                ) { item ->
                                     val isSaved = viewModel.isExploreMediaSaved(item.id)
                                     ExplorePosterCard(
                                         item = item,
@@ -400,7 +404,11 @@ fun ExploreScreen(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                items(filteredCategoryItems, key = { it.id }) { item ->
+                                items(
+                                    items = filteredCategoryItems,
+                                    key = { it.id },
+                                    contentType = { "explore_poster" }
+                                ) { item ->
                                     val isSaved = viewModel.isExploreMediaSaved(item.id)
                                     ExplorePosterCard(
                                         item = item,

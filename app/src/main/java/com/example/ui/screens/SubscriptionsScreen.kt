@@ -135,7 +135,11 @@ fun SubscriptionsScreen(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        items(subscribedChannels) { channel ->
+                        items(
+                            items = subscribedChannels,
+                            key = { it.id },
+                            contentType = { "channel_avatar" }
+                        ) { channel ->
                             val isSelected = selectedChannelId == channel.id
                             SubscriptionChannelAvatarItem(
                                 channel = channel,
@@ -268,7 +272,11 @@ fun SubscriptionsScreen(
                     }
                 }
             } else {
-                items(activeVideos, key = { "sub_${it.id}" }) { video ->
+                items(
+                    items = activeVideos,
+                    key = { "sub_${it.id}" },
+                    contentType = { "video_card" }
+                ) { video ->
                     VideoCard(
                         video = video,
                         watchProgressFraction = watchProgressMap[video.id] ?: 0f,

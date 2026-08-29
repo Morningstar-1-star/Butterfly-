@@ -45,6 +45,8 @@ import com.example.ui.components.VideoDetailsSection
 import com.example.ui.components.DownloadQualityBottomSheet
 import com.example.ui.components.LandscapeRelatedDrawer
 import com.example.ui.player.GlobalPlayerManager
+import com.example.resolver.SourceStreamType
+import com.example.ui.player.EmbedWebViewPlayer
 import com.example.ui.player.UniversalVideoPlayer
 import com.example.ui.ambient.AmbientPlayerGlow
 import com.example.ui.ambient.rememberAmbientPalette
@@ -292,7 +294,14 @@ fun VideoPlayerScreen(
                 },
             contentAlignment = Alignment.Center
         ) {
-            UniversalVideoPlayer(
+            if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
+                EmbedWebViewPlayer(
+                    candidate = activeSourceCandidate!!,
+                    onClose = onBackClick,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                UniversalVideoPlayer(
                 streamOption = selectedOption,
                 hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                 captionOption = selectedCaption,
@@ -330,6 +339,7 @@ fun VideoPlayerScreen(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+            }
 
             // Landscape Related Videos Drawer
             LandscapeRelatedDrawer(
@@ -386,7 +396,14 @@ fun VideoPlayerScreen(
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
-                        UniversalVideoPlayer(
+                        if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
+                            EmbedWebViewPlayer(
+                                candidate = activeSourceCandidate!!,
+                                onClose = minimizePlayerAction,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            UniversalVideoPlayer(
                             streamOption = selectedOption,
                             hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                             captionOption = selectedCaption,
@@ -437,6 +454,7 @@ fun VideoPlayerScreen(
                                 }
                             }
                         )
+                        }
                     }
 
                     // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS) - SLIDES DOWN & VANISHES INSTANTLY UPON SWIPING DOWN!
@@ -888,7 +906,11 @@ fun VideoPlayerScreen(
                         } else {
                             // Related Videos List
                             if (relatedContent.isNotEmpty()) {
-                                items(relatedContent, key = { "rel_${it.providerId ?: ""}_${it.id}" }) { video ->
+                                items(
+                                    items = relatedContent,
+                                    key = { "rel_${it.providerId ?: ""}_${it.id}" },
+                                    contentType = { "video_card" }
+                                ) { video ->
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()

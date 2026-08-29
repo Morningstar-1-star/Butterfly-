@@ -66,16 +66,16 @@ class MainApplication : Application() {
             }
         })
 
-        // Configure optimized Coil ImageLoader with moderate concurrency and low memory footprint
+        // Configure high-performance Coil ImageLoader with high concurrency & large RAM/disk cache
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
             .dns(com.example.util.SecureDnsManager.appDns)
             .dispatcher(okhttp3.Dispatcher().apply {
-                maxRequests = 24
-                maxRequestsPerHost = 8
+                maxRequests = 64
+                maxRequestsPerHost = 24
             })
-            .connectionPool(okhttp3.ConnectionPool(16, 3, java.util.concurrent.TimeUnit.MINUTES))
-            .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val urlStr = originalRequest.url.toString().lowercase()
@@ -139,14 +139,14 @@ class MainApplication : Application() {
             .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25) // 25% RAM cache for instant back-and-forth scroll reuse
+                    .maxSizePercent(0.35) // 35% RAM cache for instant back-and-forth scroll reuse
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache_v3"))
-                    .maxSizeBytes(120L * 1024L * 1024L) // 120 MB dedicated disk cache
+                    .directory(cacheDir.resolve("image_cache_v4"))
+                    .maxSizeBytes(250L * 1024L * 1024L) // 250 MB dedicated disk cache
                     .build()
             }
             .respectCacheHeaders(false)

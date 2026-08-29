@@ -95,7 +95,7 @@ class UniversalProviderAggregator(private val context: Context) {
             } else null
 
         // Determine if stream needs MediaFlow proxying
-        val needsProxy = !isTorrent && (candidate.headers.isNotEmpty() || MediaFlowProxyHelper.isMediaFlowEnabled())
+        val needsProxy = !isTorrent && candidate.type != SourceStreamType.EMBED_WEBVIEW && (candidate.headers.isNotEmpty() || MediaFlowProxyHelper.isMediaFlowEnabled())
         val proxiedUrl = if (needsProxy) {
             MediaFlowProxyHelper.buildProxiedUrl(
                 originalUrl = candidate.urlOrMagnet,

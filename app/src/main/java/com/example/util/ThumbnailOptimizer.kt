@@ -102,7 +102,7 @@ object ThumbnailOptimizer {
     fun buildThumbnailRequest(
         context: Context,
         url: String?,
-        crossfadeMillis: Int = 120,
+        crossfadeMillis: Int = 0,
         preferCompact: Boolean = false
     ): ImageRequest? {
         val optimizedUrl = getOptimizedThumbnailUrl(url, preferCompact = preferCompact) ?: return null

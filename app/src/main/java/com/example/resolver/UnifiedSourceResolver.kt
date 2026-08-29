@@ -15,6 +15,11 @@ import com.example.resolver.providers.MediaFusionSourceProvider
 import com.example.resolver.providers.NuvioDirectSourceProvider
 import com.example.resolver.providers.SpankBangSourceProvider
 import com.example.resolver.providers.YarrSourceProvider
+import com.example.resolver.embed.TwoEmbedProvider
+import com.example.resolver.embed.VidlinkEmbedProvider
+import com.example.resolver.embed.VidsrcMeEmbedProvider
+import com.example.resolver.embed.VidsrcToEmbedProvider
+import com.example.resolver.providers.EmbedSourceProviderAdapter
 import com.example.resolver.validation.MediaIdentityValidator
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -57,8 +62,18 @@ class UnifiedSourceResolver(private val context: Context) {
     private val yarrProvider = YarrSourceProvider()
     private val magnetioProvider = MagnetioSourceProvider()
 
+    // Embed Providers
+    private val vidlinkProvider = EmbedSourceProviderAdapter(VidlinkEmbedProvider())
+    private val vidsrcToProvider = EmbedSourceProviderAdapter(VidsrcToEmbedProvider())
+    private val twoEmbedProvider = EmbedSourceProviderAdapter(TwoEmbedProvider())
+    private val vidsrcMeProvider = EmbedSourceProviderAdapter(VidsrcMeEmbedProvider())
+
     val activeProviders: List<SourceProvider>
         get() = listOf(
+            vidlinkProvider,
+            vidsrcToProvider,
+            twoEmbedProvider,
+            vidsrcMeProvider,
             nuvioDirectProvider,
             mediaFusionProvider,
             cometProvider,

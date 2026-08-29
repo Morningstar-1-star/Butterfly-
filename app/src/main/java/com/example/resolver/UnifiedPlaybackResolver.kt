@@ -75,6 +75,20 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         val currentPos = initialPosOverride ?: GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
         val currentSpeed = GlobalPlayerManager.getExoPlayer(context).playbackParameters.speed
 
+        if (candidate.type == SourceStreamType.EMBED_WEBVIEW) {
+            _activeCandidate.value = candidate
+            GlobalPlayerManager.prepareAndPlay(
+                context = context,
+                streamData = null,
+                streamOption = null,
+                hlsUrl = null,
+                captionOption = null
+            )
+            onStatus("Loaded embed player: ${candidate.serverName}")
+            _isResolving.value = false
+            return@withContext true
+        }
+
         try {
             val resolved = withContext(Dispatchers.IO) {
                 resolveCandidateToStream(candidate, onStatus)

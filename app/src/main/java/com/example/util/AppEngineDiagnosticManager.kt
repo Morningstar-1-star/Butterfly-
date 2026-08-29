@@ -77,52 +77,76 @@ object AppEngineDiagnosticManager {
             description = "Core video stream extractor & media parser engine"
         ),
         AppRepoEngineInfo(
-            id = "mediaflow-proxy",
-            name = "MediaFlow Proxy Middleware",
-            repoOwnerRepo = "mhdzumair/mediaflow-proxy",
-            installedVersion = "v1.8.2",
+            id = "newpipe",
+            name = "NewPipeExtractor Core",
+            repoOwnerRepo = "TeamNewPipe/NewPipeExtractor",
+            installedVersion = "v0.26.4",
+            installedDate = "2026-07-28",
+            description = "YouTube stream resolver and channel metadata parser library (v0.26.4)"
+        ),
+        AppRepoEngineInfo(
+            id = "libtorrent",
+            name = "libtorrent4j BitTorrent Engine",
+            repoOwnerRepo = "frostwire/libtorrent4j",
+            installedVersion = "v2.1.0-39",
+            installedDate = "2026-06-15",
+            description = "Native C++/libtorrent4j 2.1.0-39 P2P streaming & magnet engine"
+        ),
+        AppRepoEngineInfo(
+            id = "javinizer-go",
+            name = "Javinizer-Go REST Client",
+            repoOwnerRepo = "javinizer/javinizer-go",
+            installedVersion = "v1.5.1+",
             installedDate = "2026-08-28",
-            description = "HLS/DASH stream proxy with dynamic headers, user agents & CORS bypass"
+            description = "Client adapter connecting to Javinizer-Go REST service API"
         ),
         AppRepoEngineInfo(
             id = "aiostreams",
-            name = "AIOStreams Universal Aggregator",
+            name = "Universal Stream Aggregator",
             repoOwnerRepo = "Viren070/AIOStreams",
             installedVersion = "v2.5.0",
             installedDate = "2026-08-28",
-            description = "Parallel multi-indexer stream aggregator with deduplication & scoring"
+            description = "Butterfly multi-indexer stream aggregator inspired by AIOStreams architecture"
+        ),
+        AppRepoEngineInfo(
+            id = "mediaflow-proxy",
+            name = "MediaFlow Client Adapter",
+            repoOwnerRepo = "mhdzumair/mediaflow-proxy",
+            installedVersion = "v1.8.2",
+            installedDate = "2026-08-28",
+            description = "HLS/DASH direct header injector and client proxy adapter"
         ),
         AppRepoEngineInfo(
             id = "yarr",
-            name = "YARR Torrent Aggregator",
+            name = "YARR Torrent Adapter",
             repoOwnerRepo = "ankit-m/yarr",
             installedVersion = "v1.4.0",
             installedDate = "2026-08-28",
-            description = "High-performance BitTorrent & Stremio stream distributor"
+            description = "Stremio & BitTorrent HTTP stream distributor adapter"
         ),
         AppRepoEngineInfo(
             id = "magnetio",
-            name = "Magnetio P2P Indexer",
+            name = "Magnetio Indexer Adapter",
             repoOwnerRepo = "magnetio/magnetio-core",
             installedVersion = "v1.1.0",
             installedDate = "2026-08-28",
-            description = "1337x & TorrentGalaxy real-time multi-swarm torrent crawler"
+            description = "1337x & TorrentGalaxy real-time multi-swarm torrent crawler adapter"
         ),
         AppRepoEngineInfo(
             id = "stash-scrapers",
-            name = "Stash Community Scrapers Hub",
+            name = "Stash Scene Scrapers Adapter",
             repoOwnerRepo = "stashapp/CommunityScrapers",
             installedVersion = "v2.8.0",
             installedDate = "2026-08-28",
-            description = "Universal multi-site video and adult metadata scraper hub"
+            description = "Direct scene and studio HTML scraper collection"
         ),
         AppRepoEngineInfo(
             id = "javapi",
-            name = "JAVapi REST Scraper",
+            name = "JAVapi REST Client",
             repoOwnerRepo = "javapi-org/javapi-server",
             installedVersion = "v1.2.0",
             installedDate = "2026-08-28",
-            description = "Online REST metadata scraper & cover image resolver"
+            description = "Online REST metadata scraper & cover image resolver client"
         ),
         AppRepoEngineInfo(
             id = "potoken-plugin",
@@ -131,22 +155,6 @@ object AppEngineDiagnosticManager {
             installedVersion = "v1.3.0",
             installedDate = "2026-08-28",
             description = "Automated Proof of Origin token generator for high-res streams"
-        ),
-        AppRepoEngineInfo(
-            id = "newpipe",
-            name = "NewPipe Extractor Core",
-            repoOwnerRepo = "TeamNewPipe/NewPipeExtractor",
-            installedVersion = "v0.22.1",
-            installedDate = "2026-07-28",
-            description = "YouTube stream resolver and channel metadata parser"
-        ),
-        AppRepoEngineInfo(
-            id = "libtorrent",
-            name = "libtorrent BitTorrent Engine",
-            repoOwnerRepo = "arvidn/libtorrent",
-            installedVersion = "v2.0.10",
-            installedDate = "2026-06-15",
-            description = "Native C++/Kotlin P2P streaming & magnet protocol engine"
         ),
         AppRepoEngineInfo(
             id = "subdl",
@@ -163,14 +171,6 @@ object AppEngineDiagnosticManager {
             installedVersion = "v3.1.0",
             installedDate = "2026-08-20",
             description = "Extension repository for movie, series and anime providers"
-        ),
-        AppRepoEngineInfo(
-            id = "javinizer",
-            name = "Javinizer Metadata Engine",
-            repoOwnerRepo = "Javinizer/Javinizer",
-            installedVersion = "v2.1.0",
-            installedDate = "2026-07-10",
-            description = "Adult movie metadata, tags & cover scraper resolver"
         ),
         AppRepoEngineInfo(
             id = "sponsorblock",
@@ -580,6 +580,10 @@ object AppEngineDiagnosticManager {
             results.add(testBitTorrentEngine(context))
             _componentTestResults.value = results.toList()
 
+            // 13. Javinizer-Go REST Service
+            results.add(testJavinizerGoService(context))
+            _componentTestResults.value = results.toList()
+
             _isTestingComponents.value = false
         }
     }
@@ -871,6 +875,20 @@ object AppEngineDiagnosticManager {
             latencyMs = latency.coerceAtLeast(1L),
             statusSummary = "libtorrent DHT & TCP/UTP Ready",
             details = "Sequential piece prioritization enabled • Magnet URI parser & stream proxy active"
+        )
+    }
+
+    suspend fun testJavinizerGoService(context: Context): DiagnosticComponentTestResult = withContext(Dispatchers.IO) {
+        val provider = com.example.metadata.providers.JavinizerGoMetadataProvider()
+        val health = provider.testHealth()
+
+        DiagnosticComponentTestResult(
+            componentId = "javinizer-go",
+            componentName = "Javinizer-Go REST Service",
+            isSuccess = health.isSuccess,
+            latencyMs = health.latencyMs,
+            statusSummary = if (health.isSuccess) "Connected (${health.serverVersion ?: "v1.5.1+"})" else "Service Standby",
+            details = health.message
         )
     }
 }

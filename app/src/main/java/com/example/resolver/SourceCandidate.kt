@@ -5,7 +5,8 @@ enum class SourceStreamType {
     HLS,
     DASH,
     TORRENT,
-    LOCAL
+    LOCAL,
+    EMBED_WEBVIEW
 }
 
 data class PlaybackCapabilities(
@@ -54,5 +55,6 @@ data class SourceCandidate(
             SourceStreamType.DASH -> "DASH"
             SourceStreamType.TORRENT -> if (seeders > 0) "Torrent • ${seeders}S" else "Torrent"
             SourceStreamType.LOCAL -> "Local"
+            SourceStreamType.EMBED_WEBVIEW -> "Embed"
         }
 }

@@ -274,6 +274,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch(Dispatchers.IO) {
             _appCacheSizeBytes.value = batterySaverManager.calculateCacheSizeBytes()
+            val cachedFeed = com.example.util.HomeFeedCacheManager.loadCachedFeed(getApplication())
+            if (cachedFeed.isNotEmpty() && _trendingVideos.value.isEmpty()) {
+                _trendingVideos.value = cachedFeed
+                _isLoadingTrending.value = false
+                com.example.util.ThumbnailOptimizer.preloadThumbnails(getApplication(), cachedFeed)
+            }
         }
     }
 
@@ -3199,6 +3205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (primaryResult.isNotEmpty()) {
                     _trendingVideos.value = primaryResult
                     _isLoadingTrending.value = false
+                    com.example.util.ThumbnailOptimizer.preloadThumbnails(getApplication(), primaryResult)
                 }
 
                 // --- BATCH 2: HEAVY SCRAPERS, VEGA & TORRENT (APPEND-ONLY) ---

@@ -42,8 +42,9 @@ fun UnifiedServerSelectorSheet(
 
     val filteredCandidates = remember(candidates, selectedFilter) {
         when (selectedFilter) {
-            "direct" -> candidates.filter { !it.isTorrent }
+            "direct" -> candidates.filter { !it.isTorrent && it.type != SourceStreamType.EMBED_WEBVIEW }
             "torrent" -> candidates.filter { it.isTorrent }
+            "embed" -> candidates.filter { it.type == SourceStreamType.EMBED_WEBVIEW }
             else -> candidates
         }
     }
@@ -163,8 +164,9 @@ fun UnifiedServerSelectorSheet(
                     .padding(bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val directCount = candidates.count { !it.isTorrent }
+                val directCount = candidates.count { !it.isTorrent && it.type != SourceStreamType.EMBED_WEBVIEW }
                 val torrentCount = candidates.count { it.isTorrent }
+                val embedCount = candidates.count { it.type == SourceStreamType.EMBED_WEBVIEW }
 
                 FilterChip(
                     selected = selectedFilter == "all",
@@ -181,7 +183,19 @@ fun UnifiedServerSelectorSheet(
                 FilterChip(
                     selected = selectedFilter == "direct",
                     onClick = { selectedFilter = "direct" },
-                    label = { Text("⚡ Direct / Vega ($directCount)") },
+                    label = { Text("⚡ Direct ($directCount)") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = Color.White,
+                        containerColor = Color(0xFF202330),
+                        labelColor = Color.White.copy(alpha = 0.7f)
+                    )
+                )
+
+                FilterChip(
+                    selected = selectedFilter == "embed",
+                    onClick = { selectedFilter = "embed" },
+                    label = { Text("🌐 Embeds ($embedCount)") },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = Color.White,
@@ -286,25 +300,39 @@ private fun SourceCandidateCard(
                     .size(40.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(
-                        if (candidate.isTorrent) Color(0xFFE65100).copy(alpha = 0.2f)
-                        else Color(0xFF00897B).copy(alpha = 0.2f)
+                        when {
+                            candidate.isTorrent -> Color(0xFFE65100).copy(alpha = 0.2f)
+                            candidate.type == SourceStreamType.EMBED_WEBVIEW -> Color(0xFF673AB7).copy(alpha = 0.2f)
+                            else -> Color(0xFF00897B).copy(alpha = 0.2f)
+                        }
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (candidate.isTorrent) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        tint = Color(0xFFFF9800),
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Bolt,
-                        contentDescription = null,
-                        tint = Color(0xFF26A69A),
-                        modifier = Modifier.size(20.dp)
-                    )
+                when {
+                    candidate.isTorrent -> {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            tint = Color(0xFFFF9800),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    candidate.type == SourceStreamType.EMBED_WEBVIEW -> {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = null,
+                            tint = Color(0xFFB388FF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    else -> {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = Color(0xFF26A69A),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
