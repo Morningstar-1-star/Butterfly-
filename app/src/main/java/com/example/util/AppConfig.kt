@@ -25,6 +25,19 @@ object AppConfig {
     private const val KEY_TORRENT_PROXY_ENABLED = "torrent_proxy_enabled"
     private const val KEY_TORZNAB_BASE_URL = "torznab_base_url"
     private const val KEY_TORZNAB_API_KEY = "torznab_api_key"
+    private const val KEY_JAVINIZER_ENABLED = "javinizer_enabled"
+    private const val KEY_JAVINIZER_API_URL = "javinizer_api_url"
+    private const val KEY_JAVINIZER_TIMEOUT_SECONDS = "javinizer_timeout_seconds"
+    private const val KEY_JAVINIZER_FALLBACK_ENABLED = "javinizer_fallback_enabled"
+    private const val KEY_MEDIAFLOW_ENABLED = "mediaflow_enabled"
+    private const val KEY_MEDIAFLOW_SERVER_URL = "mediaflow_server_url"
+    private const val KEY_MEDIAFLOW_API_PASSWORD = "mediaflow_api_password"
+    private const val KEY_MEDIAFLOW_LIGHT_MODE = "mediaflow_light_mode"
+    private const val KEY_JAVAPI_ENABLED = "javapi_enabled"
+    private const val KEY_JAVAPI_SERVER_URL = "javapi_server_url"
+    private const val KEY_YARR_ENABLED = "yarr_enabled"
+    private const val KEY_YARR_SERVER_URL = "yarr_server_url"
+    private const val KEY_MAGNETIO_ENABLED = "magnetio_enabled"
 
     // Default working keys & mirrors
     const val DEFAULT_TMDB_API_KEY = "b4ef3b290130df4d8de63d410db2bdfc"
@@ -32,13 +45,64 @@ object AppConfig {
     const val DEFAULT_OPENSUBTITLES_API_KEY = "p1Q8N8Z6eB0s6Z6A5t8Y4U1I3O9P2L5K"
     const val DEFAULT_TORRENTIO_BASE_URL = "https://torrentio.strem.fun"
     const val DEFAULT_VEGA_SERVER_URL = "https://vega.strem.fun"
+    const val DEFAULT_JAVINIZER_API_URL = "http://localhost:8765"
+    const val DEFAULT_JAVINIZER_TIMEOUT_SECONDS = 15
+    const val DEFAULT_JAVINIZER_ENABLED = true
+    const val DEFAULT_JAVINIZER_FALLBACK_ENABLED = true
+    const val DEFAULT_MEDIAFLOW_ENABLED = false
+    const val DEFAULT_MEDIAFLOW_SERVER_URL = "http://localhost:8888"
+    const val DEFAULT_MEDIAFLOW_LIGHT_MODE = true
+    const val DEFAULT_JAVAPI_ENABLED = true
+    const val DEFAULT_JAVAPI_SERVER_URL = "https://javapi.vercel.app"
+    const val DEFAULT_YARR_ENABLED = true
+    const val DEFAULT_YARR_SERVER_URL = "https://yarr.fly.dev"
+    const val DEFAULT_MAGNETIO_ENABLED = true
     val DEFAULT_PO_TOKEN_SERVER_URL: String get() = com.example.BuildConfig.PO_TOKEN_SERVER_URL
+
+    @Volatile
+    private var cachedMediaFlowEnabled: Boolean = DEFAULT_MEDIAFLOW_ENABLED
+
+    @Volatile
+    private var cachedMediaFlowServerUrl: String? = null
+
+    @Volatile
+    private var cachedMediaFlowApiPassword: String? = null
+
+    @Volatile
+    private var cachedMediaFlowLightMode: Boolean = DEFAULT_MEDIAFLOW_LIGHT_MODE
+
+    @Volatile
+    private var cachedJavapiEnabled: Boolean = DEFAULT_JAVAPI_ENABLED
+
+    @Volatile
+    private var cachedJavapiServerUrl: String? = null
+
+    @Volatile
+    private var cachedYarrEnabled: Boolean = DEFAULT_YARR_ENABLED
+
+    @Volatile
+    private var cachedYarrServerUrl: String? = null
+
+    @Volatile
+    private var cachedMagnetioEnabled: Boolean = DEFAULT_MAGNETIO_ENABLED
 
     @Volatile
     private var cachedTorznabUrl: String? = null
 
     @Volatile
     private var cachedTorznabApiKey: String? = null
+
+    @Volatile
+    private var cachedJavinizerEnabled: Boolean = DEFAULT_JAVINIZER_ENABLED
+
+    @Volatile
+    private var cachedJavinizerApiUrl: String? = null
+
+    @Volatile
+    private var cachedJavinizerTimeoutSeconds: Int = DEFAULT_JAVINIZER_TIMEOUT_SECONDS
+
+    @Volatile
+    private var cachedJavinizerFallbackEnabled: Boolean = DEFAULT_JAVINIZER_FALLBACK_ENABLED
 
     @Volatile
     private var cachedTmdbKey: String? = null
@@ -104,6 +168,142 @@ object AppConfig {
         cachedProxyEnabled = prefs.getBoolean(KEY_TORRENT_PROXY_ENABLED, false)
         cachedTorznabUrl = prefs.getString(KEY_TORZNAB_BASE_URL, null)?.ifBlank { null } ?: ""
         cachedTorznabApiKey = prefs.getString(KEY_TORZNAB_API_KEY, null)?.ifBlank { null } ?: ""
+        cachedJavinizerEnabled = prefs.getBoolean(KEY_JAVINIZER_ENABLED, DEFAULT_JAVINIZER_ENABLED)
+        cachedJavinizerApiUrl = prefs.getString(KEY_JAVINIZER_API_URL, null)?.ifBlank { null } ?: DEFAULT_JAVINIZER_API_URL
+        cachedJavinizerTimeoutSeconds = prefs.getInt(KEY_JAVINIZER_TIMEOUT_SECONDS, DEFAULT_JAVINIZER_TIMEOUT_SECONDS)
+        cachedJavinizerFallbackEnabled = prefs.getBoolean(KEY_JAVINIZER_FALLBACK_ENABLED, DEFAULT_JAVINIZER_FALLBACK_ENABLED)
+        cachedMediaFlowEnabled = prefs.getBoolean(KEY_MEDIAFLOW_ENABLED, DEFAULT_MEDIAFLOW_ENABLED)
+        cachedMediaFlowServerUrl = prefs.getString(KEY_MEDIAFLOW_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_MEDIAFLOW_SERVER_URL
+        cachedMediaFlowApiPassword = prefs.getString(KEY_MEDIAFLOW_API_PASSWORD, null)?.ifBlank { null } ?: ""
+        cachedMediaFlowLightMode = prefs.getBoolean(KEY_MEDIAFLOW_LIGHT_MODE, DEFAULT_MEDIAFLOW_LIGHT_MODE)
+        cachedJavapiEnabled = prefs.getBoolean(KEY_JAVAPI_ENABLED, DEFAULT_JAVAPI_ENABLED)
+        cachedJavapiServerUrl = prefs.getString(KEY_JAVAPI_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_JAVAPI_SERVER_URL
+        cachedYarrEnabled = prefs.getBoolean(KEY_YARR_ENABLED, DEFAULT_YARR_ENABLED)
+        cachedYarrServerUrl = prefs.getString(KEY_YARR_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_YARR_SERVER_URL
+        cachedMagnetioEnabled = prefs.getBoolean(KEY_MAGNETIO_ENABLED, DEFAULT_MAGNETIO_ENABLED)
+    }
+
+    fun isMediaFlowEnabled(): Boolean = cachedMediaFlowEnabled
+
+    fun setMediaFlowEnabled(context: Context, enabled: Boolean) {
+        cachedMediaFlowEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MEDIAFLOW_ENABLED, enabled)
+            .apply()
+    }
+
+    fun getMediaFlowServerUrl(): String = cachedMediaFlowServerUrl ?: DEFAULT_MEDIAFLOW_SERVER_URL
+
+    fun setMediaFlowServerUrl(context: Context, url: String) {
+        val clean = url.trim().trimEnd('/')
+        cachedMediaFlowServerUrl = clean.ifBlank { DEFAULT_MEDIAFLOW_SERVER_URL }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_MEDIAFLOW_SERVER_URL, clean)
+            .apply()
+    }
+
+    fun getMediaFlowApiPassword(): String = cachedMediaFlowApiPassword ?: ""
+
+    fun setMediaFlowApiPassword(context: Context, pass: String) {
+        val clean = pass.trim()
+        cachedMediaFlowApiPassword = clean
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_MEDIAFLOW_API_PASSWORD, clean)
+            .apply()
+    }
+
+    fun isMediaFlowLightMode(): Boolean = cachedMediaFlowLightMode
+
+    fun setMediaFlowLightMode(context: Context, light: Boolean) {
+        cachedMediaFlowLightMode = light
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MEDIAFLOW_LIGHT_MODE, light)
+            .apply()
+    }
+
+    fun isJavapiEnabled(): Boolean = cachedJavapiEnabled
+
+    fun setJavapiEnabled(context: Context, enabled: Boolean) {
+        cachedJavapiEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_JAVAPI_ENABLED, enabled)
+            .apply()
+    }
+
+    fun getJavapiServerUrl(): String = cachedJavapiServerUrl ?: DEFAULT_JAVAPI_SERVER_URL
+
+    fun setJavapiServerUrl(context: Context, url: String) {
+        val clean = url.trim().trimEnd('/')
+        cachedJavapiServerUrl = clean.ifBlank { DEFAULT_JAVAPI_SERVER_URL }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_JAVAPI_SERVER_URL, clean)
+            .apply()
+    }
+
+    fun isYarrEnabled(): Boolean = cachedYarrEnabled
+
+    fun setYarrEnabled(context: Context, enabled: Boolean) {
+        cachedYarrEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_YARR_ENABLED, enabled)
+            .apply()
+    }
+
+    fun getYarrServerUrl(): String = cachedYarrServerUrl ?: DEFAULT_YARR_SERVER_URL
+
+    fun setYarrServerUrl(context: Context, url: String) {
+        val clean = url.trim().trimEnd('/')
+        cachedYarrServerUrl = clean.ifBlank { DEFAULT_YARR_SERVER_URL }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_YARR_SERVER_URL, clean)
+            .apply()
+    }
+
+    fun isMagnetioEnabled(): Boolean = cachedMagnetioEnabled
+
+    fun setMagnetioEnabled(context: Context, enabled: Boolean) {
+        cachedMagnetioEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MAGNETIO_ENABLED, enabled)
+            .apply()
+    }
+
+    fun isJavinizerEnabled(): Boolean = cachedJavinizerEnabled
+
+    fun setJavinizerEnabled(context: Context, enabled: Boolean) {
+        cachedJavinizerEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_JAVINIZER_ENABLED, enabled)
+            .apply()
+    }
+
+    fun getJavinizerApiUrl(): String = cachedJavinizerApiUrl ?: DEFAULT_JAVINIZER_API_URL
+
+    fun setJavinizerApiUrl(context: Context, url: String) {
+        val clean = url.trim().trimEnd('/')
+        cachedJavinizerApiUrl = clean.ifBlank { DEFAULT_JAVINIZER_API_URL }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_JAVINIZER_API_URL, clean)
+            .apply()
+    }
+
+    fun getJavinizerTimeoutSeconds(): Int = cachedJavinizerTimeoutSeconds
+
+    fun setJavinizerTimeoutSeconds(context: Context, seconds: Int) {
+        val validSec = if (seconds in 2..120) seconds else DEFAULT_JAVINIZER_TIMEOUT_SECONDS
+        cachedJavinizerTimeoutSeconds = validSec
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_JAVINIZER_TIMEOUT_SECONDS, validSec)
+            .apply()
+    }
+
+    fun isJavinizerFallbackEnabled(): Boolean = cachedJavinizerFallbackEnabled
+
+    fun setJavinizerFallbackEnabled(context: Context, enabled: Boolean) {
+        cachedJavinizerFallbackEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_JAVINIZER_FALLBACK_ENABLED, enabled)
+            .apply()
     }
 
     fun getTorznabBaseUrl(): String = cachedTorznabUrl ?: ""

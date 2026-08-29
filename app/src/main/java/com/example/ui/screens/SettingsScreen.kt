@@ -888,6 +888,30 @@ fun SettingsScreen(
                         var poTokenServerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getPoTokenServerUrl()) }
                         var poTokenInput by remember { mutableStateOf(com.example.util.AppConfig.getCustomPoToken()) }
 
+                        // MediaFlow Proxy states
+                        var mediaFlowEnabled by remember { mutableStateOf(com.example.util.AppConfig.isMediaFlowEnabled()) }
+                        var mediaFlowServerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getMediaFlowServerUrl()) }
+                        var mediaFlowPasswordInput by remember { mutableStateOf(com.example.util.AppConfig.getMediaFlowApiPassword()) }
+                        var mediaFlowLightMode by remember { mutableStateOf(com.example.util.AppConfig.isMediaFlowLightMode()) }
+
+                        // JAVapi & Stream Indexers states
+                        var javapiEnabled by remember { mutableStateOf(com.example.util.AppConfig.isJavapiEnabled()) }
+                        var javapiServerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getJavapiServerUrl()) }
+                        var yarrEnabled by remember { mutableStateOf(com.example.util.AppConfig.isYarrEnabled()) }
+                        var yarrServerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getYarrServerUrl()) }
+                        var magnetioEnabled by remember { mutableStateOf(com.example.util.AppConfig.isMagnetioEnabled()) }
+
+                        // Javinizer-Go states
+                        var javinizerEnabled by remember { mutableStateOf(com.example.util.AppConfig.isJavinizerEnabled()) }
+                        var javinizerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getJavinizerApiUrl()) }
+                        var javinizerTimeoutStr by remember { mutableStateOf(com.example.util.AppConfig.getJavinizerTimeoutSeconds().toString()) }
+                        var javinizerFallback by remember { mutableStateOf(com.example.util.AppConfig.isJavinizerFallbackEnabled()) }
+                        var isTestingJavinizer by remember { mutableStateOf(false) }
+                        var javinizerHealthResult by remember { mutableStateOf<com.example.metadata.providers.JavinizerGoMetadataProvider.Companion.JavinizerHealthResult?>(null) }
+                        var testSampleCode by remember { mutableStateOf("IPX-535") }
+                        var sampleLookupStatus by remember { mutableStateOf<String?>(null) }
+                        var isTestingSample by remember { mutableStateOf(false) }
+
                         // SOCKS5 Proxy states
                         var proxyEnabled by remember { mutableStateOf(com.example.util.AppConfig.isTorrentProxyEnabled()) }
                         var proxyHost by remember { mutableStateOf(com.example.util.AppConfig.getTorrentProxyHost()) }
@@ -900,6 +924,197 @@ fun SettingsScreen(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            // JAVINIZER-GO Card
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "JAVINIZER-GO METADATA ENGINE (v1.5.1+)",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "Connects Butterfly to a real Javinizer-Go REST backend service to scrape titles, high-res covers, actress profiles & sample previews.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Switch(
+                                                checked = javinizerEnabled,
+                                                onCheckedChange = {
+                                                    javinizerEnabled = it
+                                                    com.example.util.AppConfig.setJavinizerEnabled(context, it)
+                                                }
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        OutlinedTextField(
+                                            value = javinizerUrlInput,
+                                            onValueChange = { javinizerUrlInput = it },
+                                            label = { Text("Javinizer-Go REST API Base URL") },
+                                            placeholder = { Text("http://localhost:8765 or http://192.168.1.50:8765") },
+                                            singleLine = true,
+                                            enabled = javinizerEnabled,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedTextField(
+                                                value = javinizerTimeoutStr,
+                                                onValueChange = { javinizerTimeoutStr = it.filter { c -> c.isDigit() } },
+                                                label = { Text("Timeout (sec)") },
+                                                placeholder = { Text("15") },
+                                                singleLine = true,
+                                                enabled = javinizerEnabled,
+                                                modifier = Modifier.weight(0.4f)
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .weight(0.6f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable(enabled = javinizerEnabled) {
+                                                        javinizerFallback = !javinizerFallback
+                                                        com.example.util.AppConfig.setJavinizerFallbackEnabled(context, javinizerFallback)
+                                                    }
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Checkbox(
+                                                    checked = javinizerFallback,
+                                                    onCheckedChange = {
+                                                        javinizerFallback = it
+                                                        com.example.util.AppConfig.setJavinizerFallbackEnabled(context, it)
+                                                    },
+                                                    enabled = javinizerEnabled
+                                                )
+                                                Text(
+                                                    text = "Cascade fallback if offline",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = if (javinizerEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        // Diagnostics & Health Results
+                                        if (javinizerHealthResult != null) {
+                                            val res = javinizerHealthResult!!
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (res.isSuccess) Color(0xFF1B5E20).copy(alpha = 0.15f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    1.dp,
+                                                    if (res.isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+                                                ),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(modifier = Modifier.padding(10.dp)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (res.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                                                            contentDescription = null,
+                                                            tint = if (res.isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (res.isSuccess) "Service Online (${res.serverVersion ?: "v1.5.1+"})" else "Service Offline",
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (res.isSuccess) Color(0xFF81C784) else MaterialTheme.colorScheme.error
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = res.message,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.padding(top = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                        }
+
+                                        // Test Scrape Result
+                                        if (sampleLookupStatus != null) {
+                                            Text(
+                                                text = sampleLookupStatus!!,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(bottom = 8.dp)
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        isTestingJavinizer = true
+                                                        javinizerHealthResult = null
+                                                        val prov = com.example.metadata.providers.JavinizerGoMetadataProvider()
+                                                        val timeoutInt = javinizerTimeoutStr.toIntOrNull() ?: 15
+                                                        val result = prov.testHealth(
+                                                            customBaseUrl = javinizerUrlInput,
+                                                            customTimeoutSec = timeoutInt
+                                                        )
+                                                        javinizerHealthResult = result
+                                                        isTestingJavinizer = false
+                                                    }
+                                                },
+                                                enabled = javinizerEnabled && !isTestingJavinizer
+                                            ) {
+                                                if (isTestingJavinizer) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Testing...")
+                                                } else {
+                                                    Icon(Icons.Outlined.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Test Health")
+                                                }
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    val timeoutInt = javinizerTimeoutStr.toIntOrNull() ?: 15
+                                                    com.example.util.AppConfig.setJavinizerEnabled(context, javinizerEnabled)
+                                                    com.example.util.AppConfig.setJavinizerApiUrl(context, javinizerUrlInput)
+                                                    com.example.util.AppConfig.setJavinizerTimeoutSeconds(context, timeoutInt)
+                                                    com.example.util.AppConfig.setJavinizerFallbackEnabled(context, javinizerFallback)
+                                                    Toast.makeText(context, "Javinizer-Go settings saved!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Text("Save")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             // TMDB Card
                             item {
                                 Card(
@@ -1240,6 +1455,237 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+
+                            // MediaFlow Proxy Middleware Card
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "MEDIAFLOW PROXY (STREAM MIDDLEWARE)",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "Proxies extracted HLS/DASH/Direct video streams through MediaFlow Proxy (or Light mode) with dynamic headers, user agents, and CORS bypass.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Switch(
+                                                checked = mediaFlowEnabled,
+                                                onCheckedChange = {
+                                                    mediaFlowEnabled = it
+                                                    com.example.util.AppConfig.setMediaFlowEnabled(context, it)
+                                                }
+                                            )
+                                        }
+
+                                        if (mediaFlowEnabled) {
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            OutlinedTextField(
+                                                value = mediaFlowServerUrlInput,
+                                                onValueChange = { mediaFlowServerUrlInput = it },
+                                                label = { Text("MediaFlow Server URL") },
+                                                placeholder = { Text("http://localhost:8888 or https://mediaflow.proxy.domain") },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            OutlinedTextField(
+                                                value = mediaFlowPasswordInput,
+                                                onValueChange = { mediaFlowPasswordInput = it },
+                                                label = { Text("API Password / Token (Optional)") },
+                                                placeholder = { Text("Secret token") },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Light / Header Forwarding Mode",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = "Injects custom headers without transcoding or bandwidth bottleneck",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Switch(
+                                                    checked = mediaFlowLightMode,
+                                                    onCheckedChange = {
+                                                        mediaFlowLightMode = it
+                                                        com.example.util.AppConfig.setMediaFlowLightMode(context, it)
+                                                    }
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    com.example.util.AppConfig.setMediaFlowEnabled(context, mediaFlowEnabled)
+                                                    com.example.util.AppConfig.setMediaFlowServerUrl(context, mediaFlowServerUrlInput)
+                                                    com.example.util.AppConfig.setMediaFlowApiPassword(context, mediaFlowPasswordInput)
+                                                    com.example.util.AppConfig.setMediaFlowLightMode(context, mediaFlowLightMode)
+                                                    Toast.makeText(context, "MediaFlow Proxy settings saved!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Text("Save MediaFlow")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Multi-Indexer & Stream Aggregators Card (AIOStreams / YARR / Magnetio / JAVapi)
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = "UNIVERSAL STREAM INDEXERS & METADATA (AIOSTREAMS)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "Enables high-speed multi-indexer search (1337x, TGx, Nyaa, EZTV, YTS, YARR, Magnetio) and REST metadata scrapers.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(vertical = 6.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        // Magnetio Toggle
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Magnetio Multi-Indexer", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                                Text("Parallel 1337x & TorrentGalaxy torrent scraper with deduplication", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Switch(
+                                                checked = magnetioEnabled,
+                                                onCheckedChange = {
+                                                    magnetioEnabled = it
+                                                    com.example.util.AppConfig.setMagnetioEnabled(context, it)
+                                                }
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        // YARR Toggle & URL
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("YARR Torrent Aggregator", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                                Text("High-performance Stremio torrent aggregation endpoint", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Switch(
+                                                checked = yarrEnabled,
+                                                onCheckedChange = {
+                                                    yarrEnabled = it
+                                                    com.example.util.AppConfig.setYarrEnabled(context, it)
+                                                }
+                                            )
+                                        }
+
+                                        if (yarrEnabled) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            OutlinedTextField(
+                                                value = yarrServerUrlInput,
+                                                onValueChange = { yarrServerUrlInput = it },
+                                                label = { Text("YARR Server URL") },
+                                                placeholder = { Text(com.example.resolver.providers.YarrSourceProvider.DEFAULT_BASE_URL) },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        // JAVapi Toggle & URL
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("JAVapi REST Metadata", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                                Text("Online JAV metadata fallback provider for rich titles and covers", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Switch(
+                                                checked = javapiEnabled,
+                                                onCheckedChange = {
+                                                    javapiEnabled = it
+                                                    com.example.util.AppConfig.setJavapiEnabled(context, it)
+                                                }
+                                            )
+                                        }
+
+                                        if (javapiEnabled) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            OutlinedTextField(
+                                                value = javapiServerUrlInput,
+                                                onValueChange = { javapiServerUrlInput = it },
+                                                label = { Text("JAVapi Base URL") },
+                                                placeholder = { Text(com.example.util.AppConfig.DEFAULT_JAVAPI_SERVER_URL) },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    com.example.util.AppConfig.setMagnetioEnabled(context, magnetioEnabled)
+                                                    com.example.util.AppConfig.setYarrEnabled(context, yarrEnabled)
+                                                    com.example.util.AppConfig.setYarrServerUrl(context, yarrServerUrlInput)
+                                                    com.example.util.AppConfig.setJavapiEnabled(context, javapiEnabled)
+                                                    com.example.util.AppConfig.setJavapiServerUrl(context, javapiServerUrlInput)
+                                                    Toast.makeText(context, "Indexers and metadata engines updated!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Text("Save Aggregators")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1547,14 +1993,160 @@ fun SettingsScreen(
                         val repoList by com.example.util.AppEngineDiagnosticManager.repoList.collectAsState()
                         val isGlobalChecking by com.example.util.AppEngineDiagnosticManager.isGlobalChecking.collectAsState()
                         val summaryText by com.example.util.AppEngineDiagnosticManager.overallDiagnosticSummary.collectAsState()
+                        val componentTestResults by com.example.util.AppEngineDiagnosticManager.componentTestResults.collectAsState()
+                        val isTestingComponents by com.example.util.AppEngineDiagnosticManager.isTestingComponents.collectAsState()
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Header Summary Card
+                            // Section 1: LIVE COMPONENT & PROVIDER TESTS
                             item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "LIVE PROVIDER & COMPONENT TEST SUITE",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Test real connections, middleware proxy, scrapers, AI transcribe & streaming pipelines",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(14.dp))
+                                        Button(
+                                            onClick = {
+                                                com.example.util.AppEngineDiagnosticManager.runAllLiveComponentDiagnostics(context)
+                                            },
+                                            enabled = !isTestingComponents,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                        ) {
+                                            if (isTestingComponents) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(16.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = MaterialTheme.colorScheme.onPrimary
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Testing All Live Modules...", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                                            } else {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Run All Live Diagnostics & Component Tests", fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Component Test Results (If any)
+                            if (componentTestResults.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "TEST RESULTS (${componentTestResults.count { it.isSuccess }}/${componentTestResults.size} PASS)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (componentTestResults.all { it.isSuccess }) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                items(componentTestResults) { testRes ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        ),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (testRes.isSuccess) Color(0xFF4CAF50).copy(alpha = 0.4f) else MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (testRes.isSuccess) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                                        contentDescription = null,
+                                                        tint = if (testRes.isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = testRes.componentName,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = if (testRes.isSuccess) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                                    modifier = Modifier.padding(start = 8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (testRes.latencyMs > 0) "${testRes.latencyMs} ms" else "Direct",
+                                                        color = if (testRes.isSuccess) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = testRes.statusSummary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (testRes.isSuccess) Color(0xFF388E3C) else MaterialTheme.colorScheme.error
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = testRes.details,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Section 2: APP REPOSITORIES & ENGINES HEADER
+                            item {
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(16.dp),
@@ -1570,10 +2162,12 @@ fun SettingsScreen(
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
-                                                    text = "App Repositories & Engine Diagnostics",
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold
+                                                    text = "REPOSITORIES & ENGINE RELEASES",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
                                                 )
+                                                Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
                                                     text = summaryText,
                                                     style = MaterialTheme.typography.bodySmall,

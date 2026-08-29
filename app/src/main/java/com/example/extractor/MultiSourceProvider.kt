@@ -270,16 +270,12 @@ object MultiSourceProvider {
     }
 
     // ------------------- PORNHUB -------------------
-    private fun getPornhubHome(limit: Int, page: Int = 1): List<VideoItem> {
-        val items = PornhubProvider.getHome(limit, page)
-        if (items.isNotEmpty()) return items
+    fun getPornhubHome(limit: Int, page: Int = 1): List<VideoItem> {
         val pageParam = if (page > 1) "&page=$page" else ""
         return parsePornhubHtml("https://www.pornhub.com/video?o=trending$pageParam", limit)
     }
 
-    private fun searchPornhub(query: String, limit: Int, page: Int = 1): List<VideoItem> {
-        val items = PornhubProvider.search(query, limit, page)
-        if (items.isNotEmpty()) return items
+    fun searchPornhub(query: String, limit: Int, page: Int = 1): List<VideoItem> {
         val encoded = URLEncoder.encode(query, "UTF-8")
         val pageParam = if (page > 1) "&page=$page" else ""
         return parsePornhubHtml("https://www.pornhub.com/video/search?search=$encoded$pageParam", limit)
@@ -350,9 +346,13 @@ object MultiSourceProvider {
 
                     // 2. Extract thumbnail
                     var thumb = ""
-                    val thumbMatcher = Pattern.compile("(?:data-mediumthumbnail|data-thumb_url|data-src|data-image|data-poster|src)=\"([^\"]*(?:phncdn|pornhub|jpg|jpeg|webp|png)[^\"]*)\"", Pattern.CASE_INSENSITIVE).matcher(block)
+                    val thumbMatcher = Pattern.compile("""(?:data-mediumthumbnail|data-thumb_url|data-thumb|data-src|data-image|data-poster|src)=["']([^"'\s,]+?\.(?:jpg|jpeg|webp|png)[^"'\s,]*)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
                     if (thumbMatcher.find()) {
                         thumb = thumbMatcher.group(1) ?: ""
+                    }
+                    if (thumb.isBlank()) {
+                        val m = Pattern.compile("""((?:https?:)?//[^"'\s>]*phncdn\.com/[^"'\s>]*\.(?:jpg|jpeg|webp))""", Pattern.CASE_INSENSITIVE).matcher(block)
+                        if (m.find()) thumb = m.group(1) ?: ""
                     }
                     if (thumb.startsWith("//")) {
                         thumb = "https:$thumb"

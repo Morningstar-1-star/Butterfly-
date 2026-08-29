@@ -158,10 +158,27 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             activeTorrentServer = server
             server.start()
 
+            val parsedMagnet = com.example.torrent.protocol.MagnetParser.parse(candidate.urlOrMagnet)
+            val infoHash = candidate.extraData["infoHash"]?.takeIf { it.isNotBlank() }
+                ?: parsedMagnet?.infoHashHex
+                ?: ""
+
+            val magnetUrl = if (candidate.urlOrMagnet.startsWith("magnet:?", ignoreCase = true)) {
+                candidate.urlOrMagnet
+            } else if (infoHash.isNotBlank()) {
+                com.example.torrent.protocol.MagnetParser.buildMagnetUrl(
+                    infoHash,
+                    candidate.title,
+                    parsedMagnet?.trackers ?: com.example.torrent.protocol.MagnetParser.DEFAULT_TRACKERS
+                )
+            } else {
+                candidate.urlOrMagnet
+            }
+
             val release = TorrentRelease(
                 title = candidate.title,
-                infoHash = candidate.extraData["infoHash"] ?: "",
-                magnetUrl = candidate.urlOrMagnet,
+                infoHash = infoHash.lowercase().trim(),
+                magnetUrl = magnetUrl,
                 provider = candidate.providerName,
                 seeders = candidate.seeders,
                 leechers = candidate.leechers,
@@ -170,11 +187,38 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
                 quality = candidate.quality,
                 codec = candidate.extraData["codec"] ?: "",
                 hdr = candidate.extraData["hdr"] ?: "",
-                audioChannels = candidate.extraData["audio"] ?: ""
+                audioChannels = candidate.extraData["audio"] ?: "",
+                trackerUrls = parsedMagnet?.trackers ?: com.example.torrent.protocol.MagnetParser.DEFAULT_TRACKERS
             )
 
-            onStatus("Connecting to swarm (${candidate.seeders} seeds)...")
+            onStatus("Connecting to BitTorrent swarm (${candidate.seeders} seeds)...")
             torrentEngine.startSession(release, streamPort = server.assignedPort)
+
+            // Wait up to 30s for metadata & file length to be ready before handing URL to ExoPlayer
+            var metadataWaitMs = 0
+            val maxWaitMs = 30000
+            while (torrentEngine.getFileLength() <= 0 && metadataWaitMs < maxWaitMs) {
+                delay(400)
+                metadataWaitMs += 400
+                val stats = torrentEngine.stats.value
+                val peerCount = stats.connectedPeers
+                val dhtNodes = stats.dhtNodes
+                if (peerCount > 0) {
+                    onStatus("Discovered $peerCount peers ($dhtNodes DHT nodes), loading torrent metadata...")
+                } else if (dhtNodes > 0) {
+                    onStatus("Searching DHT swarm ($dhtNodes nodes active)...")
+                } else {
+                    onStatus("Connecting to trackers & DHT network...")
+                }
+            }
+
+            if (torrentEngine.getFileLength() <= 0) {
+                Log.w(TAG, "Torrent metadata fetch timed out after $maxWaitMs ms for $infoHash")
+                onStatus("Timed out connecting to swarm (no seeders found)")
+                return@withContext null
+            }
+
+            onStatus("Torrent metadata ready, buffering video stream...")
 
             val dynamicStreamUrl = server.streamUrl
             Log.i(TAG, "Torrent stream ready at: $dynamicStreamUrl (Port: ${server.assignedPort})")

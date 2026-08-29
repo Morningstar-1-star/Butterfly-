@@ -78,7 +78,7 @@ class MediaFusionSourceProvider(
                         val targetUrlOrMagnet = if (isDebridDirect) {
                             directUrl
                         } else if (infoHash.isNotBlank()) {
-                            "magnet:?xt=urn:btih:$infoHash&dn=${java.net.URLEncoder.encode(title.substringBefore("\n"), "UTF-8")}"
+                            com.example.torrent.protocol.MagnetParser.buildMagnetUrl(infoHash, title.substringBefore("\n"))
                         } else {
                             continue
                         }

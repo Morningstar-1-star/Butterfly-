@@ -54,11 +54,14 @@ object XVideosProvider {
             val matcher = pattern.matcher(html)
             val seenIds = mutableSetOf<String>()
 
-            val thumbPattern = Pattern.compile("""data-src="(https://[^"]+?\.jpg[^"]*)"""", Pattern.CASE_INSENSITIVE)
+            val thumbPattern = Pattern.compile("""(?:data-src|data-thumb|data-poster|data-pv|data-image|src)=["']([^"'\s,]+?\.(?:jpg|jpeg|webp|png)[^"'\s,]*)["']""", Pattern.CASE_INSENSITIVE)
             val thumbMatcher = thumbPattern.matcher(html)
             val thumbs = mutableListOf<String>()
             while (thumbMatcher.find()) {
-                thumbs.add(thumbMatcher.group(1) ?: "")
+                var rawT = thumbMatcher.group(1)?.trim() ?: ""
+                if (rawT.startsWith("//")) rawT = "https:$rawT"
+                else if (rawT.startsWith("/")) rawT = "https://www.xvideos.com$rawT"
+                if (rawT.isNotBlank()) thumbs.add(rawT)
             }
 
             var thumbIdx = 0
@@ -69,7 +72,9 @@ object XVideosProvider {
                 if (seenIds.contains(path)) continue
                 seenIds.add(path)
 
-                val thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
+                var thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
+                if (thumb.startsWith("//")) thumb = "https:$thumb"
+                else if (thumb.startsWith("/")) thumb = "https://www.xvideos.com$thumb"
 
                 // Extract duration near match region if available
                 val startIdx = matcher.start()

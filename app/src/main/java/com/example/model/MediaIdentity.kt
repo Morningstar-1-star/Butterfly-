@@ -4,6 +4,7 @@ enum class MediaType {
     MOVIE,
     TV,
     ANIME,
+    JAV,
     VIDEO,
     UNKNOWN
 }

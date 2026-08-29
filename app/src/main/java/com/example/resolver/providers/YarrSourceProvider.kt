@@ -17,28 +17,28 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Comet Stream Provider (Adapted from g0ldyy/comet).
- * Fast Stremio torrent & debrid provider aggregator communicating with Comet endpoints.
+ * YARR Stream Provider (Adapted from spookyhost1/yarr-stremio).
+ * High-performance torrent aggregation service designed for Stremio/Butterfly integrations.
  */
-class CometSourceProvider(
+class YarrSourceProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .build()
 ) : SourceProvider {
 
     companion object {
-        private const val TAG = "CometProvider"
-        const val DEFAULT_BASE_URL = "https://comet.elfhosted.com"
+        private const val TAG = "YarrProvider"
+        const val DEFAULT_BASE_URL = "https://yarr.fly.dev"
     }
 
-    override val id: String = "comet"
-    override val displayName: String = "Comet Torrent / Debrid Indexer"
-    override val isEnabled: Boolean = true
-    override val priority: Int = 86
+    override val id: String = "yarr"
+    override val displayName: String = "YARR Torrent Aggregator"
+    override val isEnabled: Boolean
+        get() = AppConfig.isYarrEnabled()
+    override val priority: Int = 84
 
     override fun searchSources(identity: MediaIdentity): Flow<List<SourceCandidate>> = flow {
-        val candidates = mutableListOf<SourceCandidate>()
         val stremioId = identity.toStremioImdbId() ?: identity.rawQueryOrUrl.ifBlank { null }
         if (stremioId.isNullOrBlank()) {
             emit(emptyList())
@@ -46,36 +46,31 @@ class CometSourceProvider(
         }
 
         val type = if (stremioId.contains(":") || identity.mediaType == com.example.model.MediaType.TV) "series" else "movie"
-        val debridKey = AppConfig.getDebridApiKey().trim()
-        val baseUrl = DEFAULT_BASE_URL
+        val baseUrl = AppConfig.getYarrServerUrl().ifBlank { DEFAULT_BASE_URL }.trimEnd('/')
+        val endpoint = "$baseUrl/stream/$type/$stremioId.json"
 
-        val streamUrl = if (debridKey.isNotBlank()) {
-            "$baseUrl/debridService=realdebrid&debridApiKey=$debridKey/stream/$type/$stremioId.json"
-        } else {
-            "$baseUrl/stream/$type/$stremioId.json"
-        }
-
+        val candidates = mutableListOf<SourceCandidate>()
         try {
             val req = Request.Builder()
-                .url(streamUrl)
-                .header("User-Agent", "Butterfly/1.0 Stremio")
+                .url(endpoint)
+                .header("User-Agent", "Butterfly/1.0 YarrClient")
                 .build()
 
             val resp = client.newCall(req).execute()
             if (resp.isSuccessful) {
-                val jsonStr = resp.body?.string() ?: ""
+                val jsonStr = resp.body?.string() ?: "{}"
                 val root = JSONObject(jsonStr)
                 val streams = root.optJSONArray("streams")
                 if (streams != null) {
                     for (i in 0 until streams.length()) {
                         val s = streams.optJSONObject(i) ?: continue
-                        val name = s.optString("name", "Comet")
+                        val name = s.optString("name", "YARR")
                         val title = s.optString("title", "Stream #$i")
-                        val infoHash = s.optString("infoHash")
-                        val directUrl = s.optString("url")
+                        val infoHash = s.optString("infoHash", "")
+                        val directUrl = s.optString("url", "")
 
-                        val isDebridDirect = directUrl.isNotBlank() && (directUrl.startsWith("http://") || directUrl.startsWith("https://"))
-                        val targetUrlOrMagnet = if (isDebridDirect) {
+                        val isDirect = directUrl.isNotBlank() && directUrl.startsWith("http")
+                        val targetUrlOrMagnet = if (isDirect) {
                             directUrl
                         } else if (infoHash.isNotBlank()) {
                             com.example.torrent.protocol.MagnetParser.buildMagnetUrl(infoHash, title.substringBefore("\n"))
@@ -83,7 +78,7 @@ class CometSourceProvider(
                             continue
                         }
 
-                        val streamType = if (isDebridDirect) {
+                        val streamType = if (isDirect) {
                             if (directUrl.contains(".m3u8")) SourceStreamType.HLS else SourceStreamType.DIRECT
                         } else {
                             SourceStreamType.TORRENT
@@ -92,31 +87,45 @@ class CometSourceProvider(
                         val seeders = Regex("👤\\s*(\\d+)").find(title)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
                         val sizeStr = Regex("💾\\s*([0-9.]+\\s*[GMBkmb]+)").find(title)?.groupValues?.getOrNull(1) ?: ""
 
+                        val quality = when {
+                            title.contains("2160p", ignoreCase = true) || title.contains("4K", ignoreCase = true) -> "4K"
+                            title.contains("1080p", ignoreCase = true) -> "1080p"
+                            title.contains("720p", ignoreCase = true) -> "720p"
+                            title.contains("480p", ignoreCase = true) -> "480p"
+                            else -> "1080p"
+                        }
+                        val qualityScore = when (quality) {
+                            "4K" -> 2160
+                            "1080p" -> 1080
+                            "720p" -> 720
+                            "480p" -> 480
+                            else -> 1080
+                        }
+
                         candidates.add(
                             SourceCandidate(
-                                id = "comet_${infoHash.ifBlank { i.toString() }}",
+                                id = "yarr_${infoHash.ifBlank { i.toString() }}",
                                 providerId = id,
-                                providerName = if (isDebridDirect) "Comet [RD+]" else "Comet Torrent",
+                                providerName = if (isDirect) "YARR [Direct]" else "YARR Torrent",
                                 serverName = name.replace("\n", " "),
                                 type = streamType,
-                                title = title.replace("\n", " • "),
+                                title = title.replace("\n", " ").trim(),
                                 urlOrMagnet = targetUrlOrMagnet,
+                                quality = quality,
+                                qualityScore = qualityScore,
+                                format = if (isDirect) "mp4" else "mkv",
                                 formattedSize = sizeStr,
                                 seeders = seeders,
-                                healthScore = if (isDebridDirect) 100 else (seeders * 3).coerceIn(10, 100),
-                                capabilities = PlaybackCapabilities(
-                                    supportsSeeking = true,
-                                    supportsTrackSelection = true
-                                ),
+                                leechers = 0,
+                                healthScore = if (seeders > 50) 100 else if (seeders > 10) 85 else 60,
                                 extraData = if (infoHash.isNotBlank()) mapOf("infoHash" to infoHash) else emptyMap()
                             )
                         )
                     }
-                    emit(ArrayList(candidates))
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Comet search error: ${e.message}")
+            Log.w(TAG, "YARR stream resolution note: ${e.message}")
         }
 
         emit(candidates)

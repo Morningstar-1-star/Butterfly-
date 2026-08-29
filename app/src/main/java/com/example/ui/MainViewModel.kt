@@ -3192,8 +3192,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     targetHeavySources.forEach { prov ->
                         launch(Dispatchers.IO) {
                             try {
-                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                                    com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15)
+                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(12000L) {
+                                    com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 20, 1)
                                 } ?: emptyList()
                                 if (srcItems.isNotEmpty()) {
                                     synchronized(secondaryCollected) { secondaryCollected.addAll(srcItems) }
@@ -3311,12 +3311,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         newItems.addAll(com.example.extractor.ArchiveOrgProvider.search(q, currentSearchPage))
                     }
                     if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
-                        newItems.addAll(com.example.extractor.EpornerProvider.search(q, 25))
+                        newItems.addAll(com.example.extractor.EpornerProvider.search(q, 25, currentSearchPage))
                     }
-                    if (activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner") {
-                        val prov = if (activeProv == "all") "vimeo" else activeProv
-                        if (adultEnabled || !isAdultProviderId(prov)) {
-                            newItems.addAll(com.example.extractor.MultiSourceProvider.search(getApplication(), prov, q, 15))
+                    if (activeProv == "all") {
+                        val multiProvs = listOf("vimeo", "dailymotion", "bilibili", "hotstar") +
+                                (if (adultEnabled) listOf("pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video") else emptyList())
+                        multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
+                            try {
+                                newItems.addAll(com.example.extractor.MultiSourceProvider.search(getApplication(), p, q, 20, currentSearchPage))
+                            } catch (_: Exception) {}
+                        }
+                    } else if (activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner") {
+                        if (adultEnabled || !isAdultProviderId(activeProv)) {
+                            newItems.addAll(com.example.extractor.MultiSourceProvider.search(getApplication(), activeProv, q, 20, currentSearchPage))
                         }
                     }
                     val filtered = newItems.filter {
@@ -3338,12 +3345,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         newItems.addAll(com.example.extractor.ArchiveOrgProvider.getHome(currentTrendingPage))
                     }
                     if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
-                        newItems.addAll(com.example.extractor.EpornerProvider.getHome(25))
+                        newItems.addAll(com.example.extractor.EpornerProvider.getHome(25, currentTrendingPage))
                     }
-                    if (activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner") {
-                        val prov = if (activeProv == "all") "vimeo" else activeProv
-                        if (adultEnabled || !isAdultProviderId(prov)) {
-                            newItems.addAll(com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, 15))
+                    if (activeProv == "all") {
+                        val multiProvs = listOf("vimeo", "dailymotion", "bilibili", "hotstar") +
+                                (if (adultEnabled) listOf("pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video") else emptyList())
+                        multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
+                            try {
+                                newItems.addAll(com.example.extractor.MultiSourceProvider.getHome(getApplication(), p, 20, currentTrendingPage))
+                            } catch (_: Exception) {}
+                        }
+                    } else if (activeProv != "youtube" && activeProv != "archive_org" && activeProv != "eporner") {
+                        if (adultEnabled || !isAdultProviderId(activeProv)) {
+                            newItems.addAll(com.example.extractor.MultiSourceProvider.getHome(getApplication(), activeProv, 20, currentTrendingPage))
                         }
                     }
                     val filtered = newItems.filter {

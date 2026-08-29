@@ -538,9 +538,7 @@ fun UniversalVideoPlayer(
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(20.dp)
-                        .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                        .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -2148,10 +2146,7 @@ fun UniversalVideoPlayer(
                 .padding(start = if (isLandscape) 48.dp else 24.dp)
         ) {
             Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.40f)),
+                modifier = Modifier.size(68.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -2201,10 +2196,7 @@ fun UniversalVideoPlayer(
                 .padding(end = if (isLandscape) 48.dp else 24.dp)
         ) {
             Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.40f)),
+                modifier = Modifier.size(68.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -2248,10 +2240,7 @@ fun UniversalVideoPlayer(
             modifier = Modifier.align(Alignment.Center)
         ) {
             Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.40f)),
+                modifier = Modifier.size(64.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -2403,7 +2392,6 @@ fun GlowingBufferingIndicator(
     Box(
         modifier = modifier
             .size(110.dp)
-            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
             .padding(16.dp),
         contentAlignment = Alignment.Center
     ) {

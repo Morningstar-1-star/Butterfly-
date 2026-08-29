@@ -61,9 +61,17 @@ data class TorrentResult(
             ""
         }
 
+        val effectiveInfoHash = if (infoHash.isNotBlank()) {
+            infoHash.lowercase().trim()
+        } else if (effectiveMagnet.isNotBlank()) {
+            MagnetParser.parse(effectiveMagnet)?.infoHashHex?.lowercase()?.trim() ?: ""
+        } else {
+            ""
+        }
+
         return TorrentRelease(
             title = title,
-            infoHash = infoHash.lowercase().trim(),
+            infoHash = effectiveInfoHash,
             magnetUrl = effectiveMagnet,
             provider = source,
             seeders = seeders,

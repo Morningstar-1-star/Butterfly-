@@ -69,12 +69,27 @@ class TorrentSessionManager(
         isStopping.set(false)
         stopSession(clearCache = false)
 
-        activeRelease = release
-        val infoHash = release.infoHash.lowercase()
-        val magnetUrl = if (release.magnetUrl.isNotBlank()) {
-            release.magnetUrl
+        val parsedMagnet = MagnetParser.parse(release.magnetUrl)
+        val infoHash = when {
+            release.infoHash.isNotBlank() -> release.infoHash.lowercase().trim()
+            parsedMagnet != null -> parsedMagnet.infoHashHex.lowercase().trim()
+            else -> ""
+        }
+
+        val effectiveRelease = if (release.infoHash.isBlank() && infoHash.isNotBlank()) {
+            release.copy(
+                infoHash = infoHash,
+                magnetUrl = if (release.magnetUrl.isNotBlank()) release.magnetUrl else MagnetParser.buildMagnetUrl(infoHash, release.title)
+            )
         } else {
-            MagnetParser.buildMagnetUrl(infoHash, release.title, release.trackerUrls)
+            release
+        }
+
+        activeRelease = effectiveRelease
+        val magnetUrl = if (effectiveRelease.magnetUrl.isNotBlank()) {
+            effectiveRelease.magnetUrl
+        } else {
+            MagnetParser.buildMagnetUrl(infoHash, effectiveRelease.title, effectiveRelease.trackerUrls)
         }
 
         _stats.value = TorrentEngineStats(
@@ -290,6 +305,31 @@ class TorrentSessionManager(
         }
     }
 
+    fun isRangeDownloaded(offset: Long, length: Int): Boolean {
+        val ti = activeTorrentInfo ?: return false
+        val fileItem = activeFileItem ?: return false
+        val infoHash = activeRelease?.infoHash?.lowercase() ?: return false
+        if (infoHash.isBlank()) return false
+
+        val pieceLen = ti.pieceLength().toLong()
+        if (pieceLen <= 0) return false
+
+        val absoluteByte = fileItem.offset + offset
+        val startPiece = (absoluteByte / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+        val endPiece = ((absoluteByte + length - 1) / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+
+        val th = engine.findHandle(infoHash) ?: return false
+        val st = try { th.status() } catch (_: Exception) { return false }
+        val bitfield = st.pieces() ?: return false
+
+        for (p in startPiece..endPiece) {
+            if (p < bitfield.size() && !bitfield.getBit(p)) {
+                return false
+            }
+        }
+        return true
+    }
+
     /**
      * Reads bytes from the active file for HTTP streaming.
      * Blocks gracefully until pieces covering the range are verified or timeout expires.
@@ -314,16 +354,21 @@ class TorrentSessionManager(
             val pieceLen = ti.pieceLength().toLong()
             if (pieceLen > 0) {
                 val absoluteByte = fileItem.offset + offset
-                val startPiece = (absoluteByte / pieceLen).toInt()
-                val endPiece = ((absoluteByte + actualLen - 1) / pieceLen).toInt()
+                val startPiece = (absoluteByte / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+                val endPiece = ((absoluteByte + actualLen - 1) / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
                 val infoHash = ti.infoHash().toHex()
 
                 for (p in startPiece..endPiece) {
-                    if (p in 0 until ti.numPieces()) {
-                        engine.setPieceDeadline(infoHash, p, 50)
-                    }
+                    engine.setPieceDeadline(infoHash, p, 50)
                 }
             }
+        }
+
+        // Wait until pieces covering [offset, offset + actualLen) are verified downloaded by libtorrent
+        var waitRetries = 0
+        while (!isRangeDownloaded(offset, actualLen) && waitRetries < 150 && !isStopping.get()) {
+            Thread.sleep(100)
+            waitRetries++
         }
 
         var currentFile = resolvedFile
@@ -344,6 +389,11 @@ class TorrentSessionManager(
         }
 
         if (!currentFile.exists()) {
+            return 0
+        }
+
+        // If pieces are not verified yet and we haven't reached end of file, delay reading to avoid sending zero padding
+        if (!isRangeDownloaded(offset, actualLen) && offset < maxLen - 64 * 1024) {
             return 0
         }
 

@@ -36,6 +36,8 @@ class UnifiedSourceResolver(private val context: Context) {
     private val javPyProvider = JavPySourceProvider()
     private val mediaFusionProvider = MediaFusionSourceProvider()
     private val cometProvider = CometSourceProvider()
+    private val yarrProvider = com.example.resolver.providers.YarrSourceProvider()
+    private val magnetioProvider = com.example.resolver.providers.MagnetioSourceProvider()
 
     val activeProviders: List<SourceProvider>
         get() = listOf(
@@ -43,6 +45,8 @@ class UnifiedSourceResolver(private val context: Context) {
             javPyProvider,
             mediaFusionProvider,
             cometProvider,
+            yarrProvider,
+            magnetioProvider,
             vegaAdapter,
             torrentAdapter
         ).filter { it.isEnabled }.sortedByDescending { it.priority }

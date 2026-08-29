@@ -21,7 +21,11 @@ object JavMetadataResolver {
 
     private const val TAG = "JavMetadataResolver"
 
+    private val javinizerGoProvider = JavinizerGoMetadataProvider()
+
     private val metadataProviders = listOf<MetadataProvider>(
+        javinizerGoProvider,
+        JavapiMetadataProvider(),
         JavinizerMetadataProvider(),
         JavdexMetadataProvider(),
         AvmMetadataProvider(),
@@ -46,6 +50,7 @@ object JavMetadataResolver {
         metadataCache[parsedCode]?.let { return@withContext it }
 
         var resolvedMetadata: JavMetadata? = null
+        val fallbackEnabled = com.example.util.AppConfig.isJavinizerFallbackEnabled()
 
         // Cascade through providers in priority order
         for (provider in metadataProviders) {
@@ -59,6 +64,12 @@ object JavMetadataResolver {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Provider ${provider.name} failed for $parsedCode: ${e.message}")
+            }
+
+            // If Javinizer-Go was executed and failed, and user disabled secondary fallback scrapers, stop cascade
+            if (provider is JavinizerGoMetadataProvider && !fallbackEnabled && resolvedMetadata == null) {
+                Log.d(TAG, "Javinizer-Go had no result and fallback is disabled.")
+                break
             }
         }
 

@@ -78,7 +78,9 @@ class LibtorrentEngine(private val context: Context) {
             sp.setBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue(), true)
             sp.setBoolean(settings_pack.bool_types.enable_outgoing_tcp.swigValue(), true)
             sp.setBoolean(settings_pack.bool_types.enable_outgoing_utp.swigValue(), true)
-            sp.setString(settings_pack.string_types.listen_interfaces.swigValue(), "0.0.0.0:6881,[::]:6881")
+            sp.setBoolean(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true)
+            sp.setBoolean(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true)
+            sp.setString(settings_pack.string_types.listen_interfaces.swigValue(), "0.0.0.0:6881,0.0.0.0:0,[::]:6881,[::]:0")
             sp.setString(settings_pack.string_types.dht_bootstrap_nodes.swigValue(), "router.bittorrent.com:6881,dht.transmissionbt.com:6881,router.utorrent.com:6881,dht.aelitis.com:6881,dht.libtorrent.org:25401")
             val batterySaver = try { com.example.util.BatterySaverManager.getInstance(context) } catch (_: Exception) { null }
             val isSaverActive = batterySaver?.isPowerSaveActive?.value == true && batterySaver.lowPowerTorrent.value
@@ -219,9 +221,14 @@ class LibtorrentEngine(private val context: Context) {
             val parsed = MagnetParser.parse(magnetUri)
             val infoHash = parsed?.infoHashHex ?: ""
             if (infoHash.isNotBlank()) {
-                val th = findHandle(infoHash)
-                if (sequential) {
-                    th?.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                var th: TorrentHandle? = null
+                for (i in 0..10) {
+                    th = findHandle(infoHash)
+                    if (th != null) break
+                    Thread.sleep(100)
+                }
+                if (sequential && th != null) {
+                    th.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
                 }
                 th
             } else {

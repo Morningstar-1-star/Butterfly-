@@ -268,6 +268,15 @@ object YouTubeExtractorHelper {
     }
 
     suspend fun resolveStream(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult = withContext(Dispatchers.IO) {
+        // Step 0: Check registered specialized extractor plugins (HiAnime, AniWatch, Hanime, Coomer, PMVHaven)
+        if (context != null) {
+            val pluginStream = com.example.extractor.plugins.ExtractorPluginManager.tryExtractWithPlugin(context, urlOrId)
+            if (pluginStream != null) {
+                Log.i(TAG, "Resolved via specialized ExtractorPlugin for $urlOrId")
+                return@withContext ExtractionResult.Success(pluginStream)
+            }
+        }
+
         val isArchive = providerId == "archive_org" || providerId == "archive" || urlOrId.contains("archive.org") || urlOrId.startsWith("archive_") || urlOrId.startsWith("archive:")
         if (isArchive) {
             val archiveData = ArchiveOrgProvider.getStreamData(urlOrId, context)

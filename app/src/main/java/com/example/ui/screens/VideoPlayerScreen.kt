@@ -197,17 +197,25 @@ fun VideoPlayerScreen(
     val dragOffsetY = remember { Animatable(0f) }
     val density = LocalDensity.current
     val maxDockDistancePx = with(density) { 360.dp.toPx() }
-    val minimizeThresholdPx = with(density) { 90.dp.toPx() }
+    val minimizeThresholdPx = with(density) { 80.dp.toPx() }
 
-    val dragFraction = (dragOffsetY.value / maxDockDistancePx).coerceIn(0f, 1f)
-    val containerScale = 1.0f - (dragFraction * 0.40f)
-    val contentAlpha = (1.0f - dragFraction * 2.2f).coerceIn(0f, 1f)
+    val currentDragY = dragOffsetY.value.coerceAtLeast(0f)
+    val dragFraction = (currentDragY / maxDockDistancePx).coerceIn(0f, 1f)
+
+    // Details sheet fades out smoothly during vertical drag
+    val detailsAlpha = (1.0f - dragFraction * 2.5f).coerceIn(0f, 1f)
+    val detailsTranslationY = currentDragY * 0.8f
+
+    // 16:9 video player scales and translates down cleanly towards mini-player position
+    val playerScale = 1.0f - (dragFraction * 0.30f)
+    val playerTranslationX = dragFraction * (with(density) { 48.dp.toPx() })
+    val playerTranslationY = currentDragY * 0.85f
+    val playerCornerDp = (dragFraction * 16).dp
     val bgOverlayAlpha = (1.0f - dragFraction * 1.2f).coerceIn(0f, 1f)
-    val roundedCornersDp = (dragFraction * 20).dp
 
     val minimizePlayerAction: () -> Unit = {
         coroutineScope.launch {
-            dragOffsetY.animateTo(maxDockDistancePx, tween(150, easing = FastOutSlowInEasing))
+            dragOffsetY.animateTo(maxDockDistancePx, tween(160, easing = FastOutSlowInEasing))
             onBackClick()
         }
     }
@@ -333,36 +341,42 @@ fun VideoPlayerScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = Color.Transparent
         ) { paddingValues ->
+            // Backdrop Overlay (Fades out cleanly to reveal underlying screen)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = bgOverlayAlpha))
+            )
+
             Box(
                 modifier = modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        translationY = dragOffsetY.value
-                        translationX = dragFraction * (size.width * 0.22f)
-                        scaleX = containerScale
-                        scaleY = containerScale
-                        transformOrigin = TransformOrigin(0.85f, 0.90f)
-                        clip = true
-                        shape = RoundedCornerShape(roundedCornersDp)
-                        alpha = if (dragFraction > 0.92f) 1.0f - ((dragFraction - 0.92f) * 12.5f).coerceIn(0f, 1f) else 1.0f
-                    }
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = bgOverlayAlpha))
                     .padding(paddingValues)
             ) {
                 // YouTube-style Dynamic Ambient Mode Lighting Effect
                 AmbientPlayerGlow(
                     palette = ambientPalette,
-                    isEnabled = effectiveAmbient && contentAlpha > 0.1f
+                    isEnabled = effectiveAmbient && detailsAlpha > 0.1f
                 )
 
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // PORTRAIT VIDEO PLAYER VIEW
+                    // PORTRAIT VIDEO PLAYER VIEW (Isolated 16:9 player container scaling smoothly)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f)
+                            .graphicsLayer {
+                                translationY = playerTranslationY
+                                translationX = playerTranslationX
+                                scaleX = playerScale
+                                scaleY = playerScale
+                                transformOrigin = TransformOrigin(0.5f, 0.0f)
+                                shape = RoundedCornerShape(playerCornerDp)
+                                clip = true
+                                alpha = if (dragFraction > 0.95f) 1.0f - ((dragFraction - 0.95f) * 20f).coerceIn(0f, 1f) else 1.0f
+                            }
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
@@ -388,10 +402,10 @@ fun VideoPlayerScreen(
                             },
                             onSwipeDownEnd = { accumulatedDy ->
                                 coroutineScope.launch {
-                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 100f) {
+                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 60f) {
                                         minimizePlayerAction()
                                     } else {
-                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow))
                                     }
                                 }
                             },
@@ -419,13 +433,14 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS)
+                    // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS) - SLIDES DOWN & VANISHES INSTANTLY UPON SWIPING DOWN!
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
                             .graphicsLayer {
-                                alpha = contentAlpha
+                                alpha = detailsAlpha
+                                translationY = detailsTranslationY
                             }
                     ) {
                     LazyColumn(

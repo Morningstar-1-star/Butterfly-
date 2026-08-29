@@ -30,15 +30,19 @@ object PornhubProvider {
     private const val BYPASS_COOKIES = "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1; expired_cookies=1; il=en"
 
     fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
-        val apiUrl = "https://www.pornhub.com/webmasters/search?thumbsize=medium&ordering=mostviewed&page=$page"
-        return parseWebmastersApi(apiUrl, limit)
+        val apiUrl = "https://www.pornhub.com/webmasters/search?thumbsize=large&ordering=mostviewed&page=$page"
+        val list = parseWebmastersApi(apiUrl, limit)
+        if (list.isNotEmpty()) return list
+        return com.example.extractor.MultiSourceProvider.getPornhubHome(limit, page)
     }
 
     fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
         if (query.isBlank()) return getHome(limit, page)
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        val apiUrl = "https://www.pornhub.com/webmasters/search?search=$encoded&thumbsize=medium&page=$page"
-        return parseWebmastersApi(apiUrl, limit)
+        val apiUrl = "https://www.pornhub.com/webmasters/search?search=$encoded&thumbsize=large&page=$page"
+        val list = parseWebmastersApi(apiUrl, limit)
+        if (list.isNotEmpty()) return list
+        return com.example.extractor.MultiSourceProvider.searchPornhub(query, limit, page)
     }
 
     private fun parseWebmastersApi(apiUrl: String, limit: Int): List<VideoItem> {

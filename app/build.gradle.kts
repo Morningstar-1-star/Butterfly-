@@ -19,7 +19,7 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     ndk {
-      abiFilters += listOf("arm64-v8a")
+      abiFilters += listOf("x86_64", "arm64-v8a")
     }
 
     val poTokenUrl: String = (project.findProperty("PO_TOKEN_SERVER_URL") as String?) ?: "http://127.0.0.1:4416"
