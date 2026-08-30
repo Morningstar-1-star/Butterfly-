@@ -96,6 +96,7 @@ fun HomeScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
+    var showAddCloudDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(isSearchExpandedState) {
@@ -212,29 +213,33 @@ fun HomeScreen(
 
     // StreamData extracted for player / mini player
     val currentStreamData = remember(extractionResult, activeVideoId, searchResults, trendingVideos) {
-        (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
-            ?: activeVideoId?.let { id ->
-                val match = (searchResults + trendingVideos).firstOrNull { it.id == id }
-                if (match != null) {
-                    com.example.model.StreamData(
-                        videoId = match.id,
-                        videoUrl = "",
-                        title = match.title,
-                        channelName = match.uploaderName,
-                        thumbnailUrl = match.thumbnailUrl,
-                        providerId = match.providerId
-                    )
-                } else {
-                    com.example.model.StreamData(
-                        videoId = id,
-                        videoUrl = "",
-                        title = id,
-                        channelName = "Media Stream",
-                        thumbnailUrl = null,
-                        providerId = null
-                    )
+        if (activeVideoId == null) {
+            null
+        } else {
+            (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
+                ?: activeVideoId?.let { id ->
+                    val match = (searchResults + trendingVideos).firstOrNull { it.id == id }
+                    if (match != null) {
+                        com.example.model.StreamData(
+                            videoId = match.id,
+                            videoUrl = "",
+                            title = match.title,
+                            channelName = match.uploaderName,
+                            thumbnailUrl = match.thumbnailUrl,
+                            providerId = match.providerId
+                        )
+                    } else {
+                        com.example.model.StreamData(
+                            videoId = id,
+                            videoUrl = "",
+                            title = id,
+                            channelName = "Media Stream",
+                            thumbnailUrl = null,
+                            providerId = null
+                        )
+                    }
                 }
-            }
+        }
     }
     val globalProgress by com.example.ui.player.GlobalPlayerManager.progressFraction.collectAsState()
     val globalIsPlaying by com.example.ui.player.GlobalPlayerManager.isPlaying.collectAsState()
@@ -256,12 +261,28 @@ fun HomeScreen(
         return
     }
 
-    BackHandler(enabled = (currentScreen != AppScreen.HOME || isSearchExpanded)) {
-        if (isSearchExpanded) {
-            viewModel.clearSearch()
-            isSearchExpanded = false
-        } else {
-            viewModel.navigateToScreen(AppScreen.HOME)
+    val hasActivePlayer = (activeVideoId != null)
+    val isNotDefaultHome = (currentScreen != AppScreen.HOME || isSearchExpanded || hasActivePlayer || activeCategory != "All")
+
+    BackHandler(enabled = isNotDefaultHome) {
+        when {
+            currentScreen == AppScreen.PLAYER -> {
+                viewModel.navigateToScreen(AppScreen.HOME)
+            }
+            isSearchExpanded -> {
+                viewModel.clearSearch()
+                isSearchExpanded = false
+            }
+            currentScreen != AppScreen.HOME -> {
+                viewModel.navigateToScreen(AppScreen.HOME)
+            }
+            hasActivePlayer -> {
+                com.example.ui.player.GlobalPlayerManager.stopAndClear()
+                viewModel.closeVideo()
+            }
+            activeCategory != "All" -> {
+                activeCategory = "All"
+            }
         }
     }
 
@@ -376,6 +397,26 @@ fun HomeScreen(
                             SettingsScreen(
                                 viewModel = viewModel,
                                 onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) }
+                            )
+                        }
+
+                        AppScreen.BUNKR -> {
+                            BunkrScreen(
+                                viewModel = viewModel,
+                                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) }
+                            )
+                        }
+
+                        AppScreen.CLOUD_SOCIAL_SETTINGS -> {
+                            CloudSocialSettingsScreen(
+                                onNavigateBack = { viewModel.navigateToScreen(AppScreen.SETTINGS) }
+                            )
+                        }
+
+                        AppScreen.CLOUD_SOCIAL_LIBRARY -> {
+                            CloudSocialLibraryScreen(
+                                viewModel = viewModel,
+                                onNavigateBack = { viewModel.navigateToScreen(AppScreen.HOME) }
                             )
                         }
 
@@ -495,7 +536,11 @@ fun HomeScreen(
                                                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                                                 showProviderBadge = showThumbnailTags,
                                                 onClick = {
-                                                    viewModel.playVideo(video.id, video.providerId)
+                                                    if (video.id == "bun_tel_meg_help") {
+                                                        showAddCloudDialog = true
+                                                    } else {
+                                                        viewModel.playVideo(video.id, video.providerId)
+                                                    }
                                                 },
                                                 onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
                                                 onAddToQueue = { v -> viewModel.addToQueue(v) },
@@ -560,7 +605,11 @@ fun HomeScreen(
                                                     watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                                                     showProviderBadge = showThumbnailTags,
                                                     onClick = {
-                                                        viewModel.playVideo(video.id, video.providerId)
+                                                        if (video.id == "bun_tel_meg_help") {
+                                                            showAddCloudDialog = true
+                                                        } else {
+                                                            viewModel.playVideo(video.id, video.providerId)
+                                                        }
                                                     },
                                                     onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
                                                     onAddToQueue = { v -> viewModel.addToQueue(v) },
@@ -799,6 +848,36 @@ fun HomeScreen(
                             }
                         }
 
+                        // DIRECT ADD LINK BUTTON (when viewing Cloud/Social sources)
+                        if (activeProviderId == "bun-tel-meg" || activeProviderId == "bunkr") {
+                            item {
+                                Surface(
+                                    onClick = { showAddCloudDialog = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Add Link",
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = "Add Link",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // CATEGORY TAG CHIPS
                         items(smartTagsList) { tag ->
                             val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
@@ -948,6 +1027,16 @@ fun HomeScreen(
                 viewModel = viewModel,
                 onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
                 modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (showAddCloudDialog) {
+            AddCloudSocialSourceDialog(
+                onDismiss = { showAddCloudDialog = false },
+                onSourceAdded = {
+                    showAddCloudDialog = false
+                    viewModel.refreshFeed()
+                }
             )
         }
     }

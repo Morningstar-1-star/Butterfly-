@@ -37,6 +37,7 @@ object MultiSourceProvider {
 
         // 1. Try custom scrapers / APIs first
         val customItems = when (pid) {
+            "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> getCloudSocialHome(context, pid, limit, page)
             "dailymotion" -> getDailymotionHome(limit, page)
             "vimeo" -> getVimeoHome(limit)
             "bilibili" -> getBilibiliHome(page, limit)
@@ -50,7 +51,7 @@ object MultiSourceProvider {
             "4tube" -> FourTubeProvider.getHome(page, limit)
             "eporner" -> EpornerProvider.getHome(limit, page)
             "spankbang" -> SpankBangProvider.getHome(page, limit)
-            "hanime1" -> Hanime1Provider.getHome(page, limit)
+            "hanime1", "hanime" -> Hanime1Provider.getHome(page, limit)
             "hqporner" -> HQPornerProvider.getHome(page, limit)
             "twitch" -> TwitchProvider.getHome(limit, page)
             "rule34video" -> parseRule34Html(if (page > 1) "https://rule34video.com/?page=$page" else "https://rule34video.com/", limit)
@@ -65,6 +66,7 @@ object MultiSourceProvider {
         val pid = providerId.lowercase()
 
         when (pid) {
+            "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> searchCloudSocial(context, pid, query, limit, page)
             "dailymotion" -> searchDailymotion(query, limit, page)
             "vimeo" -> searchVimeo(query, limit)
             "bilibili" -> searchBilibili(query, page, limit)
@@ -78,7 +80,7 @@ object MultiSourceProvider {
             "4tube" -> FourTubeProvider.search(query, page, limit)
             "eporner" -> EpornerProvider.search(query, limit, page)
             "spankbang" -> SpankBangProvider.search(query, page, limit)
-            "hanime1" -> Hanime1Provider.search(query, page, limit)
+            "hanime1", "hanime" -> Hanime1Provider.search(query, page, limit)
             "hqporner" -> HQPornerProvider.search(query, page, limit)
             "twitch" -> TwitchProvider.search(query, limit, page)
             "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/${if (page > 1) "?page=$page" else ""}", limit)
@@ -603,5 +605,64 @@ object MultiSourceProvider {
             Log.w(TAG, "Rule34Video parse error: ${e.message}")
         }
         return list
+    }
+
+    private suspend fun getCloudSocialHome(context: Context, providerId: String, limit: Int, page: Int): List<VideoItem> {
+        val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
+        val allMedia = repo.getAllMediaList()
+        val filtered = when (providerId.lowercase()) {
+            "bunkr" -> allMedia.filter { it.type == "BUNKR" }
+            "telegram" -> allMedia.filter { it.type == "TELEGRAM" }
+            "mega" -> allMedia.filter { it.type == "MEGA" }
+            else -> allMedia
+        }
+
+        if (filtered.isEmpty()) {
+            return listOf(
+                VideoItem(
+                    id = "bun_tel_meg_help",
+                    title = "No Cloud & Social Links Added Yet (Tap to Add)",
+                    uploaderName = "bun-tel-meg",
+                    thumbnailUrl = null,
+                    providerId = "bun-tel-meg",
+                    description = "Tap here to paste Telegram (t.me/...), MEGA (mega.nz/...), or Bunkr (bunkr.is/...) links directly inside the app."
+                )
+            )
+        }
+
+        return filtered.drop((page - 1) * limit).take(limit).map { item ->
+            VideoItem(
+                id = item.id,
+                title = item.title,
+                uploaderName = "bun-tel-meg • ${item.type}",
+                uploaderUrl = item.sourceUrl,
+                thumbnailUrl = item.thumbnailUrl,
+                providerId = "bun-tel-meg",
+                durationSeconds = if (item.durationMs > 0) item.durationMs / 1000 else -1L,
+                description = item.caption ?: item.title
+            )
+        }
+    }
+
+    private suspend fun searchCloudSocial(context: Context, providerId: String, query: String, limit: Int, page: Int): List<VideoItem> {
+        val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
+        val allMedia = repo.getAllMediaList()
+        val filtered = allMedia.filter { item ->
+            item.title.contains(query, ignoreCase = true) ||
+            item.caption?.contains(query, ignoreCase = true) == true ||
+            item.sourceUrl.contains(query, ignoreCase = true)
+        }
+        return filtered.drop((page - 1) * limit).take(limit).map { item ->
+            VideoItem(
+                id = item.id,
+                title = item.title,
+                uploaderName = "bun-tel-meg • ${item.type}",
+                uploaderUrl = item.sourceUrl,
+                thumbnailUrl = item.thumbnailUrl,
+                providerId = "bun-tel-meg",
+                durationSeconds = if (item.durationMs > 0) item.durationMs / 1000 else -1L,
+                description = item.caption ?: item.title
+            )
+        }
     }
 }

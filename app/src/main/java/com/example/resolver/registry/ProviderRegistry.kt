@@ -133,6 +133,26 @@ object ProviderRegistry {
         // Direct HTTP Streaming (Nuvio / Scrapers)
         register(
             ProviderDescriptor(
+                id = "bunkr",
+                displayName = "Bunkr Albums & Direct CDN",
+                category = ProviderCategory.DIRECT_STREAM,
+                baseDomain = "https://bunkr.cr",
+                mirrors = listOf(
+                    "https://bunkr.cr", "https://bunkr.is", "https://bunkr.la", "https://bunkr.fi",
+                    "https://bunkr.ph", "https://bunkr.site", "https://bunkrr.org", "https://bunkr.ru"
+                ),
+                capabilities = setOf(
+                    ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP,
+                    ProviderCapability.HLS, ProviderCapability.DOWNLOAD
+                ),
+                supportedMediaTypes = setOf(MediaType.VIDEO, MediaType.MOVIE, MediaType.ANIME, MediaType.JAV, MediaType.UNKNOWN),
+                supportsDirect = true,
+                supportsHls = true,
+                priority = 95
+            )
+        )
+        register(
+            ProviderDescriptor(
                 id = "nuvio_direct",
                 displayName = "Nuvio Direct HTTP/HLS",
                 category = ProviderCategory.DIRECT_STREAM,

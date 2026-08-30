@@ -32,7 +32,7 @@ class TorrentHttpServer(
         get() = serverSocket?.localPort ?: if (port > 0) port else 0
 
     val streamUrl: String
-        get() = "http://127.0.0.1:$assignedPort/stream"
+        get() = "http://127.0.0.1:$assignedPort/stream?hash=${engine.getActiveInfoHash() ?: ""}"
 
     suspend fun awaitReady(): Int {
         if (isRunning.get() && serverSocket != null && !serverSocket!!.isClosed) {
@@ -74,7 +74,7 @@ class TorrentHttpServer(
             isRunning.set(true)
             _isReady.value = true
             val listeningPort = boundSocket.localPort
-            Log.i(TAG, "Torrent HTTP bridge server listening on http://127.0.0.1:$listeningPort")
+            Log.i("ButterflyTorrent", "Torrent HTTP bridge server listening on http://127.0.0.1:$listeningPort")
 
             serverScope.launch {
                 try {
@@ -110,7 +110,7 @@ class TorrentHttpServer(
             if (parts.size < 2) return
 
             val method = parts[0].uppercase()
-            val path = parts[1]
+            val fullPath = parts[1]
 
             val headers = mutableMapOf<String, String>()
             while (true) {
@@ -123,23 +123,48 @@ class TorrentHttpServer(
             }
 
             if (method != "GET" && method != "HEAD") {
-                sendResponse(outStream, "405 Method Not Allowed", emptyMap(), ByteArray(0))
+                sendResponse(outStream, "405 Method Not Allowed", mapOf("Connection" to "close"), ByteArray(0))
                 return
             }
 
-            // Wait for engine metadata or length to load
-            var totalLength = engine.getFileLength()
+            // Extract hash query parameter and validate against active engine session
+            val uri = android.net.Uri.parse("http://127.0.0.1$fullPath")
+            val requestedHash = uri.getQueryParameter("hash")?.lowercase()?.trim()
+            val activeHash = engine.getActiveInfoHash()
+
+            if (requestedHash != null && activeHash != null && requestedHash != activeHash) {
+                Log.w("ButterflyTorrent", "Requested stream hash mismatch: requested=$requestedHash, active=$activeHash")
+                sendResponse(
+                    outStream,
+                    "404 Not Found",
+                    mapOf("Connection" to "close"),
+                    "Torrent hash mismatch or session inactive\n".toByteArray(StandardCharsets.UTF_8)
+                )
+                return
+            }
+
+            // Await metadata and file size from active engine session
+            var totalLength = engine.getActiveFileLength()
             var retries = 0
-            while (totalLength <= 0 && retries < 40 && isRunning.get() && !socket.isClosed) {
-                kotlinx.coroutines.delay(250)
-                totalLength = engine.getFileLength()
+            while (totalLength <= 0 && retries < 30 && isRunning.get() && !socket.isClosed) {
+                kotlinx.coroutines.delay(100)
+                totalLength = engine.getActiveFileLength()
                 retries++
             }
 
-            // If metadata is still resolving, fallback to a generous default size (1.5 GB) rather than failing with 503
+            // If metadata is still unavailable, return 503 Service Unavailable (NEVER fabricate a fake size)
             if (totalLength <= 0) {
-                totalLength = 1_500_000_000L
-                Log.i(TAG, "Torrent metadata resolving in background; streaming with estimated size $totalLength")
+                Log.w("ButterflyTorrent", "Torrent metadata not ready yet for hash ${activeHash ?: requestedHash}. Returning 503 Service Unavailable.")
+                sendResponse(
+                    outStream,
+                    "503 Service Unavailable",
+                    mapOf(
+                        "Retry-After" to "2",
+                        "Connection" to "close"
+                    ),
+                    "503 Service Unavailable: Torrent metadata is resolving\n".toByteArray(StandardCharsets.UTF_8)
+                )
+                return
             }
 
             val fileName = engine.getFileName()
@@ -154,7 +179,7 @@ class TorrentHttpServer(
             if (isRangeRequest) {
                 val rangeSpec = rangeHeader!!.substring(6).trim()
                 if (rangeSpec.startsWith("-")) {
-                    // Suffix byte range: e.g. bytes=-500 (last 500 bytes)
+                    // Suffix byte range: e.g. bytes=-500
                     val suffixLen = rangeSpec.substring(1).toLongOrNull() ?: -1L
                     if (suffixLen <= 0L) {
                         isRangeInvalid = true
@@ -193,9 +218,10 @@ class TorrentHttpServer(
                     "416 Range Not Satisfiable",
                     mapOf(
                         "Content-Range" to "bytes */$totalLength",
-                        "Content-Type" to "text/plain"
+                        "Content-Type" to "text/plain",
+                        "Connection" to "close"
                     ),
-                    "Requested Range Not Satisfiable".toByteArray(StandardCharsets.UTF_8)
+                    "Requested Range Not Satisfiable\n".toByteArray(StandardCharsets.UTF_8)
                 )
                 return
             }
@@ -232,26 +258,33 @@ class TorrentHttpServer(
             // Stream body in chunks
             var currentOffset = startByte
             val buffer = ByteArray(BUFFER_SIZE)
+            var zeroReadCount = 0
 
             while (currentOffset <= endByte && isRunning.get() && !socket.isClosed) {
                 val bytesToRead = minOf(BUFFER_SIZE.toLong(), (endByte - currentOffset + 1)).toInt()
                 val bytesRead = engine.readBytesForStream(currentOffset, bytesToRead, buffer, 0)
 
                 if (bytesRead > 0) {
+                    zeroReadCount = 0
                     outStream.write(buffer, 0, bytesRead)
                     currentOffset += bytesRead
                     outStream.flush()
                 } else if (bytesRead == -1) {
-                    // End of file / stream boundary reached
+                    // EOF reached
                     break
                 } else {
-                    // Piece not yet downloaded - wait briefly for peer swarm blocks to arrive
+                    zeroReadCount++
+                    if (zeroReadCount > 200) { // 200 * 100ms = 20s timeout
+                        Log.w("ButterflyTorrent", "HTTP streaming timed out waiting for pieces at offset $currentOffset")
+                        break
+                    }
                     if (!isRunning.get() || socket.isClosed) break
                     kotlinx.coroutines.delay(100)
                 }
             }
-        } catch (_: Exception) {
-            // Client closed socket / seeked away
+            Log.d("ButterflyTorrent", "Streamed ${currentOffset - startByte} bytes to client for hash ${activeHash ?: requestedHash}")
+        } catch (e: Exception) {
+            Log.d("ButterflyTorrent", "Client disconnected from torrent HTTP server: ${e.message}")
         } finally {
             try { socket.close() } catch (_: Exception) {}
         }

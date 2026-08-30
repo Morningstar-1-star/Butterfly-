@@ -26,6 +26,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
@@ -189,7 +190,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val adultIdsList = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "spankbang", "hanime1", "hqporner")
-    private val normalIdsList = listOf("youtube", "twitch", "torrent", "archive_org", "dailymotion", "bilibili", "vimeo", "hotstar")
+    private val normalIdsList = listOf("youtube", "twitch", "torrent", "archive_org", "dailymotion", "bilibili", "vimeo", "hotstar", "bun-tel-meg")
 
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
@@ -2404,6 +2405,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
+                    id = "bun-tel-meg",
+                    name = "bun-tel-meg",
+                    description = "Telegram Channels, MEGA Folders & Bunkr Albums video links",
+                    category = "Cloud & Social",
+                    isEnabled = enabledSet.contains("bun-tel-meg") || enabledSet.contains("bunkr"),
+                    isDefault = (activeId == "bun-tel-meg")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
                     id = "torrent",
                     name = "Torrent (P2P)",
                     description = "Stream Movies, TV Series & Anime via native BitTorrent releases",
@@ -3174,7 +3185,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 4. MultiSource fast providers
-                    val fastMultiSources = listOf("dailymotion", "bilibili", "vimeo", "hotstar", "twitch", "spankbang", "hanime1", "hqporner", "pornhub", "beeg")
+                    val fastMultiSources = listOf("dailymotion", "bilibili", "vimeo", "hotstar", "twitch", "spankbang", "hanime1", "hqporner", "pornhub", "beeg", "bun-tel-meg")
                     val targetFastSources = when {
                         activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
                         else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
@@ -4133,29 +4144,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         identity: com.example.torrent.provider.MediaIdentity,
         posterUrl: String? = null
     ) {
-        // 1. Immediately stop prior playback
+        // 1. Immediately cancel previous job and stop prior playback
         activePlaybackJob?.cancel()
-        activePlaybackJob = null
         com.example.ui.player.GlobalPlayerManager.stopAndClear()
+        torrentEngine.stopSession(clearCache = false)
 
-        // 2. Start local HTTP Range bridge server if not running & get actual listening port
+        // 2. Start local HTTP Range bridge server on free port
         val assignedPort = getOrStartTorrentServer()
 
-        // 3. Start engine session
+        // 3. Start torrent session
         val session = torrentEngine.startSession(release, streamPort = assignedPort)
 
-        // 4. Construct stream options & media data
+        // 4. Construct stream options & media data with hash-qualified URLs
         val currentReleases = _torrentReleases.value.ifEmpty { listOf(release) }
         currentReleases.forEach { rel ->
             val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
+            val normHash = rel.infoHash.lowercase().trim()
+            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=$normHash"
             activeTorrentReleasesMap[streamUrl] = rel
-            activeTorrentReleasesMap[rel.infoHash] = rel
+            activeTorrentReleasesMap[normHash] = rel
         }
 
         val options = currentReleases.map { rel ->
             val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
+            val normHash = rel.infoHash.lowercase().trim()
+            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=$normHash"
             val label = buildString {
                 append(rel.quality)
                 if (rel.codec.isNotBlank()) append(" • ").append(rel.codec)
@@ -4173,7 +4186,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val primaryOption = options.firstOrNull { it.videoUrl?.contains(release.infoHash) == true } ?: options.first()
+        val targetHash = release.infoHash.lowercase().trim()
+        val primaryOption = options.firstOrNull { it.videoUrl?.contains(targetHash) == true } ?: options.first()
 
         val displayTitle = if (release.title.isNotBlank()) release.title else identity.title
         val isTv = identity.mediaType.equals("tv", ignoreCase = true)
@@ -4182,7 +4196,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val desc = "Native BitTorrent Stream • Size: ${release.formattedSize} • Studio: $studio"
 
         val videoItem = VideoItem(
-            id = "torrent_${release.infoHash}",
+            id = "torrent_${targetHash}",
             title = displayTitle,
             uploaderName = studio,
             uploaderAvatarUrl = studioLogo,
@@ -4210,16 +4224,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPlaying.value = true
         com.example.ui.player.GlobalPlayerManager.resetFirstFrameState()
 
-        // 5. Navigate to Player screen & trigger ExoPlayer
+        // 5. Navigate to Player screen
         _currentScreen.value = AppScreen.PLAYER
 
-        com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
-            context = getApplication(),
-            streamData = streamData,
-            streamOption = primaryOption,
-            hlsUrl = null,
-            captionOption = null
-        )
+        // 6. Launch coroutine to await metadata & initial header buffer before ExoPlayer starts
+        activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
+            var waitMs = 0
+            val maxWait = 30000
+            while (torrentEngine.getActiveFileLength() <= 0 && waitMs < maxWait && isActive) {
+                delay(300)
+                waitMs += 300
+            }
+
+            if (torrentEngine.getActiveFileLength() <= 0) {
+                Log.w("ButterflyTorrent", "Metadata resolution timed out for $targetHash")
+                withContext(Dispatchers.Main) {
+                    _unifiedStatusMessage.value = "Failed to retrieve swarm metadata for release"
+                }
+                return@launch
+            }
+
+            // Await initial piece range buffer (first 512 KB) so Media3 can parse headers smoothly
+            torrentEngine.awaitRangeAvailable(0, 512 * 1024, timeoutMs = 15000L)
+
+            if (!isActive) return@launch
+
+            withContext(Dispatchers.Main) {
+                com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+                    context = getApplication(),
+                    streamData = streamData,
+                    streamOption = primaryOption,
+                    hlsUrl = null,
+                    captionOption = null
+                )
+            }
+        }
     }
 
     override fun onCleared() {

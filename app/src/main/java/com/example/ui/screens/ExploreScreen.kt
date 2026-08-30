@@ -239,20 +239,25 @@ fun ExploreScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // Category Chips Row
-                        val categories = listOf("All", "Movies", "TV Series", "Anime")
+                        val categories = listOf("All", "Cloud & Social", "Telegram", "MEGA", "Bunkr Albums", "Movies", "TV Series", "Anime")
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(categories) { cat ->
                                 val isSelected = (selectedFilterCategory == cat && searchQuery.isBlank())
-                                val chipBg = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                                val chipFg = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                val isCloudCat = cat in listOf("Cloud & Social", "Telegram", "MEGA", "Bunkr Albums")
+                                val chipBg = if (isCloudCat) MaterialTheme.colorScheme.tertiaryContainer else if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                                val chipFg = if (isCloudCat) MaterialTheme.colorScheme.onTertiaryContainer else if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
 
                                 Surface(
                                     onClick = {
-                                        selectedFilterCategory = cat
-                                        if (searchQuery.isNotBlank()) searchQuery = ""
+                                        if (isCloudCat) {
+                                            viewModel.navigateToScreen(AppScreen.CLOUD_SOCIAL_LIBRARY)
+                                        } else {
+                                            selectedFilterCategory = cat
+                                            if (searchQuery.isNotBlank()) searchQuery = ""
+                                        }
                                     },
                                     shape = RoundedCornerShape(12.dp),
                                     color = chipBg,

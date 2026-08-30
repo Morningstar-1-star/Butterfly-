@@ -8,7 +8,10 @@ enum class AppScreen {
     ACCOUNT,
     CHANNEL,
     PLAYER,
-    SETTINGS
+    SETTINGS,
+    BUNKR,
+    CLOUD_SOCIAL_SETTINGS,
+    CLOUD_SOCIAL_LIBRARY
 }
 
 enum class ProviderType {

@@ -430,6 +430,11 @@ object GlobalPlayerManager {
                     val httpStatus = (rootCause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
                     val errorCodeName = error.errorCodeName
 
+                    android.util.Log.e(
+                        "ButterflyTorrent",
+                        "Media3 Player Error: ${error.message}, Cause: ${rootCause?.message}, Code: $errorCodeName (${error.errorCode}), HTTP: $httpStatus, Uri: ${exoPlayerInstance?.currentMediaItem?.localConfiguration?.uri}"
+                    )
+
                     com.example.util.PlaybackPipelineTracker.logPlaybackError(
                         errorCodeName = errorCodeName,
                         errorCode = error.errorCode,

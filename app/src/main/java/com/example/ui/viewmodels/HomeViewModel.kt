@@ -75,7 +75,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             ProviderUiItem("dailymotion", "Dailymotion", "📺", true),
             ProviderUiItem("bilibili", "Bilibili", "⚡", true),
             ProviderUiItem("vimeo", "Vimeo", "🎬", true),
-            ProviderUiItem("hotstar", "JioCinema / Hotstar", "🌟", true)
+            ProviderUiItem("hotstar", "JioCinema / Hotstar", "🌟", true),
+            ProviderUiItem("bun-tel-meg", "bun-tel-meg", "☁️", true)
         )
         _providers.value = list
     }

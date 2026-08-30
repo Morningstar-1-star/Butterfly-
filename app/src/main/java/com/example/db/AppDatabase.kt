@@ -56,9 +56,13 @@ interface SourceMetricsDao {
         OfflineDownloadEntity::class,
         SearchHistoryEntity::class,
         VideoMetadataCacheEntity::class,
-        PreloadedVideoCacheEntity::class
+        PreloadedVideoCacheEntity::class,
+        com.example.bunkr.db.BunkrAlbumEntity::class,
+        com.example.bunkr.db.BunkrFileEntity::class,
+        com.example.cloudsocial.db.CloudSocialSourceEntity::class,
+        com.example.cloudsocial.db.CloudSocialMediaEntity::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,6 +71,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDataDao(): UserDataDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun videoCacheDao(): VideoCacheDao
+    abstract fun bunkrDao(): com.example.bunkr.db.BunkrDao
+    abstract fun cloudSocialDao(): com.example.cloudsocial.db.CloudSocialDao
 
     companion object {
         @Volatile
@@ -206,6 +212,89 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `bunkr_albums` (
+                        `albumId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `sourceUrl` TEXT NOT NULL,
+                        `isEnabled` INTEGER NOT NULL,
+                        `lastScanTime` INTEGER NOT NULL,
+                        `itemCount` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`albumId`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `bunkr_files` (
+                        `fileId` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `sourceUrl` TEXT NOT NULL,
+                        `thumbnailUrl` TEXT,
+                        `mediaType` TEXT NOT NULL,
+                        `duration` TEXT NOT NULL,
+                        `resolution` TEXT NOT NULL,
+                        `fileSize` TEXT NOT NULL,
+                        `streamUrl` TEXT,
+                        `streamUrlExpiry` INTEGER NOT NULL,
+                        `isAvailable` INTEGER NOT NULL,
+                        `orderIndex` INTEGER NOT NULL,
+                        `lastUpdated` INTEGER NOT NULL,
+                        PRIMARY KEY(`fileId`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_bunkr_files_albumId` ON `bunkr_files` (`albumId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_bunkr_files_sourceUrl` ON `bunkr_files` (`sourceUrl`)")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `cloud_social_sources` (
+                        `id` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `sourceUrl` TEXT NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `lastSyncTimestamp` INTEGER NOT NULL,
+                        `itemCount` INTEGER NOT NULL,
+                        `newItemCount` INTEGER NOT NULL,
+                        `extraConfigJson` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `cloud_social_media` (
+                        `id` TEXT NOT NULL,
+                        `sourceId` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `remoteId` TEXT NOT NULL,
+                        `parentId` TEXT,
+                        `title` TEXT NOT NULL,
+                        `caption` TEXT,
+                        `sourceUrl` TEXT NOT NULL,
+                        `directStreamUrl` TEXT,
+                        `thumbnailUrl` TEXT,
+                        `mimeType` TEXT NOT NULL,
+                        `fileSize` INTEGER NOT NULL,
+                        `formattedSize` TEXT NOT NULL,
+                        `durationMs` INTEGER NOT NULL,
+                        `mediaCategory` TEXT NOT NULL,
+                        `dateTimestamp` INTEGER NOT NULL,
+                        `resolution` TEXT NOT NULL,
+                        `headersJson` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_social_media_sourceId` ON `cloud_social_media` (`sourceId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_social_media_type` ON `cloud_social_media` (`type`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_social_media_mediaCategory` ON `cloud_social_media` (`mediaCategory`)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -213,7 +302,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

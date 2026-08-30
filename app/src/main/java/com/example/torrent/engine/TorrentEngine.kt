@@ -7,12 +7,14 @@ import com.example.torrent.core.TorrentSessionManager
 import com.example.torrent.model.*
 import kotlinx.coroutines.flow.StateFlow
 
+import com.example.core.interfaces.TorrentEngineInterface
+
 /**
  * Public facade for BitTorrent operations in Butterfly.
  * Keeps backward compatibility for existing UI, player, and viewmodels while delegating
  * all low-level swarm operations, streaming, DHT, and storage to libtorrent4j.
  */
-class TorrentEngine(private val context: Context) {
+class TorrentEngine(private val context: Context) : TorrentEngineInterface {
 
     companion object {
         private const val TAG = "TorrentEngine"
@@ -31,27 +33,49 @@ class TorrentEngine(private val context: Context) {
     val sessionManager: TorrentSessionManager = TorrentSessionManager(context, libtorrentEngine)
     val downloadManager: TorrentDownloadManager = TorrentDownloadManager(context, libtorrentEngine)
 
-    val stats: StateFlow<TorrentEngineStats> = sessionManager.stats
+    override val stats: StateFlow<TorrentEngineStats>
+        get() = sessionManager.stats
 
-    fun startSession(release: TorrentRelease, streamPort: Int = 8899): TorrentStreamSession {
+    override fun startSession(release: TorrentRelease, streamPort: Int): TorrentStreamSession {
         return sessionManager.startSession(release, streamPort)
     }
 
-    fun stopSession(clearCache: Boolean = false) {
+    override fun stopSession(clearCache: Boolean) {
         sessionManager.stopSession(clearCache)
     }
 
-    fun onPlaybackSeek(byteOffset: Long) {
+    override fun onPlaybackSeek(byteOffset: Long) {
         sessionManager.onPlaybackSeek(byteOffset)
     }
 
-    fun readBytesForStream(offset: Long, length: Int, buffer: ByteArray, bufferOffset: Int = 0): Int {
+    override fun readBytesForStream(offset: Long, length: Int, buffer: ByteArray, bufferOffset: Int): Int {
         return sessionManager.readBytesForStream(offset, length, buffer, bufferOffset)
+    }
+
+    override fun awaitRangeAvailable(offset: Long, length: Int, timeoutMs: Long): Boolean {
+        return sessionManager.awaitRangeAvailable(offset, length, timeoutMs)
+    }
+
+    override fun getActiveInfoHash(): String? {
+        return sessionManager.activeRelease?.infoHash?.lowercase()?.trim()
+    }
+
+    override fun getActiveFileLength(): Long {
+        return sessionManager.activeFileItem?.length
+            ?: sessionManager.activeRelease?.sizeBytes
+            ?: 0L
+    }
+
+    override fun getActiveFilePath(): String? {
+        return sessionManager.activeFileOnDisk?.absolutePath
+    }
+
+    override fun isRangeAvailable(offset: Long, length: Int): Boolean {
+        return sessionManager.isRangeDownloaded(offset, length)
     }
 
     fun getFileLength(): Long {
         return sessionManager.activeFileItem?.length
-            ?: sessionManager.activeRelease?.sizeBytes
             ?: 0L
     }
 

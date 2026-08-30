@@ -299,7 +299,7 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
 
             var metadataWaitMs = 0
             val maxWaitMs = 30000
-            while (torrentEngine.getFileLength() <= 0 && metadataWaitMs < maxWaitMs) {
+            while (torrentEngine.getActiveFileLength() <= 0 && metadataWaitMs < maxWaitMs) {
                 delay(400)
                 metadataWaitMs += 400
                 val stats = torrentEngine.stats.value
@@ -314,16 +314,20 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
                 }
             }
 
-            if (torrentEngine.getFileLength() <= 0) {
+            if (torrentEngine.getActiveFileLength() <= 0) {
                 Log.w(TAG, "Torrent metadata fetch timed out after $maxWaitMs ms for $infoHash")
                 onStatus("Timed out connecting to swarm (no seeders found)")
                 return@withContext null
             }
 
-            onStatus("Torrent metadata ready, buffering video stream...")
+            onStatus("Torrent metadata ready, buffering initial video header...")
 
-            val dynamicStreamUrl = server.streamUrl
-            Log.i(TAG, "Torrent stream ready at: $dynamicStreamUrl (Port: ${server.assignedPort})")
+            // Pre-buffer initial head pieces so ExoPlayer can parse container header instantly
+            torrentEngine.awaitRangeAvailable(0, 512 * 1024, timeoutMs = 15000L)
+
+            val normalizedHash = infoHash.lowercase().trim()
+            val dynamicStreamUrl = "http://127.0.0.1:${server.assignedPort}/stream?hash=$normalizedHash"
+            Log.i("ButterflyTorrent", "Torrent stream ready at: $dynamicStreamUrl (Port: ${server.assignedPort})")
 
             ResolvedPlayback(
                 candidate = candidate,

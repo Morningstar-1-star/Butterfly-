@@ -98,7 +98,7 @@ class TorrentSessionManager(
             activeFileName = release.fileName ?: release.title,
             fileSizeBytes = release.sizeBytes,
             streamPort = streamPort,
-            streamUrl = "http://127.0.0.1:$streamPort/stream"
+            streamUrl = "http://127.0.0.1:$streamPort/stream?hash=$infoHash"
         )
 
         engine.start()
@@ -163,7 +163,7 @@ class TorrentSessionManager(
         return TorrentStreamSession(
             sessionId = infoHash,
             release = release,
-            httpStreamUrl = "http://127.0.0.1:$streamPort/stream",
+            httpStreamUrl = "http://127.0.0.1:$streamPort/stream?hash=$infoHash",
             localFilePath = activeFileOnDisk?.absolutePath,
             fileIndex = activeFileItem?.index ?: 0
         )
@@ -282,41 +282,65 @@ class TorrentSessionManager(
         val totalPieces = ti.numPieces()
         val infoHash = ti.infoHash().toHex()
 
-        // Prioritize a window of pieces from the seek point
+        // Cancel previous deadlines on seek
+        engine.clearPieceDeadlines(infoHash)
+
+        // Prioritize immediate seek target piece
+        if (currentPiece in 0 until totalPieces) {
+            engine.setPiecePriority(infoHash, currentPiece, Priority.TOP_PRIORITY)
+            engine.setPieceDeadline(infoHash, currentPiece, 50)
+        }
+
+        // Prioritize lookahead window (~30-60 MB)
         val windowPieces = (BUFFER_WINDOW_BYTES / pieceLen).toInt().coerceAtLeast(8)
-        for (i in 0 until windowPieces) {
+        for (i in 1 until windowPieces) {
             val p = currentPiece + i
             if (p in 0 until totalPieces) {
-                engine.setPiecePriority(infoHash, p, Priority.DEFAULT)
-                engine.setPieceDeadline(infoHash, p, (i + 1) * 150) // staged deadlines
+                engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
+                engine.setPieceDeadline(infoHash, p, 100 + i * 50)
             }
         }
+        Log.i("ButterflyTorrent", "onPlaybackSeek to $byteOffset (Piece $currentPiece, window $windowPieces pieces)")
     }
 
-    private fun findVideoFileInCache(dir: File): File? {
-        if (!dir.exists()) return null
-        return try {
-            dir.walkTopDown()
-                .filter { it.isFile && it.length() > 0 && isVideoFile(it.name) }
-                .maxByOrNull { it.length() }
-                ?: dir.walkTopDown().filter { it.isFile && it.length() > 0 }.maxByOrNull { it.length() }
-        } catch (_: Exception) {
-            null
+    fun awaitRangeAvailable(offset: Long, length: Int, timeoutMs: Long = 15000L): Boolean {
+        val ti = activeTorrentInfo ?: return false
+        val fileItem = activeFileItem ?: return false
+        val infoHash = activeRelease?.infoHash?.lowercase()?.trim() ?: return false
+        val pieceLen = ti.pieceLength().toLong()
+        if (pieceLen <= 0) return false
+
+        val absoluteStart = fileItem.offset + offset
+        val absoluteEnd = absoluteStart + length - 1
+        val startPiece = (absoluteStart / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+        val endPiece = (absoluteEnd / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+
+        for (p in startPiece..endPiece) {
+            engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
+            engine.setPieceDeadline(infoHash, p, 50)
         }
+
+        val startMs = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startMs < timeoutMs && !isStopping.get()) {
+            if (isRangeDownloaded(offset, length)) return true
+            try { Thread.sleep(50) } catch (_: Exception) { break }
+        }
+        return isRangeDownloaded(offset, length)
     }
 
     fun isRangeDownloaded(offset: Long, length: Int): Boolean {
         val ti = activeTorrentInfo ?: return false
         val fileItem = activeFileItem ?: return false
-        val infoHash = activeRelease?.infoHash?.lowercase() ?: return false
+        val infoHash = activeRelease?.infoHash?.lowercase()?.trim() ?: return false
         if (infoHash.isBlank()) return false
 
         val pieceLen = ti.pieceLength().toLong()
         if (pieceLen <= 0) return false
 
-        val absoluteByte = fileItem.offset + offset
-        val startPiece = (absoluteByte / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
-        val endPiece = ((absoluteByte + length - 1) / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+        val absoluteStart = fileItem.offset + offset
+        val absoluteEnd = absoluteStart + length - 1
+        val startPiece = (absoluteStart / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
+        val endPiece = (absoluteEnd / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
 
         val th = engine.findHandle(infoHash) ?: return false
         val st = try { th.status() } catch (_: Exception) { return false }
@@ -331,85 +355,52 @@ class TorrentSessionManager(
     }
 
     /**
-     * Reads bytes from the active file for HTTP streaming.
-     * Blocks gracefully until pieces covering the range are verified or timeout expires.
+     * Reads bytes strictly from the active torrent file on disk for HTTP streaming.
+     * Never uses a generic cache fallback.
      */
     fun readBytesForStream(offset: Long, length: Int, buffer: ByteArray, bufferOffset: Int = 0): Int {
-        val fileItem = activeFileItem
-        val diskFile = activeFileOnDisk
-        val resolvedFile: File = if (diskFile != null && diskFile.exists()) {
-            diskFile
-        } else {
-            findVideoFileInCache(engine.cacheDir)
-                ?: File(engine.cacheDir, activeRelease?.title?.replace(Regex("[^a-zA-Z0-9._ -]"), "_") ?: "stream_temp.mkv")
-        }
+        val fileItem = activeFileItem ?: return 0
+        val diskFile = activeFileOnDisk ?: return 0
 
-        val maxLen = fileItem?.length ?: activeRelease?.sizeBytes?.takeIf { it > 0L } ?: (1024L * 1024L * 1024L)
+        val maxLen = fileItem.length
         if (offset >= maxLen) return -1
         val actualLen = min(length.toLong(), maxLen - offset).toInt()
         if (actualLen <= 0) return 0
 
-        val ti = activeTorrentInfo
-        if (ti != null && fileItem != null) {
-            val pieceLen = ti.pieceLength().toLong()
-            if (pieceLen > 0) {
-                val absoluteByte = fileItem.offset + offset
-                val startPiece = (absoluteByte / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
-                val endPiece = ((absoluteByte + actualLen - 1) / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
-                val infoHash = ti.infoHash().toHex()
-
-                for (p in startPiece..endPiece) {
-                    engine.setPieceDeadline(infoHash, p, 50)
-                }
-            }
-        }
-
-        // Wait until pieces covering [offset, offset + actualLen) are verified downloaded by libtorrent
-        var waitRetries = 0
-        while (!isRangeDownloaded(offset, actualLen) && waitRetries < 150 && !isStopping.get()) {
-            Thread.sleep(100)
-            waitRetries++
-        }
-
-        var currentFile = resolvedFile
-        var retries = 0
-        while ((!currentFile.exists() || currentFile.length() <= offset) && retries < 40 && !isStopping.get()) {
-            Thread.sleep(100)
-            retries++
-            val currentDisk = activeFileOnDisk
-            if (currentDisk != null && currentDisk.exists() && currentDisk.length() > offset) {
-                currentFile = currentDisk
-                break
-            }
-            val cached = findVideoFileInCache(engine.cacheDir)
-            if (cached != null && cached.exists() && cached.length() > offset) {
-                currentFile = cached
-                break
-            }
-        }
-
-        if (!currentFile.exists()) {
+        // Bounded wait for piece availability
+        val available = awaitRangeAvailable(offset, actualLen, timeoutMs = 15000L)
+        if (!available && offset < maxLen - 64 * 1024) {
+            Log.d("ButterflyTorrent", "Range [$offset, ${offset + actualLen}] not available yet. Waiting for swarm pieces...")
             return 0
         }
 
-        // If pieces are not verified yet and we haven't reached end of file, delay reading to avoid sending zero padding
-        if (!isRangeDownloaded(offset, actualLen) && offset < maxLen - 64 * 1024) {
+        if (!diskFile.exists()) {
+            Log.w("ButterflyTorrent", "Active file on disk does not exist yet: ${diskFile.absolutePath}")
             return 0
         }
 
         return fileLock.withLock {
             try {
-                RandomAccessFile(currentFile, "r").use { raf ->
+                RandomAccessFile(diskFile, "r").use { raf ->
                     val fileLength = raf.length()
-                    if (offset >= fileLength) {
+                    if (offset >= fileLength && offset < maxLen) {
                         return@withLock 0
+                    } else if (offset >= maxLen) {
+                        return@withLock -1
                     }
                     val readable = min(actualLen.toLong(), fileLength - offset).toInt()
+                    if (readable <= 0) return@withLock 0
+
                     raf.seek(offset)
-                    raf.read(buffer, bufferOffset, readable)
+                    val readCount = raf.read(buffer, bufferOffset, readable)
+                    if (readCount > 0) {
+                        readCount
+                    } else {
+                        0
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "readBytesForStream error at offset $offset: ${e.message}")
+                Log.w("ButterflyTorrent", "readBytesForStream error at offset $offset: ${e.message}")
                 0
             }
         }
@@ -421,9 +412,18 @@ class TorrentSessionManager(
             while (isActive && !isStopping.get()) {
                 val release = activeRelease
                 if (release != null) {
-                    val infoHash = release.infoHash.lowercase()
+                    val infoHash = release.infoHash.lowercase().trim()
+                    val ti = activeTorrentInfo
                     val th = engine.findHandle(infoHash)
-                    if (th != null && th.isValid) {
+                    if (ti == null) {
+                        val dhtNodes = engine.getDhtNodes()
+                        _stats.value = _stats.value.copy(
+                            state = TorrentEngineState.FETCHING_METADATA,
+                            infoHash = infoHash,
+                            dhtNodes = dhtNodes,
+                            errorMessage = if (dhtNodes == 0L) "Connecting to trackers & DHT network..." else "Retrieving swarm metadata ($dhtNodes DHT nodes active)..."
+                        )
+                    } else if (th != null && th.isValid) {
                         val st = th.status()
                         val peers = engine.getPeers(infoHash)
                         val trackers = engine.getTrackers(infoHash)
@@ -438,12 +438,11 @@ class TorrentSessionManager(
                         val isFinished = st.isFinished || st.isSeeding
 
                         // Calculate buffer progress around playback position
-                        val bufferProg = calculateBufferProgress(th, activeTorrentInfo, activeFileItem, playbackByteOffset.get())
+                        val bufferProg = calculateBufferProgress(th, ti, activeFileItem, playbackByteOffset.get())
 
                         val state = when {
                             isFinished -> TorrentEngineState.STREAMING
-                            downSpeed > 0 && bufferProg >= 0.1f -> TorrentEngineState.STREAMING
-                            downSpeed > 0 -> TorrentEngineState.BUFFERING
+                            bufferProg >= 0.1f -> TorrentEngineState.STREAMING
                             st.numPeers() > 0 -> TorrentEngineState.BUFFERING
                             else -> TorrentEngineState.CONNECTING_TRACKERS
                         }

@@ -61,6 +61,9 @@ class UnifiedSourceResolver(private val context: Context) {
     private val cometProvider = CometSourceProvider()
     private val yarrProvider = YarrSourceProvider()
     private val magnetioProvider = MagnetioSourceProvider()
+    private val bunkrProvider = com.example.resolver.providers.BunkrSourceProvider(context)
+    private val telegramProvider = com.example.resolver.providers.TelegramSourceProvider(context)
+    private val megaProvider = com.example.resolver.providers.MegaSourceProvider(context)
 
     // Embed Providers
     private val vidlinkProvider = EmbedSourceProviderAdapter(VidlinkEmbedProvider())
@@ -79,6 +82,9 @@ class UnifiedSourceResolver(private val context: Context) {
             cometProvider,
             yarrProvider,
             magnetioProvider,
+            bunkrProvider,
+            telegramProvider,
+            megaProvider,
             jableMissAvProvider,
             spankBangProvider,
             hanime1Provider,

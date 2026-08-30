@@ -45,10 +45,12 @@ class MainActivity : ComponentActivity() {
         if (viewModel.activeVideoId.value != null && com.example.ui.player.GlobalPlayerManager.isPlaying.value) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
-                    val params = android.app.PictureInPictureParams.Builder()
-                        .setAspectRatio(android.util.Rational(16, 9))
-                        .build()
-                    enterPictureInPictureMode(params)
+                    if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                        val params = android.app.PictureInPictureParams.Builder()
+                            .setAspectRatio(android.util.Rational(16, 9))
+                            .build()
+                        enterPictureInPictureMode(params)
+                    }
                 } catch (e: Exception) {
                     // Ignore
                 }

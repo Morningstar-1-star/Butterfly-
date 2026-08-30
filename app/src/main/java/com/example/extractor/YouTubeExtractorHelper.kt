@@ -277,6 +277,41 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isCloudSocial = providerId == "bun-tel-meg" || providerId == "cloud_social" || providerId == "bunkr" || providerId == "telegram" || providerId == "mega" || urlOrId.contains("bunkr") || urlOrId.contains("mega.nz") || urlOrId.contains("mega.io") || urlOrId.contains("t.me/") || urlOrId.startsWith("tg_") || urlOrId.startsWith("mega_") || urlOrId.startsWith("bunkr_")
+        if (isCloudSocial && context != null) {
+            try {
+                val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
+                val streamUrl = repo.resolveStreamUrlByUrlOrId(urlOrId)
+                if (streamUrl.isNotBlank() && (streamUrl.startsWith("http://") || streamUrl.startsWith("https://"))) {
+                    val option = PlayableStreamOption(
+                        qualityLabel = "HD Direct Stream",
+                        format = if (streamUrl.contains(".m3u8")) "hls" else "mp4",
+                        isMuxed = true,
+                        videoUrl = streamUrl,
+                        audioUrl = null,
+                        providerType = com.example.model.ProviderType.DIRECT,
+                        headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    )
+                    val streamData = StreamData(
+                        videoId = urlOrId,
+                        title = "bun-tel-meg Stream",
+                        channelName = "bun-tel-meg",
+                        channelAvatarUrl = null,
+                        description = "Direct stream resolved from bun-tel-meg Cloud & Social provider",
+                        availableStreamOptions = listOf(option),
+                        selectedStreamOption = option,
+                        providerId = "bun-tel-meg",
+                        providerType = com.example.model.ProviderType.DIRECT,
+                        headers = option.headers
+                    )
+                    Log.i(TAG, "Resolved stream via CloudSocialRepository for $urlOrId -> $streamUrl")
+                    return@withContext ExtractionResult.Success(streamData)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "CloudSocial stream resolution failed: ${e.message}", e)
+            }
+        }
+
         val isArchive = providerId == "archive_org" || providerId == "archive" || urlOrId.contains("archive.org") || urlOrId.startsWith("archive_") || urlOrId.startsWith("archive:")
         if (isArchive) {
             val archiveData = ArchiveOrgProvider.getStreamData(urlOrId, context)
@@ -478,21 +513,35 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isHanime1 = providerId == "hanime1" || urlOrId.contains("hanime1.me") || urlOrId.contains("hanime1.com")
+        val isHanime1 = providerId == "hanime1" || providerId == "hanime" || urlOrId.contains("hanime1") || urlOrId.contains("hanime.tv")
         if (isHanime1) {
             val h1Data = Hanime1Provider.getStreamData(urlOrId, context)
             if (h1Data != null) {
                 Log.i(TAG, "Resolved via Hanime1Provider for $urlOrId")
                 return@withContext ExtractionResult.Success(h1Data)
+            } else if (context != null) {
+                val videoId = Hanime1Provider.extractVideoId(urlOrId)
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hanime1.me/watch?v=$videoId"
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hanime1"))
+                }
             }
         }
 
-        val isHQPorner = providerId == "hqporner" || urlOrId.contains("hqporner.com")
+        val isHQPorner = providerId == "hqporner" || urlOrId.contains("hqporner")
         if (isHQPorner) {
             val hqpData = HQPornerProvider.getStreamData(urlOrId, context)
             if (hqpData != null) {
                 Log.i(TAG, "Resolved via HQPornerProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(hqpData)
+            } else if (context != null) {
+                val videoSlug = HQPornerProvider.extractVideoId(urlOrId)
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hqporner.com/hdporn/$videoSlug.html"
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hqporner"))
+                }
             }
         }
 
