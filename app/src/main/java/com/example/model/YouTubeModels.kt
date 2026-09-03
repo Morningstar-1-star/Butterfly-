@@ -112,8 +112,32 @@ data class PlayableStreamOption(
     val audioUrl: String? = null,
     val providerType: ProviderType = ProviderType.OTHER,
     val headers: Map<String, String> = emptyMap(),
-    val audioHeaders: Map<String, String> = emptyMap()
-)
+    val audioHeaders: Map<String, String> = emptyMap(),
+    val sourceName: String = "",
+    val qualityCategory: String = "",
+    val sizeText: String = "",
+    val seeders: Int = -1,
+    val isDolbyVision: Boolean = false,
+    val isHdr: Boolean = false,
+    val codec: String = "",
+    val releaseTitle: String = ""
+) {
+    val detectedSourceName: String
+        get() = com.example.util.StreamCategorizer.detectSourceName(this)
+
+    val detectedQualityCategory: String
+        get() = com.example.util.StreamCategorizer.detectQualityCategory(this)
+
+    val detectedSize: String
+        get() = if (sizeText.isNotBlank()) sizeText else com.example.util.StreamCategorizer.extractSizeFromText(qualityLabel)
+
+    val detectedSeeders: Int
+        get() {
+            if (seeders >= 0) return seeders
+            val match = Regex("""(\d+)\s*seeds?""", RegexOption.IGNORE_CASE).find(qualityLabel)
+            return match?.groupValues?.get(1)?.toIntOrNull() ?: -1
+        }
+}
 
 data class CaptionOption(
     val languageName: String,
@@ -144,7 +168,9 @@ data class StreamData(
     val providerId: String? = null,
     val thumbnailUrl: String? = null,
     val providerType: ProviderType = ProviderType.OTHER,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    val tags: List<String> = emptyList(),
+    val category: String? = null
 ) {
     val effectiveThumbnailUrl: String?
         get() {

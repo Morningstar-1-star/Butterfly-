@@ -210,8 +210,9 @@ fun UniversalVideoPlayer(
         if (isPlaying) GlobalPlayerManager.play() else GlobalPlayerManager.pause()
     }
 
-    LaunchedEffect(streamOption, hlsUrl, captionOption, videoId, streamData) {
-        if (streamOption == null && hlsUrl.isNullOrBlank()) {
+    LaunchedEffect(streamOption?.videoUrl, streamOption?.videoStream?.url, hlsUrl, captionOption?.languageCode, videoId) {
+        val playUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
+        if (playUrl.isNullOrBlank()) {
             return@LaunchedEffect
         }
         val curPos = GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)

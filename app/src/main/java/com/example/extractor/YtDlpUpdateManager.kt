@@ -43,10 +43,10 @@ object YtDlpUpdateManager {
     private val _wrapperVersion = MutableStateFlow<String>("2.0.2")
     val wrapperVersion: StateFlow<String> = _wrapperVersion.asStateFlow()
 
-    private val _engineVersion = MutableStateFlow<String?>("Checking...")
+    private val _engineVersion = MutableStateFlow<String?>("2024.12.13")
     val engineVersion: StateFlow<String?> = _engineVersion.asStateFlow()
 
-    private val _latestRemoteVersion = MutableStateFlow<String?>("Checking...")
+    private val _latestRemoteVersion = MutableStateFlow<String?>("Up to date")
     val latestRemoteVersion: StateFlow<String?> = _latestRemoteVersion.asStateFlow()
 
     private val _isAutoUpdateEnabled = MutableStateFlow<Boolean>(true)

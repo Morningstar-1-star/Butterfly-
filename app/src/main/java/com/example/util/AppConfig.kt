@@ -41,6 +41,9 @@ object AppConfig {
 
     // Default working keys & mirrors
     const val DEFAULT_TMDB_API_KEY = "b4ef3b290130df4d8de63d410db2bdfc"
+    const val DEFAULT_TMDB_READ_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIzMTU1ZmRiNDk3Zjc1NzVhMTQ0ZjI2YWRlYmNiZjk4MCIsIm5iZiI6MTc3NTcwNjIzNy43NDUsInN1YiI6IjY5ZDcyMDdkNmJiYTRiYzAzOTEwNjI2ZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ._4WdklzSx9za_YAGeMlABQ1jMEOPCLa6mEWtGQLqrw0"
+    const val DEFAULT_TRAKT_CLIENT_ID = "9434714b83b9485c37a7865f58ad942ec7e1f64c372d0cf304f6ac882d307bb7"
+    const val DEFAULT_WATCHMODE_API_KEY = "wm_-yvlXIr6cXJxkpC90gpkhfp5VHMWhXJH7PJ1ht9OLjg"
     const val DEFAULT_SUBDL_API_KEY = "subdl_Mp42hcrZJOddEWEGyUjzp1q2A1NsdWxkAd2pDD8PCwg"
     const val DEFAULT_OPENSUBTITLES_API_KEY = "p1Q8N8Z6eB0s6Z6A5t8Y4U1I3O9P2L5K"
     const val DEFAULT_TORRENTIO_BASE_URL = "https://torrentio.strem.fun"

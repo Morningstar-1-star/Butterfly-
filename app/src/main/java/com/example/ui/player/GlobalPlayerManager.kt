@@ -46,7 +46,8 @@ object GlobalPlayerManager {
         }
 
         when {
-            urlStr.contains("googlevideo.com") || urlStr.contains("youtube.com") || urlStr.contains("youtu.be") || urlStr.contains("ytimg.com") -> {
+            urlStr.contains("googlevideo.com") || urlStr.contains("youtube.com") || urlStr.contains("youtu.be") || urlStr.contains("ytimg.com") ||
+            urlStr.contains("googleapis.com") || urlStr.contains("storage.googleapis") || urlStr.contains("commondatastorage") || urlStr.contains("w3schools") || urlStr.contains("githubusercontent") -> {
                 builder.removeHeader("Referer")
                 builder.removeHeader("referer")
                 builder.removeHeader("Origin")
@@ -99,6 +100,63 @@ object GlobalPlayerManager {
             urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("jiohotstar") || urlStr.contains("starott.com") || urlStr.contains("hs-cdn") -> {
                 builder.header("Referer", "https://www.hotstar.com/")
                 builder.header("Origin", "https://www.hotstar.com")
+            }
+            urlStr.contains("amazon.in") || urlStr.contains("minitv") || urlStr.contains("aiv-cdn") || urlStr.contains("amazonvideo") -> {
+                builder.header("Referer", "https://www.amazon.in/")
+                builder.header("Origin", "https://www.amazon.in")
+            }
+            urlStr.contains("cam4.com") || urlStr.contains("stream.cam4.com") -> {
+                builder.header("Referer", "https://www.cam4.com/")
+                builder.header("Origin", "https://www.cam4.com")
+            }
+            urlStr.contains("cammodels.com") -> {
+                builder.header("Referer", "https://www.cammodels.com/")
+                builder.header("Origin", "https://www.cammodels.com")
+            }
+            urlStr.contains("chaturbate.com") || urlStr.contains("highwebmedia.com") -> {
+                builder.header("Referer", "https://chaturbate.com/")
+                builder.header("Origin", "https://chaturbate.com")
+            }
+            urlStr.contains("discoveryplus") -> {
+                builder.header("Referer", "https://www.discoveryplus.in/")
+                builder.header("Origin", "https://www.discoveryplus.in")
+            }
+            urlStr.contains("disneyplus") -> {
+                builder.header("Referer", "https://www.disneyplus.com/")
+                builder.header("Origin", "https://www.disneyplus.com")
+            }
+            urlStr.contains("drive.google.com") || urlStr.contains("googleusercontent.com") || urlStr.contains("drive.usercontent.google.com") -> {
+                builder.header("Referer", "https://drive.google.com/")
+            }
+            urlStr.contains("mxplayer.in") || urlStr.contains("mxplay.com") -> {
+                builder.header("Referer", "https://www.mxplayer.in/")
+                builder.header("Origin", "https://www.mxplayer.in")
+            }
+            urlStr.contains("imdb.com") || urlStr.contains("media-amazon.com") -> {
+                builder.header("Referer", "https://www.imdb.com/")
+                builder.header("Origin", "https://www.imdb.com")
+            }
+            urlStr.contains("noodlemagazine.com") -> {
+                builder.header("Referer", "https://noodlemagazine.com/")
+                builder.header("Origin", "https://noodlemagazine.com")
+            }
+            urlStr.contains("popcorntime") -> {
+                builder.header("Referer", "https://popcorntime.pro/")
+                builder.header("Origin", "https://popcorntime.pro")
+            }
+            urlStr.contains("sonyliv.com") -> {
+                builder.header("Referer", "https://www.sonyliv.com/")
+                builder.header("Origin", "https://www.sonyliv.com")
+            }
+            urlStr.contains("thisvid.com") -> {
+                builder.header("Referer", "https://thisvid.com/")
+                builder.header("Origin", "https://thisvid.com")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc")
+            }
+            urlStr.contains("tnaflix.com") -> {
+                builder.header("Referer", "https://www.tnaflix.com/")
+                builder.header("Origin", "https://www.tnaflix.com")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1")
             }
         }
 
@@ -343,6 +401,7 @@ object GlobalPlayerManager {
             }.apply {
                 setEnableDecoderFallback(true)
                 setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                forceDisableMediaCodecAsynchronousQueueing()
             }
 
             val player = ExoPlayer.Builder(context.applicationContext)
@@ -467,6 +526,7 @@ object GlobalPlayerManager {
     }
 
     private var videoEffectsJob: Job? = null
+    private var hasAppliedCustomEffects = false
 
     private fun attachVideoEffectsPipeline(player: ExoPlayer) {
         videoEffectsJob?.cancel()
@@ -477,8 +537,10 @@ object GlobalPlayerManager {
                     val effect = com.example.effects.ShaderEnhancementLoader.createEffect(config, isAnime)
                     if (effect != null) {
                         player.setVideoEffects(listOf(effect))
-                    } else {
+                        hasAppliedCustomEffects = true
+                    } else if (hasAppliedCustomEffects) {
                         player.setVideoEffects(emptyList())
+                        hasAppliedCustomEffects = false
                     }
                 } catch (e: Exception) {
                     android.util.Log.w("GlobalPlayerManager", "Video effects update notice: ${e.message}")
@@ -757,10 +819,11 @@ object GlobalPlayerManager {
 
                 // Inject domain-specific referer & origin headers if not explicitly specified
                 val lowerTarget = targetUrl.lowercase()
-                val isGoogleVideoStream = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") || lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com")
+                val isGoogleStorageOrPublic = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") || lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com") ||
+                        lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") || lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") || lowerTarget.contains("githubusercontent")
                 val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos-") || streamData?.providerId == "bilibili"
 
-                if (isGoogleVideoStream) {
+                if (isGoogleStorageOrPublic) {
                     reqHeaders.remove("Referer")
                     reqHeaders.remove("referer")
                     reqHeaders.remove("Origin")
@@ -834,7 +897,7 @@ object GlobalPlayerManager {
                                 reqHeaders["Referer"] = "https://vimeo.com/"
                                 reqHeaders["Origin"] = "https://vimeo.com"
                             }
-                            (lowerTarget.contains("hotstar.com") || lowerTarget.contains("hotstar-cdn") || lowerTarget.contains("jiohotstar") || lowerTarget.contains("starott.com") || (streamData?.providerId == "hotstar")) && !isGoogleVideoStream -> {
+                            (lowerTarget.contains("hotstar.com") || lowerTarget.contains("hotstar-cdn") || lowerTarget.contains("jiohotstar") || lowerTarget.contains("starott.com") || (streamData?.providerId == "hotstar")) && !isGoogleStorageOrPublic -> {
                                 reqHeaders["Referer"] = "https://www.hotstar.com/"
                                 reqHeaders["Origin"] = "https://www.hotstar.com"
                             }

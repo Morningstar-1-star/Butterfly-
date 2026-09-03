@@ -109,7 +109,9 @@ object SmartRecommendationEngine {
         bookmarks: List<VideoItem>,
         notInterestedChannels: Set<String>,
         recentSearches: List<String> = emptyList(),
-        watchPositionMsMap: Map<String, Long> = emptyMap()
+        watchPositionMsMap: Map<String, Long> = emptyMap(),
+        userPlaylists: List<com.example.model.UserPlaylist> = emptyList(),
+        candidatePool: List<VideoItem> = emptyList()
     ): TasteVector {
         val catScores = mutableMapOf<String, Float>()
         val chanScores = mutableMapOf<String, Float>()
@@ -205,13 +207,17 @@ object SmartRecommendationEngine {
                     catScores["tech"] = (catScores["tech"] ?: 0f) + recencyWeight
                     catScores["ai"] = (catScores["ai"] ?: 0f) + (recencyWeight * 0.8f)
                 }
+                qLower.contains("porn") || qLower.contains("xxx") || qLower.contains("hentai") ||
+                qLower.contains("erotic") || qLower.contains("nsfw") -> {
+                    catScores["nsfw_adult"] = (catScores["nsfw_adult"] ?: 0f) + recencyWeight
+                }
             }
         }
 
         // 2. Evaluate Watch History & Spend Time / Dwell Duration
         for (video in watchHistory.take(60)) {
             interactions++
-            val tags = SmartTagExtractor.extractTags(video)
+            val tags = SmartTagExtractor.extractInternalCategoryTags(video)
             val prog = watchProgressMap[video.id] ?: 0.5f
             val posMs = watchPositionMsMap[video.id] ?: 0L
             val lang = detectLanguage(video)
@@ -236,21 +242,21 @@ object SmartRecommendationEngine {
             langScores[lang.code] = (langScores[lang.code] ?: 0f) + weightMultiplier
         }
 
-        // 3. Evaluate Liked Videos (Massive Channel Boost for Liked Creators!)
+        val allKnownVideos = (watchHistory + bookmarks + userPlaylists.flatMap { it.videos } + candidatePool).distinctBy { it.id }
+
+        // 3. Evaluate Liked Videos (Massive Channel & Category Boost)
         for (likedId in likedVideoIds) {
             interactions++
-            val matchingVideo = watchHistory.firstOrNull { it.id == likedId }
-                ?: bookmarks.firstOrNull { it.id == likedId }
+            val matchingVideo = allKnownVideos.firstOrNull { it.id == likedId }
 
             if (matchingVideo != null) {
-                val tags = SmartTagExtractor.extractTags(matchingVideo)
+                val tags = SmartTagExtractor.extractInternalCategoryTags(matchingVideo)
                 val lang = detectLanguage(matchingVideo)
                 for (tag in tags) {
-                    catScores[tag.category] = (catScores[tag.category] ?: 0f) + 10.0f
+                    catScores[tag.category] = (catScores[tag.category] ?: 0f) + 12.0f
                 }
                 val ch = matchingVideo.uploaderName.lowercase(Locale.ROOT).trim()
                 if (ch.isNotBlank()) {
-                    // Massive boost so videos from liked creators dominate recommendations!
                     chanScores[ch] = (chanScores[ch] ?: 0f) + 30.0f
                 }
                 langScores[lang.code] = (langScores[lang.code] ?: 0f) + 12.0f
@@ -260,16 +266,16 @@ object SmartRecommendationEngine {
         // 4. Evaluate Disliked Videos (Penalize Channel & Category)
         for (dislikedId in dislikedVideoIds) {
             interactions++
-            val matchingVideo = watchHistory.firstOrNull { it.id == dislikedId }
+            val matchingVideo = allKnownVideos.firstOrNull { it.id == dislikedId }
             if (matchingVideo != null) {
-                val tags = SmartTagExtractor.extractTags(matchingVideo)
+                val tags = SmartTagExtractor.extractInternalCategoryTags(matchingVideo)
                 val lang = detectLanguage(matchingVideo)
                 for (tag in tags) {
-                    catScores[tag.category] = (catScores[tag.category] ?: 0f) - 10.0f
+                    catScores[tag.category] = (catScores[tag.category] ?: 0f) - 15.0f
                 }
                 val ch = matchingVideo.uploaderName.lowercase(Locale.ROOT).trim()
                 if (ch.isNotBlank()) {
-                    chanScores[ch] = (chanScores[ch] ?: 0f) - 20.0f
+                    chanScores[ch] = (chanScores[ch] ?: 0f) - 25.0f
                 }
                 langScores[lang.code] = (langScores[lang.code] ?: 0f) - 6.0f
             }
@@ -278,7 +284,7 @@ object SmartRecommendationEngine {
         // 5. Evaluate Bookmarks / Watch Later
         for (bm in bookmarks.take(30)) {
             interactions++
-            val tags = SmartTagExtractor.extractTags(bm)
+            val tags = SmartTagExtractor.extractInternalCategoryTags(bm)
             val lang = detectLanguage(bm)
             for (tag in tags) {
                 catScores[tag.category] = (catScores[tag.category] ?: 0f) + 5.0f
@@ -288,6 +294,30 @@ object SmartRecommendationEngine {
                 chanScores[ch] = (chanScores[ch] ?: 0f) + 6.0f
             }
             langScores[lang.code] = (langScores[lang.code] ?: 0f) + 5.0f
+        }
+
+        // 5b. Evaluate User Playlists (High-Intent Curated Collections)
+        for (playlist in userPlaylists) {
+            val plTitleLower = playlist.title.lowercase(Locale.ROOT)
+            for (plVideo in playlist.videos) {
+                interactions++
+                val tags = SmartTagExtractor.extractInternalCategoryTags(plVideo)
+                for (tag in tags) {
+                    catScores[tag.category] = (catScores[tag.category] ?: 0f) + 8.0f
+                }
+                val ch = plVideo.uploaderName.lowercase(Locale.ROOT).trim()
+                if (ch.isNotBlank()) {
+                    chanScores[ch] = (chanScores[ch] ?: 0f) + 10.0f
+                }
+            }
+            when {
+                plTitleLower.contains("anime") -> catScores["anime"] = (catScores["anime"] ?: 0f) + 15.0f
+                plTitleLower.contains("movie") || plTitleLower.contains("film") -> catScores["movie"] = (catScores["movie"] ?: 0f) + 15.0f
+                plTitleLower.contains("music") || plTitleLower.contains("song") -> catScores["music"] = (catScores["music"] ?: 0f) + 15.0f
+                plTitleLower.contains("game") || plTitleLower.contains("gaming") -> catScores["gaming"] = (catScores["gaming"] ?: 0f) + 15.0f
+                plTitleLower.contains("tech") || plTitleLower.contains("code") -> catScores["tech"] = (catScores["tech"] ?: 0f) + 15.0f
+                plTitleLower.contains("porn") || plTitleLower.contains("18+") || plTitleLower.contains("nsfw") -> catScores["nsfw_adult"] = (catScores["nsfw_adult"] ?: 0f) + 15.0f
+            }
         }
 
         // 6. Heavy Exclusion Penalty for Not Interested / Blocked Channels
@@ -332,7 +362,7 @@ object SmartRecommendationEngine {
         hourOfDay: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     ): ScoredVideo {
         var score = 10.0f
-        val tags = SmartTagExtractor.extractTags(video)
+        val tags = SmartTagExtractor.extractInternalCategoryTags(video)
         val channel = video.uploaderName.lowercase(Locale.ROOT).trim()
         val titleLower = (video.title ?: "").lowercase(Locale.ROOT).trim()
         val descLower = (video.description ?: "").lowercase(Locale.ROOT)
@@ -404,14 +434,14 @@ object SmartRecommendationEngine {
                     if (cat in listOf("Movie Trailer", "Movie", "Video Essay", "Philosophy", "Anime", "Cinema", "movie", "movie_trailer", "anime", "series")) score += 6.0f
                 }
                 else -> { // Late night 0..5 AM
-                    if (cat in listOf("Video Essay", "Philosophy", "Music", "Movie", "Podcast", "music", "podcast", "video_essay")) score += 4.5f
+                    if (cat in listOf("Video Essay", "Philosophy", "Music", "Movie", "Podcast", "music", "podcast", "video_essay", "nsfw_adult", "asmr", "lofi")) score += 4.5f
                 }
             }
         }
 
         // G. Contextual Player Match (Active Video Player)
         if (activeVideo != null) {
-            val activeTags = SmartTagExtractor.extractTags(activeVideo).map { it.category }.toSet()
+            val activeTags = SmartTagExtractor.extractInternalCategoryTags(activeVideo).map { it.category }.toSet()
             val candidateTags = tags.map { it.category }.toSet()
             val common = activeTags.intersect(candidateTags)
             score += common.size * 10.0f

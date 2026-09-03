@@ -655,6 +655,12 @@ fun SettingsScreen(
                                 val adultProviders = listOf(
                                     "pornhub" to "Pornhub",
                                     "xvideos" to "XVideos",
+                                    "chaturbate" to "Chaturbate (Live Cams)",
+                                    "cam4" to "CAM4 (Live Shows)",
+                                    "cammodels" to "CamModels (Live)",
+                                    "noodlemagazine" to "NoodleMagazine",
+                                    "thisvid" to "ThisVid",
+                                    "tnaflix" to "TNAFlix",
                                     "eporner" to "Eporner",
                                     "spankbang" to "SpankBang",
                                     "hanime1" to "Hanime1 Anime",
@@ -686,21 +692,38 @@ fun SettingsScreen(
                         ) {
                             val normalProviders = listOf(
                                 "youtube" to "YouTube",
-                                "bun-tel-meg" to "bun-tel-meg (Telegram, MEGA & Bunkr)",
+                                "dailymotion" to "Dailymotion",
                                 "twitch" to "Twitch",
                                 "archive_org" to "Internet Archive",
-                                "dailymotion" to "Dailymotion",
                                 "bilibili" to "Bilibili",
                                 "vimeo" to "Vimeo",
                                 "hotstar" to "Hotstar / Jio",
-                                "torrent" to "BitTorrent (P2P)"
+                                "bun-tel-meg" to "bun-tel-meg (Telegram, MEGA & Bunkr)",
+                                "torrent" to "BitTorrent (P2P)",
+                                "amazonminitv" to "Amazon miniTV",
+                                "discoveryplus" to "Discovery+",
+                                "disney" to "Disney / Disney+",
+                                "googledrive" to "Google Drive",
+                                "imdb" to "IMDb (Top Movies & Trailers)",
+                                "mxplayer" to "MX Player",
+                                "popcorntv" to "PopcornTV"
                             )
                             items(normalProviders) { (id, name) ->
                                 val isEnabled = enabledProviderIds.contains(id)
                                 Column {
                                     YouTubeSwitchRow(
                                         title = name,
-                                        subtitle = if (id == "bun-tel-meg") "Telegram Channels, MEGA Folders & Bunkr Albums video links" else "Streams from $name platform",
+                                        subtitle = when (id) {
+                                            "bun-tel-meg" -> "Telegram Channels, MEGA Folders & Bunkr Albums video links"
+                                            "amazonminitv" -> "Amazon miniTV free web series, comedy, romance & drama"
+                                            "discoveryplus" -> "Discovery+, Science, Animal Planet & TLC docu-series"
+                                            "disney" -> "Disney, Pixar, Marvel, Star Wars & Nat Geo cinema trailers"
+                                            "googledrive" -> "Stream public and synced Google Drive movies & shared videos"
+                                            "imdb" -> "IMDb Top 250 releases, movie charts & HD trailers"
+                                            "mxplayer" -> "MX Player OTT web series, short films & movies"
+                                            "popcorntv" -> "PopcornTV blockbusters, open movies & 4K cinema releases"
+                                            else -> "Streams from $name platform"
+                                        },
                                         checked = isEnabled,
                                         onCheckedChange = { viewModel.toggleProviderEnabled(id) }
                                     )

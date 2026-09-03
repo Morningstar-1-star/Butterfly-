@@ -79,7 +79,32 @@ object PornhubProvider {
     fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> {
         if (query.isBlank()) return getHome(limit, page)
         val safePage = if (page < 1) 1 else page
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val clean = query.trim()
+
+        // 1. Thumbzilla integration: query like thumbzilla:... or search on thumbzilla.com
+        if (clean.startsWith("thumbzilla:", ignoreCase = true) || clean.contains("thumbzilla.com")) {
+            val tzQuery = clean.replace(Regex("(?i)^thumbzilla:"), "").trim()
+            val tzList = searchThumbzilla(tzQuery, limit, safePage)
+            if (tzList.isNotEmpty()) return tzList
+        }
+
+        // 2. Playlist parsing: pornhub:playlist:<id> or https://www.pornhub.com/playlist/...
+        if (clean.startsWith("pornhub:playlist:", ignoreCase = true) || clean.contains("/playlist/")) {
+            val plId = clean.substringAfter("pornhub:playlist:").substringAfter("/playlist/").substringBefore("/").substringBefore("?")
+            val plUrl = "https://www.pornhub.com/playlist/$plId"
+            val plList = parsePornhubHtml(plUrl, limit)
+            if (plList.isNotEmpty()) return plList
+        }
+
+        // 3. User / Model uploads: pornhub:user:<name>, pornhub:model:<name>, or /users/ /model/
+        if (clean.startsWith("pornhub:user:", ignoreCase = true) || clean.startsWith("pornhub:model:", ignoreCase = true) || clean.contains("/users/") || clean.contains("/model/")) {
+            val user = clean.substringAfter("pornhub:user:").substringAfter("pornhub:model:").substringAfter("/users/").substringAfter("/model/").substringBefore("/").substringBefore("?")
+            val userUrl = if (clean.contains("model")) "https://www.pornhub.com/model/$user/videos?page=$safePage" else "https://www.pornhub.com/users/$user/videos?page=$safePage"
+            val userList = parsePornhubHtml(userUrl, limit)
+            if (userList.isNotEmpty()) return userList
+        }
+
+        val encoded = URLEncoder.encode(clean.replace(Regex("(?i)^(pornhub:|thumbzilla:)?"), "").trim(), "UTF-8")
         val apiUrl = "https://www.pornhub.com/webmasters/search?search=$encoded&thumbsize=large&page=$safePage"
         val list = parseWebmastersApi(apiUrl, limit)
         if (list.isNotEmpty()) return list
@@ -94,7 +119,69 @@ object PornhubProvider {
         val htmlList = parsePornhubHtml(htmlSearchUrl, limit)
         if (htmlList.isNotEmpty()) return htmlList
 
+        // Thumbzilla fallback for any query if PH returns empty
+        val tzFallback = searchThumbzilla(clean, limit, safePage)
+        if (tzFallback.isNotEmpty()) return tzFallback
+
         return emptyList()
+    }
+
+    private fun searchThumbzilla(query: String, limit: Int, page: Int): List<VideoItem> {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val encoded = URLEncoder.encode(query.ifBlank { "trending" }, "UTF-8")
+            val tzUrl = if (query.isBlank()) "https://www.thumbzilla.com/trending?page=$page" else "https://www.thumbzilla.com/video/search?q=$encoded&page=$page"
+            val req = Request.Builder()
+                .url(tzUrl)
+                .header("User-Agent", DEFAULT_UA)
+                .header("Referer", "https://www.thumbzilla.com/")
+                .build()
+
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return list
+
+            val doc = org.jsoup.Jsoup.parse(html)
+            val items = doc.select(".js-thumb, .thumb, a.js-thumb")
+            for (item in items) {
+                if (list.size >= limit) break
+                val linkEl = if (item.tagName() == "a") item else item.select("a").firstOrNull() ?: continue
+                val href = linkEl.attr("href")
+                if (href.isBlank()) continue
+                val fullUrl = if (href.startsWith("http")) href else "https://www.thumbzilla.com$href"
+
+                val title = item.select(".title, .info, a[title]").text().trim().ifBlank {
+                    item.select("img").attr("alt").ifBlank { "Thumbzilla Video" }
+                }
+
+                var thumb = item.select("img").attr("data-src").ifBlank {
+                    item.select("img").attr("data-original")
+                }.ifBlank {
+                    item.select("img").attr("src")
+                }
+                if (thumb.startsWith("//")) thumb = "https:$thumb"
+
+                val durText = item.select(".duration, .time").text().trim()
+                val durSec = parseDurationToSeconds(durText)
+
+                list.add(
+                    VideoItem(
+                        id = fullUrl,
+                        title = title,
+                        uploaderName = "Thumbzilla",
+                        uploaderUrl = "https://www.thumbzilla.com",
+                        thumbnailUrl = thumb,
+                        providerId = PROVIDER_ID,
+                        durationSeconds = durSec,
+                        uploadDate = "Thumbzilla",
+                        description = title
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Thumbzilla search error: ${e.message}")
+        }
+        return list
     }
 
     private fun parsePornhubHtml(targetUrl: String, limit: Int): List<VideoItem> {

@@ -122,12 +122,37 @@ fun VideoCard(
         val uploaderLower = video.uploaderName.lowercase()
         val uploadDateLower = (video.uploadDate ?: "").lowercase()
 
+        val isSong = titleLower.contains("song") || titleLower.contains("gana") || titleLower.contains("geet") ||
+                titleLower.contains("music") || titleLower.contains("audio") || titleLower.contains("lyric") ||
+                titleLower.contains("remix") || titleLower.contains("soundtrack") || titleLower.contains(" ost") ||
+                titleLower.startsWith("ost ") || titleLower.contains("feat.") || titleLower.contains("ft.") ||
+                titleLower.contains("album") || titleLower.contains("single") || titleLower.contains("track") ||
+                uploaderLower.contains("music") || uploaderLower.contains("records") || uploaderLower.contains("vevo") ||
+                uploaderLower.contains("t-series") || uploaderLower.contains("zee music") || uploaderLower.contains("sony music") ||
+                uploaderLower.endsWith("- topic")
+
         val name = when {
+            pid == "cam4" -> "CAM4 Live"
+            pid == "cammodels" -> "CamModels Live"
+            pid == "chaturbate" -> "Chaturbate Live"
+            pid == "dailymotion" -> "Dailymotion"
+            pid == "thisvid" -> "ThisVid"
+            pid == "tnaflix" -> "TNAFlix"
+            pid == "noodlemagazine" -> "NoodleMag"
+            pid == "hotstar" -> "Hotstar"
+            pid == "amazonminitv" || pid == "minitv" -> "MiniTV"
+            pid == "discoveryplus" || pid == "discovery" -> "Discovery+"
+            pid == "disney" || pid == "disneyplus" -> "Disney+"
+            pid == "googledrive" || pid == "gdrive" || pid == "google_drive" -> "Google Drive"
+            pid == "imdb" -> "IMDb"
+            pid == "mxplayer" -> "MX Player"
+            pid == "popcorntv" || pid == "popcorn" -> "PopcornTV"
+            isSong -> "Song"
             pid == "torrent" -> {
                 when {
-                    titleLower.contains("anime") || uploaderLower.contains("anime") -> "Torrent • Anime"
-                    video.id.contains("tv_") || titleLower.contains("s0") || titleLower.contains("season") -> "Torrent • Series"
-                    else -> "Torrent • Movie"
+                    titleLower.contains("anime") || uploaderLower.contains("anime") -> "Anime"
+                    video.id.contains("tv_") || titleLower.contains("s0") || titleLower.contains("season") -> "Series"
+                    else -> "Movie"
                 }
             }
             pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
@@ -136,16 +161,33 @@ fun VideoCard(
             video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("tmdb", "tmdb_movies") -> "Movie"
             pid == "archive_org" -> "Archive"
             pid == "youtube" -> "YouTube"
-            pid == "dailymotion" -> "Dailymotion"
             pid == "vimeo" -> "Vimeo"
             else -> "Video"
         }
 
         val bgColor = when {
-            name.startsWith("Torrent") -> Color(0xFF0096C7)
+            name == "CAM4 Live" -> Color(0xFFFF5722)
+            name == "CamModels Live" -> Color(0xFFD81B60)
+            name == "Chaturbate Live" -> Color(0xFFE65100)
+            name == "Bigo Live" -> Color(0xFF00B0FF)
+            name == "MiniTV" -> Color(0xFFFF9900)
+            name == "Discovery+" -> Color(0xFF00838F)
+            name == "Disney+" -> Color(0xFF1A237E)
+            name == "Dailymotion" -> Color(0xFF0066DC)
+            name == "Google Drive" -> Color(0xFF0F9D58)
+            name == "IMDb" -> Color(0xFFE4BB24)
+            name == "MX Player" -> Color(0xFF1565C0)
+            name == "PopcornTV" -> Color(0xFFD32F2F)
+            name == "SonyLIV" -> Color(0xFF4A148C)
+            name == "ThisVid" -> Color(0xFFAD1457)
+            name == "TNAFlix" -> Color(0xFFD84315)
+            name == "Txxx" -> Color(0xFFE53935)
+            name == "NoodleMag" -> Color(0xFF880E4F)
+            name == "Hotstar" -> Color(0xFF0D47A1)
+            name == "Song" || name == "Music" -> Color(0xFF8E24AA)
             name == "Movie" || name == "Movies" -> Color(0xFFE5A00D)
             name == "Series" -> Color(0xFF0288D1)
-            name == "Anime" -> Color(0xFF9C27B0)
+            name == "Anime" -> Color(0xFFE91E63)
             name == "18+" -> Color(0xFFC2185B)
             name == "YouTube" -> Color(0xFFFF0000)
             else -> Color(0xFF1976D2)
@@ -167,6 +209,13 @@ fun VideoCard(
             video.providerId == "beeg" && video.id.isNotBlank() -> {
                 val fileId = Regex("""\d+""").find(video.id)?.value ?: ""
                 if (fileId.isNotBlank()) "https://thumbs.externulls.com/240x180/$fileId.jpg" else null
+            }
+            video.id.startsWith("bunkr_") -> {
+                val fId = video.id.removePrefix("bunkr_")
+                "https://i.bunkr.site/thumbs/$fId.jpg"
+            }
+            video.id.startsWith("mega_") || video.providerId == "mega" -> {
+                "https://mega.nz/favicon.ico"
             }
             else -> null
         }

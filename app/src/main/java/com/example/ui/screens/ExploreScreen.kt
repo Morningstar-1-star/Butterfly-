@@ -65,8 +65,8 @@ fun ExploreScreen(
 
     val savedBookmarks by viewModel.watchLaterList.collectAsState()
 
-    var sections by remember { mutableStateOf<List<ExploreSection>>(emptyList()) }
-    var isLoadingFeed by remember { mutableStateOf(true) }
+    var sections by remember { mutableStateOf<List<ExploreSection>>(ExploreMediaHelper.getInstantInitialFeed()) }
+    var isLoadingFeed by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     var selectedFilterCategory by remember { mutableStateOf("All") }
@@ -86,11 +86,14 @@ fun ExploreScreen(
     // Load initial explore feed
     fun loadFeed(forceRefresh: Boolean = false) {
         coroutineScope.launch {
-            if (forceRefresh) isRefreshing = true else isLoadingFeed = true
+            if (forceRefresh) isRefreshing = true
             try {
-                sections = ExploreMediaHelper.fetchExploreFeed()
+                val fresh = ExploreMediaHelper.fetchExploreFeed()
+                if (fresh.isNotEmpty()) {
+                    sections = fresh
+                }
             } catch (e: Exception) {
-                // Keep existing or fallback
+                // Keep existing
             } finally {
                 isLoadingFeed = false
                 isRefreshing = false

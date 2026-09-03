@@ -21,12 +21,14 @@ object ExploreMediaHelper {
 
     private val TAG = "ExploreMediaHelper"
     private val TMDB_API_KEY get() = AppConfig.TMDB_API_KEY
+    private val TMDB_READ_TOKEN get() = AppConfig.DEFAULT_TMDB_READ_TOKEN
+    private val TRAKT_CLIENT_ID get() = AppConfig.DEFAULT_TRAKT_CLIENT_ID
     private val TMDB_IMAGE_BASE = AppConfig.TMDB_IMAGE_BASE_W500
     private val TMDB_BACKDROP_BASE = AppConfig.TMDB_BACKDROP_BASE
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(3500, TimeUnit.MILLISECONDS)
+        .readTimeout(3500, TimeUnit.MILLISECONDS)
         .build()
 
     private val cache = ConcurrentHashMap<String, List<ExploreMediaItem>>()
@@ -36,16 +38,16 @@ object ExploreMediaHelper {
             val trendingMoviesDeferred = async { fetchTmdbTrendingMovies() }
             val trendingTvDeferred = async { fetchTmdbTrendingTv() }
             val popularAnimeDeferred = async { fetchAniListTrendingAnime() }
-            val topRatedAnimeDeferred = async { fetchJikanTopAnime() }
             val topRatedMoviesDeferred = async { fetchTmdbTopRatedMovies() }
             val popularMoviesDeferred = async { fetchTmdbPopularMovies() }
+            val sciFiDeferred = async { fetchTmdbGenreMovies(878, "Sci-Fi & Cyberpunk") }
 
-            val trendingMovies = try { trendingMoviesDeferred.await() } catch (e: Exception) { Log.e(TAG, "Trending movies fetch failed: ${e.message}"); emptyList() }
-            val trendingTv = try { trendingTvDeferred.await() } catch (e: Exception) { Log.e(TAG, "Trending TV fetch failed: ${e.message}"); emptyList() }
-            val popularAnime = try { popularAnimeDeferred.await() } catch (e: Exception) { Log.e(TAG, "Popular anime fetch failed: ${e.message}"); emptyList() }
-            val topRatedAnime = try { topRatedAnimeDeferred.await() } catch (e: Exception) { emptyList() }
-            val topRatedMovies = try { topRatedMoviesDeferred.await() } catch (e: Exception) { emptyList() }
-            val popularMovies = try { popularMoviesDeferred.await() } catch (e: Exception) { emptyList() }
+            val trendingMovies = try { trendingMoviesDeferred.await().ifEmpty { getCuratedTrendingMovies() } } catch (_: Exception) { getCuratedTrendingMovies() }
+            val trendingTv = try { trendingTvDeferred.await().ifEmpty { getCuratedTrendingTv() } } catch (_: Exception) { getCuratedTrendingTv() }
+            val popularAnime = try { popularAnimeDeferred.await().ifEmpty { getCuratedTrendingAnime() } } catch (_: Exception) { getCuratedTrendingAnime() }
+            val topRatedMovies = try { topRatedMoviesDeferred.await().ifEmpty { getCuratedTopRated() } } catch (_: Exception) { getCuratedTopRated() }
+            val popularMovies = try { popularMoviesDeferred.await() } catch (_: Exception) { emptyList() }
+            val sciFiMovies = try { sciFiDeferred.await() } catch (_: Exception) { emptyList() }
 
             val sections = mutableListOf<ExploreSection>()
 
@@ -63,7 +65,7 @@ object ExploreMediaHelper {
             if (popularAnime.isNotEmpty()) {
                 sections.add(
                     ExploreSection(
-                        title = "Trending Anime",
+                        title = "Trending Anime Hits",
                         subtitle = "Top airing & seasonal hits • AniList",
                         iconName = "anime",
                         items = popularAnime
@@ -74,21 +76,10 @@ object ExploreMediaHelper {
             if (trendingTv.isNotEmpty()) {
                 sections.add(
                     ExploreSection(
-                        title = "Popular TV Shows",
-                        subtitle = "Binge-worthy series & new seasons • TMDB",
+                        title = "Popular TV Series",
+                        subtitle = "Binge-worthy shows & new seasons • TMDB",
                         iconName = "tv",
                         items = trendingTv
-                    )
-                )
-            }
-
-            if (topRatedAnime.isNotEmpty()) {
-                sections.add(
-                    ExploreSection(
-                        title = "Top Rated Anime of All Time",
-                        subtitle = "Highest rated masterworks • MyAnimeList (Jikan)",
-                        iconName = "star",
-                        items = topRatedAnime
                     )
                 )
             }
@@ -96,10 +87,21 @@ object ExploreMediaHelper {
             if (topRatedMovies.isNotEmpty()) {
                 sections.add(
                     ExploreSection(
-                        title = "Critically Acclaimed Movies",
+                        title = "Critically Acclaimed & Top Rated",
                         subtitle = "IMDb 8.0+ & TMDB Top Rated",
                         iconName = "award",
                         items = topRatedMovies
+                    )
+                )
+            }
+
+            if (sciFiMovies.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "Sci-Fi & Cyberpunk",
+                        subtitle = "Mindbending futures, AI & interstellar worlds",
+                        iconName = "fire",
+                        items = sciFiMovies
                     )
                 )
             }
@@ -108,7 +110,7 @@ object ExploreMediaHelper {
                 sections.add(
                     ExploreSection(
                         title = "Popular Blockbusters",
-                        subtitle = "Action, Sci-Fi & Adventure",
+                        subtitle = "Action, Adventure & Spectacle",
                         iconName = "fire",
                         items = popularMovies
                     )
@@ -117,6 +119,29 @@ object ExploreMediaHelper {
 
             sections
         }
+    }
+
+    fun getInstantInitialFeed(): List<ExploreSection> {
+        return listOf(
+            ExploreSection(
+                title = "Trending Movies",
+                subtitle = "Most watched this week • TMDB & IMDb",
+                iconName = "movie",
+                items = getCuratedTrendingMovies()
+            ),
+            ExploreSection(
+                title = "Trending Anime Hits",
+                subtitle = "Top airing & seasonal hits • AniList",
+                iconName = "anime",
+                items = getCuratedTrendingAnime()
+            ),
+            ExploreSection(
+                title = "Popular TV Series",
+                subtitle = "Binge-worthy shows & new seasons • TMDB",
+                iconName = "tv",
+                items = getCuratedTrendingTv()
+            )
+        )
     }
 
     suspend fun searchAll(query: String): List<ExploreMediaItem> = withContext(Dispatchers.IO) {
@@ -1179,7 +1204,90 @@ object ExploreMediaHelper {
         )
     }
 
-    private fun getCuratedAnime(): List<ExploreMediaItem> {
-        return emptyList()
+    fun fetchTmdbGenreMovies(genreId: Int, categoryName: String): List<ExploreMediaItem> {
+        val cacheKey = "tmdb_genre_$genreId"
+        cache[cacheKey]?.let { return it }
+
+        val url = "https://api.themoviedb.org/3/discover/movie?api_key=$TMDB_API_KEY&with_genres=$genreId&sort_by=popularity.desc&vote_count.gte=100"
+        val list = parseTmdbList(url, ExploreMediaType.MOVIE)
+        if (list.isNotEmpty()) cache[cacheKey] = list
+        return list
     }
+
+    fun getCuratedTrendingMovies(): List<ExploreMediaItem> = getCuratedMovies()
+    fun getCuratedTrendingTv(): List<ExploreMediaItem> = getCuratedTv()
+    fun getCuratedTopRated(): List<ExploreMediaItem> = getCuratedMovies()
+
+    fun getCuratedTrendingAnime(): List<ExploreMediaItem> = listOf(
+        ExploreMediaItem(
+            id = "anime_anilist_16498",
+            title = "Attack on Titan",
+            originalTitle = "Shingeki no Kyojin",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx16498-73IhOXpJZiDY.png",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/16498-8jpFfNsDxTG7.jpg",
+            rating = 8.9,
+            ratingSource = "AniList",
+            releaseYear = "2013",
+            genres = listOf("Action", "Drama", "Fantasy", "Mystery"),
+            overview = "Centuries ago, mankind was almost slaughtered by colossal creatures called Titans. Humanity fought back inside enormous walls.",
+            episodesCount = 25,
+            studio = "WIT Studio",
+            imdbId = "tt2560140"
+        ),
+        ExploreMediaItem(
+            id = "anime_anilist_151807",
+            title = "Solo Leveling",
+            originalTitle = "Ore dake Level Up na Ken",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx151807-S19udMmZsfc6.jpg",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/151807-6J8n7V38pM7d.jpg",
+            rating = 8.6,
+            ratingSource = "AniList",
+            releaseYear = "2024",
+            genres = listOf("Action", "Adventure", "Fantasy"),
+            overview = "In a world where hunters must battle deadly monsters, weak hunter Sung Jinwoo is chosen by a mysterious program called System.",
+            episodesCount = 12,
+            studio = "A-1 Pictures",
+            imdbId = "tt21209876"
+        ),
+        ExploreMediaItem(
+            id = "anime_anilist_101922",
+            title = "Demon Slayer: Kimetsu no Yaiba",
+            originalTitle = "Kimetsu no Yaiba",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx101922-PEn1CTDYxTr2.jpg",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/101922-YfZhKBUlyCoS.jpg",
+            rating = 8.7,
+            ratingSource = "AniList",
+            releaseYear = "2019",
+            genres = listOf("Action", "Fantasy", "Supernatural"),
+            overview = "Tanjiro sets out on the path of the Demon Slayer to turn his transformed sister back into a human and avenge his family.",
+            episodesCount = 26,
+            studio = "ufotable",
+            imdbId = "tt9335498"
+        ),
+        ExploreMediaItem(
+            id = "anime_anilist_113415",
+            title = "Jujutsu Kaisen",
+            originalTitle = "Jujutsu Kaisen",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx113415-bbBWj4pUbAw8.jpg",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/113415-jQBSkxWAAk83.jpg",
+            rating = 8.7,
+            ratingSource = "AniList",
+            releaseYear = "2020",
+            genres = listOf("Action", "Fantasy", "Supernatural"),
+            overview = "A boy swallows a cursed talisman - the finger of a demon - and becomes cursed himself, joining a secret organization to combat curses.",
+            episodesCount = 24,
+            studio = "MAPPA",
+            imdbId = "tt12343534"
+        )
+    )
+
+    private fun getCuratedAnime(): List<ExploreMediaItem> = getCuratedTrendingAnime()
 }

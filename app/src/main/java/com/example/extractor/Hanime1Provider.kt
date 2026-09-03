@@ -346,52 +346,6 @@ object Hanime1Provider {
     }
 
     private fun getFallbackAnimeList(limit: Int): List<VideoItem> {
-        val curated = listOf(
-            VideoItem(
-                id = "54112",
-                title = "Overflow - Episode 1 Uncensored",
-                uploaderName = "Studio Kaetsu",
-                uploaderAvatarUrl = null,
-                viewCount = 1_450_000L,
-                uploadDate = "Anime FHD",
-                durationSeconds = 1420L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "61904",
-                title = "Motto! Haramase! Honoo no Oujokou - Ep 2",
-                uploaderName = "T-Rex Studio",
-                uploaderAvatarUrl = null,
-                viewCount = 980_000L,
-                uploadDate = "Anime FHD",
-                durationSeconds = 1680L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "49821",
-                title = "Gakuen de Jikan wo Tomare - Episode 3",
-                uploaderName = "Passione Anime",
-                uploaderAvatarUrl = null,
-                viewCount = 890_000L,
-                uploadDate = "Anime HD",
-                durationSeconds = 1350L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "72301",
-                title = "Isekai Harem Monogatari - Full OVA",
-                uploaderName = "Seven Studio",
-                uploaderAvatarUrl = null,
-                viewCount = 2_100_000L,
-                uploadDate = "Anime 1080p",
-                durationSeconds = 1890L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1563089145-599997674d42?w=800&q=80",
-                providerId = PROVIDER_ID
-            )
-        )
-        return curated.take(limit)
+        return emptyList()
     }
 }

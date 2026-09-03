@@ -81,7 +81,10 @@ class LibtorrentEngine(private val context: Context) {
             sp.setBoolean(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true)
             sp.setBoolean(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true)
             sp.setString(settings_pack.string_types.listen_interfaces.swigValue(), "0.0.0.0:6881,0.0.0.0:0,[::]:6881,[::]:0")
-            sp.setString(settings_pack.string_types.dht_bootstrap_nodes.swigValue(), "router.bittorrent.com:6881,dht.transmissionbt.com:6881,router.utorrent.com:6881,dht.aelitis.com:6881,dht.libtorrent.org:25401")
+            sp.setString(
+                settings_pack.string_types.dht_bootstrap_nodes.swigValue(),
+                "router.bittorrent.com:6881,dht.transmissionbt.com:6881,router.utorrent.com:6881,dht.aelitis.com:6881,dht.libtorrent.org:25401,node.bittorrent.com:6881,node.transmissionbt.com:6881"
+            )
             val batterySaver = try { com.example.util.BatterySaverManager.getInstance(context) } catch (_: Exception) { null }
             val isSaverActive = batterySaver?.isPowerSaveActive?.value == true && batterySaver.lowPowerTorrent.value
             val connLimit = if (isSaverActive) 30 else settings.maxConnections.coerceAtLeast(120)
@@ -189,6 +192,23 @@ class LibtorrentEngine(private val context: Context) {
         sequential: Boolean = false
     ): TorrentHandle? {
         if (!isRunning()) start()
+        val hex = torrentInfo.infoHash().toHex()
+        val existing = findHandle(hex)
+        if (existing != null && existing.isValid) {
+            try {
+                if (filePriorities != null) {
+                    existing.prioritizeFiles(filePriorities)
+                }
+                if (sequential) {
+                    existing.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                }
+                existing.resume()
+                return existing
+            } catch (e: Exception) {
+                Log.d(TAG, "Reusing existing handle: ${e.message}")
+            }
+        }
+
         return try {
             if (filePriorities != null) {
                 sessionManager.download(torrentInfo, saveDir, null, filePriorities, null, null)
@@ -196,16 +216,17 @@ class LibtorrentEngine(private val context: Context) {
                 sessionManager.download(torrentInfo, saveDir)
             }
 
-            val th = findHandle(torrentInfo.infoHash().toHex())
+            val th = findHandle(hex)
             th?.let {
                 if (sequential) {
                     it.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
                 }
+                it.resume()
             }
             th
         } catch (e: Exception) {
             Log.e(TAG, "download failed: ${e.message}", e)
-            null
+            findHandle(hex)
         }
     }
 
@@ -222,13 +243,26 @@ class LibtorrentEngine(private val context: Context) {
             val infoHash = parsed?.infoHashHex ?: ""
             if (infoHash.isNotBlank()) {
                 var th: TorrentHandle? = null
-                for (i in 0..10) {
+                for (i in 0..15) {
                     th = findHandle(infoHash)
                     if (th != null) break
                     Thread.sleep(100)
                 }
-                if (sequential && th != null) {
-                    th.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                if (th != null) {
+                    if (sequential) {
+                        th.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                    }
+                    parsed?.trackers?.forEach { tr ->
+                        try {
+                            th.addTracker(org.libtorrent4j.AnnounceEntry(tr))
+                        } catch (_: Exception) {}
+                    }
+                    MagnetParser.DEFAULT_TRACKERS.forEach { tr ->
+                        try {
+                            th.addTracker(org.libtorrent4j.AnnounceEntry(tr))
+                        } catch (_: Exception) {}
+                    }
+                    th.resume()
                 }
                 th
             } else {

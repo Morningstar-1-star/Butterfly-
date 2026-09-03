@@ -1128,6 +1128,13 @@ private fun getProviderChipInfo(id: String, defaultName: String): Triple<String,
     return when (id.lowercase()) {
         "youtube" -> Triple("YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000))
         "dailymotion" -> Triple("Dailymotion", Icons.Default.Movie, Color(0xFF0066DC))
+        "amazonminitv", "minitv" -> Triple("miniTV", Icons.Default.Tv, Color(0xFFFF9900))
+        "discoveryplus", "discovery" -> Triple("Discovery+", Icons.Default.VideoLibrary, Color(0xFF00838F))
+        "disney", "disneyplus" -> Triple("Disney+", Icons.Default.Star, Color(0xFF113CCF))
+        "googledrive", "gdrive", "google_drive" -> Triple("Drive", Icons.Default.Cloud, Color(0xFF0F9D58))
+        "imdb" -> Triple("IMDb", Icons.Default.Movie, Color(0xFFE4BB24))
+        "mxplayer" -> Triple("MX Player", Icons.Default.PlayArrow, Color(0xFF1565C0))
+        "popcorntv", "popcorn" -> Triple("PopcornTV", Icons.Default.Movie, Color(0xFFD32F2F))
         "jikan_anime", "anime" -> Triple("Anime", Icons.Default.Star, Color(0xFF7B1FA2))
         "archive_org", "internet_archive" -> Triple("Archive.org", Icons.Default.Folder, Color(0xFF5D4037))
         "mega" -> Triple("Mega", Icons.Default.Cloud, Color(0xFFD32F2F))

@@ -7,7 +7,20 @@ import java.util.regex.Pattern
 
 object BunkrUrlUtils {
 
-    const val DEFAULT_BUNKR_DOMAIN = "bunkr.cr"
+    const val DEFAULT_BUNKR_DOMAIN = "bunkr.site"
+
+    val KNOWN_BUNKR_DOMAINS = listOf(
+        "bunkr.site",
+        "bunkr.is",
+        "bunkr.si",
+        "bunkr.ws",
+        "bunkr.black",
+        "bunkr.media",
+        "bunkr.ax",
+        "bunkr.ph",
+        "bunkr.cr",
+        "bunkrr.su"
+    )
 
     // Matches bunkr domains: bunkr.cr, bunkr.is, bunkr.la, bunkrr.org, bunkr.ph, bunkr.site, etc.
     private val BUNKR_DOMAIN_PATTERN = Pattern.compile(
@@ -21,7 +34,7 @@ object BunkrUrlUtils {
     )
 
     private val FILE_PATH_PATTERN = Pattern.compile(
-        "^/(f|v)/([a-zA-Z0-0_\\-]+)",
+        "^/(f|v|d|get)/([a-zA-Z0-9_\\-]+)",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -42,13 +55,16 @@ object BunkrUrlUtils {
 
         return try {
             val uri = URI(formatted)
-            val host = uri.host ?: DEFAULT_BUNKR_DOMAIN
+            var host = uri.host ?: DEFAULT_BUNKR_DOMAIN
+            if (!host.contains("bunkr", ignoreCase = true)) {
+                host = DEFAULT_BUNKR_DOMAIN
+            }
             val path = uri.path ?: "/"
 
             val albumMatcher = ALBUM_PATH_PATTERN.matcher(path)
             if (albumMatcher.find()) {
                 val albumId = albumMatcher.group(1) ?: return null
-                val canonicalUrl = "https://$DEFAULT_BUNKR_DOMAIN/a/$albumId"
+                val canonicalUrl = "https://$host/a/$albumId"
                 return BunkrUrlInfo(
                     rawUrl = rawUrl,
                     canonicalUrl = canonicalUrl,
@@ -61,7 +77,7 @@ object BunkrUrlUtils {
             val fileMatcher = FILE_PATH_PATTERN.matcher(path)
             if (fileMatcher.find()) {
                 val fileId = fileMatcher.group(2) ?: return null
-                val canonicalUrl = "https://$DEFAULT_BUNKR_DOMAIN/f/$fileId"
+                val canonicalUrl = "https://$host/f/$fileId"
                 return BunkrUrlInfo(
                     rawUrl = rawUrl,
                     canonicalUrl = canonicalUrl,
@@ -75,19 +91,37 @@ object BunkrUrlUtils {
             if (path.contains("/a/")) {
                 val id = path.substringAfter("/a/").substringBefore("/").substringBefore("?")
                 if (id.isNotBlank()) {
-                    return BunkrUrlInfo(rawUrl, "https://$DEFAULT_BUNKR_DOMAIN/a/$id", BunkrUrlType.ALBUM, id, host)
+                    return BunkrUrlInfo(rawUrl, "https://$host/a/$id", BunkrUrlType.ALBUM, id, host)
                 }
-            } else if (path.contains("/f/") || path.contains("/v/")) {
-                val delimiter = if (path.contains("/f/")) "/f/" else "/v/"
+            } else if (path.contains("/f/") || path.contains("/v/") || path.contains("/d/")) {
+                val delimiter = when {
+                    path.contains("/f/") -> "/f/"
+                    path.contains("/v/") -> "/v/"
+                    else -> "/d/"
+                }
                 val id = path.substringAfter(delimiter).substringBefore("/").substringBefore("?")
                 if (id.isNotBlank()) {
-                    return BunkrUrlInfo(rawUrl, "https://$DEFAULT_BUNKR_DOMAIN/f/$id", BunkrUrlType.FILE, id, host)
+                    return BunkrUrlInfo(rawUrl, "https://$host/f/$id", BunkrUrlType.FILE, id, host)
                 }
             }
 
             null
         } catch (e: Exception) {
             null
+        }
+    }
+
+    fun normalizeThumbnailUrl(raw: String?, domain: String = DEFAULT_BUNKR_DOMAIN, fileId: String = ""): String? {
+        val clean = raw?.trim()
+        if (clean.isNullOrBlank()) {
+            return if (fileId.isNotBlank()) "https://i.$domain/thumbs/$fileId.jpg" else null
+        }
+        return when {
+            clean.startsWith("http://") || clean.startsWith("https://") -> clean
+            clean.startsWith("//") -> "https:$clean"
+            clean.startsWith("/") -> "https://$domain$clean"
+            clean.startsWith("thumbs/") -> "https://$domain/$clean"
+            else -> "https://$domain/thumbs/$clean"
         }
     }
 
@@ -110,10 +144,12 @@ object BunkrUrlUtils {
 
     fun buildDefaultHeaders(refererUrl: String = "https://$DEFAULT_BUNKR_DOMAIN/"): Map<String, String> {
         return mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer" to refererUrl,
+            "Origin" to refererUrl.removeSuffix("/"),
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,video/*;q=0.8,*/*;q=0.8",
-            "Accept-Language" to "en-US,en;q=0.9"
+            "Accept-Language" to "en-US,en;q=0.9",
+            "Sec-Fetch-Mode" to "navigate"
         )
     }
 }

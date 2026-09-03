@@ -181,6 +181,62 @@ object ThumbnailOptimizer {
             lowerUrl.contains("hotstar.com") || lowerUrl.contains("hotstar-cdn") || lowerUrl.contains("jiohotstar") -> {
                 builder.setHeader("Referer", "https://www.hotstar.com/")
             }
+            lowerUrl.contains("cam4.com") || lowerUrl.contains("snapshots.cam4.com") -> {
+                builder.setHeader("Referer", "https://www.cam4.com/")
+                builder.setHeader("Origin", "https://www.cam4.com")
+            }
+            lowerUrl.contains("cammodels.com") || lowerUrl.contains("img.cammodels.com") -> {
+                builder.setHeader("Referer", "https://www.cammodels.com/")
+            }
+            lowerUrl.contains("highwebmedia.com") || lowerUrl.contains("chaturbate.com") -> {
+                builder.setHeader("Referer", "https://chaturbate.com/")
+                builder.setHeader("Origin", "https://chaturbate.com")
+            }
+            lowerUrl.contains("txxx.com") || lowerUrl.contains("txxx.tube") || lowerUrl.contains("tubecdn.com") -> {
+                builder.setHeader("Referer", "https://www.txxx.com/")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc; country=US")
+            }
+            lowerUrl.contains("thisvid.com") -> {
+                builder.setHeader("Referer", "https://thisvid.com/")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc")
+            }
+            lowerUrl.contains("tnaflix.com") -> {
+                builder.setHeader("Referer", "https://www.tnaflix.com/")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc")
+            }
+            lowerUrl.contains("noodlemagazine.com") -> {
+                builder.setHeader("Referer", "https://noodlemagazine.com/")
+            }
+            lowerUrl.contains("media-amazon.com") || lowerUrl.contains("ssl-images-amazon.com") || lowerUrl.contains("images-eu.ssl-images-amazon.com") -> {
+                // AWS CloudFront for Amazon & IMDb media: Do NOT set foreign referer as CloudFront blocks cross-domain referers with 403
+                builder.setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            }
+            lowerUrl.contains("imdb.com") -> {
+                builder.setHeader("Referer", "https://www.imdb.com/")
+            }
+            lowerUrl.contains("bigo.tv") || lowerUrl.contains("bigolive.tv") || lowerUrl.contains("static-web.bigolive.tv") -> {
+                builder.setHeader("Referer", "https://www.bigo.tv/")
+                builder.setHeader("Origin", "https://www.bigo.tv")
+            }
+            lowerUrl.contains("discoveryplus") -> {
+                builder.setHeader("Referer", "https://www.discoveryplus.in/")
+            }
+            lowerUrl.contains("disneyplus") -> {
+                builder.setHeader("Referer", "https://www.disneyplus.com/")
+            }
+            lowerUrl.contains("drive.google.com") || lowerUrl.contains("googleusercontent.com") -> {
+                builder.setHeader("Referer", "https://drive.google.com/")
+            }
+            lowerUrl.contains("bunkr") || lowerUrl.contains("bunkrr") -> {
+                builder.setHeader("Referer", "https://bunkr.site/")
+                builder.setHeader("Origin", "https://bunkr.site")
+            }
+            lowerUrl.contains("mega.nz") || lowerUrl.contains("mega.co.nz") -> {
+                builder.setHeader("Referer", "https://mega.nz/")
+            }
+            lowerUrl.contains("t.me") || lowerUrl.contains("telesco.pe") || lowerUrl.contains("telegram.org") -> {
+                builder.setHeader("Referer", "https://t.me/")
+            }
         }
 
         return builder.build()

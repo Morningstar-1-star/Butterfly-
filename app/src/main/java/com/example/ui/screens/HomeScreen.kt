@@ -6,11 +6,14 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -97,6 +100,7 @@ fun HomeScreen(
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
     var showAddCloudDialog by remember { mutableStateOf(false) }
+    var showUploadSheet by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(isSearchExpandedState) {
@@ -208,7 +212,7 @@ fun HomeScreen(
         if (bottomBarHeightPx > 0f) with(density) { bottomBarHeightPx.toDp() } else 80.dp
     }
 
-    val categories = listOf("All", "YouTube", "Dailymotion", "Gaming", "Podcasts", "Music", "Trending", "News")
+    val categories = listOf("All", "YouTube", "miniTV", "MX Player", "Disney+", "PopcornTV", "IMDb", "Discovery+", "Drive", "Dailymotion", "Gaming", "Podcasts", "Music", "Trending", "News")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
 
     // StreamData extracted for player / mini player
@@ -676,8 +680,12 @@ fun HomeScreen(
                 ?: trendingVideos.firstOrNull()?.title 
                 ?: searchQuery
 
-            val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches) {
-                buildSmartTags(activeContextTitle, searchQuery, recentSearches)
+            val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches, activeProviderId) {
+                if (activeProviderId == "bilibili") {
+                    listOf("All", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
+                } else {
+                    buildSmartTags(activeContextTitle, searchQuery, recentSearches)
+                }
             }
 
             val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme() || MaterialTheme.colorScheme.background.run { (red * 0.299 + green * 0.587 + blue * 0.114) < 0.5 }
@@ -733,6 +741,18 @@ fun HomeScreen(
                             }
                         },
                         actions = {
+                            // ＋ Upload Button
+                            IconButton(
+                                onClick = { showUploadSheet = true },
+                                modifier = Modifier.testTag("upload_vault_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Upload",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
                             if (currentScreen == AppScreen.ACCOUNT) {
                                 IconButton(onClick = {
                                     viewModel.navigateToScreen(AppScreen.SETTINGS)
@@ -880,11 +900,19 @@ fun HomeScreen(
 
                         // CATEGORY TAG CHIPS
                         items(smartTagsList) { tag ->
-                            val isSelected = if (tag == "All") searchQuery.isBlank() else searchQuery.equals(tag, ignoreCase = true)
+                            val isSelected = when {
+                                tag == "All" -> searchQuery.isBlank()
+                                activeProviderId == "bilibili" -> searchQuery.equals("bilisearch:$tag", ignoreCase = true) || searchQuery.equals(tag, ignoreCase = true)
+                                else -> searchQuery.equals(tag, ignoreCase = true)
+                            }
                             Surface(
                                 onClick = {
                                     if (tag == "All") {
                                         viewModel.clearSearch()
+                                    } else if (activeProviderId == "bilibili") {
+                                        val query = "bilisearch:$tag"
+                                        viewModel.updateSearchQuery(query)
+                                        viewModel.performSearch(query)
                                     } else {
                                         viewModel.updateSearchQuery(tag)
                                         viewModel.performSearch(tag)
@@ -919,10 +947,18 @@ fun HomeScreen(
 
         AnimatedVisibility(
             visible = (playingStreamData != null && currentScreen != AppScreen.PLAYER),
-            enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
-                    scaleIn(initialScale = 0.95f, animationSpec = tween(180, easing = FastOutSlowInEasing)),
-            exit = fadeOut(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
-                    scaleOut(targetScale = 0.95f, animationSpec = tween(120, easing = FastOutSlowInEasing)),
+            enter = scaleIn(
+                initialScale = 0.90f,
+                animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+            ) + fadeIn(
+                animationSpec = tween(180, easing = LinearOutSlowInEasing)
+            ),
+            exit = scaleOut(
+                targetScale = 0.94f,
+                animationSpec = tween(140, easing = FastOutSlowInEasing)
+            ) + fadeOut(
+                animationSpec = tween(120, easing = FastOutSlowInEasing)
+            ),
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(92f)
@@ -1015,12 +1051,18 @@ fun HomeScreen(
         // FULLSCREEN OVERLAY: VIDEO PLAYER WITH SMOOTH YOUTUBE-STYLE EXPAND/COLLAPSE
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.PLAYER),
-            enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
-                    slideInVertically(
-                        initialOffsetY = { (it * 0.20f).toInt() },
-                        animationSpec = tween(220, easing = FastOutSlowInEasing)
-                    ),
-            exit = fadeOut(animationSpec = tween(140, easing = FastOutSlowInEasing)),
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 320, easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f))
+            ) + fadeIn(
+                animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing)
+            ),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            ) + fadeOut(
+                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+            ),
             modifier = Modifier.fillMaxSize().zIndex(100f)
         ) {
             VideoPlayerScreen(
@@ -1039,6 +1081,15 @@ fun HomeScreen(
                 }
             )
         }
+
+        if (showUploadSheet) {
+            com.example.ui.vault.ButterflyUploadSheet(
+                onDismiss = { showUploadSheet = false },
+                onPlayVideo = { url, provider ->
+                    viewModel.playVideo(url, provider)
+                }
+            )
+        }
     }
 }
 
@@ -1047,10 +1098,15 @@ fun ExploreContent(
     onSelectCategory: (String) -> Unit
 ) {
     val categories = listOf(
-        "APIJAV" to Icons.Default.Whatshot,
-        "Eporner" to Icons.Default.PlayArrow,
-        "Dailymotion" to Icons.Default.OndemandVideo,
         "YouTube" to Icons.Default.VideoLibrary,
+        "Amazon miniTV" to Icons.Default.Tv,
+        "MX Player" to Icons.Default.PlayCircle,
+        "Disney+" to Icons.Default.Stars,
+        "PopcornTV" to Icons.Default.LocalMovies,
+        "IMDb" to Icons.Default.Movie,
+        "Discovery+" to Icons.Default.Public,
+        "Google Drive" to Icons.Default.CloudQueue,
+        "Dailymotion" to Icons.Default.OndemandVideo,
         "Music" to Icons.Default.MusicNote,
         "Gaming" to Icons.Default.SportsEsports,
         "Podcasts" to Icons.Default.Podcasts
@@ -1198,6 +1254,17 @@ private fun buildSmartTags(
 
     val combined = "${activeTitle ?: ""} ${currentQuery ?: ""} ${recentSearches.take(3).joinToString(" ")}".lowercase()
 
+    // Music & Song detection for tags
+    if (combined.contains("song") || combined.contains("music") || combined.contains("audio") || 
+        combined.contains("sing") || combined.contains("lyric") || combined.contains("track") || 
+        combined.contains("album") || combined.contains("remix") || combined.contains("t-series") || 
+        combined.contains("pop") || combined.contains("rap") || combined.contains("hip hop") || 
+        combined.contains("lofi") || combined.contains("taylor") || combined.contains("arijit") || 
+        combined.contains("drake") || combined.contains("bts") || combined.contains("gana") || 
+        combined.contains("geet") || combined.contains("singer") || combined.contains("soundtrack")) {
+        tags.addAll(listOf("Songs", "Music", "Soundtracks", "Hindi Songs", "Bollywood", "Pop", "Hip-Hop", "Lofi", "Acoustic", "Remixes"))
+    }
+
     // Smart contextual rules based on active video / movie / show / query / recent searches
     if (combined.contains("hotstar") || combined.contains("jiohotstar") || combined.contains("disney")) {
         tags.addAll(listOf("Hotstar Specials", "Serials", "Movies", "Anupamaa", "RadhaKrishn", "StarPlus", "Cricket", "Comedy"))
@@ -1235,7 +1302,7 @@ private fun buildSmartTags(
                 word.length > 3 && !setOf(
                     "the", "and", "with", "from", "for", "full", "movie", "hd", "1080p", 
                     "720p", "4k", "official", "trailer", "video", "episode", "season", 
-                    "sub", "dub", "watch", "online", "free", "part"
+                    "sub", "dub", "watch", "online", "free", "part", "torrent", "toreent", "magnet"
                 ).contains(word.lowercase())
             }
         words.take(3).forEach { w ->
@@ -1246,14 +1313,14 @@ private fun buildSmartTags(
 
     // Core categories & popular genres requested
     val coreCategories = listOf(
-        "Movies", "Series", "Funny", "Action", "Fantasy", "Horror", 
-        "Crime", "Sci-Fi", "Drama", "Anime", "Romance", "Thriller"
+        "Songs", "Music", "Movies", "Series", "Anime", "Funny", 
+        "Action", "Fantasy", "Horror", "Crime", "Sci-Fi", "Drama", "Romance", "Thriller"
     )
     coreCategories.forEach { cat ->
         if (!tags.contains(cat)) tags.add(cat)
     }
 
-    return tags.distinct()
+    return tags.filter { !it.contains("torrent", ignoreCase = true) && !it.contains("toreent", ignoreCase = true) }.distinct()
 }
 
 @Composable
@@ -1414,7 +1481,16 @@ fun SearchRecommendationShelfCard(
                 // Provider badge
                 if (showProviderBadge && !video.providerId.isNullOrBlank()) {
                     val pid = video.providerId.lowercase()
+                    val titleL = video.title.lowercase()
                     val badgeName = when {
+                        titleL.contains("song") || titleL.contains("music") || titleL.contains("audio") || titleL.contains("gana") -> "SONG"
+                        pid.contains("torrent") -> {
+                            when {
+                                titleL.contains("anime") -> "ANIME"
+                                titleL.contains("season") || titleL.contains("s0") || video.id.contains("tv_") -> "SERIES"
+                                else -> "MOVIE"
+                            }
+                        }
                         pid.contains("tmdb") -> "TMDB"
                         pid.contains("archive") -> "Archive"
                         pid.contains("anime") -> "Anime"

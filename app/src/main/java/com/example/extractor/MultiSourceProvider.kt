@@ -38,7 +38,13 @@ object MultiSourceProvider {
         // 1. Try custom scrapers / APIs first
         val customItems = when (pid) {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> getCloudSocialHome(context, pid, limit, page)
-            "dailymotion" -> getDailymotionHome(limit, page)
+            "thisvid" -> ThisVidProvider.getHome(limit, page)
+            "tnaflix" -> TnaFlixProvider.getHome(limit, page)
+            "noodlemagazine" -> NoodleMagazineProvider.getHome(limit, page)
+            "cam4" -> CAM4Provider.getHome(limit, page)
+            "cammodels" -> CamModelsProvider.getHome(limit, page)
+            "chaturbate" -> ChaturbateProvider.getHome(limit, page)
+            "dailymotion" -> DailymotionProvider.getHome(limit, page)
             "vimeo" -> getVimeoHome(limit)
             "bilibili" -> getBilibiliHome(page, limit)
             "pornhub" -> PornhubProvider.getHome(limit, page)
@@ -47,6 +53,13 @@ object MultiSourceProvider {
             "redtube" -> RedTubeProvider.getHome(page, limit)
             "youporn" -> getYouPornHome(page, limit)
             "hotstar", "jiohotstar" -> HotstarProvider.getHome(page, limit)
+            "amazonminitv", "minitv" -> AmazonMiniTvProvider.getHome(limit, page)
+            "discoveryplus", "discovery" -> DiscoveryPlusProvider.getHome(limit, page)
+            "disney", "disneyplus" -> DisneyProvider.getHome(page, limit)
+            "googledrive", "gdrive", "google_drive" -> GoogleDriveProvider.getHome(limit, page)
+            "imdb" -> ImdbProvider.getHome(limit, page)
+            "mxplayer" -> MxPlayerProvider.getHome(limit, page)
+            "popcorntv", "popcorn" -> PopcornTvProvider.getHome(page, limit)
             "beeg" -> getBeegHome(limit)
             "4tube" -> FourTubeProvider.getHome(page, limit)
             "eporner" -> EpornerProvider.getHome(limit, page)
@@ -67,7 +80,13 @@ object MultiSourceProvider {
 
         when (pid) {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> searchCloudSocial(context, pid, query, limit, page)
-            "dailymotion" -> searchDailymotion(query, limit, page)
+            "thisvid" -> ThisVidProvider.search(query, limit, page)
+            "tnaflix" -> TnaFlixProvider.search(query, limit, page)
+            "noodlemagazine" -> NoodleMagazineProvider.search(query, limit, page)
+            "cam4" -> CAM4Provider.search(query, limit, page)
+            "cammodels" -> CamModelsProvider.search(query, limit, page)
+            "chaturbate" -> ChaturbateProvider.search(query, limit, page)
+            "dailymotion" -> DailymotionProvider.search(query, limit, page)
             "vimeo" -> searchVimeo(query, limit)
             "bilibili" -> searchBilibili(query, page, limit)
             "pornhub" -> PornhubProvider.search(query, limit, page)
@@ -76,6 +95,13 @@ object MultiSourceProvider {
             "redtube" -> RedTubeProvider.search(query, page, limit)
             "youporn" -> searchYouPorn(query, page, limit)
             "hotstar", "jiohotstar" -> HotstarProvider.search(query, page, limit)
+            "amazonminitv", "minitv" -> AmazonMiniTvProvider.search(query, limit, page)
+            "discoveryplus", "discovery" -> DiscoveryPlusProvider.search(query, limit, page)
+            "disney", "disneyplus" -> DisneyProvider.search(query, limit, page)
+            "googledrive", "gdrive", "google_drive" -> GoogleDriveProvider.search(query, limit, page)
+            "imdb" -> ImdbProvider.search(query, limit, page)
+            "mxplayer" -> MxPlayerProvider.search(query, limit, page)
+            "popcorntv", "popcorn" -> PopcornTvProvider.search(query, limit, page)
             "beeg" -> BeegProvider.search(query, limit)
             "4tube" -> FourTubeProvider.search(query, page, limit)
             "eporner" -> EpornerProvider.search(query, limit, page)
@@ -89,15 +115,30 @@ object MultiSourceProvider {
     }
 
     // ------------------- BILIBILI -------------------
-    private fun getBilibiliHome(page: Int = 1, limit: Int = 20): List<VideoItem> {
+    fun getBilibiliHome(page: Int = 1, limit: Int = 20): List<VideoItem> {
         val url = "https://api.bilibili.com/x/web-interface/popular?ps=$limit&pn=$page"
         return parseBilibiliJsonApi(url)
     }
 
+    fun getBilibiliCategory(category: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
+        return kotlinx.coroutines.runBlocking {
+            BilibiliProvider.fetchCategoryVideos(category, page, limit)
+        }
+    }
+
     private fun searchBilibili(query: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
+        val cleanQuery = query.replace(Regex("(?i)^bilisearch\\d*:"), "").trim()
+        val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
         val url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=$encoded&page=$page"
-        return parseBilibiliSearchJsonApi(url)
+        val results = parseBilibiliSearchJsonApi(url)
+        if (results.isNotEmpty()) return results
+        val catKey = cleanQuery.lowercase()
+        if (BilibiliProvider.CATEGORY_RID_MAP.containsKey(catKey)) {
+            return kotlinx.coroutines.runBlocking {
+                BilibiliProvider.fetchCategoryVideos(catKey, page, limit)
+            }
+        }
+        return results
     }
 
     private fun parseBilibiliJsonApi(url: String): List<VideoItem> {
@@ -618,25 +659,40 @@ object MultiSourceProvider {
         }
 
         if (filtered.isEmpty()) {
-            return listOf(
-                VideoItem(
-                    id = "bun_tel_meg_help",
-                    title = "No Cloud & Social Links Added Yet (Tap to Add)",
-                    uploaderName = "bun-tel-meg",
-                    thumbnailUrl = null,
-                    providerId = "bun-tel-meg",
-                    description = "Tap here to paste Telegram (t.me/...), MEGA (mega.nz/...), or Bunkr (bunkr.is/...) links directly inside the app."
+            if (providerId.lowercase() == "bun-tel-meg" || providerId.lowercase() == "bunkr" || providerId.lowercase() == "mega" || providerId.lowercase() == "telegram") {
+                return listOf(
+                    VideoItem(
+                        id = "bun_tel_meg_help",
+                        title = "No Cloud & Social Links Added Yet (Tap to Add)",
+                        uploaderName = "bun-tel-meg",
+                        thumbnailUrl = null,
+                        providerId = "bun-tel-meg",
+                        description = "Tap here to paste Telegram (t.me/...), MEGA (mega.nz/...), or Bunkr (bunkr.is/...) links directly inside the app."
+                    )
                 )
-            )
+            }
+            return emptyList()
         }
 
-        return filtered.drop((page - 1) * limit).take(limit).map { item ->
+        val startIndex = (page - 1) * limit
+        val pagedItems = if (startIndex < filtered.size) {
+            filtered.drop(startIndex).take(limit)
+        } else {
+            emptyList()
+        }
+
+        return pagedItems.map { item ->
+            val fallbackThumb = when (item.type) {
+                "BUNKR" -> "https://i.bunkr.site/thumbs/${item.remoteId}.jpg"
+                "MEGA" -> "https://mega.nz/favicon.ico"
+                else -> null
+            }
             VideoItem(
                 id = item.id,
                 title = item.title,
                 uploaderName = "bun-tel-meg • ${item.type}",
                 uploaderUrl = item.sourceUrl,
-                thumbnailUrl = item.thumbnailUrl,
+                thumbnailUrl = item.thumbnailUrl?.ifBlank { null } ?: fallbackThumb,
                 providerId = "bun-tel-meg",
                 durationSeconds = if (item.durationMs > 0) item.durationMs / 1000 else -1L,
                 description = item.caption ?: item.title
@@ -653,12 +709,17 @@ object MultiSourceProvider {
             item.sourceUrl.contains(query, ignoreCase = true)
         }
         return filtered.drop((page - 1) * limit).take(limit).map { item ->
+            val fallbackThumb = when (item.type) {
+                "BUNKR" -> "https://i.bunkr.site/thumbs/${item.remoteId}.jpg"
+                "MEGA" -> "https://mega.nz/favicon.ico"
+                else -> null
+            }
             VideoItem(
                 id = item.id,
                 title = item.title,
                 uploaderName = "bun-tel-meg • ${item.type}",
                 uploaderUrl = item.sourceUrl,
-                thumbnailUrl = item.thumbnailUrl,
+                thumbnailUrl = item.thumbnailUrl?.ifBlank { null } ?: fallbackThumb,
                 providerId = "bun-tel-meg",
                 durationSeconds = if (item.durationMs > 0) item.durationMs / 1000 else -1L,
                 description = item.caption ?: item.title

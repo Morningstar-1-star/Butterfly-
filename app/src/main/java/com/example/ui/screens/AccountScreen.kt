@@ -421,9 +421,15 @@ fun AccountScreen(
 
                     // Item 5+: User Created Playlists
                     items(userPlaylists, key = { it.id }) { playlist ->
+                        val topCat = remember(playlist.videos) {
+                            playlist.videos.flatMap { v -> com.example.util.SmartTagExtractor.extractTags(v, maxTags = 1) }
+                                .groupingBy { it.displayName }
+                                .eachCount()
+                                .maxByOrNull { it.value }?.key
+                        }
                         PlaylistCoverCard(
                             title = playlist.title,
-                            subtitle = "Private • Playlist",
+                            subtitle = if (topCat != null) "$topCat • Playlist" else "Private • Playlist",
                             videoCount = playlist.videos.size,
                             thumbnailUrl = playlist.videos.firstOrNull()?.thumbnailUrl,
                             icon = Icons.Outlined.PlaylistPlay,
@@ -1937,6 +1943,44 @@ private fun VideoListBottomSheet(
                 }
             }
 
+            val playlistCategories = remember(videos) {
+                videos.flatMap { v -> com.example.util.SmartTagExtractor.extractTags(v, maxTags = 2) }
+                    .groupingBy { it.displayName }
+                    .eachCount()
+                    .entries
+                    .sortedByDescending { it.value }
+                    .take(4)
+                    .map { it.key }
+            }
+            if (playlistCategories.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "AI Categories:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    playlistCategories.forEach { cat ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                        ) {
+                            Text(
+                                text = cat,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // Play All Action Button
@@ -2032,6 +2076,28 @@ private fun VideoListBottomSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1
                                 )
+                                val vTags = remember(video.id) {
+                                    com.example.util.SmartTagExtractor.extractTags(video, maxTags = 2)
+                                }
+                                if (vTags.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        vTags.forEach { tag ->
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                                            ) {
+                                                Text(
+                                                    text = "#${tag.displayName}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontSize = 9.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             if (onRemoveVideo != null) {

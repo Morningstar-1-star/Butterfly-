@@ -533,29 +533,16 @@ fun VideoDetailsSection(
                     )
                 }
 
-                if (!streamData?.availableStreamOptions.isNullOrEmpty()) {
-                    DropdownMenu(
-                        expanded = isQualityMenuExpanded,
-                        onDismissRequest = { isQualityMenuExpanded = false }
-                    ) {
-                        streamData!!.availableStreamOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = option.qualityLabel,
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        fontWeight = if (option == selectedOption) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                onClick = {
-                                    onSelectOption(option)
-                                    isQualityMenuExpanded = false
-                                }
-                            )
-                        }
-                    }
+                if (isQualityMenuExpanded && !streamData?.availableStreamOptions.isNullOrEmpty()) {
+                    StreamSourcePickerBottomSheet(
+                        streamData = streamData,
+                        selectedOption = selectedOption,
+                        onSelectOption = { option ->
+                            onSelectOption(option)
+                            isQualityMenuExpanded = false
+                        },
+                        onDismiss = { isQualityMenuExpanded = false }
+                    )
                 }
             }
 

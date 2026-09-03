@@ -72,6 +72,15 @@ object SmartSearchSanitizer {
             return CleanQueryResult(rawQuery, rawQuery, false)
         }
 
+        // If query starts with explicit extractor search prefixes (e.g. bilisearch:, bilisearch10:, ytsearch:), preserve as-is
+        if (trimmed.startsWith("bilisearch", ignoreCase = true) ||
+            trimmed.startsWith("ytsearch", ignoreCase = true) ||
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            return CleanQueryResult(trimmed, trimmed, wasCleaned = false)
+        }
+
         // Step 1: Strip Torrent & Technical Release Noise
         var cleaned = trimmed
         var strippedCount = 0

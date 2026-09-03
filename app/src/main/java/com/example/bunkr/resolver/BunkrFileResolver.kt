@@ -24,7 +24,7 @@ class BunkrFileResolver(
         private const val TAG = "BunkrFileResolver"
 
         private val DIRECT_CDN_PATTERN = Pattern.compile(
-            "https?://(media-files|cdn|get|server|stream)[a-zA-Z0-9_\\-.]*\\.bunkr\\.[a-z]{2,8}/[^\"'\\s>]+",
+            "https?://(media-files|cdn|get|server|stream|down|storage)[a-zA-Z0-9_\\-.]*\\.bunkr\\.[a-z]{2,8}/[^\"'\\s>]+",
             Pattern.CASE_INSENSITIVE
         )
 
@@ -38,9 +38,32 @@ class BunkrFileResolver(
         val parsed = BunkrUrlUtils.parseUrl(fileUrl)
             ?: throw BunkrException.InvalidUrlException(fileUrl)
 
-        val canonicalUrl = parsed.canonicalUrl
         val fileId = parsed.id
+        val domainsToTry = (listOf(parsed.domain) + BunkrUrlUtils.KNOWN_BUNKR_DOMAINS).distinct()
 
+        var lastError: Exception? = null
+        for (domain in domainsToTry) {
+            try {
+                val candidateUrl = "https://$domain/f/$fileId"
+                val result = tryResolveFromUrl(candidateUrl, fileId, albumId, domain)
+                if (result != null) {
+                    return@withContext result
+                }
+            } catch (e: Exception) {
+                lastError = e
+                Log.d(TAG, "Domain $domain failed for file $fileId: ${e.message}")
+            }
+        }
+
+        throw lastError ?: BunkrException.ResolutionFailedException(fileId, "Could not extract direct stream URL from any Bunkr mirror")
+    }
+
+    private fun tryResolveFromUrl(
+        canonicalUrl: String,
+        fileId: String,
+        albumId: String,
+        domain: String
+    ): BunkrStreamResult? {
         val request = Request.Builder()
             .url(canonicalUrl)
             .apply {
@@ -53,27 +76,21 @@ class BunkrFileResolver(
         val html = try {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    if (response.code == 429) {
-                        throw BunkrException.RateLimitedException(parsed.domain)
-                    }
-                    throw BunkrException.FileUnavailableException(fileId, "HTTP ${response.code}")
+                    return null
                 }
                 response.body?.string() ?: ""
             }
-        } catch (e: Exception) {
-            if (e is BunkrException) throw e
-            throw BunkrException.NetworkTimeoutException(canonicalUrl)
+        } catch (_: Exception) {
+            return null
         }
 
-        if (html.isBlank()) {
-            throw BunkrException.FileUnavailableException(fileId, "Empty HTML response")
-        }
+        if (html.isBlank()) return null
 
         val doc = Jsoup.parse(html, canonicalUrl)
 
         var directMediaUrl: String? = null
         var title: String = ""
-        var thumbnailUrl: String? = null
+        var rawThumb: String? = null
         var mimeType = "video/mp4"
 
         // 1. Check Next.js __NEXT_DATA__
@@ -90,13 +107,29 @@ class BunkrFileResolver(
                         ?: fileObj.optString("title").takeIf { it.isNotBlank() }
                         ?: ""
 
-                    thumbnailUrl = fileObj.optString("thumbnail").takeIf { it.isNotBlank() }
+                    rawThumb = fileObj.optString("thumbnail").takeIf { it.isNotBlank() }
                         ?: fileObj.optString("poster").takeIf { it.isNotBlank() }
+                        ?: fileObj.optString("icon").takeIf { it.isNotBlank() }
+                        ?: fileObj.optString("preview").takeIf { it.isNotBlank() }
 
                     directMediaUrl = fileObj.optString("mediaUrl").takeIf { it.isNotBlank() }
                         ?: fileObj.optString("cdnUrl").takeIf { it.isNotBlank() }
                         ?: fileObj.optString("downloadUrl").takeIf { it.isNotBlank() }
+                        ?: fileObj.optString("streamUrl").takeIf { it.isNotBlank() }
+                        ?: fileObj.optString("src").takeIf { it.isNotBlank() }
                         ?: fileObj.optString("url").takeIf { it.isNotBlank() }
+
+                    // Check server/cdn attributes
+                    if (directMediaUrl.isNullOrBlank()) {
+                        val server = fileObj.optString("server").takeIf { it.isNotBlank() }
+                        val cdn = fileObj.optString("cdn").takeIf { it.isNotBlank() }
+                        val identifier = fileObj.optString("identifier").takeIf { it.isNotBlank() } ?: fileObj.optString("name")
+                        if (!cdn.isNullOrBlank() && identifier.isNotBlank()) {
+                            directMediaUrl = "https://$cdn.$domain/$identifier"
+                        } else if (!server.isNullOrBlank() && identifier.isNotBlank()) {
+                            directMediaUrl = "https://media-files$server.$domain/$identifier"
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Failed __NEXT_DATA__ parse for file $fileId: ${e.message}")
@@ -115,10 +148,10 @@ class BunkrFileResolver(
         }
 
         if (directMediaUrl.isNullOrBlank()) {
-            val downloadLink = doc.select("a[href*='media-files'], a[href*='cdn.'], a[download], a.download-btn, a:contains(Download)").firstOrNull()
+            val downloadLink = doc.select("a[href*='media-files'], a[href*='cdn.'], a[href*='get.'], a[href*='stream.'], a[href*='down.'], a[download], a.download-btn, a:contains(Download)").firstOrNull()
             if (downloadLink != null) {
                 val href = downloadLink.attr("abs:href").ifBlank { downloadLink.attr("href") }
-                if (href.isNotBlank() && (href.startsWith("http://") || href.startsWith("https://"))) {
+                if (href.isNotBlank() && (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//"))) {
                     directMediaUrl = href
                 }
             }
@@ -134,23 +167,31 @@ class BunkrFileResolver(
 
         if (directMediaUrl.isNullOrBlank()) {
             val mp4Matcher = MP4_URL_PATTERN.matcher(html)
-            if (mp4Matcher.find()) {
+            while (mp4Matcher.find()) {
                 val candidate = mp4Matcher.group(0)
-                if (!candidate.contains("bunkr.cr/f/") && !candidate.contains("bunkr.cr/a/")) {
+                if (!candidate.contains("/f/") && !candidate.contains("/a/")) {
                     directMediaUrl = candidate
+                    break
                 }
             }
         }
 
         if (directMediaUrl.isNullOrBlank()) {
-            throw BunkrException.ResolutionFailedException(fileId, "Could not extract direct media stream URL from file page")
+            return null
+        }
+
+        // Fix relative URLs
+        if (directMediaUrl.startsWith("//")) {
+            directMediaUrl = "https:$directMediaUrl"
+        } else if (directMediaUrl.startsWith("/")) {
+            directMediaUrl = "https://$domain$directMediaUrl"
         }
 
         // Normalize title
         if (title.isBlank()) {
             val docTitle = doc.title().trim()
-            title = docTitle.replace(" - Bunkr", "", ignoreCase = true)
-                .replace(" - Bunkr.cr", "", ignoreCase = true)
+            title = docTitle.replace(Regex(" - Bunkr.*", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("Bunkr - ", RegexOption.IGNORE_CASE), "")
                 .trim()
         }
         if (title.isBlank()) {
@@ -162,12 +203,16 @@ class BunkrFileResolver(
             mimeType = "application/x-mpegURL"
         }
 
+        val thumbnailUrl = BunkrUrlUtils.normalizeThumbnailUrl(rawThumb, domain, fileId)
+
         val requiredHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Referer" to canonicalUrl
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer" to "https://$domain/",
+            "Origin" to "https://$domain",
+            "Accept" to "*/*"
         )
 
-        return@withContext BunkrStreamResult(
+        return BunkrStreamResult(
             source = "Bunkr",
             fileId = fileId,
             albumId = albumId,

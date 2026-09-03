@@ -2,6 +2,7 @@ package com.example.extractor
 
 import android.content.Context
 import android.util.Log
+import java.net.URLEncoder
 import com.example.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -147,10 +148,30 @@ object YouTubeExtractorHelper {
     suspend fun searchYouTube(query: String, context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
 
+        val cleanQuery = when {
+            query.startsWith("ytsearch:", ignoreCase = true) -> query.substringAfter("ytsearch:").trim()
+            query.startsWith("youtube:search:", ignoreCase = true) -> query.substringAfter("youtube:search:").trim()
+            query.startsWith("youtube:search_url:", ignoreCase = true) -> query.substringAfter("youtube:search_url:").trim()
+            query.startsWith("youtube:music:search_url:", ignoreCase = true) -> query.substringAfter("youtube:music:search_url:").trim()
+            query.startsWith("youtube:music:", ignoreCase = true) -> "${query.substringAfter("youtube:music:").trim()} music"
+            query.startsWith("ytuser:", ignoreCase = true) -> query.substringAfter("ytuser:").trim()
+            query.startsWith("youtube:user:", ignoreCase = true) -> query.substringAfter("youtube:user:").trim()
+            query.startsWith("youtube:playlist:", ignoreCase = true) -> query.substringAfter("youtube:playlist:").trim()
+            query.startsWith("youtube:tab:", ignoreCase = true) -> query.substringAfter("youtube:tab:").trim()
+            query.equals(":ytrec", ignoreCase = true) || query.equals("youtube:recommended", ignoreCase = true) -> "trending"
+            query.equals(":ytfav", ignoreCase = true) || query.equals("youtube:favorites", ignoreCase = true) -> "top music favorites"
+            query.equals(":ythis", ignoreCase = true) || query.equals("youtube:history", ignoreCase = true) -> "latest videos"
+            query.equals(":ytnotif", ignoreCase = true) || query.equals("youtube:notif", ignoreCase = true) -> "news notifications"
+            query.equals(":ytsubs", ignoreCase = true) || query.equals("youtube:subscriptions", ignoreCase = true) -> "popular channels"
+            query.equals(":ytwatchlater", ignoreCase = true) || query.equals("youtube:watchlater", ignoreCase = true) -> "watch later mix"
+            query.startsWith("youtube:", ignoreCase = true) -> query.substringAfter("youtube:").trim()
+            else -> query.trim()
+        }
+
         // Step 1: NewPipe Search
         try {
             ensureNewPipeInitialized()
-            val searchExtractor = ServiceList.YouTube.getSearchExtractor(query)
+            val searchExtractor = ServiceList.YouTube.getSearchExtractor(cleanQuery)
             searchExtractor.fetchPage()
             val items = searchExtractor.initialPage?.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
                 ?.mapNotNull { item ->
@@ -182,11 +203,11 @@ object YouTubeExtractorHelper {
                     )
                 } ?: emptyList()
             if (items.isNotEmpty()) {
-                Log.i(TAG, "Fetched ${items.size} search results for '$query' via NewPipe")
+                Log.i(TAG, "Fetched ${items.size} search results for '$cleanQuery' via NewPipe")
                 return@withContext items
             }
         } catch (e: Exception) {
-            Log.w(TAG, "NewPipe search failed for '$query': ${e.message}")
+            Log.w(TAG, "NewPipe search failed for '$cleanQuery': ${e.message}")
         }
 
         emptyList()
@@ -268,7 +289,54 @@ object YouTubeExtractorHelper {
     }
 
     suspend fun resolveStream(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult = withContext(Dispatchers.IO) {
-        // Step 0: Check registered specialized extractor plugins (HiAnime, AniWatch, Hanime, Coomer, PMVHaven)
+        // Step 0: Direct Vault / M3U8 / Local file handling (zero transcoding/downloading)
+        val isM3u8OrLocal = providerId == "m3u8" || providerId == "local" || providerId == "vault" || providerId == "gdrive" ||
+                urlOrId.startsWith("content://") || urlOrId.startsWith("file://") ||
+                urlOrId.contains(".m3u8", ignoreCase = true) || urlOrId.startsWith("m3u8_") || urlOrId.startsWith("local_") || urlOrId.startsWith("gdrive_")
+
+        if (isM3u8OrLocal) {
+            val isHls = urlOrId.contains(".m3u8", ignoreCase = true)
+            val effectiveUrl = if (urlOrId.startsWith("content://") || urlOrId.startsWith("file://") || urlOrId.startsWith("http://") || urlOrId.startsWith("https://")) {
+                urlOrId
+            } else if (context != null) {
+                try {
+                    val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
+                    repo.resolveStreamUrlByUrlOrId(urlOrId).ifBlank { urlOrId }
+                } catch (e: Exception) {
+                    urlOrId
+                }
+            } else {
+                urlOrId
+            }
+
+            val option = PlayableStreamOption(
+                qualityLabel = if (isHls) "HLS Master Stream" else "Original Video",
+                format = if (isHls) "hls" else "mp4",
+                isMuxed = true,
+                videoUrl = effectiveUrl,
+                audioUrl = null,
+                providerType = com.example.model.ProviderType.DIRECT,
+                headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            )
+            val streamData = StreamData(
+                videoId = urlOrId,
+                videoUrl = effectiveUrl,
+                title = if (isHls) "M3U8 Stream" else "Butterfly Vault Video",
+                channelName = "Butterfly Vault",
+                channelAvatarUrl = null,
+                description = "Saved Stream Reference / Device Video",
+                availableStreamOptions = listOf(option),
+                selectedStreamOption = option,
+                hlsUrl = if (isHls) effectiveUrl else null,
+                providerId = if (isHls) "m3u8" else "local",
+                providerType = com.example.model.ProviderType.DIRECT,
+                headers = option.headers
+            )
+            Log.i(TAG, "Resolved stream via Butterfly Vault for $urlOrId -> $effectiveUrl")
+            return@withContext ExtractionResult.Success(streamData)
+        }
+
+        // Step 0.5: Check registered specialized extractor plugins (HiAnime, AniWatch, Hanime, Coomer, PMVHaven)
         if (context != null) {
             val pluginStream = com.example.extractor.plugins.ExtractorPluginManager.tryExtractWithPlugin(context, urlOrId)
             if (pluginStream != null) {
@@ -283,6 +351,22 @@ object YouTubeExtractorHelper {
                 val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
                 val streamUrl = repo.resolveStreamUrlByUrlOrId(urlOrId)
                 if (streamUrl.isNotBlank() && (streamUrl.startsWith("http://") || streamUrl.startsWith("https://"))) {
+                    val streamHeaders = when {
+                        streamUrl.contains("bunkr") || urlOrId.contains("bunkr") -> mapOf(
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                            "Referer" to "https://bunkr.site/",
+                            "Origin" to "https://bunkr.site"
+                        )
+                        streamUrl.contains("mega.nz") || streamUrl.contains("mega.co.nz") || streamUrl.contains("userstorage.mega") || urlOrId.contains("mega") -> mapOf(
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                            "Referer" to "https://mega.nz/"
+                        )
+                        streamUrl.contains("t.me") || streamUrl.contains("telesco.pe") || urlOrId.contains("tg_") -> mapOf(
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                            "Referer" to "https://t.me/"
+                        )
+                        else -> mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    }
                     val option = PlayableStreamOption(
                         qualityLabel = "HD Direct Stream",
                         format = if (streamUrl.contains(".m3u8")) "hls" else "mp4",
@@ -290,7 +374,7 @@ object YouTubeExtractorHelper {
                         videoUrl = streamUrl,
                         audioUrl = null,
                         providerType = com.example.model.ProviderType.DIRECT,
-                        headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        headers = streamHeaders
                     )
                     val streamData = StreamData(
                         videoId = urlOrId,
@@ -375,12 +459,70 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isDailymotion = providerId == "dailymotion" || urlOrId.contains("dailymotion.com") || urlOrId.contains("dai.ly")
+        val isCam4 = providerId == "cam4" || urlOrId.contains("cam4.com") || urlOrId.startsWith("cam4:", ignoreCase = true)
+        if (isCam4) {
+            val cam4Data = CAM4Provider.getStreamData(urlOrId, context)
+            if (cam4Data != null) {
+                Log.i(TAG, "Resolved via CAM4Provider for $urlOrId")
+                return@withContext ExtractionResult.Success(cam4Data)
+            }
+        }
+
+        val isCamModels = providerId == "cammodels" || urlOrId.contains("cammodels.com") || urlOrId.startsWith("cammodels:", ignoreCase = true)
+        if (isCamModels) {
+            val cmData = CamModelsProvider.getStreamData(urlOrId, context)
+            if (cmData != null) {
+                Log.i(TAG, "Resolved via CamModelsProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(cmData)
+            }
+        }
+
+        val isChaturbate = providerId == "chaturbate" || urlOrId.contains("chaturbate.com") || urlOrId.startsWith("chaturbate:", ignoreCase = true)
+        if (isChaturbate) {
+            val cbData = ChaturbateProvider.getStreamData(urlOrId, context)
+            if (cbData != null) {
+                Log.i(TAG, "Resolved via ChaturbateProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(cbData)
+            }
+        }
+
+        val isDailymotion = providerId == "dailymotion" || urlOrId.contains("dailymotion.com") || urlOrId.contains("dai.ly") ||
+                urlOrId.startsWith("dailymotion:", ignoreCase = true)
         if (isDailymotion) {
             val dmData = DailymotionProvider.getStreamData(urlOrId, context)
             if (dmData != null) {
                 Log.i(TAG, "Resolved via DailymotionProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(dmData)
+            }
+        }
+
+        val isThisVid = providerId == "thisvid" || urlOrId.contains("thisvid.com") ||
+                urlOrId.startsWith("thisvid:", ignoreCase = true)
+        if (isThisVid) {
+            val tvData = ThisVidProvider.getStreamData(urlOrId, context)
+            if (tvData != null) {
+                Log.i(TAG, "Resolved via ThisVidProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(tvData)
+            }
+        }
+
+        val isTnaFlix = providerId == "tnaflix" || urlOrId.contains("tnaflix.com") ||
+                urlOrId.startsWith("tnaflix:", ignoreCase = true)
+        if (isTnaFlix) {
+            val tnaData = TnaFlixProvider.getStreamData(urlOrId, context)
+            if (tnaData != null) {
+                Log.i(TAG, "Resolved via TnaFlixProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(tnaData)
+            }
+        }
+
+        val isNoodleMagazine = providerId == "noodlemagazine" || urlOrId.contains("noodlemagazine.com") ||
+                urlOrId.startsWith("noodlemagazine:", ignoreCase = true)
+        if (isNoodleMagazine) {
+            val nmData = NoodleMagazineProvider.getStreamData(urlOrId, context)
+            if (nmData != null) {
+                Log.i(TAG, "Resolved via NoodleMagazineProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(nmData)
             }
         }
 
@@ -407,6 +549,69 @@ object YouTubeExtractorHelper {
                         ytdlResult.streamData.copy(providerId = HotstarProvider.PROVIDER_ID)
                     )
                 }
+            }
+        }
+
+        val isMiniTv = providerId == "amazonminitv" || providerId == "minitv" || urlOrId.contains("amazon.in/minitv") || urlOrId.contains("amazonminitv")
+        if (isMiniTv) {
+            val miniTvData = AmazonMiniTvProvider.getStreamData(urlOrId, context)
+            if (miniTvData != null) {
+                Log.i(TAG, "Resolved via AmazonMiniTvProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(miniTvData)
+            }
+        }
+
+        val isDiscovery = providerId == "discoveryplus" || providerId == "discovery" || urlOrId.contains("discoveryplus")
+        if (isDiscovery) {
+            val discData = DiscoveryPlusProvider.getStreamData(urlOrId, context)
+            if (discData != null) {
+                Log.i(TAG, "Resolved via DiscoveryPlusProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(discData)
+            }
+        }
+
+        val isDisney = providerId == "disney" || providerId == "disneyplus" || urlOrId.contains("disneyplus.com")
+        if (isDisney) {
+            val disneyData = DisneyProvider.getStreamData(urlOrId, context)
+            if (disneyData != null) {
+                Log.i(TAG, "Resolved via DisneyProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(disneyData)
+            }
+        }
+
+        val isGoogleDrive = providerId == "googledrive" || providerId == "gdrive" || providerId == "google_drive" || urlOrId.contains("drive.google.com") || urlOrId.contains("docs.google.com")
+        if (isGoogleDrive) {
+            val gdriveData = GoogleDriveProvider.getStreamData(urlOrId, context)
+            if (gdriveData != null) {
+                Log.i(TAG, "Resolved via GoogleDriveProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(gdriveData)
+            }
+        }
+
+        val isImdb = providerId == "imdb" || urlOrId.contains("imdb.com")
+        if (isImdb) {
+            val imdbData = ImdbProvider.getStreamData(urlOrId, context)
+            if (imdbData != null) {
+                Log.i(TAG, "Resolved via ImdbProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(imdbData)
+            }
+        }
+
+        val isMxPlayer = providerId == "mxplayer" || urlOrId.contains("mxplayer.in")
+        if (isMxPlayer) {
+            val mxData = MxPlayerProvider.getStreamData(urlOrId, context)
+            if (mxData != null) {
+                Log.i(TAG, "Resolved via MxPlayerProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(mxData)
+            }
+        }
+
+        val isPopcornTv = providerId == "popcorntv" || providerId == "popcorn" || urlOrId.contains("popcorntime")
+        if (isPopcornTv) {
+            val popcornData = PopcornTvProvider.getStreamData(urlOrId, context)
+            if (popcornData != null) {
+                Log.i(TAG, "Resolved via PopcornTvProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(popcornData)
             }
         }
 
@@ -554,7 +759,15 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isBilibili = providerId == "bilibili" || urlOrId.contains("bilibili.com") || urlOrId.contains("b23.tv") || urlOrId.startsWith("BV", ignoreCase = true) || urlOrId.startsWith("av", ignoreCase = true)
+        val isBilibili = providerId == "bilibili" ||
+                urlOrId.contains("bilibili.com") ||
+                urlOrId.contains("b23.tv") ||
+                urlOrId.startsWith("BV", ignoreCase = true) ||
+                urlOrId.startsWith("av", ignoreCase = true) ||
+                urlOrId.startsWith("ep", ignoreCase = true) ||
+                urlOrId.startsWith("ss", ignoreCase = true) ||
+                urlOrId.startsWith("md", ignoreCase = true) ||
+                urlOrId.startsWith("bilisearch", ignoreCase = true)
         if (isBilibili) {
             val biliData = BilibiliProvider.getStreamData(urlOrId, context)
             if (biliData != null) {
@@ -562,25 +775,62 @@ object YouTubeExtractorHelper {
                 return@withContext ExtractionResult.Success(biliData)
             } else if (context != null) {
                 Log.i(TAG, "Routing Bilibili to YtDlpResolver for $urlOrId")
-                val fullBiliUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.bilibili.com/video/$urlOrId"
+                val fullBiliUrl = when {
+                    urlOrId.startsWith("http://") || urlOrId.startsWith("https://") -> urlOrId
+                    urlOrId.startsWith("bilisearch", ignoreCase = true) -> urlOrId
+                    urlOrId.startsWith("BV", ignoreCase = true) || urlOrId.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$urlOrId"
+                    urlOrId.startsWith("ep", ignoreCase = true) || urlOrId.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$urlOrId"
+                    urlOrId.startsWith("md", ignoreCase = true) -> "https://www.bilibili.com/bangumi/media/$urlOrId"
+                    else -> "https://www.bilibili.com/video/$urlOrId"
+                }
                 return@withContext YtDlpResolver.extractStreamInfo(context, fullBiliUrl)
             }
         }
 
-        val isYouTube = providerId == "youtube" || urlOrId.contains("youtube.com") || urlOrId.contains("youtu.be") || (urlOrId.length == 11 && !urlOrId.startsWith("http"))
+
+
+        val isYouTube = providerId == "youtube" ||
+                urlOrId.contains("youtube.com") ||
+                urlOrId.contains("youtu.be") ||
+                urlOrId.startsWith("ytsearch:", ignoreCase = true) ||
+                urlOrId.startsWith("youtube:", ignoreCase = true) ||
+                urlOrId.startsWith("ytuser:", ignoreCase = true) ||
+                urlOrId.startsWith(":yt", ignoreCase = true) ||
+                (urlOrId.length == 11 && !urlOrId.startsWith("http"))
 
         if (isYouTube) {
-            val videoId = when {
-                urlOrId.contains("v=") -> urlOrId.substringAfter("v=").substringBefore("&")
-                urlOrId.contains("youtu.be/") -> urlOrId.substringAfter("youtu.be/").substringBefore("?")
-                else -> urlOrId
+            val cleanUrl = urlOrId.trim()
+            val targetUrl = when {
+                cleanUrl.startsWith("youtube:clip:", ignoreCase = true) -> "https://www.youtube.com/clip/${cleanUrl.substringAfter("youtube:clip:")}"
+                cleanUrl.startsWith("youtube:shorts:pivot:audio:", ignoreCase = true) -> "https://www.youtube.com/source/${cleanUrl.substringAfter("youtube:shorts:pivot:audio:")}/shorts"
+                cleanUrl.startsWith("youtube:playlist:", ignoreCase = true) -> "https://www.youtube.com/playlist?list=${cleanUrl.substringAfter("youtube:playlist:")}"
+                cleanUrl.startsWith("youtube:user:", ignoreCase = true) -> "https://www.youtube.com/@${cleanUrl.substringAfter("youtube:user:")}"
+                cleanUrl.startsWith("ytuser:", ignoreCase = true) -> "https://www.youtube.com/@${cleanUrl.substringAfter("ytuser:")}"
+                cleanUrl.startsWith("youtube:search:", ignoreCase = true) -> "https://www.youtube.com/results?search_query=${URLEncoder.encode(cleanUrl.substringAfter("youtube:search:"), "UTF-8")}"
+                cleanUrl.startsWith("ytsearch:", ignoreCase = true) -> "https://www.youtube.com/results?search_query=${URLEncoder.encode(cleanUrl.substringAfter("ytsearch:"), "UTF-8")}"
+                cleanUrl.startsWith("youtube:music:", ignoreCase = true) -> "https://music.youtube.com/search?q=${URLEncoder.encode(cleanUrl.substringAfter("youtube:music:"), "UTF-8")}"
+                cleanUrl.startsWith("youtube:tab:", ignoreCase = true) -> "https://www.youtube.com/${cleanUrl.substringAfter("youtube:tab:")}"
+                cleanUrl.contains("v=") -> "https://www.youtube.com/watch?v=${cleanUrl.substringAfter("v=").substringBefore("&")}"
+                cleanUrl.contains("youtu.be/") -> "https://www.youtube.com/watch?v=${cleanUrl.substringAfter("youtu.be/").substringBefore("?")}"
+                cleanUrl.contains("youtube.com/embed/live_stream") -> cleanUrl
+                cleanUrl.contains("youtube.com/live/") -> "https://www.youtube.com/watch?v=${cleanUrl.substringAfter("youtube.com/live/").substringBefore("?")}"
+                cleanUrl.contains("youtube.com/shorts/") -> "https://www.youtube.com/watch?v=${cleanUrl.substringAfter("youtube.com/shorts/").substringBefore("?")}"
+                cleanUrl.startsWith("http") -> cleanUrl
+                cleanUrl.length == 11 -> "https://www.youtube.com/watch?v=$cleanUrl"
+                else -> "https://www.youtube.com/watch?v=$cleanUrl"
             }
 
-            val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.youtube.com/watch?v=$videoId"
+            val videoId = when {
+                targetUrl.contains("v=") -> targetUrl.substringAfter("v=").substringBefore("&")
+                targetUrl.contains("youtu.be/") -> targetUrl.substringAfter("youtu.be/").substringBefore("?")
+                targetUrl.contains("/live/") -> targetUrl.substringAfter("/live/").substringBefore("?")
+                targetUrl.contains("/shorts/") -> targetUrl.substringAfter("/shorts/").substringBefore("?")
+                else -> cleanUrl
+            }
             com.example.util.PlaybackPipelineTracker.logExtractionStart(videoId, targetUrl)
             Log.i(TAG, "Resolving YouTube Video ID: '$videoId', Target URL: '$targetUrl'")
 
-            // Step 1: NewPipe Extractor (Primary)
+            // Step 1: NewPipe Extractor (Primary Instant Fast Extractor)
             try {
                 try {
                     NewPipe.init(DownloaderImpl.getInstance())
@@ -733,19 +983,23 @@ object YouTubeExtractorHelper {
             // Step 2: yt-dlp Fallback for YouTube ONLY if NewPipe failed
             if (context != null) {
                 Log.i(TAG, "YouTube Resolution Step 2 (yt-dlp fallback): $targetUrl")
-                val ytDlpResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
-                if (ytDlpResult is ExtractionResult.Success) {
-                    val primary = ytDlpResult.streamData.selectedStreamOption
-                        ?: ytDlpResult.streamData.availableStreamOptions.firstOrNull()
-                    if (primary != null) {
-                        com.example.util.PlaybackPipelineTracker.logFormatSelected(
-                            label = primary.qualityLabel,
-                            isMuxed = primary.isMuxed,
-                            format = primary.format,
-                            urlSnippet = primary.videoUrl?.take(60) ?: "unknown"
-                        )
+                try {
+                    val ytDlpResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
+                    if (ytDlpResult is ExtractionResult.Success && ytDlpResult.streamData.availableStreamOptions.isNotEmpty()) {
+                        val primary = ytDlpResult.streamData.selectedStreamOption
+                            ?: ytDlpResult.streamData.availableStreamOptions.firstOrNull()
+                        if (primary != null) {
+                            com.example.util.PlaybackPipelineTracker.logFormatSelected(
+                                label = primary.qualityLabel,
+                                isMuxed = primary.isMuxed,
+                                format = primary.format,
+                                urlSnippet = primary.videoUrl?.take(60) ?: "unknown"
+                            )
+                        }
+                        return@withContext ytDlpResult
                     }
-                    return@withContext ytDlpResult
+                } catch (e: Exception) {
+                    Log.w(TAG, "yt-dlp fallback YouTube extraction notice: ${e.message}")
                 }
             }
 
@@ -801,7 +1055,38 @@ object YouTubeExtractorHelper {
     }
 
     suspend fun fetchStreamData(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult {
-        return resolveStream(urlOrId, context, providerId)
+        val result = resolveStream(urlOrId, context, providerId)
+        if (result is ExtractionResult.Success) {
+            val data = result.streamData
+            if (data.tags.isEmpty()) {
+                val enrichedTags = com.example.util.SmartTagExtractor.extractTagsFromMetadata(
+                    title = data.title,
+                    description = data.description,
+                    uploader = data.channelName,
+                    explicitTags = data.tags,
+                    providerId = data.providerId ?: providerId
+                )
+                val primaryCat = com.example.util.SmartTagExtractor.extractTags(
+                    com.example.model.VideoItem(
+                        id = data.videoId,
+                        title = data.title,
+                        uploaderName = data.channelName,
+                        description = data.description,
+                        providerId = data.providerId ?: providerId,
+                        tags = enrichedTags
+                    ),
+                    maxTags = 1
+                ).firstOrNull()?.displayName
+
+                return ExtractionResult.Success(
+                    data.copy(
+                        tags = enrichedTags,
+                        category = data.category ?: primaryCat
+                    )
+                )
+            }
+        }
+        return result
     }
 
     suspend fun fetchSearchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {

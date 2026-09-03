@@ -55,14 +55,125 @@ object YouPornProvider {
         return emptyList()
     }
 
+    /**
+     * YouPornVideos: YouPorn video (browse) playlists, with sorting, filtering and pagination
+     */
+    fun getVideos(sort: String = "time", page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val targetUrl = when (sort.lowercase()) {
+            "views", "most_viewed", "popular" -> "https://www.youporn.com/most_viewed/?page=$page"
+            "rating", "top_rated", "top" -> "https://www.youporn.com/top_rated/?page=$page"
+            "duration", "longest" -> "https://www.youporn.com/browse/duration/?page=$page"
+            else -> "https://www.youporn.com/browse/time/?page=$page"
+        }
+        return parseYouPornHtml(targetUrl, limit)
+    }
+
+    /**
+     * YouPornCategory: YouPorn category, with sorting, filtering and pagination
+     */
+    fun getCategory(categorySlug: String, sort: String = "time", page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val slug = categorySlug.trim().lowercase().replace(" ", "-").removePrefix("category/")
+        val url = if (sort.isNotBlank() && sort != "time") {
+            "https://www.youporn.com/category/$slug/$sort/?page=$page"
+        } else {
+            "https://www.youporn.com/category/$slug/?page=$page"
+        }
+        return parseYouPornHtml(url, limit)
+    }
+
+    /**
+     * YouPornChannel: YouPorn channel, with sorting and pagination
+     */
+    fun getChannel(channelName: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val clean = channelName.trim().removePrefix("channel/").removePrefix("channels/")
+        val url = "https://www.youporn.com/channel/$clean/?page=$page"
+        return parseYouPornHtml(url, limit)
+    }
+
+    /**
+     * YouPornCollection: YouPorn collection (user playlist), with sorting and pagination
+     */
+    fun getCollection(collectionId: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val clean = collectionId.trim().removePrefix("collection/").removePrefix("playlist/")
+        val urls = listOf(
+            "https://www.youporn.com/collection/$clean/?page=$page",
+            "https://www.youporn.com/playlist/$clean/?page=$page"
+        )
+        for (u in urls) {
+            val list = parseYouPornHtml(u, limit)
+            if (list.isNotEmpty()) return list
+        }
+        return emptyList()
+    }
+
+    /**
+     * YouPornStar: YouPorn Pornstar, with description, sorting and pagination
+     */
+    fun getPornstar(pornstarName: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val clean = pornstarName.trim().lowercase().replace(" ", "-").removePrefix("pornstar/").removePrefix("pornstars/")
+        val url = "https://www.youporn.com/pornstar/$clean/?page=$page"
+        return parseYouPornHtml(url, limit)
+    }
+
+    /**
+     * YouPornTag: YouPorn tag (porntags), with sorting, filtering and pagination
+     */
+    fun getTag(tagName: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
+        val clean = tagName.trim().lowercase().replace(" ", "-").removePrefix("tag/").removePrefix("porntags/")
+        val urls = listOf(
+            "https://www.youporn.com/porntags/$clean/?page=$page",
+            "https://www.youporn.com/tag/$clean/?page=$page"
+        )
+        for (u in urls) {
+            val list = parseYouPornHtml(u, limit)
+            if (list.isNotEmpty()) return list
+        }
+        return emptyList()
+    }
+
     fun search(query: String, page: Int = 1, limit: Int = 30): List<VideoItem> {
-        val clean = query.trim().lowercase()
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val clean = query.trim()
+        val lower = clean.lowercase()
+
+        // 1. Direct command prefixes
+        when {
+            lower.startsWith("youporn:category:") || lower.startsWith("category:") -> {
+                val cat = clean.substringAfter(":").substringAfter(":")
+                return getCategory(cat, page = page, limit = limit)
+            }
+            lower.startsWith("youporn:channel:") || lower.startsWith("channel:") -> {
+                val ch = clean.substringAfter(":").substringAfter(":")
+                return getChannel(ch, page = page, limit = limit)
+            }
+            lower.startsWith("youporn:collection:") || lower.startsWith("youporn:playlist:") || lower.startsWith("collection:") -> {
+                val col = clean.substringAfter(":").substringAfter(":")
+                return getCollection(col, page = page, limit = limit)
+            }
+            lower.startsWith("youporn:star:") || lower.startsWith("youporn:pornstar:") || lower.startsWith("pornstar:") -> {
+                val star = clean.substringAfter(":").substringAfter(":")
+                return getPornstar(star, page = page, limit = limit)
+            }
+            lower.startsWith("youporn:tag:") || lower.startsWith("tag:") || lower.startsWith("porntags:") -> {
+                val tag = clean.substringAfter(":").substringAfter(":")
+                return getTag(tag, page = page, limit = limit)
+            }
+            lower == "youporn:videos" || lower == "youporn:browse" -> {
+                return getVideos("time", page, limit)
+            }
+            lower == "youporn:top_rated" -> {
+                return getVideos("top_rated", page, limit)
+            }
+            lower == "youporn:most_viewed" -> {
+                return getVideos("most_viewed", page, limit)
+            }
+        }
+
+        val encoded = URLEncoder.encode(clean.removePrefix("youporn:").trim(), "UTF-8")
         val urls = mutableListOf<String>()
 
         // Check if query is a simple category word
-        if (clean.matches(Regex("^[a-z0-9-]+$")) && clean.length in 3..25) {
-            urls.add("https://www.youporn.com/category/$clean/?page=$page")
+        if (lower.matches(Regex("^[a-z0-9-]+$")) && lower.length in 3..25) {
+            urls.add("https://www.youporn.com/category/$lower/?page=$page")
         }
         urls.add("https://www.youporn.com/search/?query=$encoded&page=$page")
         urls.add("https://www.youporn.com/results?search_query=$encoded&page=$page")

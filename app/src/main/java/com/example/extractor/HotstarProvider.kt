@@ -135,6 +135,12 @@ object HotstarProvider {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank() || cleanQuery.equals("All", ignoreCase = true)) return@withContext getHome(page, limit)
 
+        // Handle hotstar:series: prefix explicitly
+        if (cleanQuery.startsWith("hotstar:series:", ignoreCase = true) || cleanQuery.startsWith("hotstar:shows:", ignoreCase = true)) {
+            val seriesName = cleanQuery.substringAfter("hotstar:series:").substringAfter("hotstar:shows:").trim()
+            return@withContext search("Hotstar Specials $seriesName full episode", page, limit)
+        }
+
         val lower = cleanQuery.lowercase()
         if (lower in listOf("movies", "movie", "film", "series", "shows", "serials", "serial", "funny", "comedy", "sports", "cricket", "action", "drama", "romance", "thriller")) {
             return@withContext getCategoryContent(lower, page, limit)

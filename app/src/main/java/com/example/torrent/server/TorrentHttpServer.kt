@@ -143,26 +143,29 @@ class TorrentHttpServer(
                 return
             }
 
-            // Await metadata and file size from active engine session
+            // Await metadata and file size from active engine session (up to 45 seconds with frequent checks)
             var totalLength = engine.getActiveFileLength()
             var retries = 0
-            while (totalLength <= 0 && retries < 30 && isRunning.get() && !socket.isClosed) {
+            while (totalLength <= 0 && retries < 450 && isRunning.get() && !socket.isClosed) {
                 kotlinx.coroutines.delay(100)
                 totalLength = engine.getActiveFileLength()
                 retries++
+                if (retries % 30 == 0) {
+                    Log.i("ButterflyTorrent", "HTTP server waiting for metadata: ${retries / 10}s elapsed (hash: ${activeHash ?: requestedHash})")
+                }
             }
 
-            // If metadata is still unavailable, return 503 Service Unavailable (NEVER fabricate a fake size)
+            // If metadata is still unavailable after 45s, return 503 Service Unavailable
             if (totalLength <= 0) {
-                Log.w("ButterflyTorrent", "Torrent metadata not ready yet for hash ${activeHash ?: requestedHash}. Returning 503 Service Unavailable.")
+                Log.w("ButterflyTorrent", "Torrent metadata timed out after 45s for hash ${activeHash ?: requestedHash}. Returning 503.")
                 sendResponse(
                     outStream,
                     "503 Service Unavailable",
                     mapOf(
-                        "Retry-After" to "2",
+                        "Retry-After" to "3",
                         "Connection" to "close"
                     ),
-                    "503 Service Unavailable: Torrent metadata is resolving\n".toByteArray(StandardCharsets.UTF_8)
+                    "503 Service Unavailable: Swarm metadata resolution timed out\n".toByteArray(StandardCharsets.UTF_8)
                 )
                 return
             }

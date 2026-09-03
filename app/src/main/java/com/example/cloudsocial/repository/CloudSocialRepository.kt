@@ -245,8 +245,12 @@ class CloudSocialRepository private constructor(private val context: Context) {
             "TELEGRAM" -> telegramResolver.resolveStreamUrl(mediaItem)
             "MEGA" -> megaResolver.resolveStreamUrl(mediaItem)
             "BUNKR" -> {
-                if (!mediaItem.directStreamUrl.isNullOrBlank()) mediaItem.directStreamUrl!!
-                else com.example.bunkr.resolver.BunkrFileResolver().resolveFile(mediaItem.sourceUrl).streamUrl
+                try {
+                    com.example.bunkr.resolver.BunkrFileResolver().resolveFile(mediaItem.sourceUrl).streamUrl
+                } catch (e: Exception) {
+                    if (!mediaItem.directStreamUrl.isNullOrBlank()) mediaItem.directStreamUrl!!
+                    else mediaItem.sourceUrl
+                }
             }
             else -> mediaItem.sourceUrl
         }

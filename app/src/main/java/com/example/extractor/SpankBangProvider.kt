@@ -401,42 +401,7 @@ object SpankBangProvider {
     }
 
     private fun getFallbackVideoList(limit: Int): List<VideoItem> {
-        val curated = listOf(
-            VideoItem(
-                id = "7x89z",
-                title = "4K Ultra HD Trending Clip #1",
-                uploaderName = "SpankBang Studio",
-                uploaderAvatarUrl = null,
-                viewCount = 1_120_000L,
-                uploadDate = "4K Ultra HD",
-                durationSeconds = 1240L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "8y90a",
-                title = "Popular 1080p Full HD Trending Release",
-                uploaderName = "Verified Creator",
-                uploaderAvatarUrl = null,
-                viewCount = 890_000L,
-                uploadDate = "Full HD",
-                durationSeconds = 1650L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "9z01b",
-                title = "Top Rated Scene 60FPS High Quality",
-                uploaderName = "SpankBang HD",
-                uploaderAvatarUrl = null,
-                viewCount = 940_000L,
-                uploadDate = "60FPS HD",
-                durationSeconds = 1980L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=800&q=80",
-                providerId = PROVIDER_ID
-            )
-        )
-        return curated.take(limit)
+        return emptyList()
     }
 }
 

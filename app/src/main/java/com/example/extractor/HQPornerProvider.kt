@@ -338,42 +338,7 @@ object HQPornerProvider {
     }
 
     private fun getFallbackVideoList(limit: Int): List<VideoItem> {
-        val curated = listOf(
-            VideoItem(
-                id = "ultra-hd-4k-stunning-scene-01",
-                title = "4K Ultra HD Passionate Studio Scene",
-                uploaderName = "4K HQ Studio",
-                uploaderAvatarUrl = null,
-                viewCount = 750_000L,
-                uploadDate = "Ultra HD 4K",
-                durationSeconds = 1840L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "1080p-60fps-model-showcase-02",
-                title = "1080p 60FPS Glamour Edition",
-                uploaderName = "HQ Visuals",
-                uploaderAvatarUrl = null,
-                viewCount = 620_000L,
-                uploadDate = "Full HD",
-                durationSeconds = 1520L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&q=80",
-                providerId = PROVIDER_ID
-            ),
-            VideoItem(
-                id = "4k-hdr-cinematic-experience-03",
-                title = "4K HDR Cinematic High Bitrate Stream",
-                uploaderName = "Ultra Cinema",
-                uploaderAvatarUrl = null,
-                viewCount = 890_000L,
-                uploadDate = "4K HDR",
-                durationSeconds = 2100L,
-                thumbnailUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=800&q=80",
-                providerId = PROVIDER_ID
-            )
-        )
-        return curated.take(limit)
+        return emptyList()
     }
 }
 

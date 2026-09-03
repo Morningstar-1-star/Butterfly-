@@ -153,9 +153,30 @@ object XHamsterProvider {
     }
 
     fun search(query: String, limit: Int = 40, page: Int = 1): List<VideoItem> {
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val clean = query.trim()
+        val userMatch = Regex("(?i)^(?:xhamster:)?(?:user|creator|pornstar|channel):([a-zA-Z0-9_-]+)").find(clean)
+        if (userMatch != null) {
+            val username = userMatch.groupValues[1]
+            return getUserVideos(username, limit, page)
+        }
+        val encoded = URLEncoder.encode(clean, "UTF-8")
         val targetUrl = if (page > 1) "https://xhamster.com/search/$encoded?page=$page" else "https://xhamster.com/search/$encoded"
         return parseListingHtml(targetUrl, limit)
+    }
+
+    fun getUserVideos(userOrChannelOrPornstar: String, limit: Int = 40, page: Int = 1): List<VideoItem> {
+        val clean = userOrChannelOrPornstar.trim().removePrefix("https://xhamster.com").removePrefix("/")
+        val urls = listOf(
+            if (clean.startsWith("users/")) "https://xhamster.com/$clean/videos?page=$page" else "https://xhamster.com/users/$clean/videos?page=$page",
+            if (clean.startsWith("creators/")) "https://xhamster.com/$clean?page=$page" else "https://xhamster.com/creators/$clean?page=$page",
+            if (clean.startsWith("pornstars/")) "https://xhamster.com/$clean?page=$page" else "https://xhamster.com/pornstars/$clean?page=$page",
+            if (clean.startsWith("channels/")) "https://xhamster.com/$clean?page=$page" else "https://xhamster.com/channels/$clean?page=$page"
+        )
+        for (u in urls) {
+            val items = parseListingHtml(u, limit)
+            if (items.isNotEmpty()) return items
+        }
+        return getCreatorVideos(clean, limit, page)
     }
 
     fun getCreatorVideos(creatorUrlOrSlug: String, limit: Int = 40, page: Int = 1): List<VideoItem> {
@@ -440,7 +461,27 @@ object XHamsterProvider {
 
     // ------------------- STREAM EXTRACTION -------------------
     suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
-        val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://xhamster.com/videos/$urlOrId"
+        val clean = urlOrId.trim()
+        val targetUrl = when {
+            clean.contains("xembed.php?video_id=") -> {
+                val vid = clean.substringAfter("video_id=").substringBefore("&")
+                "https://xhamster.com/videos/$vid"
+            }
+            clean.contains("/embed/") -> {
+                val vid = clean.substringAfter("/embed/").substringBefore("?").substringBefore("/")
+                "https://xhamster.com/videos/$vid"
+            }
+            clean.startsWith("xhamster:embed:", ignoreCase = true) -> {
+                val vid = clean.substringAfter("xhamster:embed:")
+                "https://xhamster.com/videos/$vid"
+            }
+            clean.startsWith("xhamster:", ignoreCase = true) -> {
+                val vid = clean.substringAfter("xhamster:")
+                "https://xhamster.com/videos/$vid"
+            }
+            clean.startsWith("http") -> clean
+            else -> "https://xhamster.com/videos/$clean"
+        }
         Log.d(TAG, "Fetching xHamster stream data for $targetUrl")
 
         try {

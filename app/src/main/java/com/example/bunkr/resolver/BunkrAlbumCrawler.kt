@@ -102,7 +102,7 @@ class BunkrAlbumCrawler(
                 }
 
                 if (filesArray != null) {
-                    parseFilesFromJsonArray(filesArray, albumId, discoveredFiles, seenFileIds)
+                    parseFilesFromJsonArray(filesArray, albumId, discoveredFiles, seenFileIds, parsed.domain)
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Failed to parse __NEXT_DATA__ on $albumId, falling back to DOM scraping: ${e.message}")
@@ -111,7 +111,7 @@ class BunkrAlbumCrawler(
 
         // 3. Fallback / supplementary DOM scraping using Jsoup
         if (discoveredFiles.isEmpty()) {
-            parseFilesFromDom(doc, albumId, discoveredFiles, seenFileIds)
+            parseFilesFromDom(doc, albumId, discoveredFiles, seenFileIds, parsed.domain)
         }
 
         if (discoveredFiles.isEmpty()) {
@@ -135,7 +135,8 @@ class BunkrAlbumCrawler(
         filesArray: JSONArray,
         albumId: String,
         outFiles: MutableList<BunkrFile>,
-        seenFileIds: MutableSet<String>
+        seenFileIds: MutableSet<String>,
+        domain: String
     ) {
         for (i in 0 until filesArray.length()) {
             val item = filesArray.optJSONObject(i) ?: continue
@@ -150,10 +151,13 @@ class BunkrAlbumCrawler(
                 ?: item.optString("title").takeIf { it.isNotBlank() }
                 ?: "Bunkr File $fileId"
 
-            val sourceUrl = "https://${BunkrUrlUtils.DEFAULT_BUNKR_DOMAIN}/f/$fileId"
-            val thumbnail = item.optString("thumbnail").takeIf { it.isNotBlank() }
+            val sourceUrl = "https://$domain/f/$fileId"
+            val rawThumb = item.optString("thumbnail").takeIf { it.isNotBlank() }
                 ?: item.optString("poster").takeIf { it.isNotBlank() }
                 ?: item.optString("icon").takeIf { it.isNotBlank() }
+                ?: item.optString("preview").takeIf { it.isNotBlank() }
+
+            val thumbnail = BunkrUrlUtils.normalizeThumbnailUrl(rawThumb, domain, fileId)
 
             val size = item.optString("formattedSize").takeIf { it.isNotBlank() }
                 ?: item.optString("size").takeIf { it.isNotBlank() }
@@ -181,10 +185,11 @@ class BunkrAlbumCrawler(
         doc: org.jsoup.nodes.Document,
         albumId: String,
         outFiles: MutableList<BunkrFile>,
-        seenFileIds: MutableSet<String>
+        seenFileIds: MutableSet<String>,
+        domain: String = BunkrUrlUtils.DEFAULT_BUNKR_DOMAIN
     ) {
-        // Select links pointing to /f/ or /v/
-        val links = doc.select("a[href*=/f/], a[href*=/v/]")
+        // Select links pointing to /f/ or /v/ or /d/
+        val links = doc.select("a[href*=/f/], a[href*=/v/], a[href*=/d/], a[href*=/get/]")
         var orderIndex = 0
 
         for (link in links) {
@@ -213,12 +218,13 @@ class BunkrAlbumCrawler(
                 }
             }
             if (title.isBlank()) {
-                title = "Video $fileId"
+                title = "Bunkr File $fileId"
             }
 
             // Thumbnail
             val img = link.select("img").firstOrNull()
-            val thumbUrl = img?.attr("abs:src")?.ifBlank { img.attr("src") }
+            val rawThumb = img?.attr("abs:src")?.ifBlank { img.attr("src") }
+            val thumbUrl = BunkrUrlUtils.normalizeThumbnailUrl(rawThumb, domain, fileId)
 
             val bunkrFile = BunkrFile(
                 fileId = fileId,

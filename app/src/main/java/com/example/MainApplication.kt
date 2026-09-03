@@ -160,22 +160,8 @@ class MainApplication : Application() {
             .build()
         Coil.setImageLoader(imageLoader)
 
-        // Asynchronously initialize yt-dlp engine and check for OTA updates on launch
-        applicationScope.launch(Dispatchers.IO) {
-            try {
-                dev.ffmpegkit_maintained.ytdlp.YtDlp.init(this@MainApplication)
-                com.example.extractor.YtDlpUpdateManager.injectUpdatedPathIntoPython(this@MainApplication)
-                com.example.extractor.YtDlpUpdateManager.refreshVersion(this@MainApplication)
-                Log.i("MainApplication", "yt-dlp engine initialized successfully")
-                
-                // Perform background update check
-                if (com.example.extractor.YtDlpUpdateManager.isAutoUpdateEnabled.value) {
-                    com.example.extractor.YtDlpUpdateManager.updateYtDlpEngine(this@MainApplication)
-                }
-            } catch (e: Throwable) {
-                Log.w("MainApplication", "yt-dlp init note: ${e.message}")
-            }
-        }
+        // Note: yt-dlp engine is lazily initialized on-demand via YtDlpResolver.ensureInitialized(context)
+        // when an extraction stream actually requests it, avoiding cold-start CPU spikes and SELinux audit rate limits.
     }
 
     override fun onTrimMemory(level: Int) {
