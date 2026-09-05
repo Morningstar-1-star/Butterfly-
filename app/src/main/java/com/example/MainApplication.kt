@@ -30,6 +30,7 @@ class MainApplication : Application() {
         com.example.util.AppConfig.init(this)
         com.example.util.SecureDnsManager.init(this)
         com.example.util.GoogleDriveSyncManager.init(this)
+        com.example.util.PlaybackResumeManager.getRawSavedPosition(this, "_warmup")
 
         // Configure YouTube Proof-of-Origin Token Provider for NewPipe extractor
         com.example.extractor.YouTubeExtractorHelper.setPoTokenProvider(object : com.example.extractor.YouTubeExtractorHelper.CustomPoTokenProvider {

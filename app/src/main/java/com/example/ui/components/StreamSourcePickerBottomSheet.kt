@@ -212,6 +212,7 @@ fun StreamSourcePickerBottomSheet(
                             src.contains("Vega", ignoreCase = true) -> Color(0xFF00E676)
                             src.contains("Torrentio", ignoreCase = true) -> Color(0xFF448AFF)
                             src.contains("VidSrc", ignoreCase = true) -> Color(0xFFFF9100)
+                            src.contains("VidRock", ignoreCase = true) -> Color(0xFFE040FB)
                             src.contains("Seedr", ignoreCase = true) -> Color(0xFF00E5FF)
                             src.contains("YTS", ignoreCase = true) -> Color(0xFF26C6DA)
                             src.contains("Nyaa", ignoreCase = true) -> Color(0xFFFF4081)
@@ -458,6 +459,7 @@ fun StreamOptionCard(
         src.contains("Vega", ignoreCase = true) -> Color(0xFF00E676) // Emerald green
         src.contains("Torrentio", ignoreCase = true) -> Color(0xFF448AFF) // Neon blue
         src.contains("VidSrc", ignoreCase = true) -> Color(0xFFFF9100) // Vibrant orange
+        src.contains("VidRock", ignoreCase = true) -> Color(0xFFE040FB) // Magenta / Purple accent
         src.contains("Seedr", ignoreCase = true) -> Color(0xFF00E5FF) // Cyan
         src.contains("YTS", ignoreCase = true) -> Color(0xFF26C6DA)
         src.contains("Nyaa", ignoreCase = true) -> Color(0xFFFF4081)

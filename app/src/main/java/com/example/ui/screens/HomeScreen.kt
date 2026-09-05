@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -145,7 +146,9 @@ fun HomeScreen(
             val total = layoutInfo.totalItemsCount
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             total > 0 && lastVisible >= total - 3
-        }.collect { isNearBottom ->
+        }
+        .distinctUntilChanged()
+        .collect { isNearBottom ->
             if (isNearBottom && !isLoadingTrending && !isSearching && !isLoadingMore) {
                 viewModel.loadMoreContent()
             }
@@ -185,18 +188,9 @@ fun HomeScreen(
         isBarsVisible = true
     }
 
-    val animatedScrollOffsetPx by animateFloatAsState(
-        targetValue = scrollOffsetPx,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "scroll_offset_spring"
-    )
-
     val animatedBottomBarOffsetPx by animateFloatAsState(
         targetValue = if (isBarsVisible || isSearchExpanded) 0f else bottomBarHeightPx.coerceAtLeast(1f),
-        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "bottom_bar_translation"
     )
 
@@ -683,6 +677,8 @@ fun HomeScreen(
             val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches, activeProviderId) {
                 if (activeProviderId == "bilibili") {
                     listOf("All", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
+                } else if (activeProviderId == "bigo") {
+                    listOf("All", "Music & Singing", "Gaming", "Dance", "Talk & Chat", "DJ", "Cosplay", "Entertainment", "Fitness", "Travel", "ASMR", "Food")
                 } else {
                     buildSmartTags(activeContextTitle, searchQuery, recentSearches)
                 }
@@ -694,8 +690,6 @@ fun HomeScreen(
             val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
             val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
 
-            val headerTranslationY = scrollOffsetPx.coerceIn(-fullHeaderHeightPx, 0f)
-
             // Combined Collapsible Header + Tags Column
             Column(
                 modifier = Modifier
@@ -703,7 +697,7 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .zIndex(9f)
                     .graphicsLayer {
-                        translationY = headerTranslationY
+                        translationY = scrollOffsetPx.coerceIn(-fullHeaderHeightPx, 0f)
                     }
                     .background(MaterialTheme.colorScheme.background)
                     .statusBarsPadding()
@@ -1434,6 +1428,16 @@ fun SearchRecommendationShelfCard(
     showProviderBadge: Boolean,
     onClick: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageRequest = remember(video.thumbnailUrl) {
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
+            context = context,
+            url = video.thumbnailUrl,
+            crossfadeMillis = 0,
+            preferCompact = true
+        )
+    }
+
     Card(
         modifier = Modifier
             .width(220.dp)
@@ -1454,7 +1458,7 @@ fun SearchRecommendationShelfCard(
                     .background(Color(0xFF1E1E22))
             ) {
                 coil.compose.AsyncImage(
-                    model = video.thumbnailUrl,
+                    model = imageRequest ?: video.thumbnailUrl,
                     contentDescription = video.title,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

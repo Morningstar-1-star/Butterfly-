@@ -413,13 +413,17 @@ private fun createConfiguredWebView(
 
 private fun isAuthorizedEmbedDomain(host: String): Boolean {
     val allowedDomains = listOf(
+        "vidrock.net",
+        "vidsrc.sbs",
         "vidlink.pro",
         "vidsrc.to",
         "2embed.cc",
+        "2embed.to",
         "vidsrc.me",
         "vidsrcme.ru",
         "secstream.pro",
         "autoembed.cc",
+        "autoembed.to",
         "embed.su",
         "smashy.stream",
         "cloudnest.pro",
@@ -427,7 +431,16 @@ private fun isAuthorizedEmbedDomain(host: String): Boolean {
         "vidsrc.xyz",
         "vidsrc.in",
         "vidsrc.pm",
-        "vidsrc.net"
+        "vidsrc.net",
+        "vidsrc.vip",
+        "vidsrc.icu",
+        "vidsrc.cx",
+        "vidsrc.stream",
+        "megacloud.tv",
+        "rabbitstream.net",
+        "vizcloud.co",
+        "mcloud.to",
+        "dokicloud.one"
     )
     return allowedDomains.any { domain ->
         host == domain || host.endsWith(".$domain")

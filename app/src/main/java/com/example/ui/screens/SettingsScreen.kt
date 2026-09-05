@@ -45,7 +45,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
     VEGA("Vega Movies & Series", "Movie extensions, anime providers & add-ons", Icons.Outlined.Movie),
     ADULT_18("18+ Content", "Adult content mode & mature sources", Icons.Outlined.Explicit),
-    SMART_SKIP("Smart Skip & SponsorBlock", "Auto-skip sponsors, intros & previews", Icons.Outlined.FastForward),
+    SMART_SKIP("SponsorBlock", "Auto-skip sponsored segments, intros & filler", Icons.Outlined.FastForward),
     HISTORY_PRIVACY("History & Privacy", "Watch history, search cache & blocked channels", Icons.Outlined.History),
     BACKUP_RESTORE("Backup & Restore", "Export/import profile data & Google Drive sync", Icons.Outlined.CloudUpload),
     ADDITIONAL_SETTINGS("Additional Settings", "DNS & Network, API keys, Diagnostics & Battery Saver", Icons.Outlined.Tune),
@@ -582,6 +582,22 @@ fun SettingsScreen(
                                 )
                             }
                             item {
+                                val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
+                                YouTubeSwitchRow(
+                                    title = "Butterfly Opening Animation",
+                                    subtitle = "Cinematic 3D butterfly flap & launch animation on app start",
+                                    checked = isOpeningAnimationEnabled,
+                                    onCheckedChange = { viewModel.setOpeningAnimationEnabled(it) }
+                                )
+                            }
+                            item {
+                                YouTubeDetailRow(
+                                    title = "Preview Opening Animation",
+                                    subtitle = "Test the 3D butterfly flight & portal reveal transition",
+                                    onClick = { viewModel.replayOpeningAnimation() }
+                                )
+                            }
+                            item {
                                 YouTubeSwitchRow(
                                     title = "Thumbnail Source Tags",
                                     subtitle = "Show provider badges (e.g. YouTube, Vimeo, 18+) on video cards",
@@ -694,6 +710,7 @@ fun SettingsScreen(
                                 "youtube" to "YouTube",
                                 "dailymotion" to "Dailymotion",
                                 "twitch" to "Twitch",
+                                "bigo" to "Bigo Live",
                                 "archive_org" to "Internet Archive",
                                 "bilibili" to "Bilibili",
                                 "vimeo" to "Vimeo",
@@ -714,6 +731,7 @@ fun SettingsScreen(
                                     YouTubeSwitchRow(
                                         title = name,
                                         subtitle = when (id) {
+                                            "bigo" -> "Bigo Live interactive streams, global broadcasters & video rooms"
                                             "bun-tel-meg" -> "Telegram Channels, MEGA Folders & Bunkr Albums video links"
                                             "amazonminitv" -> "Amazon miniTV free web series, comedy, romance & drama"
                                             "discoveryplus" -> "Discovery+, Science, Animal Planet & TLC docu-series"

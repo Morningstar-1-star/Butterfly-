@@ -93,6 +93,19 @@ object ProviderRegistry {
         )
         register(
             ProviderDescriptor(
+                id = "bigo",
+                displayName = "Bigo Live",
+                category = ProviderCategory.MAINSTREAM_VIDEO,
+                baseDomain = "https://www.bigo.tv",
+                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.HLS, ProviderCapability.LIVE),
+                supportedMediaTypes = setOf(MediaType.VIDEO),
+                supportsHls = true,
+                supportedQualities = listOf("1080p", "720p", "480p", "360p"),
+                priority = 91
+            )
+        )
+        register(
+            ProviderDescriptor(
                 id = "bilibili",
                 displayName = "Bilibili",
                 category = ProviderCategory.MAINSTREAM_VIDEO,

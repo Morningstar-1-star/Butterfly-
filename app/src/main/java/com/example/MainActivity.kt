@@ -8,12 +8,17 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.example.ui.MainViewModel
+import com.example.ui.animation.ButterflyOpeningAnimation
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
@@ -30,12 +35,29 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
             val accentColor by viewModel.accentColor.collectAsState()
+            val showOpeningAnimation by viewModel.showOpeningAnimation.collectAsState()
+            val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
 
             MyApplicationTheme(
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
-                HomeScreen(viewModel = viewModel)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    HomeScreen(viewModel = viewModel)
+
+                    if (showOpeningAnimation && isOpeningAnimationEnabled) {
+                        ButterflyOpeningAnimation(
+                            themeMode = themeMode,
+                            accentColor = accentColor,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(9999f),
+                            onAnimationFinished = {
+                                viewModel.dismissOpeningAnimation()
+                            }
+                        )
+                    }
+                }
             }
         }
     }

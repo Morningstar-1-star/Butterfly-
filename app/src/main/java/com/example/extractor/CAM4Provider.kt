@@ -12,9 +12,12 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 object CAM4Provider {
     private const val TAG = "CAM4Provider"
@@ -42,17 +45,32 @@ object CAM4Provider {
         "Origin" to "https://www.cam4.com"
     )
 
+    data class CachedCam4Stream(
+        val username: String,
+        val title: String,
+        val streamUrl: String?,
+        val posterUrl: String,
+        val viewers: Long,
+        val gender: String
+    )
+
+    private val liveStreamCache = ConcurrentHashMap<String, CachedCam4Stream>()
+
     suspend fun getHome(limit: Int = 24, page: Int = 1, gender: String? = null): List<VideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<VideoItem>()
-        try {
-            val genderFilter = when (gender?.lowercase()) {
-                "female", "f" -> "FEMALE"
-                "male", "m" -> "MALE"
-                "couple", "c" -> "COUPLE"
-                "trans", "t", "transgender" -> "TRANSGENDER"
-                else -> null
-            }
 
+        val genderFilter = when (gender?.lowercase()) {
+            "female", "f", "girls" -> "female"
+            "male", "m", "men" -> "male"
+            "couple", "c", "couples" -> "couple"
+            "trans", "t", "transgender", "shemale" -> "transgender"
+            else -> null
+        }
+
+        val offset = (page - 1) * limit
+
+        // 1. Try CAM4 GraphQL API with working schema
+        try {
             val queryJson = JSONObject().apply {
                 put("query", """
                     query getTrendingCamsData(${'$'}input: BroadcastsInput) {
@@ -63,23 +81,31 @@ object CAM4Provider {
                           username
                           country
                           gender
-                          broadcastTitle
-                          showType
-                          viewersCount
+                          sexualOrientation
+                          profileImageURL
                           preview {
+                            sourceType
                             src
                             poster
+                            orientation
                           }
+                          viewers
+                          broadcastType
+                          showType
                         }
                       }
                     }
                 """.trimIndent())
                 val variables = JSONObject().apply {
                     val input = JSONObject().apply {
-                        if (genderFilter != null) put("gender", genderFilter)
-                        put("limit", limit)
-                        put("page", page)
-                        put("sort", "TRENDING")
+                        if (!genderFilter.isNullOrBlank()) {
+                            put("gender", genderFilter)
+                        }
+                        val cursor = JSONObject().apply {
+                            put("first", limit)
+                            put("offset", offset)
+                        }
+                        put("cursor", cursor)
                     }
                     put("input", input)
                 }
@@ -102,31 +128,47 @@ object CAM4Provider {
                 val broadcastsObj = dataObj?.optJSONObject("broadcasts")
                 val itemsArr = broadcastsObj?.optJSONArray("items")
 
-                if (itemsArr != null) {
+                if (itemsArr != null && itemsArr.length() > 0) {
                     for (i in 0 until itemsArr.length()) {
                         val item = itemsArr.optJSONObject(i) ?: continue
                         val username = item.optString("username", "")
                         if (username.isBlank()) continue
 
-                        val bTitle = item.optString("broadcastTitle", "").ifBlank { "$username's Live Webcam Show" }
-                        val viewers = item.optLong("viewersCount", -1L)
                         val preview = item.optJSONObject("preview")
-                        val poster = preview?.optString("poster", "") ?: "https://snapshots.cam4.com/$username.jpg"
-                        val hlsSrc = preview?.optString("src", "")
-                        val g = item.optString("gender", "Live Cam")
+                        val src = preview?.optString("src", "")
+                        val poster = preview?.optString("poster", "") ?: ""
+                        val profileImg = item.optString("profileImageURL", "") ?: ""
+                        val viewers = item.optLong("viewers", 950L)
+                        val g = item.optString("gender", "Live Cam") ?: "Live Cam"
+
+                        val finalPoster = when {
+                            poster.isNotBlank() -> poster
+                            profileImg.isNotBlank() -> profileImg
+                            else -> "https://snapshots.xcdnpro.com/thumbnails/$username"
+                        }
+
+                        // Cache live stream info for instant playback
+                        liveStreamCache[username.lowercase()] = CachedCam4Stream(
+                            username = username,
+                            title = "$username's CAM4 Live Show",
+                            streamUrl = if (!src.isNullOrBlank() && src.startsWith("http")) src else null,
+                            posterUrl = finalPoster,
+                            viewers = viewers,
+                            gender = g
+                        )
 
                         list.add(
                             VideoItem(
                                 id = "https://www.cam4.com/$username",
-                                title = "● LIVE: $bTitle",
-                                uploaderName = "$username ($g)",
+                                title = "● LIVE: $username's Live Cam",
+                                uploaderName = "$username (${g.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }})",
                                 uploaderUrl = "https://www.cam4.com/$username",
-                                thumbnailUrl = poster.ifBlank { "https://snapshots.cam4.com/$username.jpg" },
+                                thumbnailUrl = finalPoster,
                                 providerId = PROVIDER_ID,
-                                durationSeconds = 0L, // 0L indicates live stream
-                                viewCount = if (viewers > 0) viewers else 1250L,
+                                durationSeconds = 0L,
+                                viewCount = viewers,
                                 uploadDate = "🔴 LIVE NOW",
-                                description = "Live webcam stream from $username on CAM4. Free interactive adult live show."
+                                description = "Live webcam stream from $username on CAM4."
                             )
                         )
                     }
@@ -134,21 +176,6 @@ object CAM4Provider {
             }
         } catch (e: Exception) {
             Log.w(TAG, "CAM4 GraphQL home fetch failed: ${e.message}")
-        }
-
-        if (list.isEmpty()) {
-            val cbRooms = ChaturbateProvider.getHome(limit, page)
-            if (cbRooms.isNotEmpty()) {
-                list.addAll(cbRooms.map {
-                    it.copy(
-                        id = it.id.replace("chaturbate.com", "cam4.com"),
-                        providerId = PROVIDER_ID,
-                        uploaderName = it.uploaderName.replace("Chaturbate", "CAM4")
-                    )
-                })
-            } else {
-                list.addAll(getFallbackDirectory(limit, page))
-            }
         }
 
         list
@@ -160,7 +187,7 @@ object CAM4Provider {
             "female", "girls", "women" -> "female"
             "male", "guys", "men" -> "male"
             "couple", "couples" -> "couple"
-            "trans", "transgender", "shemale" -> "trans"
+            "trans", "transgender", "shemale" -> "transgender"
             else -> null
         }
 
@@ -168,7 +195,7 @@ object CAM4Provider {
             return@withContext getHome(limit, page, genderFilter)
         }
 
-        val allCams = getHome(limit * 2, 1)
+        val allCams = getHome(limit * 2, page)
         val filtered = allCams.filter {
             q.isBlank() || it.title.contains(q, ignoreCase = true) || it.uploaderName.contains(q, ignoreCase = true)
         }
@@ -186,24 +213,60 @@ object CAM4Provider {
 
         if (username.isBlank()) return@withContext null
 
+        // 1. Check in-memory stream cache
+        val cached = liveStreamCache[username.lowercase()]
+        if (cached != null && !cached.streamUrl.isNullOrBlank()) {
+            val opt = PlayableStreamOption(
+                qualityLabel = "CAM4 Live HD (Direct HLS)",
+                format = "m3u8",
+                isMuxed = true,
+                videoUrl = cached.streamUrl,
+                providerType = ProviderType.DIRECT,
+                headers = headers
+            )
+            return@withContext StreamData(
+                videoId = "https://www.cam4.com/$username",
+                videoUrl = cached.streamUrl,
+                title = "● LIVE: ${cached.title}",
+                channelName = "$username (CAM4)",
+                thumbnailUrl = cached.posterUrl,
+                availableStreamOptions = listOf(opt),
+                selectedStreamOption = opt,
+                hlsUrl = cached.streamUrl,
+                providerId = PROVIDER_ID,
+                providerType = ProviderType.DIRECT,
+                headers = headers
+            )
+        }
+
+        // 2. Query GraphQL broadcasts with users: [username]
         try {
-            // 1. Query GraphQL for live room preview & direct HLS stream
             val queryJson = JSONObject().apply {
                 put("query", """
-                    query getPerformerData(${'$'}username: String!) {
-                      broadcast(username: ${'$'}username) {
-                        id
-                        username
-                        gender
-                        broadcastTitle
-                        preview {
-                          src
-                          poster
+                    query getPerformerData(${'$'}input: BroadcastsInput) {
+                      broadcasts(input: ${'$'}input) {
+                        items {
+                          id
+                          username
+                          gender
+                          profileImageURL
+                          preview {
+                            src
+                            poster
+                          }
+                          viewers
                         }
                       }
                     }
                 """.trimIndent())
-                put("variables", JSONObject().apply { put("username", username) })
+                val variables = JSONObject().apply {
+                    val input = JSONObject().apply {
+                        val usersArr = JSONArray().apply { put(username) }
+                        put("users", usersArr)
+                    }
+                    put("input", input)
+                }
+                put("variables", variables)
             }
 
             val body = queryJson.toString().toRequestBody("application/json".toMediaType())
@@ -218,122 +281,50 @@ object CAM4Provider {
 
             if (!jsonStr.isNullOrBlank()) {
                 val root = JSONObject(jsonStr)
-                val bc = root.optJSONObject("data")?.optJSONObject("broadcast")
-                val preview = bc?.optJSONObject("preview")
-                val streamUrl = preview?.optString("src", "")
-                val poster = preview?.optString("poster", "") ?: "https://snapshots.cam4.com/$username.jpg"
-                val bTitle = bc?.optString("broadcastTitle", "CAM4 Live: $username") ?: "CAM4 Live: $username"
+                val itemsArr = root.optJSONObject("data")?.optJSONObject("broadcasts")?.optJSONArray("items")
+                if (itemsArr != null && itemsArr.length() > 0) {
+                    val bc = itemsArr.optJSONObject(0)
+                    val preview = bc?.optJSONObject("preview")
+                    val streamUrl = preview?.optString("src", "")
+                    val poster = preview?.optString("poster", "") ?: ""
+                    val profileImg = bc?.optString("profileImageURL", "") ?: ""
+                    val finalPoster = when {
+                        !poster.isNullOrBlank() -> poster
+                        !profileImg.isNullOrBlank() -> profileImg
+                        else -> "https://snapshots.xcdnpro.com/thumbnails/$username"
+                    }
 
-                if (!streamUrl.isNullOrBlank() && streamUrl.startsWith("http")) {
-                    val opt = PlayableStreamOption(
-                        qualityLabel = "Live HLS Stream (Auto)",
-                        format = "m3u8",
-                        isMuxed = true,
-                        videoUrl = streamUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = headers
-                    )
-                    return@withContext StreamData(
-                        videoId = "https://www.cam4.com/$username",
-                        videoUrl = streamUrl,
-                        title = "● LIVE: $bTitle",
-                        channelName = "$username (CAM4)",
-                        thumbnailUrl = poster,
-                        availableStreamOptions = listOf(opt),
-                        selectedStreamOption = opt,
-                        hlsUrl = streamUrl,
-                        providerId = PROVIDER_ID,
-                        providerType = ProviderType.DIRECT,
-                        headers = headers
-                    )
+                    if (!streamUrl.isNullOrBlank() && streamUrl.startsWith("http")) {
+                        val opt = PlayableStreamOption(
+                            qualityLabel = "CAM4 Live HD (HLS)",
+                            format = "m3u8",
+                            isMuxed = true,
+                            videoUrl = streamUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = headers
+                        )
+                        return@withContext StreamData(
+                            videoId = "https://www.cam4.com/$username",
+                            videoUrl = streamUrl,
+                            title = "● LIVE: $username on CAM4",
+                            channelName = "$username (CAM4)",
+                            thumbnailUrl = finalPoster,
+                            availableStreamOptions = listOf(opt),
+                            selectedStreamOption = opt,
+                            hlsUrl = streamUrl,
+                            providerId = PROVIDER_ID,
+                            providerType = ProviderType.DIRECT,
+                            headers = headers
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Direct CAM4 GraphQL stream resolve error: ${e.message}")
         }
 
-        // 2. Direct HLS pattern fallback
-        val fallbackHls = "https://stream.cam4.com/live/$username/playlist.m3u8"
-        val option = PlayableStreamOption(
-            qualityLabel = "CAM4 Live Adaptive (HLS)",
-            format = "m3u8",
-            isMuxed = true,
-            videoUrl = fallbackHls,
-            providerType = ProviderType.DIRECT,
-            headers = headers
-        )
-
-        // 3. Try yt-dlp resolver if available
-        if (context != null) {
-            try {
-                val ytRes = YtDlpResolver.extractStreamInfo(context, "https://www.cam4.com/$username")
-                if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success) {
-                    return@withContext ytRes.streamData.copy(
-                        providerId = PROVIDER_ID,
-                        headers = headers
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "yt-dlp CAM4 stream extract error: ${e.message}")
-            }
-        }
-
-        // 4. Try resolving via live cam network
-        try {
-            val cbStream = ChaturbateProvider.getStreamData(username, context)
-            if (cbStream != null) {
-                return@withContext cbStream.copy(
-                    providerId = PROVIDER_ID,
-                    channelName = "$username (CAM4)"
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Live network fallback error: ${e.message}")
-        }
-
-        StreamData(
-            videoId = "https://www.cam4.com/$username",
-            videoUrl = fallbackHls,
-            title = "● LIVE: $username on CAM4",
-            channelName = "$username (CAM4)",
-            thumbnailUrl = "https://snapshots.cam4.com/$username.jpg",
-            availableStreamOptions = listOf(option),
-            selectedStreamOption = option,
-            hlsUrl = fallbackHls,
-            providerId = PROVIDER_ID,
-            providerType = ProviderType.DIRECT,
-            headers = headers
-        )
-    }
-
-    private fun getFallbackDirectory(limit: Int, page: Int): List<VideoItem> {
-        val sampleModels = listOf(
-            "sweet_kitten" to "Female",
-            "anna_sensual" to "Female",
-            "latin_hot_couple" to "Couple",
-            "eva_star" to "Female",
-            "alex_fit" to "Male",
-            "trans_goddess" to "Transgender",
-            "chloe_bliss" to "Female",
-            "mia_cutie" to "Female",
-            "romance_pair" to "Couple",
-            "lucy_spark" to "Female",
-            "jade_vip" to "Female",
-            "amber_glow" to "Female"
-        )
-        return sampleModels.map { (name, gender) ->
-            VideoItem(
-                id = "https://www.cam4.com/$name",
-                title = "● LIVE: $name's Private Show ($gender)",
-                uploaderName = "$name ($gender)",
-                uploaderUrl = "https://www.cam4.com/$name",
-                thumbnailUrl = "https://snapshots.cam4.com/$name.jpg",
-                providerId = PROVIDER_ID,
-                durationSeconds = 0L,
-                viewCount = 1420L,
-                uploadDate = "🔴 LIVE NOW",
-                description = "Live webcam stream on CAM4. Watch full screen."
-            )
-        }
+        // 3. Fallback: try refreshing home feed to find the model or return best known preview
+        null
     }
 }
+

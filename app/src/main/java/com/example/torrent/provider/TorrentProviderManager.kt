@@ -92,6 +92,49 @@ class TorrentProviderManager(
         return identity
     }
 
+    suspend fun resolveTmdbAndImdb(
+        title: String,
+        year: String? = null,
+        mediaType: String = "movie"
+    ): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val clean = com.example.util.StreamCategorizer.extractCleanSearchTitle(title)
+        if (clean.isBlank()) return@withContext Pair(null, null)
+
+        val endpoint = if (mediaType.equals("tv", ignoreCase = true) || mediaType.equals("series", ignoreCase = true)) "search/tv" else "search/movie"
+        val encTitle = URLEncoder.encode(clean, StandardCharsets.UTF_8.name())
+        val yearParam = if (!year.isNullOrBlank()) "&year=$year" else ""
+        val url = "https://api.themoviedb.org/3/$endpoint?api_key=$TMDB_API_KEY&query=$encTitle$yearParam"
+
+        try {
+            val req = Request.Builder().url(url).build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string()
+                if (!body.isNullOrBlank()) {
+                    val json = JSONObject(body)
+                    val results = json.optJSONArray("results")
+                    if (results != null && results.length() > 0) {
+                        val first = results.getJSONObject(0)
+                        val tmdbId = first.optString("id", "")
+                        if (tmdbId.isNotBlank()) {
+                            val imdbId = fetchImdbFromTmdb(tmdbId, mediaType)
+                            return@withContext Pair(tmdbId, imdbId)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val cinemetaImdb = searchCinemetaForImdb(clean, mediaType)
+            if (cinemetaImdb != null) {
+                return@withContext Pair(null, cinemetaImdb)
+            }
+        } catch (_: Exception) {}
+
+        Pair(null, null)
+    }
+
     private fun fetchImdbFromTmdb(tmdbId: String, mediaType: String): String? {
         val endpoint = if (mediaType.equals("tv", ignoreCase = true)) "tv" else "movie"
         val url = "https://api.themoviedb.org/3/$endpoint/$tmdbId/external_ids?api_key=$TMDB_API_KEY"

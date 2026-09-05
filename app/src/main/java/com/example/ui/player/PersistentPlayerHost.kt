@@ -1,7 +1,11 @@
 package com.example.ui.player
 
+import android.os.Build
 import android.view.LayoutInflater
+import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -9,6 +13,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.R
+import com.example.effects.VideoEffectsConfig
+import com.example.effects.VideoEffectsEngine
+import com.example.effects.VideoEffectsManager
 
 @Composable
 fun PersistentPlayerHost(
@@ -19,6 +26,7 @@ fun PersistentPlayerHost(
 ) {
     val context = LocalContext.current
     val exoPlayer = remember(context) { GlobalPlayerManager.getExoPlayer(context) }
+    val videoEffectsConfig by VideoEffectsManager.currentConfig.collectAsState()
 
     AndroidView(
         factory = { ctx ->
@@ -40,6 +48,7 @@ fun PersistentPlayerHost(
                 } else {
                     setFullscreenButtonClickListener(null)
                 }
+                applyEffectsToPlayerView(this, videoEffectsConfig)
             }
         },
         update = { playerView ->
@@ -59,6 +68,7 @@ fun PersistentPlayerHost(
             } else {
                 playerView.setFullscreenButtonClickListener(null)
             }
+            applyEffectsToPlayerView(playerView, videoEffectsConfig)
         },
         onRelease = { playerView ->
             // Detach this playerView from the player without resetting ExoPlayer's active rendering surface
@@ -68,6 +78,47 @@ fun PersistentPlayerHost(
         },
         modifier = modifier
     )
+}
+
+private fun applyEffectsToPlayerView(playerView: PlayerView, config: VideoEffectsConfig) {
+    val targetViews = mutableListOf<View>(playerView)
+    playerView.videoSurfaceView?.let { targetViews.add(it) }
+
+    if (!config.isEnabled) {
+        for (v in targetViews) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                v.setRenderEffect(null)
+            }
+            v.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
+        return
+    }
+
+    val matrixArray = VideoEffectsEngine.computeCombinedColorMatrix(config)
+    val colorFilter = android.graphics.ColorMatrixColorFilter(matrixArray)
+    val blurRadius = (config.enhancement.blur / 100f) * 25f
+
+    for (v in targetViews) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val colorEffect = android.graphics.RenderEffect.createColorFilterEffect(colorFilter)
+            val finalEffect = if (blurRadius > 0.5f) {
+                val blurEffect = android.graphics.RenderEffect.createBlurEffect(
+                    blurRadius,
+                    blurRadius,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+                android.graphics.RenderEffect.createChainEffect(blurEffect, colorEffect)
+            } else {
+                colorEffect
+            }
+            v.setRenderEffect(finalEffect)
+        } else {
+            val paint = android.graphics.Paint().apply {
+                this.colorFilter = colorFilter
+            }
+            v.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+        }
+    }
 }
 
 

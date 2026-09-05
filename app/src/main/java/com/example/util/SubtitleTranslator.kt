@@ -30,7 +30,7 @@ object SubtitleTranslator {
         .build()
 
     // In-memory LRU cache for translations: "sourceText|targetLang" -> translatedText
-    private val translationCache = LruCache<String, String>(2000)
+    val translationCache = LruCache<String, String>(2000)
 
     // Supported target languages
     val supportedLanguages = listOf(

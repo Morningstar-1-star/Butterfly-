@@ -185,8 +185,9 @@ object ThumbnailOptimizer {
                 builder.setHeader("Referer", "https://www.cam4.com/")
                 builder.setHeader("Origin", "https://www.cam4.com")
             }
-            lowerUrl.contains("cammodels.com") || lowerUrl.contains("img.cammodels.com") -> {
-                builder.setHeader("Referer", "https://www.cammodels.com/")
+            lowerUrl.contains("cammodels.com") || lowerUrl.contains("img.cammodels.com") || lowerUrl.contains("strpst.com") || lowerUrl.contains("stripchat.com") -> {
+                builder.setHeader("Referer", "https://stripchat.com/")
+                builder.setHeader("Origin", "https://stripchat.com")
             }
             lowerUrl.contains("highwebmedia.com") || lowerUrl.contains("chaturbate.com") -> {
                 builder.setHeader("Referer", "https://chaturbate.com/")
@@ -214,9 +215,10 @@ object ThumbnailOptimizer {
             lowerUrl.contains("imdb.com") -> {
                 builder.setHeader("Referer", "https://www.imdb.com/")
             }
-            lowerUrl.contains("bigo.tv") || lowerUrl.contains("bigolive.tv") || lowerUrl.contains("static-web.bigolive.tv") -> {
+            lowerUrl.contains("bigo.tv") || lowerUrl.contains("bigolive.tv") || lowerUrl.contains("bigo.sg") || lowerUrl.contains("cubetecn.com") || lowerUrl.contains("bigocdn.com") || lowerUrl.contains("static-web.bigolive.tv") -> {
                 builder.setHeader("Referer", "https://www.bigo.tv/")
                 builder.setHeader("Origin", "https://www.bigo.tv")
+                builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
             lowerUrl.contains("discoveryplus") -> {
                 builder.setHeader("Referer", "https://www.discoveryplus.in/")

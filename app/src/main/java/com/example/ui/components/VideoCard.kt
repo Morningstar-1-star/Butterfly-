@@ -59,8 +59,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.isActive
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -195,7 +201,70 @@ fun VideoCard(
         Pair(name, bgColor)
     }
 
-    val seriesPillText: String? = null
+    val seriesPillText = remember(video.tags, video.title, video.providerId) {
+        val tagSeries = video.tags.firstOrNull { it.startsWith("S") && it.contains("ep") }
+        if (!tagSeries.isNullOrBlank()) {
+            tagSeries
+        } else {
+            val titleLower = video.title.lowercase()
+            val seasonMatch = Regex("""s(\d+)\s*e(\d+)""", RegexOption.IGNORE_CASE).find(titleLower)
+            if (seasonMatch != null) {
+                val s = seasonMatch.groupValues[1].toIntOrNull() ?: 1
+                val e = seasonMatch.groupValues[2].toIntOrNull() ?: 1
+                "S$s · Ep $e"
+            } else if (titleLower.contains("season") || titleLower.contains("s0") || (video.providerId == "torrent" && video.id.contains("tv_"))) {
+                "Series"
+            } else {
+                null
+            }
+        }
+    }
+
+    val isMovieOrMedia = remember(video.providerId, video.id, video.tags, video.title) {
+        val pid = (video.providerId ?: "").lowercase()
+        pid in listOf("torrent", "tmdb", "anilist", "jikan", "jikan_anime", "vega", "vegacloud", "vidsrc", "vidrock") ||
+        video.id.startsWith("torrent_") || video.id.startsWith("movie_") || video.id.startsWith("tv_") || video.id.startsWith("anilist_") ||
+        video.tags.any { it.startsWith("★") } ||
+        video.title.contains("1080p", ignoreCase = true) || video.title.contains("bluray", ignoreCase = true)
+    }
+
+    val displayDurationText = remember(video.durationSeconds, video.displayDuration, isMovieOrMedia) {
+        if (video.displayDuration.isNotEmpty() && video.displayDuration != "0:00" && video.displayDuration != "00:00") {
+            video.displayDuration
+        } else if (video.durationSeconds > 0) {
+            val h = video.durationSeconds / 3600
+            val m = (video.durationSeconds % 3600) / 60
+            val s = video.durationSeconds % 60
+            if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+        } else if (isMovieOrMedia) {
+            "1:45:00"
+        } else {
+            ""
+        }
+    }
+
+    val ratingTag = remember(video.tags) {
+        video.tags.firstOrNull { it.startsWith("★") || it.contains("★") }
+    }
+
+    val statsLine = remember(video.formattedViews, video.uploadDate, seriesPillText, ratingTag) {
+        buildString {
+            if (video.formattedViews.isNotEmpty()) {
+                append(video.formattedViews)
+            }
+            if (!ratingTag.isNullOrBlank()) {
+                if (isNotEmpty()) append(" • ")
+                append(ratingTag)
+            }
+            if (!video.uploadDate.isNullOrEmpty()) {
+                if (isNotEmpty()) append(" • ")
+                append(video.uploadDate)
+            } else if (!seriesPillText.isNullOrEmpty()) {
+                if (isNotEmpty()) append(" • ")
+                append(seriesPillText)
+            }
+        }
+    }
 
     val effectiveThumbnailUrl = remember(video.thumbnailUrl, video.id, video.providerId) {
         val raw = video.thumbnailUrl?.trim()
@@ -239,7 +308,6 @@ fun VideoCard(
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
     var currentFrameIndex by remember { mutableIntStateOf(0) }
-    var cardWidthPx by remember { mutableFloatStateOf(1f) }
     var dragAccumulator by remember { mutableFloatStateOf(0f) }
     val view = LocalView.current
 
@@ -292,17 +360,14 @@ fun VideoCard(
                             isAutoPlaying = false
                         }
                         isScrubbing = true
-                        val frac = (offset.x / cardWidthPx).coerceIn(0f, 1f)
+                        val width = size.width.toFloat().coerceAtLeast(1f)
+                        val frac = (offset.x / width).coerceIn(0f, 1f)
                         scrubFraction = frac
                         currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
                     },
                     onDragEnd = {
                         isScrubbing = false
-                        if (dragAccumulator < -40f) {
-                            isAutoPlaying = true
-                        } else {
-                            isAutoPlaying = false
-                        }
+                        isAutoPlaying = (dragAccumulator < -40f)
                     },
                     onDragCancel = {
                         isScrubbing = false
@@ -311,7 +376,8 @@ fun VideoCard(
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
                         dragAccumulator += dragAmount
-                        val frac = (change.position.x / cardWidthPx).coerceIn(0f, 1f)
+                        val width = size.width.toFloat().coerceAtLeast(1f)
+                        val frac = (change.position.x / width).coerceIn(0f, 1f)
                         scrubFraction = frac
                         currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
                     }
@@ -341,16 +407,40 @@ fun VideoCard(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .onGloballyPositioned { layoutCoordinates ->
-                        cardWidthPx = layoutCoordinates.size.width.toFloat().coerceAtLeast(1f)
-                    }
                     .then(scrubModifier)
             ) {
                 if (thumbnailImageRequest != null) {
+                    // Ambient blurred background layer so portrait posters or non-16:9 images fill the canvas seamlessly
+                    AsyncImage(
+                        model = thumbnailImageRequest,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .blur(24.dp)
+                            .alpha(0.55f)
+                    )
+
+                    // Subtle bottom gradient for badge legibility
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.45f)
+                                    ),
+                                    startY = 120f
+                                )
+                            )
+                    )
+
+                    // Sharp authentic artwork (preserves 100% of title logos & keyart without cropping)
                     AsyncImage(
                         model = thumbnailImageRequest,
                         contentDescription = video.title,
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -368,9 +458,9 @@ fun VideoCard(
                 }
 
                 // Normal duration badge (hidden when actively playing teaser or scrubbing)
-                if (video.displayDuration.isNotEmpty() && !isPreviewActive) {
+                if (displayDurationText.isNotEmpty() && !isPreviewActive) {
                     Text(
-                        text = video.displayDuration,
+                        text = displayDurationText,
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -585,6 +675,11 @@ fun VideoCard(
                             ImageRequest.Builder(context)
                                 .data(primaryUrl)
                                 .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                                .size(coil.size.Size(width = 96, height = 96))
+                                .precision(coil.size.Precision.INEXACT)
+                                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                                .allowHardware(true)
+                                .allowRgb565(true)
                                 .crossfade(false)
                                 .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                                 .diskCachePolicy(coil.request.CachePolicy.ENABLED)
@@ -642,18 +737,7 @@ fun VideoCard(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
-                        text = buildString {
-                            if (video.formattedViews.isNotEmpty()) {
-                                append(video.formattedViews)
-                            }
-                            if (!video.uploadDate.isNullOrEmpty()) {
-                                if (isNotEmpty()) append(" • ")
-                                append(video.uploadDate)
-                            } else if (!seriesPillText.isNullOrEmpty()) {
-                                if (isNotEmpty()) append(" • ")
-                                append(seriesPillText)
-                            }
-                        },
+                        text = statsLine,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         maxLines = 1,

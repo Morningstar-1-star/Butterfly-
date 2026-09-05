@@ -70,6 +70,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             ProviderUiItem("all", "All Sources", "🌐", true),
             ProviderUiItem("youtube", "YouTube", "▶️", true),
             ProviderUiItem("twitch", "Twitch", "🟣", true),
+            ProviderUiItem("bigo", "Bigo Live", "🔴", true),
             ProviderUiItem("torrent", "Torrents", "🧲", true),
             ProviderUiItem("archive_org", "Internet Archive", "🏛️", true),
             ProviderUiItem("dailymotion", "Dailymotion", "📺", true),
@@ -83,6 +84,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadTrending(forceRefresh: Boolean = false, topic: String? = null) {
         viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            
+            // Fast-path: Load cache instantly if this is initial load
+            if (forceRefresh && _videoItems.value.isEmpty()) {
+                val cached = com.example.util.HomeFeedCacheManager.loadCachedFeed(ctx)
+                if (cached.isNotEmpty()) {
+                    _videoItems.value = cached
+                }
+            }
+            
             if (forceRefresh) {
                 _isRefreshing.value = true
                 homeCurrentPage = 1
@@ -91,32 +102,36 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             _feedErrorDetails.value = null
 
             try {
-                val ctx = getApplication<Application>()
                 val targetProvider = _activeProviderId.value
-                val fetched = withContext(Dispatchers.IO) {
-                    val query = topic ?: "trending popular videos 2026"
-                    if (targetProvider == "all" || targetProvider == "youtube") {
-                        val ytList = try {
-                            YouTubeExtractorHelper.fetchYouTubeTrending(ctx)
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                        if (ytList.isNotEmpty()) ytList else MultiSourceProvider.search(ctx, "youtube", query, 20, 1)
-                    } else {
-                        MultiSourceProvider.getHome(ctx, targetProvider, 20, 1).ifEmpty {
-                            MultiSourceProvider.search(ctx, targetProvider, query, 20, 1)
+                val fetched = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    withContext(Dispatchers.IO) {
+                        val query = topic ?: "trending popular videos 2026"
+                        if (targetProvider == "all" || targetProvider == "youtube") {
+                            val ytList = try {
+                                YouTubeExtractorHelper.fetchYouTubeTrending(ctx)
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                            if (ytList.isNotEmpty()) ytList else MultiSourceProvider.search(ctx, "youtube", query, 20, 1)
+                        } else {
+                            MultiSourceProvider.getHome(ctx, targetProvider, 20, 1).ifEmpty {
+                                MultiSourceProvider.search(ctx, targetProvider, query, 20, 1)
+                            }
                         }
                     }
-                }
+                } ?: emptyList()
 
-                if (forceRefresh) {
-                    _videoItems.value = fetched
-                } else {
-                    val current = _videoItems.value.toMutableList()
-                    val existingIds = current.map { it.id }.toSet()
-                    val newUnique = fetched.filter { it.id !in existingIds }
-                    current.addAll(newUnique)
-                    _videoItems.value = current
+                if (fetched.isNotEmpty()) {
+                    if (forceRefresh) {
+                        _videoItems.value = fetched
+                        com.example.util.HomeFeedCacheManager.saveCachedFeed(ctx, fetched)
+                    } else {
+                        val current = _videoItems.value.toMutableList()
+                        val existingIds = current.map { it.id }.toSet()
+                        val newUnique = fetched.filter { it.id !in existingIds }
+                        current.addAll(newUnique)
+                        _videoItems.value = current
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading home feed", e)

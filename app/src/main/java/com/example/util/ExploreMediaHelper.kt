@@ -212,9 +212,10 @@ object ExploreMediaHelper {
                 (trending + popular).distinctBy { it.id }
             }
             ExploreMediaType.ANIME -> {
+                val tmdbAnime = fetchTmdbAnimeTrending()
                 val aniList = fetchAniListTrendingAnime()
                 val jikan = fetchJikanTopAnime()
-                (aniList + jikan).distinctBy { it.title.lowercase().trim() }
+                (tmdbAnime + aniList + jikan).distinctBy { it.title.lowercase().trim() }
             }
             else -> {
                 val allFeed = fetchExploreFeed()
@@ -271,6 +272,16 @@ object ExploreMediaHelper {
 
         val url = "https://api.themoviedb.org/3/tv/popular?api_key=$TMDB_API_KEY"
         val list = parseTmdbList(url, ExploreMediaType.TV)
+        if (list.isNotEmpty()) cache[cacheKey] = list
+        return list
+    }
+
+    private fun fetchTmdbAnimeTrending(): List<ExploreMediaItem> {
+        val cacheKey = "tmdb_anime_trending"
+        cache[cacheKey]?.let { return it }
+
+        val url = "https://api.themoviedb.org/3/discover/tv?api_key=$TMDB_API_KEY&with_genres=16&with_original_language=ja&sort_by=popularity.desc"
+        val list = parseTmdbList(url, ExploreMediaType.ANIME)
         if (list.isNotEmpty()) cache[cacheKey] = list
         return list
     }
@@ -1105,6 +1116,111 @@ object ExploreMediaHelper {
     private fun getCuratedMovies(): List<ExploreMediaItem> {
         return listOf(
             ExploreMediaItem(
+                id = "movie_1159311",
+                title = "Mutiny",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/8YFL5QQVPy3AgrEQxNYvsgiPEbe.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/8YFL5QQVPy3AgrEQxNYvsgiPEbe.jpg",
+                rating = 6.4,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Action", "Thriller"),
+                overview = "After his billionaire industrialist boss is murdered in front of him, an undercover agent is framed for the crime.",
+                studio = "Punch Palace Productions",
+                tmdbId = "1159311"
+            ),
+            ExploreMediaItem(
+                id = "movie_1184918",
+                title = "Obsession",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/b33nnBv1z9Z24iK5414eG8Q6hN7.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/b33nnBv1z9Z24iK5414eG8Q6hN7.jpg",
+                rating = 8.2,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Drama", "Thriller", "Mystery"),
+                overview = "A psychological mystery surrounding an intense attraction that turns dangerous.",
+                studio = "Tea Shop Productions",
+                tmdbId = "1184918"
+            ),
+            ExploreMediaItem(
+                id = "movie_558449",
+                title = "Spider-Man: Brand New Day",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/14GEZC2yXzHhA37T3o7yZ4GfXm.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/14GEZC2yXzHhA37T3o7yZ4GfXm.jpg",
+                rating = 7.9,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Action", "Adventure", "Sci-Fi"),
+                overview = "Peter Parker embarks on a fresh beginning across New York facing high stakes.",
+                studio = "Marvel Studios",
+                tmdbId = "558449"
+            ),
+            ExploreMediaItem(
+                id = "movie_734253",
+                title = "Coyote vs. Acme",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/6xKzbZ2l3tVjN5YqK9gZ1.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/6xKzbZ2l3tVjN5YqK9gZ1.jpg",
+                rating = 7.8,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Comedy", "Animation", "Family"),
+                overview = "Wile E. Coyote takes the Acme Corporation to court when its products continually fail him.",
+                studio = "Troll Court Entertainment",
+                tmdbId = "734253"
+            ),
+            ExploreMediaItem(
+                id = "movie_1196470",
+                title = "The Whisper Man",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/2j2iGg0YpZ7Z9q2JzGg5rD9pW.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/2j2iGg0YpZ7Z9q2JzGg5rD9pW.jpg",
+                rating = 6.6,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Thriller", "Crime", "Mystery"),
+                overview = "A detective investigates chilling disappearances linked to an infamous serial killer whose whispered warnings haunt a town.",
+                studio = "AGBO",
+                tmdbId = "1196470"
+            ),
+            ExploreMediaItem(
+                id = "movie_1165219",
+                title = "The Runner",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/3Z3xQ7j9K9f8G6b1H3V4Z0tL8w.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/3Z3xQ7j9K9f8G6b1H3V4Z0tL8w.jpg",
+                rating = 5.9,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Action", "Thriller"),
+                overview = "A high-stakes covert operative must outrun assassin syndicates across Europe while uncovering a global conspiracy.",
+                studio = "Amazon MGM Studios",
+                tmdbId = "1165219"
+            ),
+            ExploreMediaItem(
+                id = "movie_1022789",
+                title = "The Odyssey",
+                mediaType = ExploreMediaType.MOVIE,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/5A6Z7p8B9C0D1E2F3G4H5I6J.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/5A6Z7p8B9C0D1E2F3G4H5I6J.jpg",
+                rating = 8.0,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Adventure", "Drama", "History"),
+                overview = "The monumental epic journey of Odysseus traversing mythical peril to reach Ithaca.",
+                studio = "Universal Pictures",
+                tmdbId = "1022789"
+            ),
+            ExploreMediaItem(
                 id = "movie_693134",
                 title = "Dune: Part Two",
                 mediaType = ExploreMediaType.MOVIE,
@@ -1116,6 +1232,7 @@ object ExploreMediaHelper {
                 releaseYear = "2024",
                 genres = listOf("Sci-Fi", "Adventure", "Action"),
                 overview = "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family.",
+                studio = "Warner Bros. Pictures",
                 tmdbId = "693134",
                 imdbId = "tt15239678"
             ),
@@ -1131,6 +1248,7 @@ object ExploreMediaHelper {
                 releaseYear = "2023",
                 genres = listOf("Drama", "History", "Biography"),
                 overview = "The story of J. Robert Oppenheimer’s role in the development of the atomic bomb during World War II.",
+                studio = "Universal Pictures",
                 tmdbId = "872585",
                 imdbId = "tt15398776"
             ),
@@ -1146,6 +1264,7 @@ object ExploreMediaHelper {
                 releaseYear = "2024",
                 genres = listOf("Action", "Comedy", "Sci-Fi"),
                 overview = "A listless Wade Wilson toils away in civilian life until a global threat pushes him into teaming up with Wolverine.",
+                studio = "Marvel Studios",
                 tmdbId = "533535",
                 imdbId = "tt6263850"
             ),
@@ -1161,6 +1280,7 @@ object ExploreMediaHelper {
                 releaseYear = "2014",
                 genres = listOf("Adventure", "Drama", "Sci-Fi"),
                 overview = "A team of explorers travel through a wormhole in space in an attempt to ensure humanity's survival.",
+                studio = "Paramount Pictures",
                 tmdbId = "157336",
                 imdbId = "tt0816692"
             )
@@ -1169,6 +1289,56 @@ object ExploreMediaHelper {
 
     private fun getCuratedTv(): List<ExploreMediaItem> {
         return listOf(
+            ExploreMediaItem(
+                id = "tv_108978",
+                title = "Reacher",
+                mediaType = ExploreMediaType.TV,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/jB9j14qH33Z05z3692lD2H7N2Qf.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/jB9j14qH33Z05z3692lD2H7N2Qf.jpg",
+                rating = 8.1,
+                ratingSource = "IMDb",
+                releaseYear = "2022",
+                genres = listOf("Action", "Crime", "Drama"),
+                overview = "Jack Reacher, a veteran military police investigator, enters civilian life travelling from town to town.",
+                studio = "Amazon Studios",
+                episodesCount = 32,
+                tmdbId = "108978",
+                imdbId = "tt9288030"
+            ),
+            ExploreMediaItem(
+                id = "tv_125988",
+                title = "Silo",
+                mediaType = ExploreMediaType.TV,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/1v0T2LzQ1iP6v2yG4LwKq5gZ1F0.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/1v0T2LzQ1iP6v2yG4LwKq5gZ1F0.jpg",
+                rating = 8.2,
+                ratingSource = "IMDb",
+                releaseYear = "2023",
+                genres = listOf("Sci-Fi", "Drama", "Mystery"),
+                overview = "In a ruined and toxic future, thousands live in a giant silo deep underground governed by strict regulations.",
+                studio = "AMC Studios",
+                episodesCount = 30,
+                tmdbId = "125988",
+                imdbId = "tt14688458"
+            ),
+            ExploreMediaItem(
+                id = "tv_218145",
+                title = "Lanterns",
+                mediaType = ExploreMediaType.TV,
+                source = ExploreSource.TMDB,
+                posterUrl = "https://image.tmdb.org/t/p/w500/8Z0pA4mB9D3R5W7Y3c0G5p8B.jpg",
+                backdropUrl = "https://image.tmdb.org/t/p/w1280/8Z0pA4mB9D3R5W7Y3c0G5p8B.jpg",
+                rating = 8.3,
+                ratingSource = "IMDb",
+                releaseYear = "2026",
+                genres = listOf("Sci-Fi", "Action", "Mystery"),
+                overview = "Intergalactic cops John Stewart and Hal Jordan investigate a dark mystery on Earth.",
+                studio = "DC Studios",
+                episodesCount = 8,
+                tmdbId = "218145"
+            ),
             ExploreMediaItem(
                 id = "tv_94605",
                 title = "Arcane",
@@ -1181,6 +1351,7 @@ object ExploreMediaHelper {
                 releaseYear = "2024",
                 genres = listOf("Animation", "Sci-Fi", "Action", "Drama"),
                 overview = "Set in the utopian region of Piltover and the oppressed underground of Zaun, the story follows two iconic champions.",
+                studio = "Riot Games",
                 episodesCount = 18,
                 tmdbId = "94605",
                 imdbId = "tt11126994"
@@ -1197,6 +1368,7 @@ object ExploreMediaHelper {
                 releaseYear = "2011",
                 genres = listOf("Sci-Fi & Fantasy", "Drama", "Action"),
                 overview = "Nine noble families fight for control over the lands of Westeros.",
+                studio = "HBO Max",
                 episodesCount = 73,
                 tmdbId = "1399",
                 imdbId = "tt0944947"
@@ -1286,6 +1458,57 @@ object ExploreMediaHelper {
             episodesCount = 24,
             studio = "MAPPA",
             imdbId = "tt12343534"
+        ),
+        ExploreMediaItem(
+            id = "anime_anilist_108465",
+            title = "Mushoku Tensei: Jobless Reincarnation",
+            originalTitle = "Mushoku Tensei: Isekai Ittara Honki Dasu",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx108465-trhH67Dk4e7g.jpg",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/108465-trhH67Dk4e7g.jpg",
+            rating = 8.5,
+            ratingSource = "AniList",
+            releaseYear = "2021",
+            genres = listOf("Action", "Adventure", "Drama", "Fantasy"),
+            overview = "A 34-year-old shut-in dies saving someone and is reincarnated into a magical world as Rudeus Greyrat, retaining his past memories.",
+            episodesCount = 24,
+            studio = "Studio Bind",
+            imdbId = "tt11158580"
+        ),
+        ExploreMediaItem(
+            id = "anime_anilist_153288",
+            title = "Kaiju No. 8",
+            originalTitle = "Kaijuu 8-gou",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx153288-9dK7gS7m47a2.jpg",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/153288-9dK7gS7m47a2.jpg",
+            rating = 8.4,
+            ratingSource = "AniList",
+            releaseYear = "2024",
+            genres = listOf("Action", "Sci-Fi"),
+            overview = "In a world plagued by threatening monsters known as Kaiju, Kafka Hibino aspires to enlist in the Defense Force to eliminate them.",
+            episodesCount = 12,
+            studio = "Production I.G",
+            imdbId = "tt21626084"
+        ),
+        ExploreMediaItem(
+            id = "anime_anilist_154587",
+            title = "Frieren: Beyond Journey's End",
+            originalTitle = "Sousou no Frieren",
+            mediaType = ExploreMediaType.ANIME,
+            source = ExploreSource.ANILIST,
+            posterUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-n14D4n10uS6F.jpg",
+            backdropUrl = "https://s4.anilist.co/file/anilistcdn/media/anime/banner/154587-n14D4n10uS6F.jpg",
+            rating = 9.1,
+            ratingSource = "AniList",
+            releaseYear = "2023",
+            genres = listOf("Adventure", "Drama", "Fantasy"),
+            overview = "An elf mage reflects on her journey after the defeat of the Demon King, discovering what humanity means through the passage of time.",
+            episodesCount = 28,
+            studio = "Madhouse",
+            imdbId = "tt22158428"
         )
     )
 

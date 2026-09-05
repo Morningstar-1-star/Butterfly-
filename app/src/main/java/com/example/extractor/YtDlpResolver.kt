@@ -85,6 +85,15 @@ object YtDlpResolver {
             u.startsWith("amazonminitv:") ||
             u.startsWith("minitv:") ||
             u.startsWith("cam4:") ||
+            u.startsWith("4tube:") ||
+            u.startsWith("tnaflix:") ||
+            u.startsWith("hanime1:") ||
+            u.startsWith("hanime:") ||
+            u.startsWith("noodlemagazine:") ||
+            u.startsWith("noodlemag:") ||
+            u.startsWith("hqporner:") ||
+            u.startsWith("hqplayer:") ||
+            u.startsWith("bigo:") ||
             u.startsWith("cammodels:") ||
             u.startsWith("chaturbate:") ||
             u.startsWith("discoveryplus") ||
@@ -106,10 +115,15 @@ object YtDlpResolver {
             "xhamster.com",
             "youporn.com",
             "eporner.com",
+            "tnaflix.com",
+            "hanime1.me", "hanime1.com", "hanime.tv",
+            "noodlemagazine.com",
+            "hqporner.com", "hqporner.tv",
             "archive.org",
             "hotstar.com", "jiohotstar.com",
             "amazon.in/minitv", "minitv",
             "cam4.com",
+            "bigo.tv", "bigolive.tv",
             "cammodels.com",
             "chaturbate.com",
             "discoveryplus.in", "discoveryplus.com",
@@ -191,6 +205,10 @@ object YtDlpResolver {
             val isYouTube = targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be") || (targetUrl.length == 11 && !targetUrl.startsWith("http") && !targetUrl.contains(" "))
             val videoUrl = when {
                 targetUrl.startsWith("http://") || targetUrl.startsWith("https://") -> targetUrl
+                targetUrl.startsWith("bigo:", ignoreCase = true) -> "https://www.bigo.tv/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("cam4:", ignoreCase = true) -> "https://www.cam4.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("chaturbate:", ignoreCase = true) -> "https://chaturbate.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("cammodels:", ignoreCase = true) -> "https://www.cammodels.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("bilisearch", ignoreCase = true) -> targetUrl
                 targetUrl.startsWith("BV", ignoreCase = true) || targetUrl.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$targetUrl"
                 targetUrl.startsWith("ep", ignoreCase = true) || targetUrl.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$targetUrl"
@@ -274,9 +292,13 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://www.xvideos.com/")
                     domainHeaders["Referer"] = "https://www.xvideos.com/"
                 }
-                lowerUrl.contains("4tube.com") -> {
+                lowerUrl.contains("4tube.com") || lowerUrl.startsWith("4tube:") -> {
                     request.addOption("--add-header", "Referer: https://www.4tube.com/")
+                    request.addOption("--add-header", "Origin: https://www.4tube.com")
+                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1")
                     domainHeaders["Referer"] = "https://www.4tube.com/"
+                    domainHeaders["Origin"] = "https://www.4tube.com"
+                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1"
                 }
                 lowerUrl.contains("beeg.com") -> {
                     request.addOption("--add-header", "Referer: https://beeg.com/")
@@ -302,6 +324,38 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://www.eporner.com/")
                     domainHeaders["Referer"] = "https://www.eporner.com/"
                 }
+                lowerUrl.contains("tnaflix.com") || lowerUrl.startsWith("tnaflix:") -> {
+                    request.addOption("--add-header", "Referer: https://www.tnaflix.com/")
+                    request.addOption("--add-header", "Origin: https://www.tnaflix.com")
+                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; has_consent=1")
+                    domainHeaders["Referer"] = "https://www.tnaflix.com/"
+                    domainHeaders["Origin"] = "https://www.tnaflix.com"
+                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
+                }
+                lowerUrl.contains("hanime1.me") || lowerUrl.contains("hanime.tv") || lowerUrl.startsWith("hanime1:") || lowerUrl.startsWith("hanime:") -> {
+                    request.addOption("--add-header", "Referer: https://hanime1.me/")
+                    request.addOption("--add-header", "Origin: https://hanime1.me")
+                    request.addOption("--add-header", "Cookie: age_verified=1; country=US; language=en")
+                    domainHeaders["Referer"] = "https://hanime1.me/"
+                    domainHeaders["Origin"] = "https://hanime1.me"
+                    domainHeaders["Cookie"] = "age_verified=1; country=US; language=en"
+                }
+                lowerUrl.contains("noodlemagazine.com") || lowerUrl.startsWith("noodlemagazine:") || lowerUrl.startsWith("noodlemag:") -> {
+                    request.addOption("--add-header", "Referer: https://noodlemagazine.com/")
+                    request.addOption("--add-header", "Origin: https://noodlemagazine.com")
+                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; ft_mature=1; consent=1")
+                    domainHeaders["Referer"] = "https://noodlemagazine.com/"
+                    domainHeaders["Origin"] = "https://noodlemagazine.com"
+                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; ft_mature=1; consent=1"
+                }
+                lowerUrl.contains("hqporner.com") || lowerUrl.contains("hqporner.tv") || lowerUrl.startsWith("hqporner:") || lowerUrl.startsWith("hqplayer:") -> {
+                    request.addOption("--add-header", "Referer: https://hqporner.com/")
+                    request.addOption("--add-header", "Origin: https://hqporner.com")
+                    request.addOption("--add-header", "Cookie: age_verified=1; country=US; consent=1")
+                    domainHeaders["Referer"] = "https://hqporner.com/"
+                    domainHeaders["Origin"] = "https://hqporner.com"
+                    domainHeaders["Cookie"] = "age_verified=1; country=US; consent=1"
+                }
                 lowerUrl.contains("hotstar.com") || lowerUrl.contains("jiohotstar.com") -> {
                     request.addOption("--add-header", "Referer: https://www.hotstar.com/")
                     request.addOption("--add-header", "Origin: https://www.hotstar.com")
@@ -323,6 +377,12 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Origin: https://www.cam4.com")
                     domainHeaders["Referer"] = "https://www.cam4.com/"
                     domainHeaders["Origin"] = "https://www.cam4.com"
+                }
+                lowerUrl.contains("bigo.tv") || lowerUrl.contains("bigolive.tv") || lowerUrl.startsWith("bigo:") -> {
+                    request.addOption("--add-header", "Referer: https://www.bigo.tv/")
+                    request.addOption("--add-header", "Origin: https://www.bigo.tv")
+                    domainHeaders["Referer"] = "https://www.bigo.tv/"
+                    domainHeaders["Origin"] = "https://www.bigo.tv"
                 }
                 lowerUrl.contains("chaturbate.com") || lowerUrl.startsWith("chaturbate:") -> {
                     request.addOption("--add-header", "Referer: https://chaturbate.com/")

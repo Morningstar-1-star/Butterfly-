@@ -17,7 +17,9 @@ import com.example.resolver.providers.SpankBangSourceProvider
 import com.example.resolver.providers.YarrSourceProvider
 import com.example.resolver.embed.TwoEmbedProvider
 import com.example.resolver.embed.VidlinkEmbedProvider
+import com.example.resolver.embed.VidrockEmbedProvider
 import com.example.resolver.embed.VidsrcMeEmbedProvider
+import com.example.resolver.embed.VidsrcSbsEmbedProvider
 import com.example.resolver.embed.VidsrcToEmbedProvider
 import com.example.resolver.providers.EmbedSourceProviderAdapter
 import com.example.resolver.validation.MediaIdentityValidator
@@ -67,12 +69,16 @@ class UnifiedSourceResolver(private val context: Context) {
 
     // Embed Providers
     private val vidlinkProvider = EmbedSourceProviderAdapter(VidlinkEmbedProvider())
+    private val vidsrcSbsProvider = EmbedSourceProviderAdapter(VidsrcSbsEmbedProvider())
+    private val vidrockProvider = EmbedSourceProviderAdapter(VidrockEmbedProvider())
     private val vidsrcToProvider = EmbedSourceProviderAdapter(VidsrcToEmbedProvider())
     private val twoEmbedProvider = EmbedSourceProviderAdapter(TwoEmbedProvider())
     private val vidsrcMeProvider = EmbedSourceProviderAdapter(VidsrcMeEmbedProvider())
 
     val activeProviders: List<SourceProvider>
         get() = listOf(
+            vidsrcSbsProvider,
+            vidrockProvider,
             vidlinkProvider,
             vidsrcToProvider,
             twoEmbedProvider,

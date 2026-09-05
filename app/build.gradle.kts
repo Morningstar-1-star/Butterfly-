@@ -22,8 +22,21 @@ android {
       abiFilters += listOf("x86_64", "arm64-v8a")
     }
 
+    externalNativeBuild {
+      cmake {
+        cppFlags += "-std=c++17"
+      }
+    }
+
     val poTokenUrl: String = (project.findProperty("PO_TOKEN_SERVER_URL") as String?) ?: "http://127.0.0.1:4416"
     buildConfigField("String", "PO_TOKEN_SERVER_URL", "\"$poTokenUrl\"")
+  }
+
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
   }
 
   packaging {

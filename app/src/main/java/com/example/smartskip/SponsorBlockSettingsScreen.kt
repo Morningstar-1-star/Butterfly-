@@ -29,8 +29,9 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SponsorBlockSettingsScreen(
-    onBackClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onBackClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    showTopBar: Boolean = false
 ) {
     val context = LocalContext.current
     val prefs = remember { SmartSkipPreferences.getInstance(context) }
@@ -46,58 +47,29 @@ fun SponsorBlockSettingsScreen(
     var selectedCategoryForDialog by remember { mutableStateOf<SkipCategory?>(null) }
     var showResetDialog by remember { mutableStateOf(false) }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "SponsorBlock",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showResetDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Reset to Defaults",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { innerPadding ->
+    val content: @Composable (PaddingValues) -> Unit = { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Master Switch
+            // Master Switch Card at the very top
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        containerColor = if (isMasterEnabled) 
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                        else 
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isMasterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     )
                 ) {
                     Row(
@@ -107,17 +79,19 @@ fun SponsorBlockSettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                             Text(
-                                text = "Enable Smart Skip / SponsorBlock",
+                                text = "Enable SponsorBlock",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Automatically detect and skip sponsored segments, intros, credits, and filler",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
                             )
                         }
                         Switch(
@@ -128,18 +102,51 @@ fun SponsorBlockSettingsScreen(
                 }
             }
 
-            // Section Header: "Change segment behavior" (Matching user screenshot)
+            // Section Header: "Change segment behavior" with Reset button
             item {
-                Text(
-                    text = "Change segment behavior",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Change segment behavior",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Tap any segment type to customize skip behavior",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { showResetDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reset",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Reset",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
 
-            // 10 Categories matching SponsorBlock and screenshot
+            // 10 Categories matching SponsorBlock
             items(SkipCategory.values()) { category ->
                 val behavior = categoryBehaviors[category] ?: category.defaultBehavior
                 CategorySegmentRow(
@@ -152,12 +159,12 @@ fun SponsorBlockSettingsScreen(
                 )
             }
 
-            // General & Player Preferences Section
+            // Playback & Notification Options Section
             item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Playback & Notification Options",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(start = 4.dp)
@@ -170,6 +177,10 @@ fun SponsorBlockSettingsScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     )
                 ) {
                     Column(
@@ -184,7 +195,7 @@ fun SponsorBlockSettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
                                     text = "Skip Notification",
                                     style = MaterialTheme.typography.bodyLarge,
@@ -204,7 +215,7 @@ fun SponsorBlockSettingsScreen(
                             )
                         }
 
-                        HorizontalDivider()
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                         // Skip Animation Pulse
                         Row(
@@ -212,7 +223,7 @@ fun SponsorBlockSettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
                                     text = "Skip Animation",
                                     style = MaterialTheme.typography.bodyLarge,
@@ -232,7 +243,7 @@ fun SponsorBlockSettingsScreen(
                             )
                         }
 
-                        HorizontalDivider()
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                         // Skip Button Duration (for manual prompt mode)
                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -273,12 +284,13 @@ fun SponsorBlockSettingsScreen(
 
             // Per-Source Enable / Disable Section
             item {
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Segment Providers & Sources",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                    modifier = Modifier.padding(start = 4.dp)
                 )
             }
 
@@ -288,6 +300,10 @@ fun SponsorBlockSettingsScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     )
                 ) {
                     Column(
@@ -297,14 +313,14 @@ fun SponsorBlockSettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         SkipSource.values().forEachIndexed { index, source ->
-                            if (index > 0) HorizontalDivider()
+                            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                             val isSourceOn = sourceToggles[source] ?: true
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                     Text(
                                         text = source.displayName,
                                         style = MaterialTheme.typography.bodyLarge,
@@ -331,6 +347,52 @@ fun SponsorBlockSettingsScreen(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+    }
+
+    if (showTopBar) {
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "SponsorBlock",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showResetDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reset to Defaults",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
+                    )
+                )
+            }
+        ) { padding ->
+            content(padding)
+        }
+    } else {
+        Box(modifier = modifier.fillMaxSize()) {
+            content(PaddingValues(0.dp))
         }
     }
 

@@ -468,6 +468,18 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isBigo = providerId == "bigo" || urlOrId.contains("bigo.tv") || urlOrId.contains("bigolive.tv") || urlOrId.startsWith("bigo:", ignoreCase = true)
+        if (isBigo) {
+            val bigoData = BigoProvider.getStreamData(urlOrId, context)
+            if (bigoData != null) {
+                Log.i(TAG, "Resolved via BigoProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(bigoData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Bigo to YtDlpResolver for $urlOrId")
+                return@withContext YtDlpResolver.extractStreamInfo(context, urlOrId)
+            }
+        }
+
         val isCamModels = providerId == "cammodels" || urlOrId.contains("cammodels.com") || urlOrId.startsWith("cammodels:", ignoreCase = true)
         if (isCamModels) {
             val cmData = CamModelsProvider.getStreamData(urlOrId, context)
@@ -516,8 +528,8 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isNoodleMagazine = providerId == "noodlemagazine" || urlOrId.contains("noodlemagazine.com") ||
-                urlOrId.startsWith("noodlemagazine:", ignoreCase = true)
+        val isNoodleMagazine = providerId == "noodlemagazine" || providerId == "noodlemag" || urlOrId.contains("noodlemagazine.com") ||
+                urlOrId.startsWith("noodlemagazine:", ignoreCase = true) || urlOrId.startsWith("noodlemag:", ignoreCase = true)
         if (isNoodleMagazine) {
             val nmData = NoodleMagazineProvider.getStreamData(urlOrId, context)
             if (nmData != null) {
@@ -718,7 +730,8 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isHanime1 = providerId == "hanime1" || providerId == "hanime" || urlOrId.contains("hanime1") || urlOrId.contains("hanime.tv")
+        val isHanime1 = providerId == "hanime1" || providerId == "hanime" || urlOrId.contains("hanime1") || urlOrId.contains("hanime.tv") ||
+                urlOrId.startsWith("hanime1:", ignoreCase = true) || urlOrId.startsWith("hanime:", ignoreCase = true)
         if (isHanime1) {
             val h1Data = Hanime1Provider.getStreamData(urlOrId, context)
             if (h1Data != null) {
@@ -734,7 +747,8 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isHQPorner = providerId == "hqporner" || urlOrId.contains("hqporner")
+        val isHQPorner = providerId == "hqporner" || providerId == "hqplayer" || urlOrId.contains("hqporner") || urlOrId.contains("hqplayer") ||
+                urlOrId.startsWith("hqporner:", ignoreCase = true) || urlOrId.startsWith("hqplayer:", ignoreCase = true)
         if (isHQPorner) {
             val hqpData = HQPornerProvider.getStreamData(urlOrId, context)
             if (hqpData != null) {
@@ -770,7 +784,7 @@ object YouTubeExtractorHelper {
                 urlOrId.startsWith("bilisearch", ignoreCase = true)
         if (isBilibili) {
             val biliData = BilibiliProvider.getStreamData(urlOrId, context)
-            if (biliData != null) {
+            if (biliData != null && biliData.availableStreamOptions.isNotEmpty() && (!biliData.videoUrl.isNullOrBlank() || biliData.selectedStreamOption != null)) {
                 Log.i(TAG, "Resolved via BilibiliProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(biliData)
             } else if (context != null) {

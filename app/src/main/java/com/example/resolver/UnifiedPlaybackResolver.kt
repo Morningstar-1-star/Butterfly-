@@ -343,6 +343,10 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         }
     }
 
+    fun setActiveCandidate(candidate: SourceCandidate?) {
+        _activeCandidate.value = candidate
+    }
+
     fun release() {
         activeTorrentServer?.stop()
         activeTorrentServer = null

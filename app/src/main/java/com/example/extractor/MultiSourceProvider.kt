@@ -40,7 +40,7 @@ object MultiSourceProvider {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> getCloudSocialHome(context, pid, limit, page)
             "thisvid" -> ThisVidProvider.getHome(limit, page)
             "tnaflix" -> TnaFlixProvider.getHome(limit, page)
-            "noodlemagazine" -> NoodleMagazineProvider.getHome(limit, page)
+            "noodlemagazine", "noodlemag" -> NoodleMagazineProvider.getHome(limit, page)
             "cam4" -> CAM4Provider.getHome(limit, page)
             "cammodels" -> CamModelsProvider.getHome(limit, page)
             "chaturbate" -> ChaturbateProvider.getHome(limit, page)
@@ -65,8 +65,9 @@ object MultiSourceProvider {
             "eporner" -> EpornerProvider.getHome(limit, page)
             "spankbang" -> SpankBangProvider.getHome(page, limit)
             "hanime1", "hanime" -> Hanime1Provider.getHome(page, limit)
-            "hqporner" -> HQPornerProvider.getHome(page, limit)
+            "hqporner", "hqplayer" -> HQPornerProvider.getHome(page, limit)
             "twitch" -> TwitchProvider.getHome(limit, page)
+            "bigo", "bigolive" -> BigoProvider.getHome(limit, page)
             "rule34video" -> parseRule34Html(if (page > 1) "https://rule34video.com/?page=$page" else "https://rule34video.com/", limit)
             else -> emptyList()
         }
@@ -82,7 +83,7 @@ object MultiSourceProvider {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> searchCloudSocial(context, pid, query, limit, page)
             "thisvid" -> ThisVidProvider.search(query, limit, page)
             "tnaflix" -> TnaFlixProvider.search(query, limit, page)
-            "noodlemagazine" -> NoodleMagazineProvider.search(query, limit, page)
+            "noodlemagazine", "noodlemag" -> NoodleMagazineProvider.search(query, limit, page)
             "cam4" -> CAM4Provider.search(query, limit, page)
             "cammodels" -> CamModelsProvider.search(query, limit, page)
             "chaturbate" -> ChaturbateProvider.search(query, limit, page)
@@ -107,8 +108,9 @@ object MultiSourceProvider {
             "eporner" -> EpornerProvider.search(query, limit, page)
             "spankbang" -> SpankBangProvider.search(query, page, limit)
             "hanime1", "hanime" -> Hanime1Provider.search(query, page, limit)
-            "hqporner" -> HQPornerProvider.search(query, page, limit)
+            "hqporner", "hqplayer" -> HQPornerProvider.search(query, page, limit)
             "twitch" -> TwitchProvider.search(query, limit, page)
+            "bigo", "bigolive" -> BigoProvider.search(query, limit, page)
             "rule34video" -> parseRule34Html("https://rule34video.com/search/${URLEncoder.encode(query, "UTF-8")}/${if (page > 1) "?page=$page" else ""}", limit)
             else -> emptyList()
         }
@@ -116,8 +118,9 @@ object MultiSourceProvider {
 
     // ------------------- BILIBILI -------------------
     fun getBilibiliHome(page: Int = 1, limit: Int = 20): List<VideoItem> {
-        val url = "https://api.bilibili.com/x/web-interface/popular?ps=$limit&pn=$page"
-        return parseBilibiliJsonApi(url)
+        return kotlinx.coroutines.runBlocking {
+            BilibiliProvider.getHomeVideos(page, limit)
+        }
     }
 
     fun getBilibiliCategory(category: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
@@ -127,132 +130,9 @@ object MultiSourceProvider {
     }
 
     private fun searchBilibili(query: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
-        val cleanQuery = query.replace(Regex("(?i)^bilisearch\\d*:"), "").trim()
-        val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
-        val url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=$encoded&page=$page"
-        val results = parseBilibiliSearchJsonApi(url)
-        if (results.isNotEmpty()) return results
-        val catKey = cleanQuery.lowercase()
-        if (BilibiliProvider.CATEGORY_RID_MAP.containsKey(catKey)) {
-            return kotlinx.coroutines.runBlocking {
-                BilibiliProvider.fetchCategoryVideos(catKey, page, limit)
-            }
+        return kotlinx.coroutines.runBlocking {
+            BilibiliProvider.searchBilibili(query, page, limit)
         }
-        return results
-    }
-
-    private fun parseBilibiliJsonApi(url: String): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Referer", "https://www.bilibili.com/")
-                .build()
-            val jsonStr = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val jsonObj = JSONObject(jsonStr)
-            val dataObj = jsonObj.optJSONObject("data") ?: return list
-            val array = dataObj.optJSONArray("list") ?: return list
-
-            for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val bvid = item.optString("bvid", "")
-                if (bvid.isBlank()) continue
-                val rawTitle = item.optString("title", "Bilibili Video")
-                val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                val translatedTitle = try {
-                    com.example.util.SubtitleTranslator.translateTextSync(cleanTitle, targetLang = "en", sourceLang = "zh")
-                } catch (e: Exception) {
-                    cleanTitle
-                }
-                val finalTitle = if (translatedTitle.isNotBlank() && translatedTitle != cleanTitle) {
-                    translatedTitle
-                } else {
-                    cleanTitle
-                }
-
-                var pic = item.optString("pic", "")
-                if (pic.startsWith("//")) pic = "https:$pic"
-                val owner = item.optJSONObject("owner")?.optString("name", "Bilibili") ?: "Bilibili"
-                val duration = item.optLong("duration", -1L)
-                val stat = item.optJSONObject("stat")
-                val viewCount = stat?.optLong("view", -1L) ?: -1L
-
-                list.add(
-                    VideoItem(
-                        id = "https://www.bilibili.com/video/$bvid",
-                        title = finalTitle,
-                        uploaderName = owner,
-                        durationSeconds = duration,
-                        viewCount = viewCount,
-                        thumbnailUrl = pic,
-                        providerId = "bilibili"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Bilibili parse error: ${e.message}")
-        }
-        return list
-    }
-
-    private fun parseBilibiliSearchJsonApi(url: String): List<VideoItem> {
-        val list = mutableListOf<VideoItem>()
-        try {
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Referer", "https://www.bilibili.com/")
-                .build()
-            val jsonStr = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            } ?: return list
-
-            val jsonObj = JSONObject(jsonStr)
-            val dataObj = jsonObj.optJSONObject("data") ?: return list
-            val array = dataObj.optJSONArray("result") ?: return list
-
-            for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val bvid = item.optString("bvid", "")
-                if (bvid.isBlank()) continue
-                val rawTitle = item.optString("title", "Bilibili Video")
-                val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                val translatedTitle = try {
-                    com.example.util.SubtitleTranslator.translateTextSync(cleanTitle, targetLang = "en", sourceLang = "zh")
-                } catch (e: Exception) {
-                    cleanTitle
-                }
-                val finalTitle = if (translatedTitle.isNotBlank() && translatedTitle != cleanTitle) {
-                    translatedTitle
-                } else {
-                    cleanTitle
-                }
-
-                var pic = item.optString("pic", "")
-                if (pic.startsWith("//")) pic = "https:$pic"
-                val author = item.optString("author", "Bilibili")
-                val play = item.optLong("play", -1L)
-
-                list.add(
-                    VideoItem(
-                        id = "https://www.bilibili.com/video/$bvid",
-                        title = finalTitle,
-                        uploaderName = author,
-                        durationSeconds = -1L,
-                        viewCount = play,
-                        thumbnailUrl = pic,
-                        providerId = "bilibili"
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Bilibili search parse error: ${e.message}")
-        }
-        return list
     }
 
     // ------------------- BEEG -------------------
@@ -523,7 +403,9 @@ object MultiSourceProvider {
 
     // ------------------- 4TUBE -------------------
     private fun parse4tubeHtml(targetUrl: String, limit: Int): List<VideoItem> {
-        return FourTubeProvider.getHome(1, limit)
+        return kotlinx.coroutines.runBlocking {
+            FourTubeProvider.getHome(1, limit)
+        }
     }
 
     // ------------------- RULE34VIDEO -------------------

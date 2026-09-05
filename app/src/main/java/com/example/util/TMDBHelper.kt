@@ -1080,22 +1080,23 @@ object TMDBHelper {
                         val obj = results.getJSONObject(i)
                         val tmdbId = obj.optInt("id")
                         val title = obj.optString("title", "Untitled")
-                        val posterPath = obj.optString("poster_path")
+                        val posterPath = obj.optString("poster_path").takeIf { it.isNotBlank() && it != "null" }
+                        val backdropPath = obj.optString("backdrop_path").takeIf { it.isNotBlank() && it != "null" }
                         val releaseDate = obj.optString("release_date", "2025")
                         val year = if (releaseDate.length >= 4) releaseDate.take(4) else "2025"
                         val voteAvg = obj.optDouble("vote_average", 7.5)
 
-                        val posterUrl = if (posterPath.isNotBlank() && posterPath != "null") {
-                            "https://image.tmdb.org/t/p/w500$posterPath"
-                        } else null
+                        val backdropUrl = backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
+                        val posterUrl = posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+                        val thumbUrl = backdropUrl ?: posterUrl
 
-                        if (posterUrl != null) {
+                        if (thumbUrl != null) {
                             list.add(
                                 com.example.model.VideoItem(
                                     id = "movie_$tmdbId",
                                     title = title,
                                     uploaderName = "$year • $categoryLabel • ★${String.format("%.1f", voteAvg)}",
-                                    thumbnailUrl = posterUrl,
+                                    thumbnailUrl = thumbUrl,
                                     providerId = "tmdb"
                                 )
                             )
@@ -1240,8 +1241,11 @@ object TMDBHelper {
                 val results = json.optJSONArray("results")
                 if (results != null && results.length() > 0) {
                     val first = results.getJSONObject(0)
-                    val posterPath = first.optString("poster_path")
-                    if (posterPath.isNotBlank() && posterPath != "null") {
+                    val backdropPath = first.optString("backdrop_path").takeIf { it.isNotBlank() && it != "null" }
+                    val posterPath = first.optString("poster_path").takeIf { it.isNotBlank() && it != "null" }
+                    if (backdropPath != null) {
+                        return@withContext "https://image.tmdb.org/t/p/w780$backdropPath"
+                    } else if (posterPath != null) {
                         return@withContext "https://image.tmdb.org/t/p/w500$posterPath"
                     }
                 }

@@ -317,6 +317,42 @@ object ChannelLogoHelper {
                 subscriberCountText = "11.1M subscribers"
             )
 
+            combined.contains("agbo") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/AGBO_logo.svg/200px-AGBO_logo.svg.png"),
+                brandName = "AGBO",
+                brandShortText = "AGBO",
+                backgroundColor = Color(0xFF18181B),
+                textColor = Color.White,
+                subscriberCountText = "Official Studio • Verified"
+            )
+
+            combined.contains("punch palace") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = "Punch Palace Productions",
+                brandShortText = "PPP",
+                backgroundColor = Color(0xFF27272A),
+                textColor = Color.White,
+                subscriberCountText = "Official Production"
+            )
+
+            combined.contains("tea shop") -> BrandLogoInfo(
+                logoUrls = emptyList(),
+                brandName = "Tea Shop Productions",
+                brandShortText = "TEA SHOP",
+                backgroundColor = Color(0xFF1E293B),
+                textColor = Color.White,
+                subscriberCountText = "Official Production"
+            )
+
+            combined.contains("amc") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/AMC_logo_2019.svg/200px-AMC_logo_2019.svg.png"),
+                brandName = "AMC Studios",
+                brandShortText = "AMC",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "19.5M subscribers"
+            )
+
             combined.contains("amazon") || combined.contains("prime video") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Prime_Video.png/200px-Prime_Video.png"
@@ -421,6 +457,15 @@ object ChannelLogoHelper {
                 backgroundColor = Color(0xFF9146FF),
                 textColor = Color.White,
                 subscriberCountText = "Twitch Verified Partner"
+            )
+
+            combined.contains("bigo") -> BrandLogoInfo(
+                logoUrls = listOf("https://static-web.bigolive.tv/as/bigo-static/fe_sdk/img/logo.png", "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Bigo_Live_logo.png/200px-Bigo_Live_logo.png"),
+                brandName = cleanName,
+                brandShortText = "BL",
+                backgroundColor = Color(0xFF00E5FF),
+                textColor = Color(0xFF002244),
+                subscriberCountText = "Bigo Live Broadcaster"
             )
 
             combined.contains("spankbang") -> BrandLogoInfo(
