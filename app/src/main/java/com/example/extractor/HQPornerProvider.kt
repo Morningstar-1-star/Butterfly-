@@ -227,6 +227,19 @@ object HQPornerProvider {
             .ifEmpty { getCurated4KList(limit, safePage) }
     }
 
+    private fun parseQualityScore(quality: String): Int {
+        val q = quality.lowercase()
+        return when {
+            q.contains("4k") || q.contains("2160") -> 100
+            q.contains("1440") || q.contains("2k") -> 90
+            q.contains("1080") -> 80
+            q.contains("720") -> 60
+            q.contains("480") -> 40
+            q.contains("360") -> 30
+            else -> 20
+        }
+    }
+
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val videoSlug = extractVideoId(urlOrId)
         val mirrors = MirrorManager.getOrderedMirrors(PROVIDER_ID).ifEmpty {
@@ -322,7 +335,7 @@ object HQPornerProvider {
                     }
 
                     if (options.isNotEmpty()) {
-                        val selected = options.maxByOrNull { SpankBangProvider.parseQualityScore(it.qualityLabel) } ?: options.first()
+                        val selected = options.maxByOrNull { parseQualityScore(it.qualityLabel) } ?: options.first()
                         return@withContext StreamData(
                             videoId = videoSlug,
                             title = resolvedTitle,

@@ -1,7 +1,6 @@
 package com.example.resolver.providers
 
 import com.example.extractor.Hanime1Provider
-import com.example.extractor.SpankBangProvider
 import com.example.model.MediaIdentity
 import com.example.resolver.PlaybackCapabilities
 import com.example.resolver.SourceCandidate
@@ -16,6 +15,19 @@ class Hanime1SourceProvider : SourceProvider {
     override val displayName: String = "Hanime1 Anime HLS"
     override val isEnabled: Boolean = true
     override val priority: Int = 94
+
+    private fun parseQualityScore(quality: String): Int {
+        val q = quality.lowercase()
+        return when {
+            q.contains("4k") || q.contains("2160") -> 100
+            q.contains("1440") || q.contains("2k") -> 90
+            q.contains("1080") -> 80
+            q.contains("720") -> 60
+            q.contains("480") -> 40
+            q.contains("360") -> 30
+            else -> 20
+        }
+    }
 
     override fun searchSources(identity: MediaIdentity): Flow<List<SourceCandidate>> = flow {
         val query = identity.rawQueryOrUrl.ifBlank { identity.title }
@@ -39,7 +51,7 @@ class Hanime1SourceProvider : SourceProvider {
                     title = streamData.title,
                     urlOrMagnet = vUrl,
                     quality = opt.qualityLabel,
-                    qualityScore = SpankBangProvider.parseQualityScore(opt.qualityLabel),
+                    qualityScore = parseQualityScore(opt.qualityLabel),
                     format = opt.format,
                     headers = opt.headers,
                     healthScore = health,
@@ -65,7 +77,7 @@ class Hanime1SourceProvider : SourceProvider {
                             title = data.title,
                             urlOrMagnet = vUrl,
                             quality = opt.qualityLabel,
-                            qualityScore = SpankBangProvider.parseQualityScore(opt.qualityLabel),
+                            qualityScore = parseQualityScore(opt.qualityLabel),
                             format = opt.format,
                             headers = opt.headers,
                             healthScore = health,

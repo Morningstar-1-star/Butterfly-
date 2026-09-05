@@ -10,16 +10,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 /**
  * TNAFlix Provider & Stream Extractor.
- * Provides high-speed video catalog, search, token extraction, HTML scraping,
- * native yt-dlp resolution, and resilient cross-provider stream resolution.
+ * Provides high-speed video catalog, search, and direct MP4/HLS stream extraction
+ * exclusively for native TNAFlix content.
  */
 object TnaFlixProvider {
     private const val TAG = "TnaFlixProvider"
@@ -27,6 +27,7 @@ object TnaFlixProvider {
 
     private const val DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     private const val BASE_URL = "https://www.tnaflix.com"
+    private const val PLAYER_BASE_URL = "https://player.tnaflix.com"
 
     private val httpClient = OkHttpClient.Builder()
         .dns(com.example.util.SecureDnsManager.appDns)
@@ -43,7 +44,6 @@ object TnaFlixProvider {
         "Cookie" to "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1"
     )
 
-    // Guaranteed working reliable fallback streams if upstream CDNs are completely offline
     private val fallbackStreams = listOf(
         "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
         "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
@@ -57,12 +57,23 @@ object TnaFlixProvider {
 
     suspend fun getHome(limit: Int = 30, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val safePage = if (page < 1) 1 else page
-        val urls = listOf(
-            if (safePage == 1) "$BASE_URL/" else "$BASE_URL/?page=$safePage",
-            if (safePage == 1) "$BASE_URL/popular-videos" else "$BASE_URL/popular-videos?page=$safePage",
-            if (safePage == 1) "$BASE_URL/top-rated" else "$BASE_URL/top-rated?page=$safePage",
-            if (safePage == 1) "$BASE_URL/latest-updates" else "$BASE_URL/latest-updates?page=$safePage"
-        )
+        val urls = if (safePage == 1) {
+            listOf(
+                "$BASE_URL/",
+                "$BASE_URL/featured",
+                "$BASE_URL/popular-videos",
+                "$BASE_URL/latest-updates"
+            )
+        } else {
+            listOf(
+                "$BASE_URL/featured/$safePage",
+                "$BASE_URL/popular-videos/$safePage",
+                "$BASE_URL/latest-updates/$safePage",
+                "$BASE_URL/recent/$safePage",
+                "$BASE_URL/?page=$safePage"
+            )
+        }
+
         for (u in urls) {
             val list = parseHtml(u, limit)
             if (list.isNotEmpty()) {
@@ -71,22 +82,7 @@ object TnaFlixProvider {
             }
         }
 
-        // Secondary fallback: if TNAFlix is geo-blocked, load from high-quality adult mirrors
-        try {
-            val fallbackEporner = EpornerProvider.getHome(limit, safePage)
-            if (fallbackEporner.isNotEmpty()) {
-                return@withContext fallbackEporner.map { item ->
-                    item.copy(
-                        id = "$BASE_URL/video${extractVideoId(item.id)}",
-                        providerId = PROVIDER_ID,
-                        uploaderName = "${item.uploaderName.ifBlank { "TNAFlix" }} (TNAFlix)"
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Secondary home fallback note: ${e.message}")
-        }
-
+        Log.w(TAG, "TNAFlix getHome could not fetch videos for page $safePage")
         emptyList()
     }
 
@@ -98,9 +94,10 @@ object TnaFlixProvider {
         val encoded = URLEncoder.encode(q, "UTF-8")
         val urls = listOf(
             "$BASE_URL/search.php?what=$encoded&page=$safePage",
-            "$BASE_URL/search?query=$encoded&page=$safePage",
-            "$BASE_URL/search/$encoded?page=$safePage"
+            "$BASE_URL/search/$encoded/$safePage",
+            "$BASE_URL/search?query=$encoded&page=$safePage"
         )
+
         for (searchUrl in urls) {
             val list = parseHtml(searchUrl, limit)
             if (list.isNotEmpty()) {
@@ -109,265 +106,200 @@ object TnaFlixProvider {
             }
         }
 
-        // Resilient fallback search via high-availability providers
-        try {
-            val epResults = EpornerProvider.search(q, limit, safePage)
-            if (epResults.isNotEmpty()) {
-                return@withContext epResults.map { item ->
-                    item.copy(
-                        id = "$BASE_URL/video${extractVideoId(item.id)}",
-                        providerId = PROVIDER_ID,
-                        uploaderName = "${item.uploaderName.ifBlank { "TNAFlix" }} (TNAFlix)"
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Secondary search fallback note: ${e.message}")
-        }
-
+        Log.w(TAG, "TNAFlix search found 0 videos for '$query' on page $safePage")
         emptyList()
     }
 
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val clean = urlOrId.trim()
         val videoId = extractVideoId(clean)
-        val canonicalVideoUrl = if (clean.startsWith("http")) clean else "$BASE_URL/video$videoId"
+        if (videoId.isBlank()) return@withContext null
 
-        var resolvedTitle = "TNAFlix Video"
+        var resolvedTitle = "TNAFlix Video $videoId"
         var resolvedThumbnail = ""
         var resolvedChannel = "TNAFlix"
         var resolvedDuration = -1L
 
-        // -------------------------------------------------------------
-        // Step 1: Query TNAFlix Player Config & Embedded Player APIs
-        // -------------------------------------------------------------
-        val playerConfigUrls = listOf(
-            "$BASE_URL/ajax/player_config.php?id=$videoId",
-            "$BASE_URL/ajax_video_sources.php?id=$videoId",
-            "$BASE_URL/ajax/video_sources.php?id=$videoId",
-            "$BASE_URL/embedded_player.php?vkey=$videoId",
-            "https://player.tnaflix.com/video/$videoId"
-        )
-
-        for (apiUrl in playerConfigUrls) {
-            try {
-                val req = Request.Builder()
-                    .url(apiUrl)
-                    .header("User-Agent", DEFAULT_UA)
-                    .header("Referer", canonicalVideoUrl)
-                    .header("Origin", BASE_URL)
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
-                    .build()
-
-                val bodyStr = httpClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-
-                if (!bodyStr.isNullOrBlank()) {
-                    val streamOptions = mutableListOf<PlayableStreamOption>()
-
-                    // Try JSON parsing
-                    if (bodyStr.trim().startsWith("{") || bodyStr.trim().startsWith("[")) {
-                        try {
-                            if (bodyStr.trim().startsWith("{")) {
-                                val json = JSONObject(bodyStr)
-                                val sourcesArr = json.optJSONArray("sources") ?: json.optJSONArray("media") ?: json.optJSONArray("files")
-                                if (sourcesArr != null) {
-                                    for (i in 0 until sourcesArr.length()) {
-                                        val sObj = sourcesArr.optJSONObject(i) ?: continue
-                                        val fileUrl = sObj.optString("file", sObj.optString("url", sObj.optString("src", "")))
-                                        val label = sObj.optString("label", sObj.optString("quality", sObj.optString("res", "720p")))
-                                        if (fileUrl.isNotBlank() && fileUrl.startsWith("http")) {
-                                            val isHls = fileUrl.contains(".m3u8")
-                                            streamOptions.add(
-                                                PlayableStreamOption(
-                                                    qualityLabel = if (label.contains("p", true)) label else "${label}p",
-                                                    format = if (isHls) "m3u8" else "mp4",
-                                                    isMuxed = true,
-                                                    videoUrl = fileUrl,
-                                                    providerType = ProviderType.OTHER,
-                                                    headers = defaultHeaders
-                                                )
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // Key-value qualities like {"720p": "url", "1080p": "url"}
-                                    val keys = json.keys()
-                                    while (keys.hasNext()) {
-                                        val key = keys.next()
-                                        val valStr = json.optString(key, "")
-                                        if (valStr.startsWith("http") && (valStr.contains(".mp4") || valStr.contains(".m3u8"))) {
-                                            val isHls = valStr.contains(".m3u8")
-                                            streamOptions.add(
-                                                PlayableStreamOption(
-                                                    qualityLabel = key,
-                                                    format = if (isHls) "m3u8" else "mp4",
-                                                    isMuxed = true,
-                                                    videoUrl = valStr,
-                                                    providerType = ProviderType.OTHER,
-                                                    headers = defaultHeaders
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "TNAFlix JSON parse note: ${e.message}")
-                        }
-                    }
-
-                    // Direct Regex Extraction from response
-                    if (streamOptions.isEmpty()) {
-                        val m3u8OrMp4 = Pattern.compile("""https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*""", Pattern.CASE_INSENSITIVE).matcher(bodyStr)
-                        while (m3u8OrMp4.find()) {
-                            val streamUrl = m3u8OrMp4.group(0) ?: continue
-                            if (!streamUrl.contains("preview") && !streamUrl.contains("thumb") && !streamUrl.contains("poster")) {
-                                val isHls = streamUrl.contains(".m3u8")
-                                streamOptions.add(
-                                    PlayableStreamOption(
-                                        qualityLabel = if (isHls) "Auto HLS" else "1080p HD",
-                                        format = if (isHls) "m3u8" else "mp4",
-                                        isMuxed = true,
-                                        videoUrl = streamUrl,
-                                        providerType = ProviderType.OTHER,
-                                        headers = defaultHeaders
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    if (streamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully extracted ${streamOptions.size} streams from TNAFlix API $apiUrl")
-                        return@withContext StreamData(
-                            videoId = videoId,
-                            videoUrl = streamOptions.first().videoUrl ?: "",
-                            title = resolvedTitle,
-                            channelName = resolvedChannel,
-                            thumbnailUrl = resolvedThumbnail,
-                            availableStreamOptions = streamOptions,
-                            selectedStreamOption = streamOptions.first(),
-                            providerId = PROVIDER_ID,
-                            headers = defaultHeaders
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "TNAFlix player API $apiUrl error: ${e.message}")
-            }
+        // Prioritized endpoints:
+        // 1. Full page URL if provided
+        // 2. player.tnaflix.com/video/$videoId (consistently embeds all direct multi-quality sources)
+        // 3. www.tnaflix.com/video$videoId
+        val candidateUrls = mutableListOf<String>()
+        if (clean.startsWith("http") && clean.contains("tnaflix.com")) {
+            candidateUrls.add(clean)
         }
+        candidateUrls.add("$PLAYER_BASE_URL/video/$videoId")
+        candidateUrls.add("$BASE_URL/video$videoId")
+        candidateUrls.add("$BASE_URL/embedded_player.php?vkey=$videoId")
 
-        // -------------------------------------------------------------
-        // Step 2: Direct Video Page & Embed HTML Scraping
-        // -------------------------------------------------------------
-        val pageUrlsToTry = listOf(
-            canonicalVideoUrl,
-            "$BASE_URL/video$videoId",
-            "$BASE_URL/embed/$videoId",
-            "$BASE_URL/embedded_player.php?vkey=$videoId"
-        )
-
-        for (pageUrl in pageUrlsToTry) {
+        for (pageUrl in candidateUrls) {
             try {
                 val req = Request.Builder()
                     .url(pageUrl)
                     .header("User-Agent", DEFAULT_UA)
-                    .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
                     .header("Referer", "$BASE_URL/")
+                    .header("Origin", BASE_URL)
+                    .header("Cookie", "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1")
                     .build()
 
                 val html = httpClient.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) resp.body?.string() else null
+                } ?: continue
+
+                if (html.isBlank()) continue
+
+                val doc = Jsoup.parse(html, pageUrl)
+
+                // 1. Extract metadata
+                val ogTitle = doc.select("meta[property=og:title]").attr("content").trim()
+                val metaTitle = doc.select("meta[itemprop=name]").attr("content").trim()
+                val docTitle = doc.select("title, h1, .video-title").firstOrNull()?.text()?.trim() ?: ""
+
+                val candidateTitle = ogTitle.ifBlank { metaTitle }.ifBlank { docTitle }
+                if (candidateTitle.isNotBlank()) {
+                    resolvedTitle = candidateTitle
+                        .replace(Regex("(?i)\\s*(?:-|–)?\\s*TNAFlix.*"), "")
+                        .replace(Regex("(?i)\\s*Porn Videos.*"), "")
+                        .trim()
                 }
 
-                if (!html.isNullOrBlank()) {
-                    val doc = org.jsoup.Jsoup.parse(html)
+                val ogThumb = doc.select("meta[property=og:image]").attr("content").trim()
+                val metaThumb = doc.select("meta[itemprop=image]").attr("content").trim()
+                val videoPoster = doc.select("video").attr("poster").trim()
+                val candidateThumb = ogThumb.ifBlank { metaThumb }.ifBlank { videoPoster }
+                if (candidateThumb.isNotBlank()) {
+                    resolvedThumbnail = if (candidateThumb.startsWith("//")) "https:$candidateThumb" else candidateThumb
+                }
 
-                    // Title
-                    val ogTitle = doc.select("meta[property=og:title]").attr("content").trim()
-                    if (ogTitle.isNotBlank()) {
-                        resolvedTitle = ogTitle.replace(Regex("(?i) - TNAFlix.*"), "").trim()
-                    } else {
-                        val docTitle = doc.select("title, h1, .video-title").firstOrNull()?.text()?.trim() ?: ""
-                        if (docTitle.isNotBlank()) {
-                            resolvedTitle = docTitle.replace(Regex("(?i) - TNAFlix.*"), "").trim()
-                        }
+                val uploader = doc.select("a[href*=\"/profile/\"], a.badge-video-info, .uploader, .author").firstOrNull()?.text()?.trim()
+                if (!uploader.isNullOrBlank()) {
+                    resolvedChannel = uploader
+                }
+
+                val dataDur = doc.select("video").attr("data-duration").trim().toLongOrNull()
+                if (dataDur != null && dataDur > 0) {
+                    resolvedDuration = dataDur
+                }
+
+                // 2. Extract sources from <source> tags
+                val streamOptions = mutableListOf<PlayableStreamOption>()
+                val sourceElements = doc.select("video source[src], #video-player source[src], source[src]")
+
+                for (sEl in sourceElements) {
+                    val src = sEl.attr("src").trim()
+                    if (src.isBlank() || !src.startsWith("http")) continue
+                    if (src.contains("trailer") || src.contains("preview")) continue
+
+                    val sizeAttr = sEl.attr("size").trim()
+                    val labelAttr = sEl.attr("label").trim()
+                    val qualityNum = sizeAttr.ifBlank { labelAttr }.filter { it.isDigit() }
+                    val qualityLabel = when {
+                        qualityNum.isNotBlank() -> "${qualityNum}p HD"
+                        src.contains("-720p") -> "720p HD"
+                        src.contains("-1080p") -> "1080p FHD"
+                        src.contains("-480p") -> "480p"
+                        src.contains("-360p") -> "360p"
+                        src.contains("-240p") -> "240p"
+                        src.contains(".m3u8") -> "Auto HLS"
+                        else -> "720p HD"
                     }
+                    val isHls = src.contains(".m3u8")
 
-                    // Thumbnail
-                    val ogThumb = doc.select("meta[property=og:image]").attr("content").trim()
-                    if (ogThumb.isNotBlank()) {
-                        resolvedThumbnail = if (ogThumb.startsWith("//")) "https:$ogThumb" else ogThumb
-                    }
-
-                    // Creator
-                    val uploader = doc.select(".uploader, .username, .author, a[href*='/users/']").firstOrNull()?.text()?.trim()
-                    if (!uploader.isNullOrBlank()) {
-                        resolvedChannel = uploader
-                    }
-
-                    // Stream Options
-                    val streamOptions = mutableListOf<PlayableStreamOption>()
-
-                    // Method A: JS variables (e.g. video_url, flashvars, sources)
-                    val jsPatterns = listOf(
-                        Pattern.compile("""(?:file|video_url|videoUrl|source|src)\s*:\s*["'](https?:\\?/\\?/[^"']+\.(?:mp4|m3u8)[^"']*)["']""", Pattern.CASE_INSENSITIVE),
-                        Pattern.compile("""["'](https?:\\?/\\?/[^"']+\.(?:mp4|m3u8)[^"']*)["']""", Pattern.CASE_INSENSITIVE),
-                        Pattern.compile("""<source[^>]+src=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE)
+                    streamOptions.add(
+                        PlayableStreamOption(
+                            qualityLabel = qualityLabel,
+                            format = if (isHls) "m3u8" else "mp4",
+                            isMuxed = true,
+                            videoUrl = src,
+                            providerType = ProviderType.OTHER,
+                            headers = defaultHeaders,
+                            qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(qualityLabel, false, false)
+                        )
                     )
+                }
 
-                    for (p in jsPatterns) {
-                        val matcher = p.matcher(html)
-                        while (matcher.find()) {
-                            val rawUrl = matcher.group(1)?.replace("\\/", "/") ?: continue
-                            if (!rawUrl.startsWith("http")) continue
-                            if (rawUrl.contains("preview") || rawUrl.contains("thumb") || rawUrl.contains("trailer") || rawUrl.contains("banner")) continue
-                            val isHls = rawUrl.contains(".m3u8")
-                            streamOptions.add(
-                                PlayableStreamOption(
-                                    qualityLabel = if (isHls) "1080p / 720p HLS" else "HD Direct MP4",
-                                    format = if (isHls) "m3u8" else "mp4",
-                                    isMuxed = true,
-                                    videoUrl = rawUrl,
-                                    providerType = ProviderType.OTHER,
-                                    headers = defaultHeaders
-                                )
+                // Fallback: Regex extraction for <source src="..." size="...">
+                if (streamOptions.isEmpty()) {
+                    val srcRegex = Pattern.compile("""<source[^>]+src=["']([^"']+)["'][^>]*(?:size=["']?(\d+)["']?)?""", Pattern.CASE_INSENSITIVE)
+                    val m = srcRegex.matcher(html)
+                    while (m.find()) {
+                        val src = m.group(1)?.trim() ?: continue
+                        if (!src.startsWith("http") || src.contains("trailer")) continue
+                        val size = m.group(2) ?: ""
+                        val qualityLabel = if (size.isNotBlank()) "${size}p HD" else "720p HD"
+                        val isHls = src.contains(".m3u8")
+
+                        streamOptions.add(
+                            PlayableStreamOption(
+                                qualityLabel = qualityLabel,
+                                format = if (isHls) "m3u8" else "mp4",
+                                isMuxed = true,
+                                videoUrl = src,
+                                providerType = ProviderType.OTHER,
+                                headers = defaultHeaders,
+                                qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(qualityLabel, false, false)
                             )
-                        }
-                        if (streamOptions.isNotEmpty()) break
-                    }
-
-                    if (streamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully extracted ${streamOptions.size} streams from HTML for $pageUrl")
-                        return@withContext StreamData(
-                            videoId = videoId,
-                            videoUrl = streamOptions.first().videoUrl ?: "",
-                            title = resolvedTitle,
-                            channelName = resolvedChannel,
-                            thumbnailUrl = resolvedThumbnail,
-                            availableStreamOptions = streamOptions,
-                            selectedStreamOption = streamOptions.first(),
-                            providerId = PROVIDER_ID,
-                            headers = defaultHeaders
                         )
                     }
                 }
+
+                // Fallback: Regex for direct media URLs in Javascript
+                if (streamOptions.isEmpty()) {
+                    val directMediaRegex = Pattern.compile("""["'](https?://[a-zA-Z0-9.-]*tnaflix\.com/[^"']+\.(?:mp4|m3u8)[^"']*)["']""", Pattern.CASE_INSENSITIVE)
+                    val m2 = directMediaRegex.matcher(html)
+                    while (m2.find()) {
+                        val streamUrl = m2.group(1)?.replace("\\/", "/") ?: continue
+                        if (streamUrl.contains("trailer") || streamUrl.contains("thumb")) continue
+                        val isHls = streamUrl.contains(".m3u8")
+                        streamOptions.add(
+                            PlayableStreamOption(
+                                qualityLabel = if (isHls) "Auto HLS" else "720p HD",
+                                format = if (isHls) "m3u8" else "mp4",
+                                isMuxed = true,
+                                videoUrl = streamUrl,
+                                providerType = ProviderType.OTHER,
+                                headers = defaultHeaders,
+                                qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(if (isHls) "Auto HLS" else "720p HD", false, false)
+                            )
+                        )
+                    }
+                }
+
+                if (streamOptions.isNotEmpty()) {
+                    // Deduplicate and prioritize highest quality first (1080p > 720p > 480p > 360p)
+                    val sortedOptions = streamOptions
+                        .distinctBy { it.videoUrl }
+                        .sortedByDescending { opt ->
+                            val digits = opt.qualityLabel.filter { it.isDigit() }.toIntOrNull() ?: 0
+                            digits
+                        }
+
+                    Log.i(TAG, "Successfully extracted ${sortedOptions.size} native TNAFlix streams for video $videoId from $pageUrl")
+                    return@withContext StreamData(
+                        videoId = videoId,
+                        videoUrl = sortedOptions.first().videoUrl ?: "",
+                        title = resolvedTitle,
+                        channelName = resolvedChannel,
+                        thumbnailUrl = resolvedThumbnail,
+                        availableStreamOptions = sortedOptions,
+                        selectedStreamOption = sortedOptions.first(),
+                        providerId = PROVIDER_ID,
+                        providerType = ProviderType.OTHER,
+                        headers = defaultHeaders
+                    )
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "TNAFlix page scrape error for $pageUrl: ${e.message}")
+                Log.w(TAG, "TNAFlix page extract note for $pageUrl: ${e.message}")
             }
         }
 
-        // -------------------------------------------------------------
-        // Step 3: Native yt-dlp Extraction
-        // -------------------------------------------------------------
+        // Secondary: Native yt-dlp resolver
         if (context != null) {
             try {
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, canonicalVideoUrl)
+                val directVideoUrl = if (clean.startsWith("http")) clean else "$BASE_URL/video$videoId"
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, directVideoUrl)
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success && ytdlResult.streamData.videoUrl.isNotBlank()) {
-                    Log.i(TAG, "yt-dlp successfully resolved TNAFlix stream for $canonicalVideoUrl")
+                    Log.i(TAG, "yt-dlp successfully resolved TNAFlix stream for $directVideoUrl")
                     return@withContext ytdlResult.streamData.copy(
                         providerId = PROVIDER_ID,
                         headers = defaultHeaders
@@ -378,99 +310,18 @@ object TnaFlixProvider {
             }
         }
 
-        // -------------------------------------------------------------
-        // Step 4: Intelligent Cross-Provider Stream Matcher by Title
-        // -------------------------------------------------------------
-        try {
-            val candidateTitle = if (resolvedTitle != "TNAFlix Video") {
-                resolvedTitle
-            } else {
-                extractTitleFromUrl(urlOrId)
-            }
-
-            val cleanQuery = candidateTitle
-                .replace(Regex("""(?i)(?:tnaflix|video|hd|4k|1080p|720p|\d{6,})"""), "")
-                .replace(Regex("""[-_]"""), " ")
-                .trim()
-
-            if (cleanQuery.isNotBlank() && cleanQuery.length > 2) {
-                // Try Eporner
-                val epornerResults = EpornerProvider.search(cleanQuery, limit = 4, page = 1)
-                if (epornerResults.isNotEmpty()) {
-                    val streamData = EpornerProvider.getStreamData(epornerResults.first().id, context)
-                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully matched TNAFlix video to Eporner stream for '$cleanQuery'")
-                        return@withContext streamData.copy(
-                            videoId = videoId,
-                            title = candidateTitle.ifBlank { streamData.title },
-                            channelName = resolvedChannel.ifBlank { "TNAFlix" },
-                            thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                            providerId = PROVIDER_ID,
-                            headers = streamData.headers
-                        )
-                    }
-                }
-
-                // Try SpankBang
-                val spankResults = SpankBangProvider.search(cleanQuery, page = 1, limit = 4)
-                if (spankResults.isNotEmpty()) {
-                    val streamData = SpankBangProvider.getStreamData(spankResults.first().id, context)
-                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully matched TNAFlix video to SpankBang stream for '$cleanQuery'")
-                        return@withContext streamData.copy(
-                            videoId = videoId,
-                            title = candidateTitle.ifBlank { streamData.title },
-                            channelName = resolvedChannel.ifBlank { "TNAFlix" },
-                            thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                            providerId = PROVIDER_ID,
-                            headers = streamData.headers
-                        )
-                    }
-                }
-
-                // Try RedTube
-                val redtubeResults = RedTubeProvider.search(cleanQuery, page = 1, limit = 4)
-                if (redtubeResults.isNotEmpty()) {
-                    val streamData = RedTubeProvider.getStreamData(redtubeResults.first().id, context)
-                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully matched TNAFlix video to RedTube stream for '$cleanQuery'")
-                        return@withContext streamData.copy(
-                            videoId = videoId,
-                            title = candidateTitle.ifBlank { streamData.title },
-                            channelName = resolvedChannel.ifBlank { "TNAFlix" },
-                            thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                            providerId = PROVIDER_ID,
-                            headers = streamData.headers
-                        )
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "TNAFlix fallback search error: ${e.message}")
-        }
-
-        // -------------------------------------------------------------
-        // Step 5: Guaranteed Playback Fallback Stream
-        // -------------------------------------------------------------
+        // Fallback: Safe reliable stream option to prevent crash
         val streamIdx = Math.abs(videoId.hashCode()) % fallbackStreams.size
         val fallbackUrl = fallbackStreams[streamIdx]
-
         val options = listOf(
-            PlayableStreamOption(
-                qualityLabel = "1080p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = defaultHeaders
-            ),
             PlayableStreamOption(
                 qualityLabel = "720p HD",
                 format = "mp4",
                 isMuxed = true,
                 videoUrl = fallbackUrl,
                 providerType = ProviderType.OTHER,
-                headers = defaultHeaders
+                headers = defaultHeaders,
+                qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText("720p", false, false)
             )
         )
 
@@ -489,17 +340,12 @@ object TnaFlixProvider {
 
     private fun extractVideoId(urlOrId: String): String {
         val clean = urlOrId.trim()
-        val m = Pattern.compile("""(?:video|vkey|id=)(\d+)""", Pattern.CASE_INSENSITIVE).matcher(clean)
+        val m = Pattern.compile("""(?:video|vkey|id=|/video/)(\d+)""", Pattern.CASE_INSENSITIVE).matcher(clean)
         if (m.find()) return m.group(1) ?: clean
         val digitsOnly = clean.filter { it.isDigit() }
         if (digitsOnly.length >= 4) return digitsOnly
         val lastSeg = clean.substringAfterLast("/").substringBefore("?").substringBefore("&")
         return lastSeg.ifBlank { clean }
-    }
-
-    private fun extractTitleFromUrl(urlOrId: String): String {
-        val clean = urlOrId.substringAfterLast("/").substringBefore("?")
-        return clean.replace(Regex("""[-_]"""), " ")
     }
 
     private fun parseHtml(url: String, limit: Int): List<VideoItem> {
@@ -515,44 +361,62 @@ object TnaFlixProvider {
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return list
 
-            val doc = org.jsoup.Jsoup.parse(html)
-            val cards = doc.select(".video-item, .item, .thumb, .item-video, .video_box, div[data-id], .videoBox, .vThumb")
+            val doc = Jsoup.parse(html, url)
+
+            // Primary Jsoup selector matching TNAFlix's modern card containers
+            val cards = doc.select("div[data-vid], .video-item, .item, .thumb-block, div.col-xs-6, div[data-num]")
             for (card in cards) {
                 if (list.size >= limit) break
-                val linkEl = card.select("a").firstOrNull {
-                    val href = it.attr("href")
-                    href.contains("/porn-videos/") || href.contains("/video") || href.contains(".html")
-                } ?: card.select("a").firstOrNull() ?: continue
 
-                var href = linkEl.attr("href")
-                if (href.isBlank()) continue
-                if (!href.startsWith("http")) href = "$BASE_URL$href"
+                val vidAttr = card.attr("data-vid").trim()
+                val linkEl = card.select("a.video-thumb, a.thumb, a.video-title, a[href*=\"/video\"]").firstOrNull {
+                    it.attr("href").contains("/video")
+                } ?: card.select("a").firstOrNull { it.attr("href").contains("/video") }
 
-                val videoId = extractVideoId(href)
-                if (seen.contains(videoId)) continue
+                var href = linkEl?.attr("abs:href") ?: ""
+                val videoId = if (vidAttr.isNotBlank()) vidAttr else extractVideoId(href)
+                if (videoId.isBlank() || seen.contains(videoId)) continue
                 seen.add(videoId)
 
-                val title = card.select(".title, .video-title, a[title], h4, .thumb-title").text().trim().ifBlank {
-                    card.select("img").attr("alt").ifBlank { "TNAFlix Video" }
+                if (href.isBlank()) {
+                    href = "$BASE_URL/video$videoId"
                 }
 
-                var thumb = card.select("img").attr("data-src").ifBlank {
-                    card.select("img").attr("data-original")
-                }.ifBlank {
-                    card.select("img").attr("src")
+                val title = card.select(".video-title, .title, a[title]").firstOrNull()?.text()?.trim()
+                    ?.ifBlank { card.select("img").attr("alt").trim() }
+                    ?.ifBlank { "TNAFlix Video $videoId" } ?: "TNAFlix Video $videoId"
+
+                val imgEl = card.select("img").firstOrNull()
+                val dataSrc = imgEl?.attr("data-src")?.trim() ?: ""
+                val dataOrig = imgEl?.attr("data-original")?.trim() ?: ""
+                val dataThumb = imgEl?.attr("data-thumb")?.trim() ?: ""
+                val rawSrc = imgEl?.attr("src")?.trim() ?: ""
+
+                var thumb = listOf(dataSrc, dataOrig, dataThumb, rawSrc).firstOrNull { candidate ->
+                    candidate.isNotBlank() &&
+                    !candidate.contains("placeholder") &&
+                    (candidate.startsWith("http://") || candidate.startsWith("https://") || candidate.startsWith("//"))
+                } ?: ""
+
+                if (thumb.isBlank()) {
+                    val cardHtml = card.outerHtml()
+                    val imgMatch = Regex("""https?://[^\s"']+\.(?:jpg|jpeg|webp|png)[^\s"']*""").find(cardHtml)
+                    if (imgMatch != null && !imgMatch.value.contains("placeholder")) {
+                        thumb = imgMatch.value
+                    }
                 }
                 if (thumb.startsWith("//")) thumb = "https:$thumb"
 
-                val durText = card.select(".duration, .time, .video-duration").text().trim()
+                val durText = card.select(".video-duration, .duration, .thumb-icon.video-duration").text().trim()
                 val durSec = parseDuration(durText)
-                val uploader = card.select(".uploader, .username, .author").text().trim().ifBlank { "TNAFlix" }
+                val uploader = card.select("a[href*=\"/profile/\"], a.badge-video-info, .uploader, .author").text().trim().ifBlank { "TNAFlix" }
 
                 list.add(
                     VideoItem(
                         id = href,
                         title = title,
                         uploaderName = uploader,
-                        uploaderUrl = "$BASE_URL/users/$uploader",
+                        uploaderUrl = "$BASE_URL/profile/$uploader",
                         thumbnailUrl = thumb,
                         providerId = PROVIDER_ID,
                         durationSeconds = durSec,
@@ -561,8 +425,62 @@ object TnaFlixProvider {
                     )
                 )
             }
+
+            // Robust Regex Fallback if Jsoup selectors matched 0 items
+            if (list.isEmpty()) {
+                val blockRegex = Regex("""<div[^>]*data-vid="(\d+)"[^>]*>([\s\S]*?)</div>\s*</div>""")
+                val matches = blockRegex.findAll(html)
+                for (m in matches) {
+                    if (list.size >= limit) break
+                    val vid = m.groupValues[1]
+                    if (seen.contains(vid)) continue
+                    seen.add(vid)
+
+                    val b = m.groupValues[2]
+                    val linkMatch = Regex("""href="([^"]+video\d+)" """).find(b)
+                    val href = linkMatch?.groupValues?.get(1) ?: "$BASE_URL/video$vid"
+
+                    val titleMatch = Regex("""class="video-title[^"]*">\s*([^<]+)\s*<""").find(b)
+                        ?: Regex("""alt="([^"]+)"""").find(b)
+                    val title = titleMatch?.groupValues?.get(1)?.trim() ?: "TNAFlix Video $vid"
+
+                    val thumbCandidates = listOfNotNull(
+                        Regex("""data-src=["']([^"']+)["']""").find(b)?.groupValues?.get(1),
+                        Regex("""data-original=["']([^"']+)["']""").find(b)?.groupValues?.get(1),
+                        Regex("""data-thumb=["']([^"']+)["']""").find(b)?.groupValues?.get(1),
+                        Regex("""https?://[^\s"']+(?:thumb|tnaflix)[^\s"']*\.(?:jpg|jpeg|webp|png)[^\s"']*""").find(b)?.value,
+                        Regex("""src=["']([^"']+)["']""").find(b)?.groupValues?.get(1)
+                    )
+                    var thumb = thumbCandidates.firstOrNull { candidate ->
+                        candidate.isNotBlank() &&
+                        !candidate.contains("placeholder") &&
+                        (candidate.startsWith("http://") || candidate.startsWith("https://") || candidate.startsWith("//"))
+                    } ?: ""
+                    if (thumb.startsWith("//")) thumb = "https:$thumb"
+
+                    val durMatch = Regex("""video-duration">([^<]+)<""").find(b)
+                    val durSec = parseDuration(durMatch?.groupValues?.get(1) ?: "")
+
+                    val uploaderMatch = Regex("""profile/[^"]*">([^<]+)<""").find(b)
+                    val uploader = uploaderMatch?.groupValues?.get(1)?.trim() ?: "TNAFlix"
+
+                    list.add(
+                        VideoItem(
+                            id = href,
+                            title = title,
+                            uploaderName = uploader,
+                            uploaderUrl = "$BASE_URL/profile/$uploader",
+                            thumbnailUrl = thumb,
+                            providerId = PROVIDER_ID,
+                            durationSeconds = durSec,
+                            uploadDate = "TNAFlix",
+                            description = title
+                        )
+                    )
+                }
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "TNAFlix parseHtml error: ${e.message}")
+            Log.w(TAG, "TNAFlix parseHtml error for $url: ${e.message}")
         }
         return list
     }

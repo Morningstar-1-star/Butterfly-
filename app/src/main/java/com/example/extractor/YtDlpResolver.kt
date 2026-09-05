@@ -332,13 +332,21 @@ object YtDlpResolver {
                     domainHeaders["Origin"] = "https://www.tnaflix.com"
                     domainHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
                 }
-                lowerUrl.contains("hanime1.me") || lowerUrl.contains("hanime.tv") || lowerUrl.startsWith("hanime1:") || lowerUrl.startsWith("hanime:") -> {
-                    request.addOption("--add-header", "Referer: https://hanime1.me/")
-                    request.addOption("--add-header", "Origin: https://hanime1.me")
+                lowerUrl.contains("hanime1") || lowerUrl.contains("hanime.tv") || lowerUrl.startsWith("hanime1:") || lowerUrl.startsWith("hanime:") -> {
+                    request.addOption("--add-header", "Referer: https://hanime1.com/")
+                    request.addOption("--add-header", "Origin: https://hanime1.com")
                     request.addOption("--add-header", "Cookie: age_verified=1; country=US; language=en")
-                    domainHeaders["Referer"] = "https://hanime1.me/"
-                    domainHeaders["Origin"] = "https://hanime1.me"
+                    domainHeaders["Referer"] = "https://hanime1.com/"
+                    domainHeaders["Origin"] = "https://hanime1.com"
                     domainHeaders["Cookie"] = "age_verified=1; country=US; language=en"
+                }
+                lowerUrl.contains("thisvid.com") || lowerUrl.startsWith("thisvid:") -> {
+                    request.addOption("--add-header", "Referer: https://thisvid.com/")
+                    request.addOption("--add-header", "Origin: https://thisvid.com")
+                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; has_consent=1")
+                    domainHeaders["Referer"] = "https://thisvid.com/"
+                    domainHeaders["Origin"] = "https://thisvid.com"
+                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
                 }
                 lowerUrl.contains("noodlemagazine.com") || lowerUrl.startsWith("noodlemagazine:") || lowerUrl.startsWith("noodlemag:") -> {
                     request.addOption("--add-header", "Referer: https://noodlemagazine.com/")

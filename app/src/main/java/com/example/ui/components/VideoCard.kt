@@ -269,7 +269,9 @@ fun VideoCard(
     val effectiveThumbnailUrl = remember(video.thumbnailUrl, video.id, video.providerId) {
         val raw = video.thumbnailUrl?.trim()
         when {
-            !raw.isNullOrBlank() -> if (raw.startsWith("//")) "https:$raw" else raw
+            !raw.isNullOrBlank() && !raw.contains("placeholder") && (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("//")) -> {
+                if (raw.startsWith("//")) "https:$raw" else raw
+            }
             video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
             (video.providerId == "youtube" || video.providerId == "all") && video.id.contains("v=") -> {
                 val vId = video.id.substringAfter("v=").substringBefore("&")

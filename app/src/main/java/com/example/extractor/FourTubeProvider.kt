@@ -386,23 +386,6 @@ object FourTubeProvider {
                     }
                 }
 
-                // Try SpankBang
-                val spankResults = SpankBangProvider.search(cleanQuery, page = 1, limit = 4)
-                if (spankResults.isNotEmpty()) {
-                    val streamData = SpankBangProvider.getStreamData(spankResults.first().id, context)
-                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully matched 4tube video to SpankBang stream for '$cleanQuery'")
-                        return@withContext streamData.copy(
-                            videoId = publicId,
-                            title = candidateTitle.ifBlank { streamData.title },
-                            channelName = resolvedChannel.ifBlank { "4Tube" },
-                            thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                            providerId = PROVIDER_ID,
-                            headers = streamData.headers
-                        )
-                    }
-                }
-
                 // Try RedTube
                 val redtubeResults = RedTubeProvider.search(cleanQuery, page = 1, limit = 4)
                 if (redtubeResults.isNotEmpty()) {

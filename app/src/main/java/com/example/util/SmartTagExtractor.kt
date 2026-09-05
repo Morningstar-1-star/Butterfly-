@@ -68,7 +68,7 @@ object SmartTagExtractor {
 
         // 0. Adult / 18+ / Erotic Sources & Content
         val isAdultProvider = providerLower in setOf(
-            "pornhub", "xvideos", "youporn", "xhamster", "spankbang",
+            "pornhub", "xvideos", "youporn", "xhamster",
             "rule34video", "hanime1", "redtube", "tube8", "coomer", "pmvhaven"
         )
         val hasAdultKeywords = titleLower.contains("porn") || titleLower.contains("xxx") ||

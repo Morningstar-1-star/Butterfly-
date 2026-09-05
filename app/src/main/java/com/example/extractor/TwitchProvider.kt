@@ -48,6 +48,17 @@ object TwitchProvider {
         return trimmed.substringAfterLast("/")
     }
 
+    private fun parseQualityScore(quality: String): Int {
+        val q = quality.lowercase()
+        return when {
+            q.contains("1080") -> 80
+            q.contains("720") -> 60
+            q.contains("480") -> 40
+            q.contains("360") -> 30
+            else -> 20
+        }
+    }
+
     suspend fun getStreamData(urlOrSlug: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val slug = extractClipSlug(urlOrSlug)
 
@@ -140,7 +151,7 @@ object TwitchProvider {
                 }
 
                 if (options.isNotEmpty()) {
-                    val selected = options.maxByOrNull { SpankBangProvider.parseQualityScore(it.qualityLabel) } ?: options.first()
+                    val selected = options.maxByOrNull { parseQualityScore(it.qualityLabel) } ?: options.first()
                     return@withContext StreamData(
                         videoId = slug,
                         title = title,

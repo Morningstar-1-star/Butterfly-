@@ -5,15 +5,16 @@ import android.util.Log
 import com.example.model.MediaIdentity
 import com.example.resolver.dedup.SourceDeduplicator
 import com.example.resolver.health.ProviderIsolationController
+import com.example.resolver.providers.Av123SourceProvider
 import com.example.resolver.providers.CometSourceProvider
 import com.example.resolver.providers.Hanime1SourceProvider
 import com.example.resolver.providers.HQPornerSourceProvider
 import com.example.resolver.providers.JableMissAvSourceProvider
 import com.example.resolver.providers.JavPySourceProvider
+import com.example.resolver.providers.JavtifulSourceProvider
 import com.example.resolver.providers.MagnetioSourceProvider
 import com.example.resolver.providers.MediaFusionSourceProvider
 import com.example.resolver.providers.NuvioDirectSourceProvider
-import com.example.resolver.providers.SpankBangSourceProvider
 import com.example.resolver.providers.YarrSourceProvider
 import com.example.resolver.embed.TwoEmbedProvider
 import com.example.resolver.embed.VidlinkEmbedProvider
@@ -55,7 +56,8 @@ class UnifiedSourceResolver(private val context: Context) {
     private val torrentAdapter = TorrentSourceAdapter()
     private val nuvioDirectProvider = NuvioDirectSourceProvider()
     private val jableMissAvProvider = JableMissAvSourceProvider()
-    private val spankBangProvider = SpankBangSourceProvider()
+    private val av123Provider = Av123SourceProvider()
+    private val javtifulProvider = JavtifulSourceProvider()
     private val hanime1Provider = Hanime1SourceProvider()
     private val hqPornerProvider = HQPornerSourceProvider()
     private val javPyProvider = JavPySourceProvider()
@@ -92,7 +94,8 @@ class UnifiedSourceResolver(private val context: Context) {
             telegramProvider,
             megaProvider,
             jableMissAvProvider,
-            spankBangProvider,
+            av123Provider,
+            javtifulProvider,
             hanime1Provider,
             hqPornerProvider,
             javPyProvider,

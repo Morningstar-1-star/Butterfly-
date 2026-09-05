@@ -19,6 +19,7 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.example.ui.MainViewModel
 import com.example.ui.animation.ButterflyOpeningAnimation
+import com.example.ui.animation.FairyBunnyOpeningAnimation
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
             val accentColor by viewModel.accentColor.collectAsState()
             val showOpeningAnimation by viewModel.showOpeningAnimation.collectAsState()
             val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
+            val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
 
             MyApplicationTheme(
                 themeMode = themeMode,
@@ -46,16 +48,32 @@ class MainActivity : ComponentActivity() {
                     HomeScreen(viewModel = viewModel)
 
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        ButterflyOpeningAnimation(
-                            themeMode = themeMode,
-                            accentColor = accentColor,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(9999f),
-                            onAnimationFinished = {
-                                viewModel.dismissOpeningAnimation()
+                        when (openingAnimationStyle) {
+                            MainViewModel.OpeningAnimationStyle.CLASSIC_BUTTERFLY -> {
+                                ButterflyOpeningAnimation(
+                                    themeMode = themeMode,
+                                    accentColor = accentColor,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(9999f),
+                                    onAnimationFinished = {
+                                        viewModel.dismissOpeningAnimation()
+                                    }
+                                )
                             }
-                        )
+                            MainViewModel.OpeningAnimationStyle.FAIRY_BUNNY -> {
+                                FairyBunnyOpeningAnimation(
+                                    themeMode = themeMode,
+                                    accentColor = accentColor,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(9999f),
+                                    onAnimationFinished = {
+                                        viewModel.dismissOpeningAnimation()
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }

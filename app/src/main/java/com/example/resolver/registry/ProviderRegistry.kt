@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 enum class ProviderCategory {
     MAINSTREAM_VIDEO, // YouTube, Vimeo, Dailymotion, Bilibili, Twitch
     ANIME,            // Hanime1, HiAnime, AniWatch, Nyaa
-    ADULT,            // Pornhub, XVideos, XHamster, Eporner, Jable, MissAV, SpankBang, HQPorner, etc.
+    ADULT,            // Pornhub, XVideos, XHamster, Eporner, Jable, MissAV, HQPorner, etc.
     TORRENT_DEBRID,   // MediaFusion, Comet, Yarr, Magnetio, Torrentio
     DIRECT_STREAM,    // Nuvio, Vidsrc, AutoEmbed, SuperStream
     ARCHIVE           // Archive.org
@@ -253,7 +253,7 @@ object ProviderRegistry {
                 supportsHls = true,
                 supportsStoryboards = true,
                 priority = 96,
-                fallbackProviderIds = listOf("missav", "spankbang", "eporner")
+                fallbackProviderIds = listOf("missav", "hqporner", "eporner")
             )
         )
         register(
@@ -267,7 +267,7 @@ object ProviderRegistry {
                 supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
                 supportsHls = true,
                 priority = 95,
-                fallbackProviderIds = listOf("jable", "spankbang", "eporner")
+                fallbackProviderIds = listOf("jable", "hqporner", "eporner")
             )
         )
         register(
@@ -275,30 +275,14 @@ object ProviderRegistry {
                 id = "hanime1",
                 displayName = "Hanime1 (Anime HLS)",
                 category = ProviderCategory.ANIME,
-                baseDomain = "https://hanime1.me",
-                mirrors = listOf("https://hanime1.me", "https://hanime1.com"),
+                baseDomain = "https://hanime1.com",
+                mirrors = listOf("https://hanime1.com", "https://hanime1.org", "https://hanime1.co", "https://hanime1.me"),
                 capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.HLS, ProviderCapability.SUBTITLE),
                 supportedMediaTypes = setOf(MediaType.ANIME, MediaType.JAV, MediaType.VIDEO),
                 supportsHls = true,
                 supportsSubtitles = true,
                 priority = 94,
                 fallbackProviderIds = listOf("hianime", "aniwatch")
-            )
-        )
-        register(
-            ProviderDescriptor(
-                id = "spankbang",
-                displayName = "SpankBang (4K/1080p Direct)",
-                category = ProviderCategory.ADULT,
-                baseDomain = "https://spankbang.com",
-                mirrors = listOf("https://spankbang.com", "https://spankbang.party", "https://spankbang.porn"),
-                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP, ProviderCapability.HLS, ProviderCapability.CAPABILITY_4K),
-                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
-                supportsDirect = true,
-                supportsHls = true,
-                supportedQualities = listOf("4K", "1080p", "720p", "480p", "360p", "240p"),
-                priority = 93,
-                fallbackProviderIds = listOf("hqporner", "eporner", "xvideos")
             )
         )
         register(
@@ -313,7 +297,7 @@ object ProviderRegistry {
                 supportsDirect = true,
                 supportedQualities = listOf("4K", "1080p", "720p"),
                 priority = 92,
-                fallbackProviderIds = listOf("spankbang", "eporner")
+                fallbackProviderIds = listOf("eporner", "xvideos")
             )
         )
         register(

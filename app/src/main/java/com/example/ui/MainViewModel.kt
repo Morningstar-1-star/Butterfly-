@@ -189,7 +189,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsPrefs.edit().putBoolean("show_thumbnail_tags", show).apply()
     }
 
-    private val adultIdsList = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "spankbang", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix")
+    private val adultIdsList = listOf(
+        "123av", "javtiful", "jav_all", "pornhub", "xvideos", "chaturbate", "cam4", "cammodels",
+        "noodlemagazine", "thisvid", "tnaflix", "eporner", "hanime1", "hqporner", "redtube",
+        "xhamster", "beeg", "4tube", "rule34video", "youporn"
+    )
     private val normalIdsList = listOf(
         "youtube", "twitch", "bigo", "bilibili", "dailymotion", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
         "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv"
@@ -254,6 +258,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- App Opening Animation Engine ---
+    enum class OpeningAnimationStyle(
+        val id: String,
+        val title: String,
+        val subtitle: String,
+        val badge: String? = null
+    ) {
+        CLASSIC_BUTTERFLY(
+            id = "classic_butterfly",
+            title = "Classic 3D Butterfly",
+            subtitle = "Cinematic 3D butterfly flap & portal zoom transition"
+        ),
+        FAIRY_BUNNY(
+            id = "fairy_bunny",
+            title = "Fairy Butterfly Bunny",
+            subtitle = "Charming bunny with fluttering butterfly wings & celestial flight",
+            badge = "NEW"
+        );
+
+        companion object {
+            fun fromId(id: String?): OpeningAnimationStyle =
+                entries.find { it.id.equals(id, ignoreCase = true) } ?: CLASSIC_BUTTERFLY
+        }
+    }
+
     private val _showOpeningAnimation = MutableStateFlow(true)
     val showOpeningAnimation: StateFlow<Boolean> = _showOpeningAnimation.asStateFlow()
 
@@ -261,6 +289,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsPrefs.getBoolean("opening_animation_enabled", true)
     )
     val isOpeningAnimationEnabled: StateFlow<Boolean> = _isOpeningAnimationEnabled.asStateFlow()
+
+    private val _openingAnimationStyle = MutableStateFlow(
+        OpeningAnimationStyle.fromId(
+            settingsPrefs.getString("opening_animation_style", OpeningAnimationStyle.CLASSIC_BUTTERFLY.id)
+        )
+    )
+    val openingAnimationStyle: StateFlow<OpeningAnimationStyle> = _openingAnimationStyle.asStateFlow()
 
     fun dismissOpeningAnimation() {
         _showOpeningAnimation.value = false
@@ -276,6 +311,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!enabled) {
             _showOpeningAnimation.value = false
         }
+    }
+
+    fun setOpeningAnimationStyle(style: OpeningAnimationStyle) {
+        _openingAnimationStyle.value = style
+        settingsPrefs.edit().putString("opening_animation_style", style.id).apply()
     }
 
     // --- Battery Saver & Performance Optimization Engine ---
@@ -485,7 +525,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPipMode.value = enabled
     }
 
-    private val adultProviderIds = setOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "spankbang", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix")
+    private val adultProviderIds = setOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix")
 
     fun isAdultProviderId(providerId: String?): Boolean {
         if (providerId.isNullOrBlank()) return false
@@ -496,13 +536,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun isAdultVideoItem(item: VideoItem): Boolean {
         if (isAdultProviderId(item.providerId)) return true
         val text = "${item.title} ${item.uploaderName} ${item.description}".lowercase()
-        val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "spankbang", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
+        val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
         return adultKeywords.any { text.contains(it) }
     }
 
     fun isAdultSearchQuery(query: String): Boolean {
         val q = query.lowercase()
-        val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "spankbang", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
+        val adultKeywords = listOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "adult", "nsfw", "porn", "xxx", "erotic", "hentai", "sex")
         return adultKeywords.any { q.contains(it) }
     }
     fun isAdultDownload(entity: OfflineDownloadEntity): Boolean {
@@ -2309,6 +2349,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
             val adultProviders = listOf(
+                Triple("123av", "123AV (JAV & Player)", "123AV Japanese Adult Video catalog & JAVPlayer HLS direct streams"),
+                Triple("javtiful", "Javtiful (JAV)", "Javtiful trending JAV video catalog & high-speed streaming"),
+                Triple("jav_all", "All JAV Sources", "Aggregated JAV trending feed & releases across all JAV providers"),
                 Triple("pornhub", "Pornhub", "Pornhub video catalog, playlists, users & Thumbzilla"),
                 Triple("xvideos", "XVideos", "XVideos video catalog"),
                 Triple("chaturbate", "Chaturbate (Live Cams)", "Live interactive adult webcam rooms & broadcast shows"),
@@ -2318,7 +2361,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Triple("thisvid", "ThisVid", "ThisVid video catalog & playlists"),
                 Triple("tnaflix", "TNAFlix", "TNAFlix video streaming catalog"),
                 Triple("eporner", "Eporner", "Eporner video catalog"),
-                Triple("spankbang", "SpankBang", "SpankBang 4K/1080p video catalog"),
                 Triple("hanime1", "Hanime1", "Hanime1 Anime & HLS video catalog"),
                 Triple("hqporner", "HQPorner", "HQPorner Ultra HD 4K CDN catalog"),
                 Triple("redtube", "RedTube", "RedTube video catalog"),
@@ -3113,7 +3155,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val ytDlpSources = listOf(
                         "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
-                        "spankbang", "hanime1", "hqporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn",
+                        "123av", "javtiful", "jav_all",
+                        "hanime1", "hqporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn",
                         "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix"
                     )
 
@@ -3308,7 +3351,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val fastMultiSources = listOf(
                         "dailymotion", "bilibili", "vimeo", "hotstar", "twitch", "bigo", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
-                        "spankbang", "hanime1", "hqporner", "pornhub", "beeg",
+                        "123av", "javtiful", "jav_all",
+                        "hanime1", "hqporner", "pornhub", "beeg",
                         "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix"
                     )
                     val targetFastSources = when {
@@ -3490,7 +3534,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv"
                         ) + (if (adultEnabled) listOf(
-                            "spankbang", "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
+                            "123av", "javtiful", "jav_all",
+                            "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix"
                         ) else emptyList())
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
@@ -3532,7 +3577,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv"
                         ) + (if (adultEnabled) listOf(
-                            "spankbang", "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
+                            "123av", "javtiful", "jav_all",
+                            "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix"
                         ) else emptyList())
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
@@ -3750,7 +3796,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("reddit.com", ignoreCase = true) -> "reddit"
                 cleanIdOrUrl.contains("twitch.tv", ignoreCase = true) -> "twitch"
                 cleanIdOrUrl.contains("bigo.tv", ignoreCase = true) || cleanIdOrUrl.contains("bigolive.tv", ignoreCase = true) || cleanIdOrUrl.startsWith("bigo:", ignoreCase = true) -> "bigo"
-                cleanIdOrUrl.contains("spankbang.com", ignoreCase = true) || cleanIdOrUrl.contains("spankbang.") -> "spankbang"
                 cleanIdOrUrl.contains("hanime1.me", ignoreCase = true) || cleanIdOrUrl.contains("hanime1.com", ignoreCase = true) || cleanIdOrUrl.startsWith("hanime1:", ignoreCase = true) || cleanIdOrUrl.startsWith("hanime:", ignoreCase = true) -> "hanime1"
                 cleanIdOrUrl.contains("hqporner.com", ignoreCase = true) || cleanIdOrUrl.contains("hqplayer", ignoreCase = true) || cleanIdOrUrl.startsWith("hqporner:", ignoreCase = true) || cleanIdOrUrl.startsWith("hqplayer:", ignoreCase = true) -> "hqporner"
                 cleanIdOrUrl.contains("soundcloud.com", ignoreCase = true) -> "soundcloud"

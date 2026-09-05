@@ -5,6 +5,7 @@ import android.util.Log
 import java.net.URLEncoder
 import com.example.model.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
@@ -715,21 +716,6 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isSpankBang = providerId == "spankbang" || urlOrId.contains("spankbang.com") || urlOrId.contains("spankbang.")
-        if (isSpankBang) {
-            val sbData = SpankBangProvider.getStreamData(urlOrId, context)
-            if (sbData != null) {
-                Log.i(TAG, "Resolved via SpankBangProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(sbData)
-            } else if (context != null) {
-                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://spankbang.com/$urlOrId/video/"
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
-                if (ytdlResult is ExtractionResult.Success) {
-                    return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "spankbang"))
-                }
-            }
-        }
-
         val isHanime1 = providerId == "hanime1" || providerId == "hanime" || urlOrId.contains("hanime1") || urlOrId.contains("hanime.tv") ||
                 urlOrId.startsWith("hanime1:", ignoreCase = true) || urlOrId.startsWith("hanime:", ignoreCase = true)
         if (isHanime1) {
@@ -739,7 +725,7 @@ object YouTubeExtractorHelper {
                 return@withContext ExtractionResult.Success(h1Data)
             } else if (context != null) {
                 val videoId = Hanime1Provider.extractVideoId(urlOrId)
-                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hanime1.me/watch?v=$videoId"
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hanime1.com/watch?v=$videoId"
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
                 if (ytdlResult is ExtractionResult.Success) {
                     return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hanime1"))
@@ -761,6 +747,58 @@ object YouTubeExtractorHelper {
                 if (ytdlResult is ExtractionResult.Success) {
                     return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hqporner"))
                 }
+            }
+        }
+
+        val isJavSource = providerId == "123av" || providerId == "javplayer" || providerId == "javtiful" || providerId == "jav_all" ||
+                providerId == "jable" || providerId == "missav" ||
+                urlOrId.contains("123av.com") || urlOrId.contains("javtiful.com") || urlOrId.contains("jable.tv") || urlOrId.contains("missav") ||
+                urlOrId.startsWith("123av_") || urlOrId.startsWith("javtiful_")
+        if (isJavSource && context != null) {
+            try {
+                val cleanId = urlOrId.removePrefix("123av_").removePrefix("javtiful_")
+                val identity = com.example.model.MediaIdentity(
+                    title = cleanId,
+                    rawQueryOrUrl = urlOrId,
+                    mediaType = com.example.model.MediaType.JAV
+                )
+                val resolver = com.example.resolver.UnifiedSourceResolver.getInstance(context)
+                val results = resolver.resolveSources(identity).firstOrNull { it.isNotEmpty() } ?: emptyList()
+
+                val playableCandidates = results.filter { it.urlOrMagnet.startsWith("http") }
+                if (playableCandidates.isNotEmpty()) {
+                    val streamOptions = playableCandidates.map { cand ->
+                        PlayableStreamOption(
+                            qualityLabel = "${cand.quality} • ${cand.serverName}",
+                            format = cand.format.ifBlank { "hls" },
+                            isMuxed = true,
+                            videoUrl = cand.urlOrMagnet,
+                            audioUrl = null,
+                            providerType = com.example.model.ProviderType.DIRECT,
+                            headers = cand.headers,
+                            sourceName = cand.providerName,
+                            qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(cand.quality, false, false)
+                        )
+                    }
+                    val top = streamOptions.first()
+                    val topCand = playableCandidates.first()
+                    val streamData = StreamData(
+                        videoId = urlOrId,
+                        title = topCand.title.ifBlank { cleanId.uppercase() },
+                        channelName = topCand.providerName,
+                        channelAvatarUrl = null,
+                        description = "JAV High Speed Stream • ${topCand.serverName}",
+                        availableStreamOptions = streamOptions,
+                        selectedStreamOption = top,
+                        providerId = providerId ?: "123av",
+                        providerType = com.example.model.ProviderType.DIRECT,
+                        headers = top.headers ?: emptyMap()
+                    )
+                    Log.i(TAG, "Resolved via JAV UnifiedSourceResolver for $urlOrId")
+                    return@withContext ExtractionResult.Success(streamData)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "JAV resolution failed for $urlOrId: ${e.message}")
             }
         }
 

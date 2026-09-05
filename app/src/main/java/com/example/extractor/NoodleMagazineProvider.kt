@@ -220,7 +220,7 @@ object NoodleMagazineProvider {
         var resolvedThumbnail = ""
         var resolvedChannel = "NoodleMagazine"
 
-        // 1. Direct HTML player extraction
+        // 1. Direct HTML & Iframe Player Extraction
         try {
             val req = Request.Builder()
                 .url(targetUrl)
@@ -236,7 +236,7 @@ object NoodleMagazineProvider {
                 val ogTitle = doc.select("meta[property=og:title]").attr("content").trim()
                 if (ogTitle.isNotBlank()) resolvedTitle = ogTitle.replace(Regex("(?i) - NoodleMagazine.*"), "").trim()
                 else {
-                    val pageTitle = doc.select("title, h1, .video_title").firstOrNull()?.text()?.trim() ?: ""
+                    val pageTitle = doc.select("title, h1, .video_title, .title").firstOrNull()?.text()?.trim() ?: ""
                     if (pageTitle.isNotBlank()) resolvedTitle = pageTitle.replace(Regex("(?i) - NoodleMagazine.*"), "").trim()
                 }
 
@@ -247,12 +247,21 @@ object NoodleMagazineProvider {
                 if (!author.isNullOrBlank()) resolvedChannel = author
 
                 val videoSources = mutableListOf<PlayableStreamOption>()
+
+                // Check direct video regex in page scripts
                 val videoUrlMatcher = Pattern.compile("""(?:file|source|src|video_url|videoUrl)\s*:\s*["'](https?:\\?/\\?/[^"']+\.(?:mp4|m3u8)[^"']*)["']""", Pattern.CASE_INSENSITIVE)
                 val matcher = videoUrlMatcher.matcher(html)
                 while (matcher.find()) {
                     val rawUrl = matcher.group(1)?.replace("\\/", "/") ?: continue
                     if (rawUrl.contains("preview") || rawUrl.contains("poster") || rawUrl.contains("thumb")) continue
                     val isHls = rawUrl.contains(".m3u8")
+                    val isVk = rawUrl.contains("vk.com") || rawUrl.contains("vkuser") || rawUrl.contains("mycdn.me")
+                    val isNoodle = rawUrl.contains("noodlemagazine.com") || rawUrl.contains("noodlemag")
+                    val streamHeaders = when {
+                        isVk -> mapOf("Referer" to "https://vk.com/", "User-Agent" to DEFAULT_UA)
+                        isNoodle -> defaultHeaders
+                        else -> mapOf("User-Agent" to DEFAULT_UA)
+                    }
                     videoSources.add(
                         PlayableStreamOption(
                             qualityLabel = if (isHls) "1080p / 720p HLS Stream" else "HD Direct MP4",
@@ -260,23 +269,67 @@ object NoodleMagazineProvider {
                             isMuxed = true,
                             videoUrl = rawUrl,
                             providerType = ProviderType.OTHER,
-                            headers = defaultHeaders
+                            headers = streamHeaders
                         )
                     )
                 }
 
+                // Check iframe embeds (e.g., VK, Streamtape, Dood, Eporner)
+                val iframes = doc.select("iframe[src]")
+                for (iframe in iframes) {
+                    var iframeSrc = iframe.attr("src").trim()
+                    if (iframeSrc.startsWith("//")) iframeSrc = "https:$iframeSrc"
+                    if (iframeSrc.contains("vk.com") || iframeSrc.contains("vkuser") || iframeSrc.contains("vk.ru")) {
+                        try {
+                            val vkReq = Request.Builder()
+                                .url(iframeSrc)
+                                .header("Referer", "$BASE_URL/")
+                                .header("User-Agent", DEFAULT_UA)
+                                .build()
+                            val vkHtml = httpClient.newCall(vkReq).execute().use { it.body?.string() }
+                            if (!vkHtml.isNullOrBlank()) {
+                                val vkMatcher = Pattern.compile("""["'](https?:\\?/\\?/[^"']+(?:url\d+|video\.mp4|\.mp4|\.m3u8)[^"']*)["']""")
+                                val vm = vkMatcher.matcher(vkHtml)
+                                while (vm.find()) {
+                                    val streamUrl = vm.group(1)?.replace("\\/", "/") ?: continue
+                                    if (streamUrl.contains(".mp4") || streamUrl.contains(".m3u8") || streamUrl.contains("url720") || streamUrl.contains("url1080") || streamUrl.contains("url480")) {
+                                        videoSources.add(
+                                            PlayableStreamOption(
+                                                qualityLabel = when {
+                                                    streamUrl.contains("url1080") || streamUrl.contains("1080") -> "1080p Full HD (VK)"
+                                                    streamUrl.contains("url720") || streamUrl.contains("720") -> "720p HD (VK)"
+                                                    streamUrl.contains("url480") || streamUrl.contains("480") -> "480p SD (VK)"
+                                                    else -> "HD Video (VK)"
+                                                },
+                                                format = if (streamUrl.contains(".m3u8")) "m3u8" else "mp4",
+                                                isMuxed = true,
+                                                videoUrl = streamUrl,
+                                                providerType = ProviderType.OTHER,
+                                                headers = mapOf("Referer" to "https://vk.com/", "User-Agent" to DEFAULT_UA)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "VK iframe parsing note: ${e.message}")
+                        }
+                    }
+                }
+
                 if (videoSources.isNotEmpty()) {
                     Log.i(TAG, "Successfully extracted ${videoSources.size} streams from NoodleMagazine HTML")
+                    val bestOption = videoSources.first()
                     return@withContext StreamData(
                         videoId = videoId,
-                        videoUrl = videoSources.first().videoUrl ?: "",
+                        videoUrl = bestOption.videoUrl ?: "",
                         title = resolvedTitle,
                         channelName = resolvedChannel,
                         thumbnailUrl = resolvedThumbnail,
                         availableStreamOptions = videoSources,
-                        selectedStreamOption = videoSources.first(),
+                        selectedStreamOption = bestOption,
                         providerId = PROVIDER_ID,
-                        headers = defaultHeaders
+                        headers = bestOption.headers
                     )
                 }
             }
@@ -291,8 +344,7 @@ object NoodleMagazineProvider {
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success && ytdlResult.streamData.videoUrl.isNotBlank()) {
                     Log.i(TAG, "yt-dlp successfully resolved NoodleMagazine stream for $targetUrl")
                     return@withContext ytdlResult.streamData.copy(
-                        providerId = PROVIDER_ID,
-                        headers = defaultHeaders
+                        providerId = PROVIDER_ID
                     )
                 }
             } catch (e: Exception) {
@@ -325,9 +377,10 @@ object NoodleMagazineProvider {
             Log.w(TAG, "NoodleMagazine fallback search note: ${e.message}")
         }
 
-        // 4. Guaranteed Playback Fallback Stream
+        // 4. Guaranteed Playback Fallback Stream with clean headers (NO 403)
         val streamIdx = Math.abs(videoId.hashCode()) % fallbackStreams.size
         val fallbackUrl = fallbackStreams[streamIdx]
+        val cleanFallbackHeaders = mapOf("User-Agent" to DEFAULT_UA)
 
         val options = listOf(
             PlayableStreamOption(
@@ -336,7 +389,7 @@ object NoodleMagazineProvider {
                 isMuxed = true,
                 videoUrl = fallbackUrl,
                 providerType = ProviderType.OTHER,
-                headers = defaultHeaders
+                headers = cleanFallbackHeaders
             ),
             PlayableStreamOption(
                 qualityLabel = "720p HD",
@@ -344,7 +397,7 @@ object NoodleMagazineProvider {
                 isMuxed = true,
                 videoUrl = fallbackUrl,
                 providerType = ProviderType.OTHER,
-                headers = defaultHeaders
+                headers = cleanFallbackHeaders
             )
         )
 
@@ -357,7 +410,7 @@ object NoodleMagazineProvider {
             availableStreamOptions = options,
             selectedStreamOption = options.first(),
             providerId = PROVIDER_ID,
-            headers = defaultHeaders
+            headers = cleanFallbackHeaders
         )
     }
 

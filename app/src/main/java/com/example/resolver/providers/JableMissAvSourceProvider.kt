@@ -29,8 +29,8 @@ class JableMissAvSourceProvider(
 
     companion object {
         private const val TAG = "JableMissAvProvider"
-        private const val JABLE_BASE_URL = "https://jable.tv"
-        private const val MISSAV_BASE_URL = "https://missav.ai"
+        private val JABLE_MIRRORS = listOf("https://jable.tv", "https://jable.me")
+        private val MISSAV_MIRRORS = listOf("https://missav.ai", "https://missav.ws", "https://missav.live", "https://missav.com", "https://missav.yt")
     }
 
     override val id: String = "jable_missav"
@@ -48,104 +48,114 @@ class JableMissAvSourceProvider(
             return@flow
         }
 
-        // 1. Resolve Jable.tv HLS M3U8
-        try {
-            val jableCode = javCode.lowercase()
-            val jableUrl = "$JABLE_BASE_URL/videos/$jableCode/"
-            val jableReq = Request.Builder()
-                .url(jableUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .build()
+        // 1. Resolve Jable.tv HLS M3U8 across mirrors
+        val jableCode = javCode.lowercase()
+        for (mirror in JABLE_MIRRORS) {
+            try {
+                val jableUrl = "$mirror/videos/$jableCode/"
+                val jableReq = Request.Builder()
+                    .url(jableUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Referer", "$mirror/")
+                    .build()
 
-            val jableResp = client.newCall(jableReq).execute()
-            if (jableResp.isSuccessful) {
-                val html = jableResp.body?.string() ?: ""
-                val m3u8Match = Regex("var\\s+hlsUrl\\s*=\\s*['\"](https://[^'\"]+\\.m3u8)['\"]").find(html)
-                    ?: Regex("['\"](https://[^'\"]+\\.m3u8)['\"]").find(html)
+                val jableResp = client.newCall(jableReq).execute()
+                if (jableResp.isSuccessful) {
+                    val html = jableResp.body?.string() ?: ""
+                    val m3u8Match = Regex("var\\s+hlsUrl\\s*=\\s*['\"](https://[^'\"]+\\.m3u8)['\"]").find(html)
+                        ?: Regex("['\"](https://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(html)
 
-                if (m3u8Match != null) {
-                    val m3u8Url = m3u8Match.groupValues[1]
-                    val doc = Jsoup.parse(html)
-                    val title = doc.select(".header-left h4").firstOrNull()?.text()?.trim() ?: "[$javCode] Jable 1080p"
+                    if (m3u8Match != null) {
+                        val m3u8Url = m3u8Match.groupValues[1]
+                        val doc = Jsoup.parse(html)
+                        val title = doc.select(".header-left h4, .title, h1").firstOrNull()?.text()?.trim() ?: "[$javCode] Jable 1080p"
 
-                    candidates.add(
-                        SourceCandidate(
-                            id = "jable_$jableCode",
-                            providerId = id,
-                            providerName = "Jable.tv",
-                            serverName = "Jable CDN (HLS)",
-                            type = SourceStreamType.HLS,
-                            title = title,
-                            urlOrMagnet = m3u8Url,
-                            quality = "1080p FHD",
-                            qualityScore = 1080,
-                            format = "m3u8",
-                            headers = mapOf(
-                                "Referer" to JABLE_BASE_URL,
-                                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                            ),
-                            healthScore = 98,
-                            capabilities = PlaybackCapabilities(
-                                supportsSeeking = true,
-                                supportsTrackSelection = true
+                        candidates.add(
+                            SourceCandidate(
+                                id = "jable_$jableCode",
+                                providerId = id,
+                                providerName = "Jable.tv",
+                                serverName = "Jable CDN (HLS)",
+                                type = SourceStreamType.HLS,
+                                title = title,
+                                urlOrMagnet = m3u8Url,
+                                quality = "1080p FHD",
+                                qualityScore = 1080,
+                                format = "m3u8",
+                                headers = mapOf(
+                                    "Referer" to "$mirror/",
+                                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                                ),
+                                healthScore = 98,
+                                capabilities = PlaybackCapabilities(
+                                    supportsSeeking = true,
+                                    supportsTrackSelection = true
+                                )
                             )
                         )
-                    )
-                    emit(ArrayList(candidates))
+                        emit(ArrayList(candidates))
+                        break
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Jable resolution error on $mirror for $javCode: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Jable resolution error for $javCode: ${e.message}")
         }
 
-        // 2. Resolve MissAV HLS M3U8
-        try {
-            val missavCode = javCode.lowercase()
-            val missavUrl = "$MISSAV_BASE_URL/$missavCode"
-            val missavReq = Request.Builder()
-                .url(missavUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .build()
+        // 2. Resolve MissAV HLS M3U8 across mirrors
+        val missavCode = javCode.lowercase()
+        for (mirror in MISSAV_MIRRORS) {
+            try {
+                val missavUrl = "$mirror/$missavCode"
+                val missavReq = Request.Builder()
+                    .url(missavUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Referer", "$mirror/")
+                    .build()
 
-            val missavResp = client.newCall(missavReq).execute()
-            if (missavResp.isSuccessful) {
-                val html = missavResp.body?.string() ?: ""
-                val m3u8Match = Regex("['\"](https://surrit\\.com/[^'\"]+/playlist\\.m3u8)['\"]").find(html)
-                    ?: Regex("['\"](https://[^'\"]+\\.m3u8)['\"]").find(html)
+                val missavResp = client.newCall(missavReq).execute()
+                if (missavResp.isSuccessful) {
+                    val html = missavResp.body?.string() ?: ""
+                    val m3u8Match = Regex("['\"](https://(?:[a-zA-Z0-9.-]+\\.)?surrit\\.(?:com|cc|net)/[^'\"]+/playlist\\.m3u8)['\"]").find(html)
+                        ?: Regex("['\"](https://(?:[a-zA-Z0-9.-]+\\.)?sixyik\\.(?:com|cc|net)/[^'\"]+/playlist\\.m3u8)['\"]").find(html)
+                        ?: Regex("['\"](https://[^'\"]+/playlist\\.m3u8)['\"]").find(html)
+                        ?: Regex("['\"](https://[^'\"]+\\.m3u8)['\"]").find(html)
 
-                if (m3u8Match != null) {
-                    val m3u8Url = m3u8Match.groupValues[1]
-                    val doc = Jsoup.parse(html)
-                    val title = doc.select("h1").firstOrNull()?.text()?.trim() ?: "[$javCode] MissAV 1080p"
+                    if (m3u8Match != null) {
+                        val m3u8Url = m3u8Match.groupValues[1]
+                        val doc = Jsoup.parse(html)
+                        val title = doc.select("h1, .text-base").firstOrNull()?.text()?.trim() ?: "[$javCode] MissAV 1080p"
 
-                    candidates.add(
-                        SourceCandidate(
-                            id = "missav_$missavCode",
-                            providerId = id,
-                            providerName = "MissAV",
-                            serverName = "Surrit Fast CDN (HLS)",
-                            type = SourceStreamType.HLS,
-                            title = title,
-                            urlOrMagnet = m3u8Url,
-                            quality = "1080p FHD",
-                            qualityScore = 1080,
-                            format = "m3u8",
-                            headers = mapOf(
-                                "Referer" to MISSAV_BASE_URL,
-                                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                            ),
-                            healthScore = 95,
-                            capabilities = PlaybackCapabilities(
-                                supportsSeeking = true,
-                                supportsTrackSelection = true
+                        candidates.add(
+                            SourceCandidate(
+                                id = "missav_$missavCode",
+                                providerId = id,
+                                providerName = "MissAV",
+                                serverName = "Surrit Fast CDN (HLS)",
+                                type = SourceStreamType.HLS,
+                                title = title,
+                                urlOrMagnet = m3u8Url,
+                                quality = "1080p FHD",
+                                qualityScore = 1080,
+                                format = "m3u8",
+                                headers = mapOf(
+                                    "Referer" to "$mirror/",
+                                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                                ),
+                                healthScore = 95,
+                                capabilities = PlaybackCapabilities(
+                                    supportsSeeking = true,
+                                    supportsTrackSelection = true
+                                )
                             )
                         )
-                    )
-                    emit(ArrayList(candidates))
+                        emit(ArrayList(candidates))
+                        break
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "MissAV resolution error on $mirror for $javCode: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "MissAV resolution error for $javCode: ${e.message}")
         }
 
         emit(candidates)

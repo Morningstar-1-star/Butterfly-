@@ -109,6 +109,7 @@ fun SettingsScreen(
     // Dialog state for selections
     var showThemeDialog by remember { mutableStateOf(false) }
     var showAccentDialog by remember { mutableStateOf(false) }
+    var showAnimationDialog by remember { mutableStateOf(false) }
     var showResolutionDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showSeekDialog by remember { mutableStateOf(false) }
@@ -585,16 +586,28 @@ fun SettingsScreen(
                                 val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
                                 YouTubeSwitchRow(
                                     title = "Butterfly Opening Animation",
-                                    subtitle = "Cinematic 3D butterfly flap & launch animation on app start",
+                                    subtitle = "Cinematic animated launch intro on app startup",
                                     checked = isOpeningAnimationEnabled,
                                     onCheckedChange = { viewModel.setOpeningAnimationEnabled(it) }
                                 )
                             }
                             item {
+                                val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
+                                YouTubeDetailRow(
+                                    title = "Opening Animation Style",
+                                    subtitle = "${openingAnimationStyle.title} • ${openingAnimationStyle.subtitle}",
+                                    onClick = { showAnimationDialog = true }
+                                )
+                            }
+                            item {
+                                val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
                                 YouTubeDetailRow(
                                     title = "Preview Opening Animation",
-                                    subtitle = "Test the 3D butterfly flight & portal reveal transition",
-                                    onClick = { viewModel.replayOpeningAnimation() }
+                                    subtitle = "Test ${openingAnimationStyle.title} transition",
+                                    onClick = {
+                                        viewModel.setOpeningAnimationEnabled(true)
+                                        viewModel.replayOpeningAnimation()
+                                    }
                                 )
                             }
                             item {
@@ -678,7 +691,6 @@ fun SettingsScreen(
                                     "thisvid" to "ThisVid",
                                     "tnaflix" to "TNAFlix",
                                     "eporner" to "Eporner",
-                                    "spankbang" to "SpankBang",
                                     "hanime1" to "Hanime1 Anime",
                                     "hqporner" to "HQPorner 4K",
                                     "redtube" to "RedTube",
@@ -2715,6 +2727,110 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showThemeDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showAnimationDialog) {
+        val currentStyle by viewModel.openingAnimationStyle.collectAsState()
+        AlertDialog(
+            onDismissRequest = { showAnimationDialog = false },
+            title = {
+                Text(
+                    text = "App Opening Animation",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Select your preferred intro animation when starting Butterfly:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    MainViewModel.OpeningAnimationStyle.entries.forEach { styleOpt ->
+                        val isSelected = (currentStyle == styleOpt)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    viewModel.setOpeningAnimationStyle(styleOpt)
+                                },
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            } else {
+                                Color.Transparent
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        viewModel.setOpeningAnimationStyle(styleOpt)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = styleOpt.title,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                        if (styleOpt.badge != null) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = styleOpt.badge,
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = styleOpt.subtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showAnimationDialog = false
+                        viewModel.setOpeningAnimationEnabled(true)
+                        viewModel.replayOpeningAnimation()
+                    }
+                ) {
+                    Text("Preview")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAnimationDialog = false }) {
+                    Text("Done")
+                }
             }
         )
     }

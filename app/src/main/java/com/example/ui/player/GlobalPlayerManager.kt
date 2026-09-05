@@ -52,10 +52,24 @@ object GlobalPlayerManager {
                 builder.removeHeader("referer")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
+                builder.removeHeader("Cookie")
+                builder.removeHeader("cookie")
+            }
+            urlStr.contains("vk.com") || urlStr.contains("vkuser.net") || urlStr.contains("vkuservideo.net") || urlStr.contains("mycdn.me") || urlStr.contains("vk-cdn.me") || urlStr.contains("userapi.com") -> {
+                builder.header("Referer", "https://vk.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                builder.removeHeader("Cookie")
+                builder.removeHeader("cookie")
             }
             urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos-") || urlStr.contains("akamaized") -> {
                 builder.header("Referer", "https://www.bilibili.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.header("Accept", "*/*")
+                builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
+                builder.header("Sec-Fetch-Mode", "no-cors")
+                builder.header("Sec-Fetch-Site", "cross-site")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
             }
@@ -864,6 +878,7 @@ object GlobalPlayerManager {
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true)
                 .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
+                .setFragmentedMp4ExtractorFlags(androidx.media3.extractor.mp4.FragmentedMp4Extractor.FLAG_ENABLE_EMSG_TRACK)
                 .setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
 
             val errorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
@@ -904,14 +919,29 @@ object GlobalPlayerManager {
                         lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") || lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") || lowerTarget.contains("githubusercontent")
                 val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos-") || lowerTarget.contains("akamaized") || streamData?.providerId == "bilibili"
 
+                val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkuser") || lowerTarget.contains("mycdn.me") || lowerTarget.contains("vk-cdn") || lowerTarget.contains("userapi.com")
+
                 if (isGoogleStorageOrPublic) {
                     reqHeaders.remove("Referer")
                     reqHeaders.remove("referer")
                     reqHeaders.remove("Origin")
                     reqHeaders.remove("origin")
+                    reqHeaders.remove("Cookie")
+                    reqHeaders.remove("cookie")
+                } else if (isVkStream) {
+                    reqHeaders["Referer"] = "https://vk.com/"
+                    reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    reqHeaders.remove("Origin")
+                    reqHeaders.remove("origin")
+                    reqHeaders.remove("Cookie")
+                    reqHeaders.remove("cookie")
                 } else if (isBilibiliStream) {
                     reqHeaders["Referer"] = "https://www.bilibili.com/"
                     reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    reqHeaders["Accept"] = "*/*"
+                    reqHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
+                    reqHeaders["Sec-Fetch-Mode"] = "no-cors"
+                    reqHeaders["Sec-Fetch-Site"] = "cross-site"
                     reqHeaders.remove("Origin")
                     reqHeaders.remove("origin")
                 } else {
@@ -989,7 +1019,7 @@ object GlobalPlayerManager {
                                     reqHeaders["Origin"] = "https://upload18.org"
                                 }
                             }
-                            lowerTarget.contains("tnaflix.com") || lowerTarget.contains("tnaflix") || lowerTarget.contains("tnacdn") || (streamData?.providerId == "tnaflix") -> {
+                            lowerTarget.contains("tnaflix.com") || lowerTarget.contains("tnaflix") || lowerTarget.contains("tnacdn") -> {
                                 reqHeaders["Referer"] = "https://www.tnaflix.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://www.tnaflix.com"
@@ -998,16 +1028,16 @@ object GlobalPlayerManager {
                                     reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
                                 }
                             }
-                            lowerTarget.contains("hanime1.me") || lowerTarget.contains("hanime.tv") || lowerTarget.contains("hanime") || (streamData?.providerId == "hanime1") || (streamData?.providerId == "hanime") -> {
-                                reqHeaders["Referer"] = "https://hanime1.me/"
+                            lowerTarget.contains("hanime1") || lowerTarget.contains("hanime.tv") || lowerTarget.contains("hanime") || lowerTarget.contains("hembed.com") || lowerTarget.contains("vdownload") -> {
+                                reqHeaders["Referer"] = "https://hanime1.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                                    reqHeaders["Origin"] = "https://hanime1.me"
+                                    reqHeaders["Origin"] = "https://hanime1.com"
                                 }
                                 if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
                                     reqHeaders["Cookie"] = "age_verified=1; country=US; language=en"
                                 }
                             }
-                            lowerTarget.contains("noodlemagazine.com") || lowerTarget.contains("noodlemag") || (streamData?.providerId == "noodlemagazine") -> {
+                            lowerTarget.contains("noodlemagazine.com") || lowerTarget.contains("noodlemag") -> {
                                 reqHeaders["Referer"] = "https://noodlemagazine.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://noodlemagazine.com"
@@ -1016,7 +1046,16 @@ object GlobalPlayerManager {
                                     reqHeaders["Cookie"] = "age_verified=1; platform=pc; ft_mature=1; consent=1"
                                 }
                             }
-                            lowerTarget.contains("hqporner.com") || lowerTarget.contains("hqporner") || lowerTarget.contains("hqplayer") || (streamData?.providerId == "hqporner") || (streamData?.providerId == "hqplayer") -> {
+                            lowerTarget.contains("thisvid.com") || lowerTarget.contains("tvid") -> {
+                                reqHeaders["Referer"] = "https://thisvid.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://thisvid.com"
+                                }
+                                if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                                    reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
+                                }
+                            }
+                            lowerTarget.contains("hqporner.com") || lowerTarget.contains("hqporner") || lowerTarget.contains("hqplayer") -> {
                                 reqHeaders["Referer"] = "https://hqporner.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://hqporner.com"
@@ -1025,13 +1064,13 @@ object GlobalPlayerManager {
                                     reqHeaders["Cookie"] = "age_verified=1; country=US; consent=1"
                                 }
                             }
-                            lowerTarget.contains("beeg.com") || lowerTarget.contains("externulls.com") || lowerTarget.contains("ahacdn.me") || (streamData?.providerId == "beeg") -> {
+                            lowerTarget.contains("beeg.com") || lowerTarget.contains("externulls.com") || lowerTarget.contains("ahacdn.me") -> {
                                 reqHeaders["Referer"] = "https://beeg.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://beeg.com"
                                 }
                             }
-                            lowerTarget.contains("bigo.tv") || lowerTarget.contains("bigolive.tv") || lowerTarget.contains("bigo.sg") || lowerTarget.contains("cubetecn.com") || lowerTarget.contains("bigocdn.com") || (streamData?.providerId == "bigo") -> {
+                            lowerTarget.contains("bigo.tv") || lowerTarget.contains("bigolive.tv") || lowerTarget.contains("bigo.sg") || lowerTarget.contains("cubetecn.com") || lowerTarget.contains("bigocdn.com") -> {
                                 reqHeaders["Referer"] = "https://www.bigo.tv/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://www.bigo.tv"
@@ -1104,13 +1143,16 @@ object GlobalPlayerManager {
                     builder.setMimeType(MimeTypes.APPLICATION_MPD)
                 } else if (lowerFormat == "mkv" || lowerUrl.contains(".mkv") || lowerUrl.contains("video%2fx-matroska") || lowerUrl.contains("video/x-matroska")) {
                     builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
-                } else if (lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm") || lowerFormat == "webm") {
-                    builder.setMimeType(MimeTypes.VIDEO_WEBM)
-                } else if (lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
+                } else if (lowerFormat == "audio_webm" || (lowerFormat == "audio" && lowerUrl.contains("webm")) || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
                     builder.setMimeType(MimeTypes.AUDIO_WEBM)
-                } else if (lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") || lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerUrl.contains("-30250.m4s") || lowerUrl.contains("-30251.m4s") || lowerUrl.contains("_da3-1-302") || lowerUrl.contains("-302") || lowerFormat == "m4a" || lowerFormat == "audio" || lowerFormat == "aac" || lowerFormat == "mp3") {
+                } else if (lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm")) {
+                    builder.setMimeType(MimeTypes.VIDEO_WEBM)
+                } else if (lowerFormat == "audio" || lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerFormat == "aac" || lowerFormat == "mp3" ||
+                    lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") ||
+                    lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerUrl.contains("-30250.m4s") || lowerUrl.contains("-30251.m4s") || lowerUrl.contains("_da3-1-302") || lowerUrl.contains("-302")
+                ) {
                     builder.setMimeType(MimeTypes.AUDIO_MP4)
-                } else if (lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerFormat == "mp4" || lowerFormat == "m4s" || lowerFormat == "video") {
+                } else if (lowerFormat == "video" || lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4")) {
                     builder.setMimeType(MimeTypes.VIDEO_MP4)
                 }
 

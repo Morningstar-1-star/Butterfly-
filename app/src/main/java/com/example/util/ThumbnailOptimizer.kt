@@ -201,9 +201,11 @@ object ThumbnailOptimizer {
                 builder.setHeader("Referer", "https://thisvid.com/")
                 builder.setHeader("Cookie", "age_verified=1; platform=pc")
             }
-            lowerUrl.contains("tnaflix.com") -> {
+            lowerUrl.contains("tnaflix.com") || lowerUrl.contains("tnaflix") || lowerUrl.contains("tnacdn") -> {
                 builder.setHeader("Referer", "https://www.tnaflix.com/")
-                builder.setHeader("Cookie", "age_verified=1; platform=pc")
+                builder.setHeader("Origin", "https://www.tnaflix.com")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1")
+                builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
             lowerUrl.contains("noodlemagazine.com") -> {
                 builder.setHeader("Referer", "https://noodlemagazine.com/")

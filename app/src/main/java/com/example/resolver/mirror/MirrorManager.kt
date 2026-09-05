@@ -72,15 +72,8 @@ object MirrorManager {
         registerMirror(
             MirrorConfig(
                 providerId = "hanime1",
-                primaryDomain = "https://hanime1.me",
-                mirrors = listOf("https://hanime1.me", "https://hanime1.com", "https://hanime1.co")
-            )
-        )
-        registerMirror(
-            MirrorConfig(
-                providerId = "spankbang",
-                primaryDomain = "https://spankbang.com",
-                mirrors = listOf("https://spankbang.com", "https://spankbang.party", "https://spankbang.porn", "https://spankbang.site")
+                primaryDomain = "https://hanime1.com",
+                mirrors = listOf("https://hanime1.com", "https://hanime1.org", "https://hanime1.co", "https://hanime1.me")
             )
         )
         registerMirror(

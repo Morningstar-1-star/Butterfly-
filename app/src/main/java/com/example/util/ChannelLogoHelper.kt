@@ -468,15 +468,6 @@ object ChannelLogoHelper {
                 subscriberCountText = "Bigo Live Broadcaster"
             )
 
-            combined.contains("spankbang") -> BrandLogoInfo(
-                logoUrls = emptyList(),
-                brandName = cleanName,
-                brandShortText = "SB",
-                backgroundColor = Color(0xFFE50914),
-                textColor = Color.White,
-                subscriberCountText = "4K Studio Partner"
-            )
-
             combined.contains("hanime1") -> BrandLogoInfo(
                 logoUrls = emptyList(),
                 brandName = cleanName,
