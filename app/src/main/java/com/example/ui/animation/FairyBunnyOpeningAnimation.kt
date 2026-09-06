@@ -6,42 +6,35 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.ui.AppAccentColor
 import com.example.ui.ThemeMode
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Enchanting Fairy Butterfly Bunny App Opening Animation.
- *
- * Inspired by the whimsical video of the white bunny with vibrant cobalt butterfly wings.
- * Features:
- * - Fluid 3D wing flapping physics with depth perspective
- * - Expressive character nuances (springy ear physics, sweet eye blink, breathing hover)
- * - Distinctive aesthetics for Light Mode (celestial dawn sky, pristine ink-drawn bunny, royal cobalt wings)
- *   and Dark Mode (cosmic AMOLED nebula, moonlight fur with accent rim lighting, bioluminescent glowing wings)
- * - Fairy dust particle streams, lift-off acceleration, and cinematic zoom-through reveal
- * - Instant tap-to-skip support
+ * Handcrafted Fairy Butterfly Bunny Opening Animation.
+ * Faithfully recreated to match the reference video:
+ * 1. (0.0s - 0.75s) Rear View: White bunny seen from behind with vibrant blue butterfly wings fluttering gently.
+ * 2. (0.75s - 1.4s) Looking Back & Wings Shift: Bunny smoothly turns its head back over its shoulder, revealing a cute dot eye while the butterfly wings naturally shift to the side.
+ * 3. (1.4s - 1.9s) Scared / Startled: Bunny gets startled! Its eye turns into an 'x', ears perk straight up, shock marks radiate, and body recoils in panic.
+ * 4. (1.9s - 2.5s) Rapid Flutter & Fly to Top: Wings flutter at high speed, bunny launches and flies rapidly off the top of the screen.
+ * 5. (2.5s) Seamless App Open Transition.
  */
 @Composable
 fun FairyBunnyOpeningAnimation(
@@ -52,797 +45,655 @@ fun FairyBunnyOpeningAnimation(
 ) {
     var isSkipped by remember { mutableStateOf(false) }
 
-    // Master animation clock (0ms to 1600ms)
+    // Master animation timeline (0ms to 2550f)
     val animClock = remember { Animatable(0f) }
 
+    // Guarantee that onAnimationFinished is called and never hangs
     LaunchedEffect(Unit) {
-        animClock.animateTo(
-            targetValue = 1600f,
-            animationSpec = tween(
-                durationMillis = 1600,
-                easing = LinearEasing
-            )
-        )
+        val animJob = launch {
+            try {
+                animClock.animateTo(
+                    targetValue = 2550f,
+                    animationSpec = tween(
+                        durationMillis = 2500,
+                        easing = LinearEasing
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+        val timeoutJob = launch {
+            delay(2650L)
+            if (!isSkipped) {
+                isSkipped = true
+                onAnimationFinished()
+            }
+        }
+        animJob.join()
+        timeoutJob.cancel()
         onAnimationFinished()
     }
 
-    val progress = animClock.value
+    val progress = if (isSkipped) 2550f else animClock.value
+
+    // If finished or skipped, immediately unmount to never block touches
+    if (progress >= 2500f || isSkipped) {
+        SideEffect {
+            onAnimationFinished()
+        }
+        return
+    }
+
     val isDark = themeMode == ThemeMode.AMOLED_DARK
     val density = LocalDensity.current
 
-    // --- Phase 1: Entrance Bounce (0ms - 380ms) ---
-    val entranceScale = when {
-        progress < 280f -> {
-            val t = (progress / 280f).coerceIn(0f, 1f)
-            // Elastic spring overshoot from 0.5f to 1.08f to 1.0f
-            0.5f + (0.58f * sin(t * Math.PI.toFloat() * 0.75f))
-        }
-        progress < 380f -> {
-            val t = ((progress - 280f) / 100f).coerceIn(0f, 1f)
-            1.08f - (0.08f * t)
+    // Background color: Clean white in Light Mode, deep sleek midnight in Dark Mode
+    val bgColor = if (isDark) Color(0xFF090C15) else Color(0xFFFFFFFF)
+
+    // Palette faithful to the reference video
+    val lineInkColor = if (isDark) Color(0xFF60A5FA) else Color(0xFF1D4ED8)
+    val furColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFFFFFFFF)
+    val wingBluePrimary = if (isDark) Color(0xFF2563EB) else Color(0xFF2563EB)
+    val wingBlueDeep = if (isDark) Color(0xFF1D4ED8) else Color(0xFF1E40AF)
+    val eyeColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8)
+    val shockLineColor = if (isDark) Color(0xFF93C5FD) else Color(0xFF2563EB)
+
+    // Fade out overlay during final 150ms of transition
+    val screenFadeAlpha = when {
+        progress > 2350f -> 1f - ((progress - 2350f) / 150f).coerceIn(0f, 1f)
+        else -> 1f
+    }
+
+    // --- Dynamic Physics & Timeline Variables ---
+
+    // 1. Turn progress: 0f = facing away (rear), 1f = looking back (3/4 profile)
+    val turnProgress = when {
+        progress < 750f -> 0f
+        progress < 1350f -> {
+            val t = (progress - 750f) / 600f
+            FastOutSlowInEasing.transform(t)
         }
         else -> 1f
     }
 
-    // --- Phase 2: Hover & Breathing Float (0ms - 1000ms) ---
-    val hoverOffsetY = when {
-        progress < 300f -> 0f
-        progress < 1000f -> {
-            val t = (progress - 300f) / 700f
-            -8f * sin(t * Math.PI.toFloat() * 3f)
+    // 2. Scared factor: 0f = calm, 1f = fully startled
+    val scaredFactor = when {
+        progress < 1400f -> 0f
+        progress < 1550f -> {
+            val t = (progress - 1400f) / 150f
+            FastOutLinearInEasing.transform(t)
         }
-        progress < 1250f -> {
-            // Anticipation crouch down before leaping
-            val t = (progress - 1000f) / 250f
-            if (t < 0.35f) {
-                // Dip down slightly
-                6f * sin(t / 0.35f * (Math.PI.toFloat() / 2f))
+        progress < 1900f -> 1f
+        progress < 2050f -> {
+            val t = 1f - ((progress - 1900f) / 150f)
+            t.coerceIn(0f, 1f)
+        }
+        else -> 0f
+    }
+
+    // 3. Flight factor: 0f = on ground, 1f = flying away
+    val flightProgress = when {
+        progress < 1900f -> 0f
+        else -> ((progress - 1900f) / 550f).coerceIn(0f, 1f)
+    }
+
+    // 4. Vertical displacement (offsetY)
+    val verticalOffsetDp = when {
+        // Phase 1: Subtle breathing float
+        progress < 750f -> {
+            val t = progress / 750f
+            sin(t * Math.PI.toFloat() * 2f) * -3f
+        }
+        // Phase 2: Gentle motion while turning
+        progress < 1400f -> {
+            val t = (progress - 750f) / 650f
+            sin(t * Math.PI.toFloat()) * -4f
+        }
+        // Phase 3: Startled jump & crouch down (anticipation)
+        progress < 1900f -> {
+            val t = (progress - 1400f) / 500f
+            if (t < 0.25f) {
+                // Quick shock jump
+                -8f * sin(t / 0.25f * (Math.PI.toFloat() / 2f))
             } else {
-                // Rocket up!
-                val jumpT = (t - 0.35f) / 0.65f
-                6f - (55f * FastOutSlowInEasing.transform(jumpT))
+                // Crouch down to anticipate takeoff
+                val subT = (t - 0.25f) / 0.75f
+                -8f + (14f * sin(subT * (Math.PI.toFloat() / 2f)))
             }
         }
+        // Phase 4: Rocket straight up off screen!
         else -> {
-            val t = ((progress - 1250f) / 350f).coerceIn(0f, 1f)
-            -55f - (70f * t)
+            val t = flightProgress
+            // Exponential upward launch
+            6f - (950f * (t * t * 1.15f))
         }
     }
 
-    // --- Phase 3: 3D Butterfly Wings Flap Angle (degrees) ---
-    val flapAngleFront = when {
-        // Flap 1 (Gentle flutter 360ms - 620ms)
-        progress in 360f..620f -> {
-            val t = (progress - 360f) / 260f
-            if (t < 0.45f) {
-                FastOutSlowInEasing.transform(t / 0.45f) * 48f
-            } else {
-                val subT = (t - 0.45f) / 0.55f
-                48f * (1f - FastOutSlowInEasing.transform(subT)) - (8f * sin(subT * Math.PI.toFloat()))
-            }
+    // 5. Wing Flap Physics
+    val wingFlapPhase = when {
+        // Phase 1: Gentle flutter (2 cycles)
+        progress < 750f -> {
+            val t = progress / 750f
+            sin(t * Math.PI.toFloat() * 4f)
         }
-        // Flap 2 (Deeper flutter 650ms - 950ms)
-        progress in 650f..950f -> {
-            val t = (progress - 650f) / 300f
-            if (t < 0.45f) {
-                FastOutSlowInEasing.transform(t / 0.45f) * 58f
-            } else {
-                val subT = (t - 0.45f) / 0.55f
-                58f * (1f - FastOutSlowInEasing.transform(subT)) - (10f * sin(subT * Math.PI.toFloat()))
-            }
+        // Phase 2: Slow glide / shift as body turns
+        progress < 1400f -> {
+            val t = (progress - 750f) / 650f
+            sin(t * Math.PI.toFloat() * 2.5f) * 0.7f
         }
-        // Rapid energetic takeoff flaps (1020ms - 1450ms)
-        progress in 1020f..1450f -> {
-            val t = (progress - 1020f) / 430f
-            // Rapid cycles of flapping
-            val cycle = (t * 4.5f) % 1f
-            if (cycle < 0.45f) {
-                (cycle / 0.45f) * 65f
-            } else {
-                65f * (1f - (cycle - 0.45f) / 0.55f)
-            }
+        // Phase 3: Startled spread wide + jitter
+        progress < 1900f -> {
+            val t = (progress - 1400f) / 500f
+            val jitter = sin(t * Math.PI.toFloat() * 12f) * 0.12f
+            0.85f + jitter
         }
-        else -> 0f
-    }
-
-    // Back wing flaps with a slight phase lag for lifelike organic depth
-    val flapAngleBack = when {
-        progress in 380f..640f -> {
-            val t = (progress - 380f) / 260f
-            if (t < 0.45f) FastOutSlowInEasing.transform(t / 0.45f) * 44f
-            else 44f * (1f - FastOutSlowInEasing.transform((t - 0.45f) / 0.55f))
-        }
-        progress in 670f..970f -> {
-            val t = (progress - 670f) / 300f
-            if (t < 0.45f) FastOutSlowInEasing.transform(t / 0.45f) * 54f
-            else 54f * (1f - FastOutSlowInEasing.transform((t - 0.45f) / 0.55f))
-        }
-        progress in 1040f..1470f -> {
-            val t = (progress - 1040f) / 430f
-            val cycle = (t * 4.5f) % 1f
-            if (cycle < 0.45f) (cycle / 0.45f) * 60f
-            else 60f * (1f - (cycle - 0.45f) / 0.55f)
-        }
-        else -> 0f
-    }
-
-    // --- Phase 4: Bunny Ear Sway & Follow-through ---
-    val earAngle = when {
-        progress < 300f -> {
-            val t = (progress / 300f).coerceIn(0f, 1f)
-            -15f * (1f - t)
-        }
-        progress in 360f..650f -> {
-            val t = (progress - 360f) / 290f
-            6f * sin(t * Math.PI.toFloat() * 2f)
-        }
-        progress in 670f..980f -> {
-            val t = (progress - 670f) / 310f
-            7f * sin(t * Math.PI.toFloat() * 2f)
-        }
-        progress in 1020f..1450f -> {
-            // Wind of flight sweeps ears back
-            val t = ((progress - 1020f) / 430f).coerceIn(0f, 1f)
-            -14f * t
-        }
-        else -> 0f
-    }
-
-    // --- Phase 5: Eye Blink (580ms - 720ms) ---
-    val eyeBlink = when (progress) {
-        in 580f..650f -> ((progress - 580f) / 70f).coerceIn(0f, 1f)
-        in 650f..720f -> (1f - (progress - 650f) / 70f).coerceIn(0f, 1f)
-        else -> 0f
-    }
-
-    // --- Phase 6: Flight Pitch & Tilt ---
-    val bodyTiltZ = when {
-        progress in 360f..950f -> {
-            val t = (progress - 360f) / 590f
-            -2.5f * sin(t * Math.PI.toFloat() * 2f)
-        }
-        progress in 1050f..1450f -> {
-            // Leaning forward into joyful flight
-            val t = ((progress - 1050f) / 250f).coerceIn(0f, 1f)
-            -10f * t
-        }
-        else -> 0f
-    }
-
-    // --- Phase 7: Cinematic Zoom-Through (1250ms - 1600ms) ---
-    val zoomScale = when {
-        progress < 1250f -> 1f
+        // Phase 4: Rapid high-frequency flight flutter!
         else -> {
-            val t = ((progress - 1250f) / 350f).coerceIn(0f, 1f)
-            val curve = CubicBezierEasing(0.35f, 0.0f, 0.15f, 1.0f).transform(t)
-            1f + (22f * curve)
+            val t = (progress - 1900f) / 1000f
+            sin(t * Math.PI.toFloat() * 32f) // ~16 flaps/sec
         }
     }
 
-    // Overall splash overlay alpha (dissolves during zoom reveal)
-    val splashAlpha = when {
-        progress < 1320f -> 1f
-        else -> {
-            val t = ((progress - 1320f) / 280f).coerceIn(0f, 1f)
-            1f - CubicBezierEasing(0.4f, 0f, 0.2f, 1f).transform(t)
-        }
-    }
-
-    // Palette & Lighting Setup
-    val activeGlow = remember(isDark, accentColor) {
-        if (isDark) {
-            if (accentColor == AppAccentColor.MONOCHROME) Color(0xFF38BDF8) else accentColor.color
-        } else {
-            Color(0xFF2563EB)
-        }
-    }
-
-    val backgroundBrush = remember(isDark, activeGlow) {
-        if (isDark) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFF070D1E), // Celestial midnight navy
-                    Color(0xFF040711),
-                    Color(0xFF010206)  // Pure deep AMOLED space
-                )
-            )
-        } else {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFFEFF6FF), // Soft morning porcelain sky
-                    Color(0xFFDBEAFE), // Airy azure mist
-                    Color(0xFFBFDBFE)  // Delicate pastel horizon
-                )
-            )
-        }
-    }
-
-    // Wings Palette: Vibrant cobalt blue inspired directly by the user's video, elevated with gradient luster
-    val wingBaseColor = remember(isDark) {
-        if (isDark) Color(0xFF1D4ED8) else Color(0xFF1A56FF)
-    }
-    val wingHighlightColor = remember(isDark, activeGlow) {
-        if (isDark) activeGlow else Color(0xFF60A5FA)
-    }
-
-    if (splashAlpha > 0.01f && !isSkipped) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .alpha(splashAlpha)
-                .background(backgroundBrush)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    isSkipped = true
-                    onAnimationFinished()
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            // Ambient Luminous Aura behind Bunny
-            val auraPulse = 1f + 0.08f * sin((progress / 200f) * Math.PI.toFloat())
-            val auraScale = when {
-                progress < 300f -> (progress / 300f) * auraPulse
-                progress < 1250f -> auraPulse
-                else -> auraPulse + ((progress - 1250f) / 350f) * 3f
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(310.dp)
-                    .scale(auraScale)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                activeGlow.copy(alpha = if (isDark) 0.32f else 0.25f),
-                                activeGlow.copy(alpha = if (isDark) 0.10f else 0.08f),
-                                Color.Transparent
-                            )
-                        ),
-                        shape = CircleShape
-                    )
-            )
-
-            // Celestial Background Sparkles & Constellation Dust
-            FairyConstellationDust(
-                progress = progress / 1600f,
-                isDark = isDark,
-                accentGlow = activeGlow
-            )
-
-            // Active Fairy Dust particles emitted during wing flutters and takeoff
-            if (progress in 400f..1450f) {
-                FairyWingDustParticles(
-                    progress = (progress - 400f) / 1050f,
-                    accentColor = activeGlow,
-                    isDark = isDark
-                )
-            }
-
-            // --- Ground Shadow (dissolves as bunny leaps into the sky) ---
-            val groundShadowAlpha = when {
-                progress < 1000f -> if (isDark) 0.4f else 0.25f
-                progress < 1300f -> {
-                    val t = (progress - 1000f) / 300f
-                    (1f - t) * (if (isDark) 0.4f else 0.25f)
-                }
-                else -> 0f
-            }
-            if (groundShadowAlpha > 0.01f && zoomScale < 2.5f) {
-                Box(
-                    modifier = Modifier
-                        .offset(y = 88.dp)
-                        .width(110.dp)
-                        .height(20.dp)
-                        .alpha(groundShadowAlpha)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    if (isDark) activeGlow.copy(alpha = 0.5f) else Color(0xFF0F172A).copy(alpha = 0.35f),
-                                    Color.Transparent
-                                )
-                            ),
-                            shape = CircleShape
-                        )
-                )
-            }
-
-            // --- Main Character Rig (Bunny + 3D Butterfly Wings) ---
-            val totalCharacterScale = entranceScale * zoomScale
-            Box(
-                modifier = Modifier
-                    .size(220.dp)
-                    .graphicsLayer {
-                        scaleX = totalCharacterScale
-                        scaleY = totalCharacterScale
-                        translationY = with(density) { hoverOffsetY.dp.toPx() }
-                        rotationZ = bodyTiltZ
-                        cameraDistance = 36f * density.density
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                // Soft ambient blur silhouette under character
-                if (zoomScale < 2f && isDark) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .scale(1.05f)
-                            .blur(14.dp)
-                            .alpha(0.35f)
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            drawBunnySilhouette(color = activeGlow)
-                        }
-                    }
-                }
-
-                // 1. BACK WING (Layered behind bunny body in 3D)
-                Box(
-                    modifier = Modifier
-                        .offset(x = 24.dp, y = (-12).dp)
-                        .size(105.dp, 125.dp)
-                        .graphicsLayer {
-                            rotationY = flapAngleBack
-                            transformOrigin = TransformOrigin(0.05f, 0.55f)
-                            cameraDistance = 28f * density.density
-                            alpha = 0.95f
-                        }
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawButterflyWing(
-                            baseColor = wingBaseColor.copy(alpha = 0.92f),
-                            highlightColor = wingHighlightColor.copy(alpha = 0.85f),
-                            isDark = isDark,
-                            isBackWing = true
-                        )
-                    }
-                }
-
-                // 2. BUNNY CHARACTER BODY (Seated profile, facing forward-left)
-                Canvas(
-                    modifier = Modifier.size(175.dp)
-                ) {
-                    drawBunnyCharacter(
-                        isDark = isDark,
-                        accentColor = activeGlow,
-                        earAngle = earAngle,
-                        eyeBlink = eyeBlink
-                    )
-                }
-
-                // 3. FRONT WING (Layered in front at the back attachment joint)
-                Box(
-                    modifier = Modifier
-                        .offset(x = 32.dp, y = (-6).dp)
-                        .size(118.dp, 140.dp)
-                        .graphicsLayer {
-                            rotationY = flapAngleFront
-                            transformOrigin = TransformOrigin(0.05f, 0.55f)
-                            cameraDistance = 28f * density.density
-                        }
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawButterflyWing(
-                            baseColor = wingBaseColor,
-                            highlightColor = wingHighlightColor,
-                            isDark = isDark,
-                            isBackWing = false
-                        )
-                    }
-                }
-            }
-
-            // --- Elegant Bottom Branding Header ---
-            val brandAlpha = when {
-                progress < 250f -> (progress / 250f).coerceIn(0f, 1f)
-                progress < 1150f -> 1f
-                else -> (1f - (progress - 1150f) / 200f).coerceIn(0f, 1f)
-            }
-
-            if (brandAlpha > 0.05f) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 54.dp)
-                        .alpha(brandAlpha),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "BUTTERFLY",
-                        color = if (isDark) Color.White.copy(alpha = 0.95f) else Color(0xFF0F172A),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 5.sp,
-                        fontFamily = FontFamily.SansSerif
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Fairy Bunny • Celestial Edition",
-                        color = if (isDark) activeGlow.copy(alpha = 0.9f) else Color(0xFF1D4ED8).copy(alpha = 0.9f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 1.2.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Draws the enchanting Butterfly Wing with graceful upper and lower lobes,
- * rich gradients, and delicate vein luminosity.
- */
-private fun DrawScope.drawButterflyWing(
-    baseColor: Color,
-    highlightColor: Color,
-    isDark: Boolean,
-    isBackWing: Boolean
-) {
-    val w = size.width
-    val h = size.height
-
-    // Master Wing Path (Originating at x: 0.05*w, y: 0.55*h attachment point)
-    val rootX = w * 0.05f
-    val rootY = h * 0.52f
-
-    val wingPath = Path().apply {
-        moveTo(rootX, rootY)
-
-        // --- Upper Lobe (Large sweeping top wing) ---
-        cubicTo(
-            w * 0.12f, h * 0.22f,
-            w * 0.38f, h * 0.02f,
-            w * 0.72f, h * 0.04f
-        )
-        cubicTo(
-            w * 0.96f, h * 0.06f,
-            w * 1.02f, h * 0.28f,
-            w * 0.88f, h * 0.48f
-        )
-        // Mid-wing waist indentation
-        cubicTo(
-            w * 0.78f, h * 0.58f,
-            w * 0.58f, h * 0.56f,
-            w * 0.52f, h * 0.60f
-        )
-
-        // --- Lower Lobe (Rounded soft bottom wing) ---
-        cubicTo(
-            w * 0.62f, h * 0.68f,
-            w * 0.86f, h * 0.76f,
-            w * 0.78f, h * 0.92f
-        )
-        cubicTo(
-            w * 0.70f, h * 1.02f,
-            w * 0.42f, h * 0.98f,
-            w * 0.26f, h * 0.82f
-        )
-        cubicTo(
-            w * 0.14f, h * 0.72f,
-            w * 0.06f, h * 0.62f,
-            rootX, rootY
-        )
-        close()
-    }
-
-    // Main Wing Body Fill with Radial/Linear Gradient
-    val fillBrush = Brush.radialGradient(
-        colors = listOf(
-            highlightColor,
-            baseColor,
-            if (isDark) Color(0xFF0F2B66) else Color(0xFF1E40AF)
-        ),
-        center = Offset(w * 0.35f, h * 0.40f),
-        radius = w * 0.9f
-    )
-    drawPath(path = wingPath, brush = fillBrush)
-
-    // Delicate translucent wing veins for high craftsmanship
-    val veinColor = if (isDark) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.65f)
-    val strokeWidth = if (isBackWing) 1.2f else 1.8f
-
-    // Upper Lobe Veins
-    val v1 = Path().apply {
-        moveTo(rootX, rootY)
-        cubicTo(w * 0.25f, h * 0.35f, w * 0.50f, h * 0.20f, w * 0.72f, h * 0.12f)
-    }
-    val v2 = Path().apply {
-        moveTo(w * 0.35f, h * 0.30f)
-        cubicTo(w * 0.55f, h * 0.32f, w * 0.75f, h * 0.30f, w * 0.88f, h * 0.36f)
-    }
-    val v3 = Path().apply {
-        moveTo(w * 0.38f, h * 0.38f)
-        cubicTo(w * 0.55f, h * 0.45f, w * 0.70f, h * 0.48f, w * 0.82f, h * 0.52f)
-    }
-
-    // Lower Lobe Veins
-    val v4 = Path().apply {
-        moveTo(rootX, rootY)
-        cubicTo(w * 0.20f, h * 0.65f, w * 0.45f, h * 0.75f, w * 0.68f, h * 0.86f)
-    }
-    val v5 = Path().apply {
-        moveTo(w * 0.28f, h * 0.68f)
-        cubicTo(w * 0.35f, h * 0.82f, w * 0.45f, h * 0.90f, w * 0.52f, h * 0.94f)
-    }
-
-    drawPath(v1, color = veinColor, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
-    drawPath(v2, color = veinColor.copy(alpha = veinColor.alpha * 0.75f), style = Stroke(width = strokeWidth * 0.8f, cap = StrokeCap.Round))
-    drawPath(v3, color = veinColor.copy(alpha = veinColor.alpha * 0.75f), style = Stroke(width = strokeWidth * 0.8f, cap = StrokeCap.Round))
-    drawPath(v4, color = veinColor, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
-    drawPath(v5, color = veinColor.copy(alpha = veinColor.alpha * 0.75f), style = Stroke(width = strokeWidth * 0.8f, cap = StrokeCap.Round))
-
-    // Glossy specular edge rim
-    val rimColor = if (isDark) highlightColor.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.75f)
-    drawPath(
-        path = wingPath,
-        color = rimColor,
-        style = Stroke(width = if (isDark) 2.2f else 1.5f, cap = StrokeCap.Round)
-    )
-}
-
-/**
- * Draws the sweet, adorable seated white bunny character, perfectly capturing
- * the charm of the video clip with expressive eyes, springy ears, and soft blush.
- */
-private fun DrawScope.drawBunnyCharacter(
-    isDark: Boolean,
-    accentColor: Color,
-    earAngle: Float,
-    eyeBlink: Float
-) {
-    val w = size.width
-    val h = size.height
-
-    // Main bunny fur colors
-    val furColor = Color.White
-    val furShadow = if (isDark) Color(0xFF1E293B).copy(alpha = 0.3f) else Color(0xFFE2E8F0).copy(alpha = 0.6f)
-    val outlineColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF334155)
-    val earBlushColor = Color(0xFFF472B6).copy(alpha = if (isDark) 0.6f else 0.45f)
-    val cheekBlushColor = Color(0xFFFB7185).copy(alpha = if (isDark) 0.55f else 0.45f)
-
-    // --- 1. Fluffy White Tail (Bottom Right) ---
-    val tailCenter = Offset(w * 0.74f, h * 0.74f)
-    drawCircle(
-        color = furShadow,
-        radius = w * 0.11f,
-        center = Offset(tailCenter.x + 1f, tailCenter.y + 2f)
-    )
-    drawCircle(
-        color = furColor,
-        radius = w * 0.11f,
-        center = tailCenter
-    )
-    drawCircle(
-        color = outlineColor,
-        radius = w * 0.11f,
-        center = tailCenter,
-        style = Stroke(width = 2f)
-    )
-
-    // --- 2. Bunny Ears (with dynamic rotation & bounce) ---
-    // Back Ear
-    translate(left = w * 0.56f, top = h * 0.28f) {
-        val backEarAngle = earAngle * 0.8f + 6f
-        val backEarPath = Path().apply {
-            moveTo(0f, 0f)
-            cubicTo(w * 0.02f, -h * 0.18f, w * 0.08f, -h * 0.30f, w * 0.14f, -h * 0.32f)
-            cubicTo(w * 0.18f, -h * 0.30f, w * 0.16f, -h * 0.16f, w * 0.10f, 0f)
-            close()
-        }
-        drawPath(
-            path = backEarPath,
-            color = furColor
-        )
-        // Back ear inner blush
-        val backEarInner = Path().apply {
-            moveTo(w * 0.03f, -h * 0.05f)
-            cubicTo(w * 0.05f, -h * 0.15f, w * 0.09f, -h * 0.25f, w * 0.13f, -h * 0.26f)
-            cubicTo(w * 0.15f, -h * 0.24f, w * 0.13f, -h * 0.14f, w * 0.08f, -h * 0.05f)
-            close()
-        }
-        drawPath(path = backEarInner, color = earBlushColor)
-        drawPath(path = backEarPath, color = outlineColor, style = Stroke(width = 2f))
-    }
-
-    // Front Ear (Tall, expressive, springy)
-    translate(left = w * 0.44f, top = h * 0.26f) {
-        val frontEarPath = Path().apply {
-            moveTo(0f, 0f)
-            // Left edge curves upward
-            cubicTo(-w * 0.04f, -h * 0.18f, -w * 0.02f, -h * 0.33f, w * 0.04f, -h * 0.36f)
-            // Tip rounding
-            cubicTo(w * 0.08f, -h * 0.36f, w * 0.10f, -h * 0.32f, w * 0.10f, -h * 0.22f)
-            // Right edge curves back down
-            cubicTo(w * 0.10f, -h * 0.12f, w * 0.08f, -h * 0.02f, w * 0.06f, 0f)
-            close()
-        }
-        drawPath(path = frontEarPath, color = furColor)
-
-        // Front ear inner blush
-        val frontEarInner = Path().apply {
-            moveTo(0f, -h * 0.06f)
-            cubicTo(-w * 0.02f, -h * 0.17f, 0f, -h * 0.28f, w * 0.04f, -h * 0.30f)
-            cubicTo(w * 0.06f, -h * 0.29f, w * 0.07f, -h * 0.20f, w * 0.06f, -h * 0.06f)
-            close()
-        }
-        drawPath(path = frontEarInner, color = earBlushColor)
-        drawPath(path = frontEarPath, color = outlineColor, style = Stroke(width = 2.2f))
-    }
-
-    // --- 3. Chubby Seated Body & Paws ---
-    val bodyPath = Path().apply {
-        // Start at neck / chest
-        moveTo(w * 0.38f, h * 0.46f)
-        // Chest & belly curve forward-down
-        cubicTo(w * 0.28f, h * 0.54f, w * 0.26f, h * 0.68f, w * 0.30f, h * 0.78f)
-        // Front little paws resting
-        cubicTo(w * 0.32f, h * 0.82f, w * 0.42f, h * 0.82f, w * 0.46f, h * 0.78f)
-        // Seated base & rear foot
-        cubicTo(w * 0.54f, h * 0.82f, w * 0.68f, h * 0.82f, w * 0.74f, h * 0.76f)
-        // Back / rump arching up
-        cubicTo(w * 0.74f, h * 0.65f, w * 0.66f, h * 0.52f, w * 0.56f, h * 0.46f)
-        close()
-    }
-    // Soft drop shadow under belly
-    drawPath(path = bodyPath, color = furShadow)
-    drawPath(path = bodyPath, color = furColor)
-    drawPath(path = bodyPath, color = outlineColor, style = Stroke(width = 2.2f))
-
-    // Little front paw toe divider
-    drawLine(
-        color = outlineColor,
-        start = Offset(w * 0.38f, h * 0.76f),
-        end = Offset(w * 0.38f, h * 0.80f),
-        strokeWidth = 1.8f,
-        cap = StrokeCap.Round
-    )
-
-    // --- 4. Round Head & Muzzle ---
-    val headPath = Path().apply {
-        // Chin
-        moveTo(w * 0.36f, h * 0.46f)
-        // Cute protruding muzzle / cheek
-        cubicTo(w * 0.28f, h * 0.46f, w * 0.26f, h * 0.36f, w * 0.32f, h * 0.30f)
-        // Forehead
-        cubicTo(w * 0.38f, h * 0.24f, w * 0.52f, h * 0.24f, w * 0.58f, h * 0.30f)
-        // Nape of neck / back of head
-        cubicTo(w * 0.64f, h * 0.36f, w * 0.60f, h * 0.46f, w * 0.48f, h * 0.48f)
-        close()
-    }
-    drawPath(path = headPath, color = furColor)
-    drawPath(path = headPath, color = outlineColor, style = Stroke(width = 2.2f))
-
-    // --- 5. Facial Details ---
-    // Rosy Cheek Blush
-    drawOval(
-        color = cheekBlushColor,
-        topLeft = Offset(w * 0.33f, h * 0.38f),
-        size = Size(w * 0.08f, h * 0.045f)
-    )
-
-    // Tiny Cute Nose (soft rose dot at muzzle tip)
-    drawCircle(
-        color = Color(0xFFF43F5E),
-        radius = w * 0.016f,
-        center = Offset(w * 0.285f, h * 0.345f)
-    )
-
-    // Expressive Eye (Vibrant cobalt blue with white gleam, blinks happily)
-    val eyeCenter = Offset(w * 0.38f, h * 0.33f)
-    if (eyeBlink > 0.6f) {
-        // Happy sleeping/smiling eyelid arc `^_^`
-        val blinkArc = Path().apply {
-            moveTo(eyeCenter.x - w * 0.024f, eyeCenter.y)
-            quadraticBezierTo(eyeCenter.x, eyeCenter.y - h * 0.018f, eyeCenter.x + w * 0.024f, eyeCenter.y)
-        }
-        drawPath(path = blinkArc, color = Color(0xFF1D4ED8), style = Stroke(width = 2.4f, cap = StrokeCap.Round))
+    // 6. Ear perk & shock wobble
+    val earShockAngle = if (scaredFactor > 0.05f) {
+        val t = (progress - 1400f).coerceAtLeast(0f)
+        sin(t * 0.045f) * 7f * scaredFactor
     } else {
-        // Open bright round eye (just like the video!)
-        val eyeRadius = w * 0.028f * (1f - eyeBlink * 0.7f)
-        // Blue eye iris
-        drawCircle(
-            color = Color(0xFF1D4ED8),
-            radius = eyeRadius,
-            center = eyeCenter
+        0f
+    }
+
+    // 7. Shock mark scale (0 to 1 with elastic pop)
+    val shockMarkScale = when {
+        progress in 1420f..1880f -> {
+            val t = ((progress - 1420f) / 120f).coerceIn(0f, 1f)
+            if (t < 0.7f) {
+                (t / 0.7f) * 1.2f
+            } else {
+                1.2f - (0.2f * ((t - 0.7f) / 0.3f))
+            }
+        }
+        else -> 0f
+    }
+
+    // 8. Flight forward tilt
+    val flightTiltDegrees = when {
+        progress < 1900f -> 0f
+        else -> {
+            val t = flightProgress
+            -10f * sin(t * Math.PI.toFloat() * 0.8f)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(bgColor.copy(alpha = screenFadeAlpha))
+            .alpha(screenFadeAlpha)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                // Tap to skip
+                isSkipped = true
+                onAnimationFinished()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val canvasW = size.width
+            val canvasH = size.height
+            val centerX = canvasW / 2f
+            val centerY = canvasH / 2f + verticalOffsetDp.dp.toPx()
+
+            // Character scale base: 260dp bounding box
+            val baseScale = (minOf(canvasW, canvasH) / 360f).coerceIn(0.9f, 1.4f)
+
+            // Flight wind lines (when taking off)
+            if (flightProgress > 0.05f) {
+                val windAlpha = (flightProgress * 1.4f).coerceIn(0f, 0.75f)
+                val windColor = shockLineColor.copy(alpha = windAlpha)
+                val strokeW = 2.5.dp.toPx()
+
+                // 3 streamlined wind flutter trails underneath the bunny
+                drawLine(
+                    color = windColor,
+                    start = Offset(centerX - 35.dp.toPx() * baseScale, centerY + 65.dp.toPx() * baseScale),
+                    end = Offset(centerX - 35.dp.toPx() * baseScale, centerY + 130.dp.toPx() * baseScale),
+                    strokeWidth = strokeW,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = windColor,
+                    start = Offset(centerX, centerY + 75.dp.toPx() * baseScale),
+                    end = Offset(centerX, centerY + 160.dp.toPx() * baseScale),
+                    strokeWidth = strokeW * 1.2f,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = windColor,
+                    start = Offset(centerX + 35.dp.toPx() * baseScale, centerY + 60.dp.toPx() * baseScale),
+                    end = Offset(centerX + 35.dp.toPx() * baseScale, centerY + 120.dp.toPx() * baseScale),
+                    strokeWidth = strokeW,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // Draw character with translation, scale, and flight tilt
+            translate(left = centerX, top = centerY) {
+                scale(scale = baseScale, pivot = Offset.Zero) {
+                    rotate(degrees = flightTiltDegrees, pivot = Offset(0f, 10f)) {
+                        drawFairyBunny(
+                            turnProgress = turnProgress,
+                            scaredFactor = scaredFactor,
+                            shockMarkScale = shockMarkScale,
+                            wingFlapPhase = wingFlapPhase,
+                            earShockAngle = earShockAngle,
+                            flightProgress = flightProgress,
+                            furColor = furColor,
+                            lineInkColor = lineInkColor,
+                            wingBluePrimary = wingBluePrimary,
+                            wingBlueDeep = wingBlueDeep,
+                            eyeColor = eyeColor,
+                            shockLineColor = shockLineColor,
+                            density = density.density
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Draws the complete Bunny Character and Butterfly Wings based on exact animation timeline state.
+ */
+private fun DrawScope.drawFairyBunny(
+    turnProgress: Float,
+    scaredFactor: Float,
+    shockMarkScale: Float,
+    wingFlapPhase: Float,
+    earShockAngle: Float,
+    flightProgress: Float,
+    furColor: Color,
+    lineInkColor: Color,
+    wingBluePrimary: Color,
+    wingBlueDeep: Color,
+    eyeColor: Color,
+    shockLineColor: Color,
+    density: Float
+) {
+    val mainStrokeWidth = 3.2f * density
+
+    // Anticipation squash & stretch
+    val squashX = if (flightProgress > 0.05f) {
+        0.92f + (flightProgress * 0.08f)
+    } else if (scaredFactor > 0.1f) {
+        1.06f
+    } else {
+        1.0f
+    }
+    val squashY = if (flightProgress > 0.05f) {
+        1.10f
+    } else if (scaredFactor > 0.1f) {
+        0.92f
+    } else {
+        1.0f
+    }
+
+    scale(scaleX = squashX, scaleY = squashY, pivot = Offset(0f, 40f)) {
+
+        // --- 1. LEFT BUTTERFLY WING (Seen only during rear view, hides as bunny turns) ---
+        if (turnProgress < 0.85f) {
+            val leftWingAlpha = (1f - (turnProgress / 0.85f)).coerceIn(0f, 1f)
+            val leftWingScaleX = (-0.75f * (0.55f + 0.45f * wingFlapPhase))
+
+            translate(left = -8f, top = -12f) {
+                scale(scaleX = leftWingScaleX, scaleY = 0.82f, pivot = Offset.Zero) {
+                    rotate(degrees = -15f + (wingFlapPhase * 10f), pivot = Offset.Zero) {
+                        drawButterflyWingPath(
+                            primaryColor = wingBluePrimary.copy(alpha = leftWingAlpha),
+                            deepColor = wingBlueDeep.copy(alpha = leftWingAlpha),
+                            strokeColor = lineInkColor.copy(alpha = leftWingAlpha),
+                            strokeWidth = mainStrokeWidth
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- 2. BUNNY BODY AND EARS ---
+        // Interpolate between Pose 1 (Rear View) and Pose 2/3 (Turned Profile View)
+        if (turnProgress < 0.5f) {
+            // POSE 1: Rear View (Facing Away)
+            drawRearBunny(
+                furColor = furColor,
+                lineColor = lineInkColor,
+                strokeWidth = mainStrokeWidth,
+                earShockAngle = earShockAngle
+            )
+        } else {
+            // POSE 2 & 3: Turned Profile View (Looking Back at User)
+            drawProfileBunny(
+                furColor = furColor,
+                lineColor = lineInkColor,
+                eyeColor = eyeColor,
+                strokeWidth = mainStrokeWidth,
+                scaredFactor = scaredFactor,
+                earShockAngle = earShockAngle,
+                flightProgress = flightProgress
+            )
+        }
+
+        // --- 3. RIGHT BUTTERFLY WING (Main Prominent Wing) ---
+        // As the bunny turns, the wing shifts from back-center to the right side!
+        val wingAttachmentX = lerp(5f, 22f, turnProgress)
+        val wingAttachmentY = lerp(-12f, -10f, turnProgress)
+        val wingAngleBase = lerp(12f, 24f, turnProgress)
+
+        // Flapping scale along horizontal axis (3D foreshortening effect)
+        val rightWingFlapScale = 0.35f + (0.65f * ((wingFlapPhase + 1f) / 2f))
+
+        translate(left = wingAttachmentX, top = wingAttachmentY) {
+            scale(scaleX = rightWingFlapScale, scaleY = 1.0f, pivot = Offset.Zero) {
+                rotate(degrees = wingAngleBase + (wingFlapPhase * 12f), pivot = Offset.Zero) {
+                    drawButterflyWingPath(
+                        primaryColor = wingBluePrimary,
+                        deepColor = wingBlueDeep,
+                        strokeColor = lineInkColor,
+                        strokeWidth = mainStrokeWidth
+                    )
+                }
+            }
+        }
+
+        // --- 4. SHOCK MARKS & SWEAT DROP (Phase 3: Scared) ---
+        if (shockMarkScale > 0.05f) {
+            drawShockElements(
+                scale = shockMarkScale,
+                strokeColor = shockLineColor,
+                strokeWidth = mainStrokeWidth * 0.9f
+            )
+        }
+    }
+}
+
+/**
+ * Draws the Bunny Seated from Behind (Pose 1: Rear View).
+ */
+private fun DrawScope.drawRearBunny(
+    furColor: Color,
+    lineColor: Color,
+    strokeWidth: Float,
+    earShockAngle: Float
+) {
+    // 1. Ears from behind
+    // Left Ear
+    rotate(degrees = -6f + earShockAngle, pivot = Offset(-14f, -50f)) {
+        val leftEarPath = Path().apply {
+            moveTo(-18f, -48f)
+            cubicTo(-26f, -75f, -22f, -102f, -14f, -106f)
+            cubicTo(-6f, -102f, -8f, -75f, -8f, -52f)
+            close()
+        }
+        drawPath(leftEarPath, furColor, style = Fill)
+        drawPath(leftEarPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+
+    // Right Ear
+    rotate(degrees = 8f - earShockAngle, pivot = Offset(10f, -48f)) {
+        val rightEarPath = Path().apply {
+            moveTo(-2f, -52f)
+            cubicTo(4f, -75f, 10f, -100f, 18f, -104f)
+            cubicTo(26f, -100f, 22f, -75f, 14f, -46f)
+            close()
+        }
+        drawPath(rightEarPath, furColor, style = Fill)
+        drawPath(rightEarPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+
+    // 2. Head and chubby seated body from behind
+    val bodyPath = Path().apply {
+        moveTo(-32f, 44f) // Left bottom paw
+        cubicTo(-42f, 20f, -38f, -10f, -26f, -36f) // Left back
+        cubicTo(-20f, -56f, 10f, -56f, 18f, -36f) // Head curve top
+        cubicTo(32f, -15f, 36f, 15f, 32f, 44f) // Right flank
+        cubicTo(20f, 54f, -18f, 54f, -32f, 44f) // Bottom curve
+        close()
+    }
+    drawPath(bodyPath, furColor, style = Fill)
+    drawPath(bodyPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+    // 3. Cute fluffy bunny tail on bottom right
+    val tailPath = Path().apply {
+        moveTo(24f, 32f)
+        cubicTo(42f, 28f, 44f, 48f, 26f, 46f)
+    }
+    drawPath(tailPath, furColor, style = Fill)
+    drawPath(tailPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+    // Subtle spine posture line
+    val backFold = Path().apply {
+        moveTo(0f, -10f)
+        cubicTo(4f, 8f, 2f, 26f, -2f, 40f)
+    }
+    drawPath(backFold, lineColor.copy(alpha = 0.45f), style = Stroke(strokeWidth * 0.7f, cap = StrokeCap.Round))
+}
+
+/**
+ * Draws the Bunny Looking Back in Profile (Pose 2: Looking Back & Pose 3: Scared).
+ * Matches frames 00:01 and 00:02 with precision.
+ */
+private fun DrawScope.drawProfileBunny(
+    furColor: Color,
+    lineColor: Color,
+    eyeColor: Color,
+    strokeWidth: Float,
+    scaredFactor: Float,
+    earShockAngle: Float,
+    flightProgress: Float
+) {
+    // 1. Ears in Profile View
+    // Back Ear (Right Ear)
+    rotate(degrees = 12f + earShockAngle * 1.2f, pivot = Offset(4f, -44f)) {
+        val backEarPath = Path().apply {
+            moveTo(-4f, -46f)
+            cubicTo(4f, -72f, 12f, -94f, 20f, -96f)
+            cubicTo(26f, -93f, 22f, -70f, 14f, -40f)
+            close()
+        }
+        drawPath(backEarPath, furColor, style = Fill)
+        drawPath(backEarPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+
+    // Front Ear (Left Ear)
+    rotate(degrees = -4f - earShockAngle, pivot = Offset(-18f, -46f)) {
+        val frontEarPath = Path().apply {
+            moveTo(-20f, -44f)
+            cubicTo(-28f, -70f, -26f, -96f, -18f, -100f)
+            cubicTo(-10f, -96f, -10f, -70f, -8f, -48f)
+            close()
+        }
+        drawPath(frontEarPath, furColor, style = Fill)
+        drawPath(frontEarPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+
+    // 2. Bunny Chubby Body Profile (Head turned over shoulder, seated pose)
+    val profileBodyPath = Path().apply {
+        // Head dome & forehead
+        moveTo(-10f, -48f)
+        cubicTo(-24f, -44f, -36f, -34f, -40f, -22f) // Forehead down to nose
+        cubicTo(-44f, -14f, -42f, -4f, -36f, 4f) // Rounded snout & chubby cheek
+        cubicTo(-32f, 14f, -30f, 24f, -32f, 36f) // Neck to front chest
+
+        // Front paw fold
+        cubicTo(-34f, 44f, -20f, 46f, -16f, 42f)
+
+        // Belly to hind leg
+        cubicTo(-2f, 48f, 18f, 48f, 26f, 42f)
+
+        // Hind paw & flank curve
+        cubicTo(36f, 34f, 34f, 16f, 26f, -4f) // Back curve
+        cubicTo(22f, -20f, 16f, -34f, 6f, -44f) // Shoulder to back of neck
+        cubicTo(0f, -48f, -6f, -48f, -10f, -48f)
+        close()
+    }
+    drawPath(profileBodyPath, furColor, style = Fill)
+    drawPath(profileBodyPath, lineColor, style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+    // Front paw resting fold detail line
+    val pawFold = Path().apply {
+        moveTo(-26f, 32f)
+        cubicTo(-24f, 40f, -16f, 42f, -12f, 38f)
+    }
+    drawPath(pawFold, lineColor, style = Stroke(strokeWidth * 0.85f, cap = StrokeCap.Round))
+
+    // Hind thigh cute contour line
+    val thighFold = Path().apply {
+        moveTo(22f, 38f)
+        cubicTo(18f, 24f, 8f, 22f, 4f, 26f)
+    }
+    drawPath(thighFold, lineColor.copy(alpha = 0.5f), style = Stroke(strokeWidth * 0.75f, cap = StrokeCap.Round))
+
+    // 3. EYE EXPRESSION:
+    // If scaredFactor > 0.45f -> startled 'X' eye!
+    // Else -> cute round blue dot eye '•' looking back!
+    val eyeCenterX = -24f
+    val eyeCenterY = -18f
+
+    if (scaredFactor > 0.45f) {
+        // Startled / Scared 'X' Eye (just like Frame 00:02!)
+        val xRadius = 6.5f
+        val xStroke = strokeWidth * 1.1f
+
+        // Diagonal 1 (\)
+        drawLine(
+            color = eyeColor,
+            start = Offset(eyeCenterX - xRadius, eyeCenterY - xRadius),
+            end = Offset(eyeCenterX + xRadius, eyeCenterY + xRadius),
+            strokeWidth = xStroke,
+            cap = StrokeCap.Round
         )
-        // Sparkle white catchlight
+        // Diagonal 2 (/)
+        drawLine(
+            color = eyeColor,
+            start = Offset(eyeCenterX - xRadius, eyeCenterY + xRadius),
+            end = Offset(eyeCenterX + xRadius, eyeCenterY - xRadius),
+            strokeWidth = xStroke,
+            cap = StrokeCap.Round
+        )
+    } else {
+        // Sweet curious round dot eye
+        drawCircle(
+            color = eyeColor,
+            radius = 5.2f,
+            center = Offset(eyeCenterX, eyeCenterY)
+        )
+        // Tiny cute white reflection spark
         drawCircle(
             color = Color.White,
-            radius = eyeRadius * 0.42f,
-            center = Offset(eyeCenter.x - eyeRadius * 0.32f, eyeCenter.y - eyeRadius * 0.32f)
+            radius = 1.6f,
+            center = Offset(eyeCenterX - 1.6f, eyeCenterY - 1.6f)
         )
     }
-
-    // Whiskers (delicate whimsical lines)
-    val whiskerColor = outlineColor.copy(alpha = 0.5f)
-    drawLine(
-        color = whiskerColor,
-        start = Offset(w * 0.28f, h * 0.37f),
-        end = Offset(w * 0.22f, h * 0.36f),
-        strokeWidth = 1.4f,
-        cap = StrokeCap.Round
-    )
-    drawLine(
-        color = whiskerColor,
-        start = Offset(w * 0.28f, h * 0.39f),
-        end = Offset(w * 0.22f, h * 0.40f),
-        strokeWidth = 1.4f,
-        cap = StrokeCap.Round
-    )
 }
 
 /**
- * Procedural Fairy Stardust particles emitted from fluttering wings.
+ * Draws the Butterfly Wing Path with authentic double-lobe geometry.
+ * Rich royal blue fill with crisp outline and subtle wing vein detail.
  */
-@Composable
-private fun FairyWingDustParticles(
-    progress: Float,
-    accentColor: Color,
-    isDark: Boolean
+private fun DrawScope.drawButterflyWingPath(
+    primaryColor: Color,
+    deepColor: Color,
+    strokeColor: Color,
+    strokeWidth: Float
 ) {
-    Canvas(modifier = Modifier.size(260.dp)) {
-        val count = 12
-        val center = Offset(size.width * 0.65f, size.height * 0.45f)
-        for (i in 0 until count) {
-            val angle = (i * 30f + (progress * 90f)) * (Math.PI.toFloat() / 180f)
-            val dist = 28f + (progress * 130f) * (0.75f + (i % 4) * 0.25f)
-            val px = center.x + cos(angle) * dist
-            val py = center.y + sin(angle) * (dist * 0.75f) - (progress * 35f)
-            val pAlpha = (1f - progress).coerceIn(0f, 1f) * 0.9f
-            val radius = (3.6f - (progress * 1.6f)).coerceAtLeast(1.2f)
+    val wingPath = Path().apply {
+        // Start at wing hinge / root
+        moveTo(0f, 0f)
 
-            drawCircle(
-                color = if (i % 2 == 0) Color.White.copy(alpha = pAlpha) else accentColor.copy(alpha = pAlpha),
-                radius = radius,
-                center = Offset(px, py)
-            )
-        }
+        // Upper Lobe: sweeps up and out into a majestic fan petal
+        cubicTo(16f, -32f, 46f, -62f, 72f, -62f)
+        cubicTo(88f, -62f, 96f, -48f, 92f, -32f)
+        cubicTo(88f, -18f, 74f, -4f, 52f, 2f) // Waist notch between upper and lower lobes
+
+        // Lower Lobe: rounded teardrop petal
+        cubicTo(68f, 16f, 74f, 36f, 62f, 48f)
+        cubicTo(50f, 56f, 32f, 52f, 18f, 36f)
+        cubicTo(8f, 24f, 2f, 12f, 0f, 0f) // Back to root
+        close()
     }
+
+    // 1. Fill solid rich royal blue
+    drawPath(wingPath, primaryColor, style = Fill)
+
+    // 2. Clean outer stroke
+    drawPath(
+        wingPath,
+        strokeColor,
+        style = Stroke(strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    )
+
+    // 3. Delicate inner wing vein lines (adding subtle organic artistry)
+    val veinPath = Path().apply {
+        moveTo(4f, -2f)
+        cubicTo(30f, -22f, 56f, -38f, 76f, -42f)
+        moveTo(4f, 2f)
+        cubicTo(26f, 14f, 44f, 26f, 54f, 32f)
+    }
+    drawPath(
+        veinPath,
+        deepColor.copy(alpha = 0.55f),
+        style = Stroke(strokeWidth * 0.65f, cap = StrokeCap.Round)
+    )
 }
 
 /**
- * Background twinkling stars and constellation dust for the celestial ambiance.
+ * Draws the Comic Shock Marks and Sweat Drop (Phase 3: Scared).
+ * Radiating tick marks near the top-left of the head.
  */
-@Composable
-private fun FairyConstellationDust(
-    progress: Float,
-    isDark: Boolean,
-    accentGlow: Color
+private fun DrawScope.drawShockElements(
+    scale: Float,
+    strokeColor: Color,
+    strokeWidth: Float
 ) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val starPositions = listOf(
-            Offset(size.width * 0.18f, size.height * 0.22f),
-            Offset(size.width * 0.82f, size.height * 0.28f),
-            Offset(size.width * 0.25f, size.height * 0.68f),
-            Offset(size.width * 0.75f, size.height * 0.62f),
-            Offset(size.width * 0.12f, size.height * 0.45f),
-            Offset(size.width * 0.88f, size.height * 0.42f),
-            Offset(size.width * 0.50f, size.height * 0.15f)
+    scale(scale = scale, pivot = Offset(-38f, -40f)) {
+        // 3 Radiating surprise tick marks above head (\ | /)
+        // 1. Left diagonal mark
+        drawLine(
+            color = strokeColor,
+            start = Offset(-40f, -38f),
+            end = Offset(-54f, -50f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        // 2. Center upright mark
+        drawLine(
+            color = strokeColor,
+            start = Offset(-30f, -46f),
+            end = Offset(-38f, -64f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        // 3. Right diagonal mark
+        drawLine(
+            color = strokeColor,
+            start = Offset(-20f, -52f),
+            end = Offset(-22f, -70f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
         )
 
-        starPositions.forEachIndexed { idx, pos ->
-            val shimmer = (sin((progress * 12f) + idx * 1.3f) + 1f) / 2f
-            val starAlpha = (if (isDark) 0.65f else 0.4f) * shimmer
-            val starRadius = (2.2f + shimmer * 1.8f)
-
-            drawCircle(
-                color = if (idx % 2 == 0) Color.White.copy(alpha = starAlpha) else accentGlow.copy(alpha = starAlpha),
-                radius = starRadius,
-                center = pos
-            )
+        // Cute little sweat drop near temple
+        val sweatPath = Path().apply {
+            moveTo(6f, -26f)
+            cubicTo(3f, -21f, 1f, -17f, 4f, -14f)
+            cubicTo(7f, -11f, 11f, -13f, 11f, -16f)
+            cubicTo(11f, -19f, 8f, -23f, 6f, -26f)
+            close()
         }
+        drawPath(sweatPath, strokeColor, style = Fill)
     }
 }
 
-/**
- * Ambient silhouette for dark-mode glow diffusion.
- */
-private fun DrawScope.drawBunnySilhouette(color: Color) {
-    drawCircle(
-        color = color.copy(alpha = 0.45f),
-        radius = size.width * 0.35f,
-        center = Offset(size.width * 0.5f, size.height * 0.5f)
-    )
+private fun lerp(start: Float, stop: Float, fraction: Float): Float {
+    return start + (stop - start) * fraction.coerceIn(0f, 1f)
 }

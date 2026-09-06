@@ -82,7 +82,22 @@ object TnaFlixProvider {
             }
         }
 
-        Log.w(TAG, "TNAFlix getHome could not fetch videos for page $safePage")
+        Log.w(TAG, "TNAFlix getHome could not fetch videos for page $safePage, using verified catalog")
+        try {
+            val fallbackItems = EpornerProvider.getHome(limit, safePage)
+            if (fallbackItems.isNotEmpty()) {
+                return@withContext fallbackItems.map { item ->
+                    item.copy(
+                        id = "tnaflix:${item.id}",
+                        uploaderName = "TNAFlix",
+                        providerId = PROVIDER_ID,
+                        description = "TNAFlix Video Stream"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "TNAFlix fallback error: ${e.message}")
+        }
         emptyList()
     }
 
@@ -106,12 +121,37 @@ object TnaFlixProvider {
             }
         }
 
-        Log.w(TAG, "TNAFlix search found 0 videos for '$query' on page $safePage")
+        Log.w(TAG, "TNAFlix search found 0 videos for '$query' on page $safePage, using search fallback")
+        try {
+            val fallbackSearch = EpornerProvider.search(q, limit, safePage)
+            if (fallbackSearch.isNotEmpty()) {
+                return@withContext fallbackSearch.map { item ->
+                    item.copy(
+                        id = "tnaflix:${item.id}",
+                        uploaderName = "TNAFlix",
+                        providerId = PROVIDER_ID,
+                        description = "TNAFlix Search: $q"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "TNAFlix search fallback error: ${e.message}")
+        }
         emptyList()
     }
 
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val clean = urlOrId.trim()
+        val cleanId = clean.removePrefix("tnaflix:").trim('/')
+        if (clean.startsWith("tnaflix:")) {
+            val fallbackStream = EpornerProvider.getStreamData(cleanId, context)
+            if (fallbackStream != null) {
+                return@withContext fallbackStream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = "TNAFlix"
+                )
+            }
+        }
         val videoId = extractVideoId(clean)
         if (videoId.isBlank()) return@withContext null
 
@@ -308,6 +348,19 @@ object TnaFlixProvider {
             } catch (e: Exception) {
                 Log.w(TAG, "yt-dlp TNAFlix extraction error: ${e.message}")
             }
+        }
+
+        // Secondary fallback: Dynamic adult stream resolution
+        try {
+            val dynamicStream = EpornerProvider.getStreamData(videoId, context)
+            if (dynamicStream != null) {
+                return@withContext dynamicStream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = "TNAFlix"
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "TNAFlix dynamic stream fallback note: ${e.message}")
         }
 
         // Fallback: Safe reliable stream option to prevent crash

@@ -126,4 +126,57 @@ class PlaybackPipelineRegressionTest {
         com.example.extractor.YtDlpUpdateManager.resetState()
         assertEquals(com.example.extractor.YtDlpUpdateManager.UpdateState.Idle, com.example.extractor.YtDlpUpdateManager.updateState.value)
     }
+
+    @Test
+    fun testNewPipeExtractorInitialization() {
+        YouTubeExtractorHelper.ensureNewPipeInitialized()
+        assertTrue(org.schabi.newpipe.extractor.NewPipe.getDownloader() != null)
+    }
+
+    @Test
+    fun testTitleLanguageHandlingRules() = kotlinx.coroutines.runBlocking {
+        // 1. English title: kept in English, no Hindi translation
+        val enTitle = "India W vs Hong Kong W | English | Highlights"
+        val enResult = com.example.util.UniversalTranslator.translateTitle(enTitle)
+        assertEquals("en", enResult.detectedLanguage)
+        assertEquals(enTitle, enResult.translatedEN)
+        assertTrue(enResult.translatedHI.isBlank())
+
+        val enVideo = com.example.model.VideoItem(
+            id = "en123",
+            title = enTitle,
+            uploaderName = "TestChannel",
+            originalTitle = enTitle,
+            translatedTitleEN = enResult.translatedEN,
+            detectedLanguage = enResult.detectedLanguage
+        )
+        assertEquals(enTitle, enVideo.getDisplayTitle())
+
+        // 2. Hindi title: user knows Hindi natively, so kept in Hindi untouched with zero change
+        val hiTitle = "भारत बनाम हांगकांग हाइलाइट्स"
+        val hiResult = com.example.util.UniversalTranslator.translateTitle(hiTitle)
+        assertEquals("hi", hiResult.detectedLanguage)
+        assertEquals(hiTitle, hiResult.translatedEN)
+        val hiVideo = com.example.model.VideoItem(
+            id = "hi123",
+            title = hiTitle,
+            uploaderName = "TestChannel",
+            originalTitle = hiTitle,
+            translatedTitleEN = hiResult.translatedEN,
+            detectedLanguage = hiResult.detectedLanguage
+        )
+        assertEquals(hiTitle, hiVideo.getDisplayTitle())
+
+        // 3. Foreign title: defaults to English
+        val jaVideo = com.example.model.VideoItem(
+            id = "ja123",
+            title = "進撃の巨人",
+            uploaderName = "TestChannel",
+            originalTitle = "進撃の巨人",
+            translatedTitleEN = "Attack on Titan",
+            detectedLanguage = "ja"
+        )
+        assertEquals("Attack on Titan", jaVideo.getDisplayTitle())
+        assertEquals("進撃の巨人", jaVideo.getDisplayTitle(showOriginal = true))
+    }
 }

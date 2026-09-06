@@ -529,6 +529,66 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isSpankBang = providerId == "spankbang" || urlOrId.contains("spankbang.com") ||
+                urlOrId.startsWith("spankbang:", ignoreCase = true)
+        if (isSpankBang) {
+            val sbData = SpankBangProvider.getStreamData(urlOrId, context)
+            if (sbData != null) {
+                Log.i(TAG, "Resolved via SpankBangProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(sbData)
+            }
+        }
+
+        val isMotherless = providerId == "motherless" || urlOrId.contains("motherless.com") ||
+                urlOrId.startsWith("motherless:", ignoreCase = true)
+        if (isMotherless) {
+            val mlData = MotherlessProvider.getStreamData(urlOrId, context)
+            if (mlData != null) {
+                Log.i(TAG, "Resolved via MotherlessProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(mlData)
+            }
+        }
+
+        val isPlayvid = providerId == "playvid" || urlOrId.contains("playvid.com") ||
+                urlOrId.startsWith("playvid:", ignoreCase = true)
+        if (isPlayvid) {
+            val pvData = PlayvidProvider.getStreamData(urlOrId, context)
+            if (pvData != null) {
+                Log.i(TAG, "Resolved via PlayvidProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(pvData)
+            }
+        }
+
+        val isTxxx = providerId == "txxx" || urlOrId.contains("txxx.com") ||
+                urlOrId.startsWith("txxx:", ignoreCase = true)
+        if (isTxxx) {
+            val txData = TxxxProvider.getStreamData(urlOrId, context)
+            if (txData != null) {
+                Log.i(TAG, "Resolved via TxxxProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(txData)
+            }
+        }
+
+        val isCrunchyroll = providerId == "crunchyroll" || urlOrId.contains("crunchyroll.com") ||
+                urlOrId.startsWith("crunchyroll:", ignoreCase = true)
+        if (isCrunchyroll) {
+            val crData = CrunchyrollProvider.getStreamData(urlOrId, context)
+            if (crData != null) {
+                Log.i(TAG, "Resolved via CrunchyrollProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(crData)
+            }
+        }
+
+        val isSonyLiv = providerId == "sonyliv" || urlOrId.contains("sonyliv.com") ||
+                urlOrId.startsWith("sonyliv:", ignoreCase = true)
+        if (isSonyLiv) {
+            val slData = SonyLivProvider.getStreamData(urlOrId, context)
+            if (slData != null) {
+                Log.i(TAG, "Resolved via SonyLivProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(slData)
+            }
+        }
+
         val isNoodleMagazine = providerId == "noodlemagazine" || providerId == "noodlemag" || urlOrId.contains("noodlemagazine.com") ||
                 urlOrId.startsWith("noodlemagazine:", ignoreCase = true) || urlOrId.startsWith("noodlemag:", ignoreCase = true)
         if (isNoodleMagazine) {
@@ -754,48 +814,58 @@ object YouTubeExtractorHelper {
                 providerId == "jable" || providerId == "missav" ||
                 urlOrId.contains("123av.com") || urlOrId.contains("javtiful.com") || urlOrId.contains("jable.tv") || urlOrId.contains("missav") ||
                 urlOrId.startsWith("123av_") || urlOrId.startsWith("javtiful_")
-        if (isJavSource && context != null) {
+        if (isJavSource) {
             try {
-                val cleanId = urlOrId.removePrefix("123av_").removePrefix("javtiful_")
-                val identity = com.example.model.MediaIdentity(
-                    title = cleanId,
-                    rawQueryOrUrl = urlOrId,
-                    mediaType = com.example.model.MediaType.JAV
-                )
-                val resolver = com.example.resolver.UnifiedSourceResolver.getInstance(context)
-                val results = resolver.resolveSources(identity).firstOrNull { it.isNotEmpty() } ?: emptyList()
+                // 1. First attempt instant direct extraction
+                val directJavStream = JavVideoExtractor.extractStream(urlOrId)
+                if (directJavStream != null) {
+                    Log.i(TAG, "Resolved via JavVideoExtractor.extractStream for $urlOrId")
+                    return@withContext ExtractionResult.Success(directJavStream)
+                }
 
-                val playableCandidates = results.filter { it.urlOrMagnet.startsWith("http") }
-                if (playableCandidates.isNotEmpty()) {
-                    val streamOptions = playableCandidates.map { cand ->
-                        PlayableStreamOption(
-                            qualityLabel = "${cand.quality} • ${cand.serverName}",
-                            format = cand.format.ifBlank { "hls" },
-                            isMuxed = true,
-                            videoUrl = cand.urlOrMagnet,
-                            audioUrl = null,
-                            providerType = com.example.model.ProviderType.DIRECT,
-                            headers = cand.headers,
-                            sourceName = cand.providerName,
-                            qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(cand.quality, false, false)
-                        )
-                    }
-                    val top = streamOptions.first()
-                    val topCand = playableCandidates.first()
-                    val streamData = StreamData(
-                        videoId = urlOrId,
-                        title = topCand.title.ifBlank { cleanId.uppercase() },
-                        channelName = topCand.providerName,
-                        channelAvatarUrl = null,
-                        description = "JAV High Speed Stream • ${topCand.serverName}",
-                        availableStreamOptions = streamOptions,
-                        selectedStreamOption = top,
-                        providerId = providerId ?: "123av",
-                        providerType = com.example.model.ProviderType.DIRECT,
-                        headers = top.headers ?: emptyMap()
+                // 2. Fallback to UnifiedSourceResolver if context available
+                if (context != null) {
+                    val cleanId = urlOrId.removePrefix("123av_").removePrefix("javtiful_")
+                    val identity = com.example.model.MediaIdentity(
+                        title = cleanId,
+                        rawQueryOrUrl = urlOrId,
+                        mediaType = com.example.model.MediaType.JAV
                     )
-                    Log.i(TAG, "Resolved via JAV UnifiedSourceResolver for $urlOrId")
-                    return@withContext ExtractionResult.Success(streamData)
+                    val resolver = com.example.resolver.UnifiedSourceResolver.getInstance(context)
+                    val results = resolver.resolveSources(identity).firstOrNull { it.isNotEmpty() } ?: emptyList()
+
+                    val playableCandidates = results.filter { it.urlOrMagnet.startsWith("http") }
+                    if (playableCandidates.isNotEmpty()) {
+                        val streamOptions = playableCandidates.map { cand ->
+                            PlayableStreamOption(
+                                qualityLabel = "${cand.quality} • ${cand.serverName}",
+                                format = cand.format.ifBlank { "hls" },
+                                isMuxed = true,
+                                videoUrl = cand.urlOrMagnet,
+                                audioUrl = null,
+                                providerType = com.example.model.ProviderType.DIRECT,
+                                headers = cand.headers,
+                                sourceName = cand.providerName,
+                                qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(cand.quality, false, false)
+                            )
+                        }
+                        val top = streamOptions.first()
+                        val topCand = playableCandidates.first()
+                        val streamData = StreamData(
+                            videoId = urlOrId,
+                            title = topCand.title.ifBlank { cleanId.uppercase() },
+                            channelName = topCand.providerName,
+                            channelAvatarUrl = null,
+                            description = "JAV High Speed Stream • ${topCand.serverName}",
+                            availableStreamOptions = streamOptions,
+                            selectedStreamOption = top,
+                            providerId = providerId ?: "123av",
+                            providerType = com.example.model.ProviderType.DIRECT,
+                            headers = top.headers ?: emptyMap()
+                        )
+                        Log.i(TAG, "Resolved via JAV UnifiedSourceResolver for $urlOrId")
+                        return@withContext ExtractionResult.Success(streamData)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "JAV resolution failed for $urlOrId: ${e.message}")
@@ -1006,6 +1076,36 @@ object YouTubeExtractorHelper {
                         urlSnippet = bestOption.videoUrl?.take(60) ?: "unknown"
                     )
 
+                    val extractedRelated = try {
+                        streamInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()?.mapNotNull { item ->
+                            val vId = when {
+                                item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
+                                item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+                                item.url.length == 11 -> item.url
+                                else -> item.url.substringAfterLast("/").takeIf { it.length == 11 }
+                            }
+                            if (vId.isNullOrBlank()) return@mapNotNull null
+                            val rawThumb = item.thumbnails?.firstOrNull()?.url
+                            val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                            val uploaderAvatar = try { item.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null }
+                            val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
+                            VideoItem(
+                                id = vId,
+                                title = item.name ?: "YouTube Video",
+                                uploaderName = item.uploaderName ?: "",
+                                uploaderUrl = uploaderUrl,
+                                uploaderAvatarUrl = uploaderAvatar,
+                                viewCount = item.viewCount.takeIf { it >= 0 } ?: -1L,
+                                durationSeconds = item.duration.takeIf { it >= 0 } ?: -1L,
+                                uploadDate = item.textualUploadDate,
+                                thumbnailUrl = thumb,
+                                providerId = "youtube"
+                            )
+                        } ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+
                     val streamData = StreamData(
                         videoId = videoId,
                         videoUrl = bestOption.videoUrl ?: "",
@@ -1021,6 +1121,9 @@ object YouTubeExtractorHelper {
                         availableStreamOptions = sortedOptions,
                         selectedStreamOption = bestOption,
                         hlsUrl = streamInfo.hlsUrl,
+                        relatedVideos = extractedRelated,
+                        tags = streamInfo.tags ?: emptyList(),
+                        category = null,
                         providerId = "youtube",
                         providerType = ProviderType.DIRECT,
                         headers = ytHeaders

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.WatchLater
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -115,6 +116,7 @@ fun VideoCard(
     onChannelClick: ((String) -> Unit)? = null
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
+    var localShowOriginal by remember(video.id) { mutableStateOf(false) }
     val context = LocalContext.current
     val effectiveWatchProgress = if (watchProgressFraction > 0f) {
         watchProgressFraction
@@ -710,8 +712,20 @@ fun VideoCard(
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
+                    val activeTitle = remember(video, localShowOriginal) {
+                        video.getDisplayTitle(localShowOriginal, "en")
+                    }
+                    val hasTranslation = remember(video.originalTitle, video.translatedTitleEN, video.detectedLanguage) {
+                        video.detectedLanguage != null &&
+                        video.detectedLanguage != "en" &&
+                        video.detectedLanguage != "hi" &&
+                        !video.translatedTitleEN.isNullOrBlank() &&
+                        video.originalTitle != null &&
+                        video.originalTitle != video.translatedTitleEN
+                    }
+
                     Text(
-                        text = video.title,
+                        text = activeTitle,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold
@@ -721,20 +735,52 @@ fun VideoCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
 
-                    Text(
-                        text = targetChannelName,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = if (onChannelClick != null && targetChannelName.isNotBlank()) {
-                            Modifier.clickable { onChannelClick(targetChannelName) }
-                        } else Modifier
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = targetChannelName,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (onChannelClick != null && targetChannelName.isNotBlank()) {
+                                Modifier.clickable { onChannelClick(targetChannelName) }
+                            } else Modifier
+                        )
+
+                        if (hasTranslation) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                modifier = Modifier.clickable { localShowOriginal = !localShowOriginal }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Translate,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = if (localShowOriginal) "Show Translation" else "Original",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(2.dp))
 
@@ -745,6 +791,26 @@ fun VideoCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    if (!video.recommendationReason.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        androidx.compose.material3.Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                        ) {
+                            Text(
+                                text = video.recommendationReason,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
 
                 // THREE-DOTS CONTEXT MENU BUTTON
@@ -785,6 +851,25 @@ fun VideoCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
+
+                val hasTranslationSheet = video.detectedLanguage != null &&
+                        video.detectedLanguage != "en" &&
+                        video.detectedLanguage != "hi" &&
+                        !video.translatedTitleEN.isNullOrBlank() &&
+                        video.originalTitle != null &&
+                        video.originalTitle != video.translatedTitleEN
+                if (hasTranslationSheet) {
+                    VideoOptionMenuItem(
+                        icon = Icons.Outlined.Translate,
+                        label = if (localShowOriginal) "Show Translated Title (English)" else "Show Original Untouched Title",
+                        onClick = {
+                            localShowOriginal = !localShowOriginal
+                            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                showBottomSheet = false
+                            }
+                        }
+                    )
+                }
 
                 VideoOptionMenuItem(
                     icon = Icons.Outlined.PlaylistPlay,

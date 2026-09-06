@@ -79,10 +79,18 @@ fun VideoDetailsSection(
     var selectedSubTab by remember { mutableStateOf(MediaSubTab.CAST_AND_CREW) }
     var zoomScreenshotUrl by remember { mutableStateOf<String?>(null) }
     var selectedCastMemberForFilmography by remember { mutableStateOf<CastMember?>(null) }
+    var showOriginalTitle by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
+    var showOriginalDescription by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
+    var titleTranslation by remember(streamData?.videoId, previewItem?.id) {
+        mutableStateOf<com.example.util.TranslationResult?>(null)
+    }
+    var descriptionTranslation by remember(streamData?.videoId, previewItem?.id) {
+        mutableStateOf<Pair<String?, String?>?>(null)
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val currentVideoId = streamData?.videoId ?: previewItem?.id ?: ""
-    val currentTitle = streamData?.title?.takeIf { it.isNotBlank() } ?: previewItem?.title?.takeIf { it.isNotBlank() } ?: "Loading video..."
+    val rawTitle = streamData?.title?.takeIf { it.isNotBlank() } ?: previewItem?.title?.takeIf { it.isNotBlank() } ?: "Loading video..."
     val currentChannelName = streamData?.channelName?.takeIf { it.isNotBlank() } ?: previewItem?.uploaderName?.takeIf { it.isNotBlank() } ?: "Video Creator"
     val currentChannelAvatarUrl = streamData?.channelAvatarUrl ?: previewItem?.uploaderAvatarUrl
     val currentSubscriberCountText = streamData?.subscriberCountText
@@ -91,6 +99,30 @@ fun VideoDetailsSection(
     val currentLikeCount = streamData?.likeCount ?: 0L
     val currentDescription = streamData?.description?.takeIf { it.isNotBlank() } ?: previewItem?.description
     val currentProviderId = streamData?.providerId ?: previewItem?.providerId
+
+    LaunchedEffect(rawTitle) {
+        if (rawTitle.isNotBlank() && rawTitle != "Loading video...") {
+            titleTranslation = com.example.util.UniversalTranslator.translateTitle(rawTitle)
+        }
+    }
+
+    LaunchedEffect(currentDescription) {
+        if (!currentDescription.isNullOrBlank()) {
+            descriptionTranslation = com.example.util.UniversalTranslator.translateDescription(currentDescription)
+        }
+    }
+
+    val currentTitle = remember(rawTitle, showOriginalTitle, titleTranslation) {
+        if (showOriginalTitle || titleTranslation == null) {
+            rawTitle
+        } else {
+            if (titleTranslation?.detectedLanguage == "hi") {
+                rawTitle
+            } else {
+                titleTranslation?.translatedEN?.takeIf { it.isNotBlank() } ?: rawTitle
+            }
+        }
+    }
 
     var forceTmdbLookup by remember(currentVideoId, currentTitle) { mutableStateOf(false) }
     var mediaDetails by remember(currentVideoId, currentTitle, forceTmdbLookup) {
@@ -167,18 +199,60 @@ fun VideoDetailsSection(
             .fillMaxWidth()
             .padding(16.dp)
     ) {
-        // Video Title (1 line max under player)
-        Text(
-            text = currentTitle,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 25.sp
-            ),
-            color = MaterialTheme.colorScheme.onBackground
-        )
+        // Video Title & Translation Toggle Row: only show for foreign languages (not English, not Hindi)
+        val hasTitleTranslation = remember(titleTranslation, rawTitle) {
+            titleTranslation != null &&
+            titleTranslation?.detectedLanguage != "en" &&
+            titleTranslation?.detectedLanguage != "hi" &&
+            !titleTranslation?.translatedEN.isNullOrBlank() &&
+            titleTranslation?.translatedEN != rawTitle
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = currentTitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 25.sp
+                ),
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+
+            if (hasTitleTranslation && rawTitle.isNotBlank()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    modifier = Modifier.clickable { showOriginalTitle = !showOriginalTitle }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Translate,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = if (showOriginalTitle) "Translated" else "Original",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
 
         // Views & Exact Release Date
         val metadataSubText = remember(viewCountText, accurateDate) {
@@ -595,12 +669,25 @@ fun VideoDetailsSection(
         Spacer(modifier = Modifier.height(14.dp))
 
         // 1. UNIFIED "DESCRIPTION" CARD
-        val plotText = if (mediaDetails != null && !mediaDetails?.plotOverview.isNullOrBlank()) {
+        val rawPlotText = if (mediaDetails != null && !mediaDetails?.plotOverview.isNullOrBlank()) {
             mediaDetails!!.plotOverview
         } else {
             (currentDescription ?: "").ifBlank {
                 "Watch $currentTitle on ${currentChannelName.ifBlank { "Butterfly Player" }}."
             }
+        }
+
+        val plotText = remember(rawPlotText, showOriginalDescription, descriptionTranslation) {
+            if (showOriginalDescription || descriptionTranslation == null) {
+                rawPlotText
+            } else {
+                descriptionTranslation?.first ?: rawPlotText
+            }
+        }
+
+        val hasDescTranslation = remember(descriptionTranslation, currentDescription) {
+            descriptionTranslation != null && !currentDescription.isNullOrBlank() &&
+            (descriptionTranslation?.first != currentDescription || descriptionTranslation?.second != null)
         }
 
         Card(
@@ -623,6 +710,24 @@ fun VideoDetailsSection(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+
+                    if (hasDescTranslation) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            modifier = Modifier.clickable { showOriginalDescription = !showOriginalDescription }
+                        ) {
+                            Text(
+                                text = if (showOriginalDescription) "Show Translation" else "Original",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
                         text = if (isDescriptionExpanded) "Show Less" else "Show More",

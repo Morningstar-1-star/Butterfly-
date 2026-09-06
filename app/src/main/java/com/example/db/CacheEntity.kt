@@ -39,7 +39,11 @@ data class WatchHistoryEntity(
     val duration: String = "",
     val progressFraction: Float = 0f,
     val providerId: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val originalTitle: String = title,
+    val translatedTitleEN: String? = null,
+    val translatedTitleHI: String? = null,
+    val detectedLanguage: String? = null
 )
 
 @Entity(tableName = "watch_later_bookmarks")
@@ -50,7 +54,11 @@ data class BookmarkEntity(
     val thumbnailUrl: String? = null,
     val duration: String = "",
     val providerId: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val originalTitle: String = title,
+    val translatedTitleEN: String? = null,
+    val translatedTitleHI: String? = null,
+    val detectedLanguage: String? = null
 )
 
 @Entity(tableName = "liked_videos")
@@ -61,7 +69,11 @@ data class LikedVideoEntity(
     val thumbnailUrl: String? = null,
     val duration: String = "",
     val providerId: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val originalTitle: String = title,
+    val translatedTitleEN: String? = null,
+    val translatedTitleHI: String? = null,
+    val detectedLanguage: String? = null
 )
 
 @Entity(tableName = "user_playlists")
@@ -103,8 +115,39 @@ data class VideoMetadataCacheEntity(
     val streamDataJson: String? = null,
     val providerId: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
-    val ttlMs: Long = 86_400_000L // Default 24 hours
+    val ttlMs: Long = 86_400_000L, // Default 24 hours
+    val originalTitle: String = title,
+    val translatedTitleEN: String? = null,
+    val translatedTitleHI: String? = null,
+    val detectedLanguage: String? = null,
+    val translatedDescriptionEN: String? = null,
+    val translatedDescriptionHI: String? = null
 )
+
+@Entity(tableName = "translation_cache", primaryKeys = ["sourceText", "targetLang"])
+data class TranslationCacheEntity(
+    val sourceText: String,
+    val targetLang: String,
+    val translatedText: String,
+    val detectedLanguage: String? = null,
+    val confidence: Float = 1.0f,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface TranslationCacheDao {
+    @Query("SELECT * FROM translation_cache WHERE sourceText = :text AND targetLang = :targetLang LIMIT 1")
+    suspend fun getTranslation(text: String, targetLang: String): TranslationCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTranslation(entity: TranslationCacheEntity)
+
+    @Query("DELETE FROM translation_cache")
+    suspend fun clearTranslationCache()
+
+    @Query("SELECT COUNT(*) FROM translation_cache")
+    suspend fun getCacheCount(): Int
+}
 
 @Entity(tableName = "preloaded_videos")
 data class PreloadedVideoCacheEntity(
@@ -121,6 +164,9 @@ data class PreloadedVideoCacheEntity(
 interface SearchHistoryDao {
     @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
     fun getSearchHistoryFlow(): Flow<List<SearchHistoryEntity>>
+
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
+    suspend fun getAllSearchHistoryList(): List<SearchHistoryEntity>
 
     @Query("SELECT query FROM search_history ORDER BY timestamp DESC LIMIT 20")
     suspend fun getRecentQueriesList(): List<String>
@@ -170,6 +216,9 @@ interface UserDataDao {
     @Query("SELECT * FROM watch_history ORDER BY timestamp DESC")
     fun getWatchHistoryFlow(): Flow<List<WatchHistoryEntity>>
 
+    @Query("SELECT * FROM watch_history ORDER BY timestamp DESC")
+    suspend fun getAllWatchHistoryList(): List<WatchHistoryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWatchHistory(item: WatchHistoryEntity)
 
@@ -185,6 +234,9 @@ interface UserDataDao {
     @Query("SELECT * FROM watch_later_bookmarks ORDER BY timestamp DESC")
     fun getBookmarksFlow(): Flow<List<BookmarkEntity>>
 
+    @Query("SELECT * FROM watch_later_bookmarks ORDER BY timestamp DESC")
+    suspend fun getAllBookmarksList(): List<BookmarkEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(item: BookmarkEntity)
 
@@ -197,6 +249,9 @@ interface UserDataDao {
     @Query("SELECT * FROM liked_videos ORDER BY timestamp DESC")
     fun getLikedVideosFlow(): Flow<List<LikedVideoEntity>>
 
+    @Query("SELECT * FROM liked_videos ORDER BY timestamp DESC")
+    suspend fun getAllLikedVideosList(): List<LikedVideoEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLikedVideo(item: LikedVideoEntity)
 
@@ -206,6 +261,9 @@ interface UserDataDao {
     @Query("SELECT * FROM user_playlists ORDER BY createdAt DESC")
     fun getPlaylistsFlow(): Flow<List<UserPlaylistEntity>>
 
+    @Query("SELECT * FROM user_playlists ORDER BY createdAt DESC")
+    suspend fun getAllPlaylistsList(): List<UserPlaylistEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdatePlaylist(playlist: UserPlaylistEntity)
 
@@ -214,6 +272,9 @@ interface UserDataDao {
 
     @Query("SELECT * FROM offline_downloads ORDER BY timestamp DESC")
     fun getOfflineDownloadsFlow(): Flow<List<OfflineDownloadEntity>>
+
+    @Query("SELECT * FROM offline_downloads ORDER BY timestamp DESC")
+    suspend fun getAllOfflineDownloadsList(): List<OfflineDownloadEntity>
 
     @Query("SELECT * FROM offline_downloads WHERE videoId = :videoId LIMIT 1")
     suspend fun getDownloadById(videoId: String): OfflineDownloadEntity?

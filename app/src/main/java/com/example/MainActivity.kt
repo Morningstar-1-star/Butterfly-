@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -44,6 +45,14 @@ class MainActivity : ComponentActivity() {
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
+                // Safety watchdog: ensure opening animation is guaranteed to dismiss within 2.8s
+                LaunchedEffect(showOpeningAnimation, isOpeningAnimationEnabled) {
+                    if (showOpeningAnimation && isOpeningAnimationEnabled) {
+                        kotlinx.coroutines.delay(2800L)
+                        viewModel.dismissOpeningAnimation()
+                    }
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(viewModel = viewModel)
 

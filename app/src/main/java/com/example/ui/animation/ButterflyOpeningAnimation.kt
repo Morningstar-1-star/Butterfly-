@@ -49,19 +49,40 @@ fun ButterflyOpeningAnimation(
     // Master animation clock (0ms to 1400ms)
     val animClock = remember { Animatable(0f) }
 
-    // Launch animation sequence
+    // Launch animation sequence with safety fallback
     LaunchedEffect(Unit) {
-        animClock.animateTo(
-            targetValue = 1400f,
-            animationSpec = tween(
-                durationMillis = 1400,
-                easing = LinearEasing
-            )
-        )
+        val animJob = launch {
+            try {
+                animClock.animateTo(
+                    targetValue = 1400f,
+                    animationSpec = tween(
+                        durationMillis = 1400,
+                        easing = LinearEasing
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+        val timeoutJob = launch {
+            delay(1550L)
+            if (!isSkipped) {
+                isSkipped = true
+                onAnimationFinished()
+            }
+        }
+        animJob.join()
+        timeoutJob.cancel()
         onAnimationFinished()
     }
 
-    val progress = animClock.value
+    val progress = if (isSkipped) 1400f else animClock.value
+
+    // If finished or skipped, immediately unmount to never block touches
+    if (progress >= 1350f || isSkipped) {
+        SideEffect {
+            onAnimationFinished()
+        }
+        return
+    }
 
     // Calculate animation phase values based on time progress:
     // 1. Initial Entrance & Spring Bounce (0 - 300ms)

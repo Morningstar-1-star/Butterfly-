@@ -57,12 +57,14 @@ interface SourceMetricsDao {
         SearchHistoryEntity::class,
         VideoMetadataCacheEntity::class,
         PreloadedVideoCacheEntity::class,
+        TranslationCacheEntity::class,
         com.example.bunkr.db.BunkrAlbumEntity::class,
         com.example.bunkr.db.BunkrFileEntity::class,
         com.example.cloudsocial.db.CloudSocialSourceEntity::class,
-        com.example.cloudsocial.db.CloudSocialMediaEntity::class
+        com.example.cloudsocial.db.CloudSocialMediaEntity::class,
+        com.example.db.SyncQueueEntity::class
     ],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -71,8 +73,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDataDao(): UserDataDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun videoCacheDao(): VideoCacheDao
+    abstract fun translationCacheDao(): TranslationCacheDao
     abstract fun bunkrDao(): com.example.bunkr.db.BunkrDao
     abstract fun cloudSocialDao(): com.example.cloudsocial.db.CloudSocialDao
+    abstract fun syncQueueDao(): com.example.db.SyncQueueDao
 
     companion object {
         @Volatile
@@ -295,6 +299,62 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `originalTitle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `translatedTitleEN` TEXT")
+                db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `translatedTitleHI` TEXT")
+                db.execSQL("ALTER TABLE `watch_history` ADD COLUMN `detectedLanguage` TEXT")
+
+                db.execSQL("ALTER TABLE `watch_later_bookmarks` ADD COLUMN `originalTitle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `watch_later_bookmarks` ADD COLUMN `translatedTitleEN` TEXT")
+                db.execSQL("ALTER TABLE `watch_later_bookmarks` ADD COLUMN `translatedTitleHI` TEXT")
+                db.execSQL("ALTER TABLE `watch_later_bookmarks` ADD COLUMN `detectedLanguage` TEXT")
+
+                db.execSQL("ALTER TABLE `liked_videos` ADD COLUMN `originalTitle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `liked_videos` ADD COLUMN `translatedTitleEN` TEXT")
+                db.execSQL("ALTER TABLE `liked_videos` ADD COLUMN `translatedTitleHI` TEXT")
+                db.execSQL("ALTER TABLE `liked_videos` ADD COLUMN `detectedLanguage` TEXT")
+
+                db.execSQL("ALTER TABLE `cached_video_metadata` ADD COLUMN `originalTitle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `cached_video_metadata` ADD COLUMN `translatedTitleEN` TEXT")
+                db.execSQL("ALTER TABLE `cached_video_metadata` ADD COLUMN `translatedTitleHI` TEXT")
+                db.execSQL("ALTER TABLE `cached_video_metadata` ADD COLUMN `detectedLanguage` TEXT")
+                db.execSQL("ALTER TABLE `cached_video_metadata` ADD COLUMN `translatedDescriptionEN` TEXT")
+                db.execSQL("ALTER TABLE `cached_video_metadata` ADD COLUMN `translatedDescriptionHI` TEXT")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `translation_cache` (
+                        `sourceText` TEXT NOT NULL,
+                        `targetLang` TEXT NOT NULL,
+                        `translatedText` TEXT NOT NULL,
+                        `detectedLanguage` TEXT,
+                        `confidence` REAL NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`sourceText`, `targetLang`)
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `sync_queue` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `action` TEXT NOT NULL,
+                        `payloadJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `retryCount` INTEGER NOT NULL,
+                        `lastError` TEXT
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_queue_entityType_entityId` ON `sync_queue` (`entityType`, `entityId`)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -302,7 +362,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

@@ -487,16 +487,20 @@ object GlobalPlayerManager {
                     enableFloatOutput: Boolean,
                     enableAudioTrackPlaybackParams: Boolean
                 ): androidx.media3.exoplayer.audio.AudioSink? {
-                    return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
-                        .setAudioProcessors(arrayOf(audioEnhancementProcessor))
-                        .setEnableFloatOutput(enableFloatOutput)
-                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                        .build()
+                    return try {
+                        androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                            .setAudioProcessors(arrayOf(audioEnhancementProcessor))
+                            .setEnableFloatOutput(enableFloatOutput)
+                            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                            .build()
+                    } catch (e: Throwable) {
+                        android.util.Log.w("GlobalPlayerManager", "AudioSink build fallback: ${e.message}")
+                        null
+                    }
                 }
             }.apply {
                 setEnableDecoderFallback(true)
                 setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-                forceDisableMediaCodecAsynchronousQueueing()
             }
 
             val player = ExoPlayer.Builder(context.applicationContext)
@@ -631,13 +635,21 @@ object GlobalPlayerManager {
                     val isAnime = com.example.effects.VideoEnhancementEngine.telemetry.value.isAnimeDetected
                     val effect = com.example.effects.ShaderEnhancementLoader.createEffect(config, isAnime)
                     if (effect != null) {
-                        player.setVideoEffects(listOf(effect))
-                        hasAppliedCustomEffects = true
+                        try {
+                            player.setVideoEffects(listOf(effect))
+                            hasAppliedCustomEffects = true
+                        } catch (e: Throwable) {
+                            android.util.Log.w("GlobalPlayerManager", "setVideoEffects fallback: ${e.message}")
+                            player.setVideoEffects(emptyList())
+                            hasAppliedCustomEffects = false
+                        }
                     } else if (hasAppliedCustomEffects) {
-                        player.setVideoEffects(emptyList())
+                        try {
+                            player.setVideoEffects(emptyList())
+                        } catch (_: Throwable) {}
                         hasAppliedCustomEffects = false
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     android.util.Log.w("GlobalPlayerManager", "Video effects update notice: ${e.message}")
                 }
             }
@@ -1077,6 +1089,20 @@ object GlobalPlayerManager {
                                 }
                                 reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
+                            lowerTarget.contains("javplayer.cc") || lowerTarget.contains("123av.com") || lowerTarget.contains("wowstream") || streamData?.providerId == "123av" -> {
+                                reqHeaders["Referer"] = "https://javplayer.cc/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://javplayer.cc"
+                                }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                            }
+                            lowerTarget.contains("fast-stream") || lowerTarget.contains("javtiful.com") || lowerTarget.contains("jav.si") || streamData?.providerId == "javtiful" -> {
+                                reqHeaders["Referer"] = "https://javtiful.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://javtiful.com"
+                                }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                            }
                         }
                     }
                 }
@@ -1143,16 +1169,16 @@ object GlobalPlayerManager {
                     builder.setMimeType(MimeTypes.APPLICATION_MPD)
                 } else if (lowerFormat == "mkv" || lowerUrl.contains(".mkv") || lowerUrl.contains("video%2fx-matroska") || lowerUrl.contains("video/x-matroska")) {
                     builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
-                } else if (lowerFormat == "audio_webm" || (lowerFormat == "audio" && lowerUrl.contains("webm")) || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")) {
+                } else if (lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm") || (lowerFormat == "webm" && (lowerUrl.contains("audio") || lowerUrl.contains("mime=audio")))) {
                     builder.setMimeType(MimeTypes.AUDIO_WEBM)
                 } else if (lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm")) {
                     builder.setMimeType(MimeTypes.VIDEO_WEBM)
-                } else if (lowerFormat == "audio" || lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerFormat == "aac" || lowerFormat == "mp3" ||
+                } else if (lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerFormat == "aac" || lowerFormat == "mp3" ||
                     lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") ||
                     lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerUrl.contains("-30250.m4s") || lowerUrl.contains("-30251.m4s") || lowerUrl.contains("_da3-1-302") || lowerUrl.contains("-302")
                 ) {
                     builder.setMimeType(MimeTypes.AUDIO_MP4)
-                } else if (lowerFormat == "video" || lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4")) {
+                } else if (lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4")) {
                     builder.setMimeType(MimeTypes.VIDEO_MP4)
                 }
 
@@ -1195,11 +1221,11 @@ object GlobalPlayerManager {
                     val audioSourceFactory = createMediaSourceFactory(aUrl, audioHeaders)
 
                     val videoItem = buildMediaItem(vUrl, streamOption.format.ifEmpty { "video" }, subtitleConfigs)
-                    val audioItem = buildMediaItem(aUrl, "audio")
+                    val audioItem = buildMediaItem(aUrl, if (aUrl.contains("webm")) "audio_webm" else "audio_mp4")
                     if (videoItem != null && audioItem != null) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         val audioSource = audioSourceFactory.createMediaSource(audioItem)
-                        val mergedSource = MergingMediaSource(videoSource, audioSource)
+                        val mergedSource = MergingMediaSource(true, true, videoSource, audioSource)
                         player.setMediaSource(mergedSource)
                         mediaSourceSet = true
                     } else if (videoItem != null) {

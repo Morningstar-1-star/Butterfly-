@@ -50,6 +50,11 @@ object MediaIdentityValidator {
      * Validates a candidate against the target media identity.
      */
     fun validateCandidate(candidate: SourceCandidate, identity: MediaIdentity): ValidationOutcome {
+        if (identity.mediaType == MediaType.JAV || candidate.providerId in setOf("123av", "javtiful", "jable", "missav")) {
+            if (candidate.urlOrMagnet.startsWith("http")) {
+                return ValidationOutcome(true, "Direct JAV stream validated from ${candidate.providerName}", 1.0)
+            }
+        }
         val rawTitle = candidate.title.ifBlank { candidate.serverName }
         return validate(rawTitle, identity)
     }

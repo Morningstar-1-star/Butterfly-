@@ -173,11 +173,12 @@ fun VideoPlayerScreen(
         thumbnailUrl = currentStreamData?.thumbnailUrl ?: currentVideoItem?.thumbnailUrl
     )
 
-    val relatedContent = remember(trendingVideos, playerRecommendations, activeVideoId, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
-        val base = trendingVideos.filter { it.id != activeVideoId }
-        (base + playerRecommendations)
+    val relatedContent = remember(trendingVideos, playerRecommendations, activeVideoId, currentStreamData, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+        val streamRelated = currentStreamData?.relatedVideos?.filter { it.id != activeVideoId } ?: emptyList()
+        val pool = (playerRecommendations + streamRelated + trendingVideos.filter { it.id != activeVideoId })
             .distinctBy { it.id }
             .filterNot { viewModel.isBlockedVideo(it) }
+        viewModel.rankFallbackRelated(pool, activeVideoId)
     }
 
     val displayTitle = currentStreamData?.title ?: currentVideoItem?.title ?: ""

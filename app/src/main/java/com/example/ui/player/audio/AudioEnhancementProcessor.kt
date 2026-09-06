@@ -22,6 +22,9 @@ class AudioEnhancementProcessor : BaseAudioProcessor() {
     private var downmixFloatBuffer = FloatArray(4096)
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
+            return AudioProcessor.AudioFormat.NOT_SET
+        }
         val config = AudioEnhancementEngine.config.value
         val outChannels = when {
             config.channelMode == ChannelMode.MONO -> 1

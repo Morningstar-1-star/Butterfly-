@@ -18,8 +18,29 @@ data class VideoItem(
     val tags: List<String> = emptyList(),
     val description: String? = null,
     val previewThumbnails: List<String> = emptyList(),
-    val previewClipUrl: String? = null
+    val previewClipUrl: String? = null,
+    val originalTitle: String? = null,
+    val translatedTitleEN: String? = null,
+    val translatedTitleHI: String? = null,
+    val detectedLanguage: String? = null,
+    val translatedDescriptionEN: String? = null,
+    val translatedDescriptionHI: String? = null,
+    val recommendationReason: String? = null
 ) {
+    fun getDisplayTitle(showOriginal: Boolean = false, appLanguage: String = "en"): String {
+        if (showOriginal) {
+            return originalTitle?.takeIf { it.isNotBlank() } ?: title
+        }
+        // Hindi titles are kept untouched as-is
+        if (detectedLanguage == "hi") {
+            return originalTitle?.takeIf { it.isNotBlank() } ?: title
+        }
+        // Default to English
+        return translatedTitleEN?.takeIf { it.isNotBlank() } ?: title
+    }
+
+    val secondaryTitle: String?
+        get() = null
     val cleanTags: List<String>
         get() {
             val listTags = tags.map { it.replace("#", "").trim() }.filter { it.isNotEmpty() }
@@ -170,8 +191,37 @@ data class StreamData(
     val providerType: ProviderType = ProviderType.OTHER,
     val headers: Map<String, String> = emptyMap(),
     val tags: List<String> = emptyList(),
-    val category: String? = null
+    val category: String? = null,
+    val originalTitle: String? = null,
+    val translatedTitleEN: String? = null,
+    val translatedTitleHI: String? = null,
+    val detectedLanguage: String? = null,
+    val translatedDescriptionEN: String? = null,
+    val translatedDescriptionHI: String? = null
 ) {
+    fun getDisplayTitle(showOriginal: Boolean = false, appLanguage: String = "en"): String {
+        if (showOriginal) {
+            return originalTitle?.takeIf { it.isNotBlank() } ?: title
+        }
+        if (detectedLanguage == "hi") {
+            return originalTitle?.takeIf { it.isNotBlank() } ?: title
+        }
+        return translatedTitleEN?.takeIf { it.isNotBlank() } ?: title
+    }
+
+    fun getDisplayDescription(showOriginal: Boolean = false, appLanguage: String = "en"): String? {
+        if (showOriginal) {
+            return description
+        }
+        return if (appLanguage == "hi") {
+            translatedDescriptionHI?.takeIf { it.isNotBlank() }
+                ?: translatedDescriptionEN?.takeIf { it.isNotBlank() }
+                ?: description
+        } else {
+            translatedDescriptionEN?.takeIf { it.isNotBlank() }
+                ?: description
+        }
+    }
     val effectiveThumbnailUrl: String?
         get() {
             if (!thumbnailUrl.isNullOrEmpty()) return thumbnailUrl

@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     GENERAL("General", "Theme, colors & layout preferences", Icons.Outlined.Palette),
+    LANGUAGE("Language & Translation", "App language, auto-translation & original titles", Icons.Outlined.Translate),
     PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
     PROVIDERS("Content Sources", "Manage YouTube, Dailymotion, BitTorrent & more", Icons.Outlined.Source),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
@@ -104,6 +105,7 @@ fun SettingsScreen(
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearSearchDialog by remember { mutableStateOf(false) }
     var showPasteImportDialog by remember { mutableStateOf(false) }
+    var showSupabaseSettingsDialog by remember { mutableStateOf(false) }
     var pasteJsonInput by remember { mutableStateOf("") }
 
     // Dialog state for selections
@@ -115,6 +117,11 @@ fun SettingsScreen(
     var showSeekDialog by remember { mutableStateOf(false) }
     var showBatteryCapDialog by remember { mutableStateOf(false) }
     var showBatteryThresholdDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+
+    val appDisplayLanguage by viewModel.appDisplayLanguage.collectAsState()
+    val autoTranslateMetadata by viewModel.autoTranslateMetadata.collectAsState()
+    val showOriginalTitles by viewModel.showOriginalTitles.collectAsState()
 
     val defaultResolutionPref = remember {
         val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
@@ -235,6 +242,7 @@ fun SettingsScreen(
             if (currentCategory == null) {
                 val rootCategories = listOf(
                     SettingsCategory.GENERAL,
+                    SettingsCategory.LANGUAGE,
                     SettingsCategory.PLAYBACK,
                     SettingsCategory.PROVIDERS,
                     SettingsCategory.VEGA,
@@ -253,6 +261,7 @@ fun SettingsScreen(
                     items(rootCategories) { category ->
                         val dynamicSubtitle = when (category) {
                             SettingsCategory.GENERAL -> if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Theme" else "AMOLED Dark"
+                            SettingsCategory.LANGUAGE -> (if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English") + if (autoTranslateMetadata) " • Auto-translate ON" else " • Auto-translate OFF"
                             SettingsCategory.BATTERY_SAVER -> if (isPowerSaveActive) "Active ($batteryLevel% • Eco Power Mode)" else "Optimizations, RAM & battery saver ($batteryLevel%)"
                             SettingsCategory.PLAYBACK -> "${defaultResolutionPref.value} • ${doubleTapSeekPref.intValue}s seek"
                             SettingsCategory.ADULT_18 -> if (adultContentEnabled) "Enabled (18+ sources only)" else "Disabled"
@@ -570,6 +579,21 @@ fun SettingsScreen(
                         ) {
                             item {
                                 YouTubeDetailRow(
+                                    title = "App Language",
+                                    subtitle = if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English",
+                                    onClick = { showLanguageDialog = true }
+                                )
+                            }
+                            item {
+                                YouTubeSwitchRow(
+                                    title = "Auto-translate Metadata",
+                                    subtitle = "Automatically translate foreign titles & metadata without altering originals",
+                                    checked = autoTranslateMetadata,
+                                    onCheckedChange = { viewModel.setAutoTranslateMetadata(it) }
+                                )
+                            }
+                            item {
+                                YouTubeDetailRow(
                                     title = "Theme",
                                     subtitle = if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Mode" else "AMOLED Dark",
                                     onClick = { showThemeDialog = true }
@@ -617,6 +641,155 @@ fun SettingsScreen(
                                     checked = showThumbnailTags,
                                     onCheckedChange = { viewModel.setShowThumbnailTags(it) }
                                 )
+                            }
+                        }
+                    }
+
+                    SettingsCategory.LANGUAGE -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // 1. Language Selection Card
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "DISPLAY LANGUAGE",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeDetailRow(
+                                            title = "App Interface Language",
+                                            subtitle = if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English (US/UK)",
+                                            onClick = { showLanguageDialog = true }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 2. Metadata Translation Controls Card
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "UNIVERSAL METADATA TRANSLATION",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeSwitchRow(
+                                            title = "Auto-translate Metadata",
+                                            subtitle = "Automatically detect foreign video/movie titles and translate to English & Hindi",
+                                            checked = autoTranslateMetadata,
+                                            onCheckedChange = { viewModel.setAutoTranslateMetadata(it) }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Show Original Titles by Default",
+                                            subtitle = "Always display untouched native titles (Japanese, Korean, Chinese, Arabic, etc.) alongside translations",
+                                            checked = showOriginalTitles,
+                                            onCheckedChange = { viewModel.setShowOriginalTitles(it) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 3. Engine Architecture & Features Card
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Translate,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text(
+                                                    text = "Universal Language Core",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = "Zero Data Loss & Smart Detection",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(14.dp))
+
+                                        Text(
+                                            text = "• Default English: All foreign titles (Japanese, Korean, Chinese, Spanish, etc.) default to English.\n• Hindi Native Respect: Hindi titles are left in native Hindi untouched with zero translation overhead.\n• Clean Titles: Titles are displayed cleanly without secondary translation clutter.\n• High-Speed Local Caching: Translations are cached in Room DB for instant zero-latency loading.",
+                                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        Spacer(modifier = Modifier.height(14.dp))
+
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    val testOriginal = "進撃の巨人 The Final Season 完結編"
+                                                    val result = com.example.util.UniversalTranslator.translateTitle(testOriginal)
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Original: $testOriginal\nEN: ${result.translatedEN}",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.AutoAwesome,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Test Universal Translation Engine", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -684,6 +857,10 @@ fun SettingsScreen(
                                 val adultProviders = listOf(
                                     "pornhub" to "Pornhub",
                                     "xvideos" to "XVideos",
+                                    "spankbang" to "SpankBang",
+                                    "motherless" to "Motherless",
+                                    "playvid" to "Playvid",
+                                    "txxx" to "TXXX",
                                     "chaturbate" to "Chaturbate (Live Cams)",
                                     "cam4" to "CAM4 (Live Shows)",
                                     "cammodels" to "CamModels (Live)",
@@ -720,6 +897,8 @@ fun SettingsScreen(
                         ) {
                             val normalProviders = listOf(
                                 "youtube" to "YouTube",
+                                "crunchyroll" to "Crunchyroll Anime",
+                                "sonyliv" to "SonyLIV",
                                 "dailymotion" to "Dailymotion",
                                 "twitch" to "Twitch",
                                 "bigo" to "Bigo Live",
@@ -743,6 +922,8 @@ fun SettingsScreen(
                                     YouTubeSwitchRow(
                                         title = name,
                                         subtitle = when (id) {
+                                            "crunchyroll" -> "Crunchyroll anime catalog, simulcasts, popular series & episodes"
+                                            "sonyliv" -> "SonyLIV TV shows, live sports, premium web series & cinema"
                                             "bigo" -> "Bigo Live interactive streams, global broadcasters & video rooms"
                                             "bun-tel-meg" -> "Telegram Channels, MEGA Folders & Bunkr Albums video links"
                                             "amazonminitv" -> "Amazon miniTV free web series, comedy, romance & drama"
@@ -2172,8 +2353,9 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.BACKUP_RESTORE -> {
-                        val googleAccount by com.example.util.GoogleDriveSyncManager.accountState.collectAsState()
-                        val syncStatus by com.example.util.GoogleDriveSyncManager.syncStatus.collectAsState()
+                        val supabaseLoggedIn by com.example.supabase.SupabaseAuthManager.isLoggedIn.collectAsState()
+                        val supabaseUser by com.example.supabase.SupabaseAuthManager.currentUser.collectAsState()
+                        val supabaseSyncState by com.example.supabase.SupabaseSyncManager.syncState.collectAsState()
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -2181,7 +2363,7 @@ fun SettingsScreen(
                         ) {
                             item {
                                 Text(
-                                    text = "GOOGLE DRIVE CLOUD SYNC",
+                                    text = "SUPABASE CLOUD SYNC & BACKUP",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary,
@@ -2190,36 +2372,31 @@ fun SettingsScreen(
                             }
                             item {
                                 YouTubeDetailRow(
-                                    title = if (googleAccount != null) "Backup to Google Drive" else "Connect Google Drive Account",
-                                    subtitle = if (googleAccount != null) "Account: ${googleAccount?.email} • Status: $syncStatus" else "Sign in to back up history, bookmarks & playlists to cloud",
+                                    title = if (supabaseLoggedIn) "Supabase Account" else "Connect Supabase Account",
+                                    subtitle = if (supabaseLoggedIn) "Connected: ${supabaseUser?.email} • Status: ${supabaseSyncState.syncMessage}" else "Sign in to sync history, bookmarks, likes, playlists & preferences across devices",
                                     onClick = {
-                                        if (googleAccount != null) {
-                                            coroutineScope.launch {
-                                                val json = viewModel.exportUserDataJson()
-                                                com.example.util.GoogleDriveSyncManager.backupToGoogleDrive(context, json)
-                                            }
-                                        } else {
-                                            coroutineScope.launch {
-                                                com.example.util.GoogleDriveSyncManager.signInWithCredentialManager(context)
-                                            }
-                                        }
+                                        showSupabaseSettingsDialog = true
                                     }
                                 )
                             }
-                            if (googleAccount != null) {
+                            if (supabaseLoggedIn) {
                                 item {
                                     YouTubeDetailRow(
-                                        title = "Restore from Google Drive",
-                                        subtitle = "Download and merge latest backup from your Google Drive",
+                                        title = "Sync Now with Supabase",
+                                        subtitle = if (supabaseSyncState.isSyncing) "Syncing in progress..." else "Perform full bidirectional sync with Supabase cloud",
                                         onClick = {
-                                            coroutineScope.launch {
-                                                val restored = viewModel.restoreGoogleDriveBackup()
-                                                if (restored) {
-                                                    Toast.makeText(context, "Google Drive data successfully restored!", Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, "No backup file found or cloud error", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
+                                            com.example.supabase.SupabaseSyncManager.triggerSync(forceFull = true)
+                                            Toast.makeText(context, "Syncing with Supabase...", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                }
+                                item {
+                                    YouTubeSwitchRow(
+                                        title = "Automatic Cloud Sync",
+                                        subtitle = "Continuously sync changes in the background when online",
+                                        checked = supabaseSyncState.autoSyncEnabled,
+                                        onCheckedChange = { enabled: Boolean ->
+                                            com.example.supabase.SupabaseSyncManager.setAutoSyncEnabled(enabled)
                                         }
                                     )
                                 }
@@ -3160,6 +3337,53 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showPasteImportDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showSupabaseSettingsDialog) {
+        com.example.ui.components.SupabaseAuthDialog(
+            onDismiss = { showSupabaseSettingsDialog = false }
+        )
+    }
+
+    if (showLanguageDialog) {
+        val languages = listOf(
+            "en" to "English (US / UK)",
+            "hi" to "हिंदी (Hindi)"
+        )
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text("App Display Language") },
+            text = {
+                Column {
+                    languages.forEach { (code, name) ->
+                        val isSelected = (appDisplayLanguage == code)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setAppDisplayLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    viewModel.setAppDisplayLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) { Text("Cancel") }
             }
         )
     }

@@ -87,6 +87,12 @@ object YtDlpResolver {
             u.startsWith("cam4:") ||
             u.startsWith("4tube:") ||
             u.startsWith("tnaflix:") ||
+            u.startsWith("spankbang:") ||
+            u.startsWith("motherless:") ||
+            u.startsWith("playvid:") ||
+            u.startsWith("txxx:") ||
+            u.startsWith("crunchyroll:") ||
+            u.startsWith("sonyliv:") ||
             u.startsWith("hanime1:") ||
             u.startsWith("hanime:") ||
             u.startsWith("noodlemagazine:") ||
@@ -116,6 +122,12 @@ object YtDlpResolver {
             "youporn.com",
             "eporner.com",
             "tnaflix.com",
+            "spankbang.com",
+            "motherless.com",
+            "playvid.com",
+            "txxx.com",
+            "crunchyroll.com",
+            "sonyliv.com",
             "hanime1.me", "hanime1.com", "hanime.tv",
             "noodlemagazine.com",
             "hqporner.com", "hqporner.tv",
@@ -209,6 +221,13 @@ object YtDlpResolver {
                 targetUrl.startsWith("cam4:", ignoreCase = true) -> "https://www.cam4.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("chaturbate:", ignoreCase = true) -> "https://chaturbate.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("cammodels:", ignoreCase = true) -> "https://www.cammodels.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("spankbang:", ignoreCase = true) -> "https://spankbang.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("motherless:", ignoreCase = true) -> "https://motherless.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("playvid:", ignoreCase = true) -> "https://www.playvid.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("txxx:", ignoreCase = true) -> "https://www.txxx.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("tnaflix:", ignoreCase = true) -> "https://www.tnaflix.com/video${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("crunchyroll:", ignoreCase = true) -> "https://www.crunchyroll.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("sonyliv:", ignoreCase = true) -> "https://www.sonyliv.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("bilisearch", ignoreCase = true) -> targetUrl
                 targetUrl.startsWith("BV", ignoreCase = true) || targetUrl.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$targetUrl"
                 targetUrl.startsWith("ep", ignoreCase = true) || targetUrl.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$targetUrl"

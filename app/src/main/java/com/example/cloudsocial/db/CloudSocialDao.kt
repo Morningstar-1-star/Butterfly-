@@ -56,6 +56,9 @@ interface CloudSocialDao {
     @Query("SELECT * FROM cloud_social_sources ORDER BY lastSyncTimestamp DESC")
     fun getAllSourcesFlow(): Flow<List<CloudSocialSourceEntity>>
 
+    @Query("SELECT * FROM cloud_social_sources ORDER BY lastSyncTimestamp DESC")
+    suspend fun getAllSourcesList(): List<CloudSocialSourceEntity>
+
     @Query("SELECT * FROM cloud_social_sources WHERE id = :id LIMIT 1")
     suspend fun getSourceById(id: String): CloudSocialSourceEntity?
 

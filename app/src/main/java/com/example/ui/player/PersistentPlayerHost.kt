@@ -81,24 +81,19 @@ fun PersistentPlayerHost(
 }
 
 private fun applyEffectsToPlayerView(playerView: PlayerView, config: VideoEffectsConfig) {
-    val targetViews = mutableListOf<View>(playerView)
-    playerView.videoSurfaceView?.let { targetViews.add(it) }
-
-    if (!config.isEnabled) {
-        for (v in targetViews) {
+    try {
+        if (!config.isEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                v.setRenderEffect(null)
+                playerView.setRenderEffect(null)
             }
-            v.setLayerType(View.LAYER_TYPE_NONE, null)
+            playerView.setLayerType(View.LAYER_TYPE_NONE, null)
+            return
         }
-        return
-    }
 
-    val matrixArray = VideoEffectsEngine.computeCombinedColorMatrix(config)
-    val colorFilter = android.graphics.ColorMatrixColorFilter(matrixArray)
-    val blurRadius = (config.enhancement.blur / 100f) * 25f
+        val matrixArray = VideoEffectsEngine.computeCombinedColorMatrix(config)
+        val colorFilter = android.graphics.ColorMatrixColorFilter(matrixArray)
+        val blurRadius = (config.enhancement.blur / 100f) * 25f
 
-    for (v in targetViews) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val colorEffect = android.graphics.RenderEffect.createColorFilterEffect(colorFilter)
             val finalEffect = if (blurRadius > 0.5f) {
@@ -111,13 +106,15 @@ private fun applyEffectsToPlayerView(playerView: PlayerView, config: VideoEffect
             } else {
                 colorEffect
             }
-            v.setRenderEffect(finalEffect)
+            playerView.setRenderEffect(finalEffect)
         } else {
             val paint = android.graphics.Paint().apply {
                 this.colorFilter = colorFilter
             }
-            v.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+            playerView.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
         }
+    } catch (e: Throwable) {
+        android.util.Log.w("PersistentPlayerHost", "Error applying video effects: ${e.message}")
     }
 }
 

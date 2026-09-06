@@ -29,6 +29,8 @@ class MainApplication : Application() {
 
         com.example.util.AppConfig.init(this)
         com.example.util.SecureDnsManager.init(this)
+        com.example.supabase.SupabaseAuthManager.init(this)
+        com.example.supabase.SupabaseSyncManager.init(this)
         com.example.util.GoogleDriveSyncManager.init(this)
         com.example.util.PlaybackResumeManager.getRawSavedPosition(this, "_warmup")
 
