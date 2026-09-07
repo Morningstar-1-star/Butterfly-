@@ -61,9 +61,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 }
 
                 if (streamResult is YouTubeExtractorHelper.ExtractionResult.Success) {
-                    val stream = streamResult.streamData
-                    _currentStreamData.value = stream
-                    _playbackQualityOptions.value = stream.availableStreamOptions
+                    val rawStream = streamResult.streamData
+                    val titleRes = com.example.util.UniversalTranslator.translateTitle(rawStream.title)
+                    val descRes = if (!rawStream.description.isNullOrBlank()) {
+                        com.example.util.UniversalTranslator.translateDescription(rawStream.description)
+                    } else Pair(null, null)
+
+                    val translatedRelated = com.example.util.UniversalTranslator.translateVideoItemList(rawStream.relatedVideos)
+
+                    val translatedStream = rawStream.copy(
+                        title = titleRes.translatedEN.ifBlank { rawStream.title },
+                        originalTitle = rawStream.title,
+                        translatedTitleEN = titleRes.translatedEN.ifBlank { rawStream.title },
+                        detectedLanguage = titleRes.detectedLanguage,
+                        translatedDescriptionEN = descRes.first ?: rawStream.description,
+                        relatedVideos = translatedRelated
+                    )
+
+                    _currentStreamData.value = translatedStream
+                    _playbackQualityOptions.value = translatedStream.availableStreamOptions
                 } else if (streamResult is YouTubeExtractorHelper.ExtractionResult.Error) {
                     Log.e(TAG, "Stream resolution error: ${streamResult.errorDetails.message}")
                 }

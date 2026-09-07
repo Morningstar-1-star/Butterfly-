@@ -24,10 +24,20 @@ data class VegaDirectLink(
     val image: String? = null
 )
 
+data class VegaEpisode(
+    val title: String,
+    val link: String,
+    val episodeNumber: Int? = null,
+    val seasonNumber: Int? = null,
+    val description: String? = null,
+    val image: String? = null
+)
+
 data class VegaLinkList(
     val title: String,
     val quality: String = "Auto",
-    val directLinks: List<VegaDirectLink> = emptyList()
+    val directLinks: List<VegaDirectLink> = emptyList(),
+    val episodesLink: String? = null
 )
 
 data class VegaMetaResult(
@@ -35,14 +45,15 @@ data class VegaMetaResult(
     val synopsis: String? = null,
     val image: String? = null,
     val poster: String? = null,
-    val type: String = "movie",
+    val type: String = "movie", // "movie" or "series"
     val imdbId: String? = null,
     val tmdbId: String? = null,
     val rating: String? = null,
     val tags: List<String> = emptyList(),
     val cast: List<String> = emptyList(),
     val linkList: List<VegaLinkList> = emptyList(),
-    val webUrl: String? = null
+    val webUrl: String? = null,
+    val requiresWebView: Boolean = false
 )
 
 data class VegaStreamResult(
@@ -52,6 +63,26 @@ data class VegaStreamResult(
     val format: String = "mp4",
     val headers: Map<String, String> = emptyMap(),
     val isTorrent: Boolean = false,
-    val subtitleUrls: List<String> = emptyList()
+    val subtitleUrls: List<String> = emptyList(),
+    val supportsRange: Boolean = true,
+    val requiresWebView: Boolean = false
 )
+
+data class VegaDiagnosticResult(
+    val providerId: String,
+    val providerName: String,
+    val searchStatus: String = "NOT_TESTED", // PASS, FAIL, TIMEOUT
+    val metaStatus: String = "NOT_TESTED",
+    val episodesStatus: String = "SKIPPED",
+    val streamStatus: String = "NOT_TESTED",
+    val rangeStatus: String = "NOT_TESTED",
+    val overallStatus: String = "UNKNOWN", // WORKING, PARTIAL, BROKEN, WEBVIEW_REQUIRED, ANIME_ONLY
+    val failureStage: String? = null,
+    val errorMessage: String? = null,
+    val httpCode: Int = 0,
+    val durationMs: Long = 0L,
+    val testedItemTitle: String? = null,
+    val resolvedStreamUrl: String? = null
+)
+
 

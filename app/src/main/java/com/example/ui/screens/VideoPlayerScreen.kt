@@ -185,6 +185,16 @@ fun VideoPlayerScreen(
     val extractionError = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Error)?.errorDetails
     val isSavedInWatchLater = currentVideoItem != null && watchLaterList.any { it.id == currentVideoItem.id }
 
+    val currentPositionMsForChapters by GlobalPlayerManager.currentPositionMs.collectAsState()
+    val chaptersForDetail = remember(currentStreamData, extractionResult) {
+        currentStreamData?.chapters?.takeIf { it.isNotEmpty() }
+            ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters
+            ?: emptyList()
+    }
+    val activeChapterIndex = remember(currentPositionMsForChapters, chaptersForDetail) {
+        chaptersForDetail.indexOfLast { currentPositionMsForChapters >= it.startTimeMs }
+    }
+
     val listState = rememberLazyListState()
     var showLandscapeRelatedDrawer by remember { mutableStateOf(false) }
     var showServerSelectorSheet by remember { mutableStateOf(false) }
@@ -244,6 +254,19 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
         viewModel.loadMorePlayerRecommendations(currentStreamData)
+    }
+
+    LaunchedEffect(selectedPillTab, activeVideoId, currentStreamData?.videoId) {
+        val vid = activeVideoId
+        if (selectedPillTab == "COMMENTS" && !vid.isNullOrBlank()) {
+            val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+            viewModel.loadVideoComments(
+                videoId = vid,
+                providerId = pId,
+                videoTitle = title
+            )
+        }
     }
 
     LaunchedEffect(displayTitle, activeVideoId) {
@@ -408,6 +431,7 @@ fun VideoPlayerScreen(
                             hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                             captionOption = selectedCaption,
                             streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
+                            chapters = currentStreamData?.chapters ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters ?: emptyList(),
                             providerId = providerId,
                             isPlaying = isPlaying,
                             videoId = activeVideoId,
@@ -646,10 +670,47 @@ fun VideoPlayerScreen(
                                     )
                                 }
 
+                                if (chaptersForDetail.isNotEmpty()) {
+                                    item {
+                                        FilterChip(
+                                            selected = selectedPillTab == "CHAPTERS",
+                                            onClick = { selectedPillTab = "CHAPTERS" },
+                                            label = {
+                                                Text(
+                                                    text = "Chapters (${chaptersForDetail.size})",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.ViewList,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                            ),
+                                            shape = RoundedCornerShape(20.dp)
+                                        )
+                                    }
+                                }
+
                                 item {
                                     FilterChip(
                                         selected = selectedPillTab == "COMMENTS",
-                                        onClick = { selectedPillTab = "COMMENTS" },
+                                        onClick = {
+                                            selectedPillTab = "COMMENTS"
+                                            activeVideoId?.let { vid ->
+                                                val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+                                                val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                                                viewModel.loadVideoComments(vid, pId, title)
+                                            }
+                                        },
                                         label = {
                                             Text(
                                                 text = "Comments (${videoComments.size})",
@@ -887,6 +948,103 @@ fun VideoPlayerScreen(
                                     }
                                 }
                             }
+                        } else if (selectedPillTab == "CHAPTERS") {
+                            itemsIndexed(chaptersForDetail, key = { idx, ch -> "detail_ch_${idx}_${ch.startTimeMs}" }) { idx, chapter ->
+                                val isActive = idx == activeChapterIndex
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    ),
+                                    border = if (isActive) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        .clickable {
+                                            GlobalPlayerManager.seekTo(chapter.startTimeMs)
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(96.dp)
+                                                .height(54.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                            contentAlignment = Alignment.BottomEnd
+                                        ) {
+                                            if (!currentStreamData?.thumbnailUrl.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = currentStreamData?.thumbnailUrl,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(if (isActive) Color(0x66FF0033) else Color(0x40000000))
+                                            )
+                                            if (isActive) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.Center)
+                                                        .size(24.dp)
+                                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PlayArrow,
+                                                        contentDescription = "Playing",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .padding(3.dp)
+                                                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(3.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    text = com.example.extractor.chapters.YTCustomChapters.formatMs(chapter.startTimeMs),
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(12.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = chapter.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = com.example.extractor.chapters.YTCustomChapters.formatMs(chapter.startTimeMs),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         } else if (selectedPillTab == "COMMENTS") {
                             item {
                                 com.example.ui.components.VideoCommentsSection(
@@ -900,6 +1058,17 @@ fun VideoPlayerScreen(
                                     },
                                     onSeekToTimestamp = { ms ->
                                         GlobalPlayerManager.seekTo(ms)
+                                    },
+                                    onRefresh = {
+                                        activeVideoId?.let { vid ->
+                                            val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+                                            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                                            viewModel.loadVideoComments(
+                                                videoId = vid,
+                                                providerId = pId,
+                                                videoTitle = title
+                                            )
+                                        }
                                     }
                                 )
                             }

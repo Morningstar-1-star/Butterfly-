@@ -39,6 +39,7 @@ fun VideoCommentsSection(
     onAddComment: (String) -> Unit = {},
     onLikeComment: (String) -> Unit = {},
     onSeekToTimestamp: (Long) -> Unit = {},
+    onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var userCommentInput by remember { mutableStateOf("") }
@@ -76,6 +77,21 @@ fun VideoCommentsSection(
                 color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.weight(1f))
+
+            // Refresh Button & Sort Pills
+            IconButton(
+                onClick = { onRefresh() },
+                modifier = Modifier.size(32.dp),
+                enabled = !isLoading
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh comments",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
 
             // Sort Pills
             filterOptions.forEach { filter ->
@@ -170,17 +186,45 @@ fun VideoCommentsSection(
                 CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
             }
         } else if (sortedComments.isEmpty()) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 32.dp),
-                contentAlignment = Alignment.Center
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
+                Icon(
+                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "No comments yet. Be the first to comment!",
+                    text = "No comments loaded yet",
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Tap below to fetch YouTube comments or be the first to post!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                FilledTonalButton(
+                    onClick = { onRefresh() },
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Load / Refresh Comments")
+                }
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {

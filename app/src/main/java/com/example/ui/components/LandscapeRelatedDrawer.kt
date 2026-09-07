@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -285,22 +286,23 @@ private fun LandscapeRelatedCard(
 
             Spacer(modifier = Modifier.weight(1f))
 
+            val metadataLine = remember(video.uploaderName, video.formattedViews, video.viewCount, video.uploadDate) {
+                val views = com.example.util.DateUtils.formatViews(video.viewCount, video.formattedViews)
+                val timeAgo = com.example.util.DateUtils.formatRelativeTime(video.uploadDate)
+                com.example.util.DateUtils.buildYouTubeMetadataLine(
+                    channelName = video.uploaderName,
+                    formattedViews = views,
+                    timeAgo = timeAgo
+                )
+            }
+
             Text(
-                text = video.uploaderName,
+                text = metadataLine,
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.65f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-
-            if (!video.formattedViews.isNullOrBlank()) {
-                Text(
-                    text = video.formattedViews,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.45f),
-                    fontSize = 9.sp
-                )
-            }
         }
     }
 }

@@ -72,6 +72,7 @@ fun HomeScreen(
     val isSearching by viewModel.isSearching.collectAsState()
     val trendingVideos by viewModel.trendingVideos.collectAsState()
     val isLoadingTrending by viewModel.isLoadingTrending.collectAsState()
+    val isFeedRefreshing by viewModel.isFeedRefreshing.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val feedError by viewModel.feedError.collectAsState()
     val activeVideoId by viewModel.activeVideoId.collectAsState()
@@ -431,7 +432,7 @@ fun HomeScreen(
                             }
 
                             val pullRefreshState = rememberPullToRefreshState()
-                            val isRefreshingFeed = isLoadingTrending || isSearching
+                            val isRefreshingFeed = isFeedRefreshing || (isLoadingTrending && feedList.isNotEmpty())
 
                             PullToRefreshBox(
                                 isRefreshing = isRefreshingFeed,
@@ -443,14 +444,13 @@ fun HomeScreen(
                                 },
                                 state = pullRefreshState,
                                 indicator = {
-                                    PullToRefreshDefaults.Indicator(
+                                    YouTubePullToRefreshIndicator(
                                         state = pullRefreshState,
                                         isRefreshing = isRefreshingFeed,
-                                        modifier = Modifier
-                                            .align(Alignment.TopCenter)
-                                            .padding(top = if (!isSearchExpanded) topBarPaddingDp + 8.dp else 16.dp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                                        modifier = Modifier.align(Alignment.TopCenter),
+                                        topPadding = if (!isSearchExpanded) topBarPaddingDp else 16.dp,
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        contentColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 },
                                 modifier = Modifier.fillMaxSize()

@@ -162,6 +162,16 @@ fun ExploreScreen(
             isRefreshing = isRefreshing,
             onRefresh = { loadFeed(forceRefresh = true) },
             state = pullRefreshState,
+            indicator = {
+                com.example.ui.components.YouTubePullToRefreshIndicator(
+                    state = pullRefreshState,
+                    isRefreshing = isRefreshing,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    topPadding = topPadding,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
+            },
             modifier = Modifier.fillMaxSize()
         ) {
             LazyColumn(

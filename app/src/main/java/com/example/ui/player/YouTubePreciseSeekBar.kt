@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ fun YouTubePreciseSeekBar(
     onSeekFinished: (finalPositionMs: Long) -> Unit,
     modifier: Modifier = Modifier,
     segments: List<com.example.smartskip.SkipSegment> = emptyList(),
+    chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
     activeColor: Color = Color(0xFFFF0033),
     bufferedColor: Color = Color.White.copy(alpha = 0.55f),
     inactiveColor: Color = Color.White.copy(alpha = 0.25f),
@@ -94,13 +96,28 @@ fun YouTubePreciseSeekBar(
                     .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
-                Text(
-                    text = "${formatVideoTimestamp(scrubPositionMs)} / ${formatVideoTimestamp(durationMs)}",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
+                val currentChapter = remember(scrubPositionMs, chapters) {
+                    chapters.lastOrNull { scrubPositionMs >= it.startTimeMs }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (currentChapter != null) {
+                        Text(
+                            text = currentChapter.title,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        text = "${formatVideoTimestamp(scrubPositionMs)} / ${formatVideoTimestamp(durationMs)}",
+                        color = if (currentChapter != null) Color.White.copy(alpha = 0.85f) else Color.White,
+                        fontSize = if (currentChapter != null) 10.sp else 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
         }
 
@@ -209,6 +226,23 @@ fun YouTubePreciseSeekBar(
                         size = Size(activeWidth, barHeight),
                         cornerRadius = cornerRadius
                     )
+                }
+
+                // 3.5 YouTube Chapter Separator Gaps (Clean 2dp black notches dividing chapters)
+                if (chapters.size > 1 && safeDuration > 0) {
+                    val gapWidth = 2.dp.toPx()
+                    for (ci in 1 until chapters.size) {
+                        val ch = chapters[ci]
+                        val frac = (ch.startTimeMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+                        val x = frac * canvasWidth
+                        if (x > gapWidth && x < canvasWidth - gapWidth) {
+                            drawRect(
+                                color = Color.Black,
+                                topLeft = Offset(x - gapWidth / 2f, centerY - (barHeight / 2f) - 1.dp.toPx()),
+                                size = Size(gapWidth, barHeight + 2.dp.toPx())
+                            )
+                        }
+                    }
                 }
 
                 // 4. Scrubber Thumb Circle

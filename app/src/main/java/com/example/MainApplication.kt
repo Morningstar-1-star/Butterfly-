@@ -32,6 +32,7 @@ class MainApplication : Application() {
         com.example.supabase.SupabaseAuthManager.init(this)
         com.example.supabase.SupabaseSyncManager.init(this)
         com.example.util.GoogleDriveSyncManager.init(this)
+        com.example.auth.SourceAccountManager.init(this)
         com.example.util.PlaybackResumeManager.getRawSavedPosition(this, "_warmup")
 
         // Configure YouTube Proof-of-Origin Token Provider for NewPipe extractor

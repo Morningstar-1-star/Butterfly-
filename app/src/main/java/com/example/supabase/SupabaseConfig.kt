@@ -9,9 +9,9 @@ object SupabaseConfig {
     private const val KEY_URL = "supabase_url"
     private const val KEY_ANON_KEY = "supabase_anon_key"
 
-    // Default configuration for quick onboarding; user can override anytime in settings
-    private const val DEFAULT_URL = "https://aistudio-butterfly.supabase.co"
-    private const val DEFAULT_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder"
+    // Default configuration for permanent Supabase project; user can override anytime in settings
+    private const val DEFAULT_URL = "https://wlyqppcnywrftvducgz.supabase.co"
+    private const val DEFAULT_ANON_KEY = "sb_publishable_gsEuLQOAZrxBWcG5qMMmxQ_h7aQjCX1"
 
     @Volatile
     private var cachedUrl: String? = null
@@ -22,16 +22,18 @@ object SupabaseConfig {
         cachedUrl?.let { return it }
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val url = prefs.getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
-        cachedUrl = url
-        return url
+        val effectiveUrl = if (url.contains("aistudio-butterfly.supabase.co") || url.contains("placeholder")) DEFAULT_URL else url
+        cachedUrl = effectiveUrl
+        return effectiveUrl
     }
 
     fun getAnonKey(context: Context): String {
         cachedAnonKey?.let { return it }
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val key = prefs.getString(KEY_ANON_KEY, DEFAULT_ANON_KEY) ?: DEFAULT_ANON_KEY
-        cachedAnonKey = key
-        return key
+        val effectiveKey = if (key.contains("placeholder")) DEFAULT_ANON_KEY else key
+        cachedAnonKey = effectiveKey
+        return effectiveKey
     }
 
     fun saveConfig(context: Context, url: String, anonKey: String) {

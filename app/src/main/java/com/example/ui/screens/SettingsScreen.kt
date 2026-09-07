@@ -41,6 +41,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     GENERAL("General", "Theme, colors & layout preferences", Icons.Outlined.Palette),
     LANGUAGE("Language & Translation", "App language, auto-translation & original titles", Icons.Outlined.Translate),
     PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
+    ACCOUNTS_SOURCES("Accounts & Sources", "YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
     PROVIDERS("Content Sources", "Manage YouTube, Dailymotion, BitTorrent & more", Icons.Outlined.Source),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
     BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
@@ -244,6 +245,7 @@ fun SettingsScreen(
                     SettingsCategory.GENERAL,
                     SettingsCategory.LANGUAGE,
                     SettingsCategory.PLAYBACK,
+                    SettingsCategory.ACCOUNTS_SOURCES,
                     SettingsCategory.PROVIDERS,
                     SettingsCategory.VEGA,
                     SettingsCategory.ADULT_18,
@@ -890,11 +892,85 @@ fun SettingsScreen(
                         }
                     }
 
+                    SettingsCategory.ACCOUNTS_SOURCES -> {
+                        AccountsAndSourcesScreenContent(
+                            modifier = Modifier.fillMaxSize(),
+                            showHeader = false,
+                            onClose = null
+                        )
+                    }
+
                     SettingsCategory.PROVIDERS -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(vertical = 8.dp)
                         ) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                        .clickable { currentCategory = SettingsCategory.ACCOUNTS_SOURCES }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Hub,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = "Accounts & Sources",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = MaterialTheme.colorScheme.primary
+                                                ) {
+                                                    Text(
+                                                        text = "Grayjay Engine",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onPrimary,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "Log into YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
                             val normalProviders = listOf(
                                 "youtube" to "YouTube",
                                 "crunchyroll" to "Crunchyroll Anime",
@@ -911,6 +987,8 @@ fun SettingsScreen(
                                 "amazonminitv" to "Amazon miniTV",
                                 "discoveryplus" to "Discovery+",
                                 "disney" to "Disney / Disney+",
+                                "hbo" to "HBO / Max",
+                                "curiositystream" to "CuriosityStream",
                                 "googledrive" to "Google Drive",
                                 "imdb" to "IMDb (Top Movies & Trailers)",
                                 "mxplayer" to "MX Player",
@@ -929,6 +1007,8 @@ fun SettingsScreen(
                                             "amazonminitv" -> "Amazon miniTV free web series, comedy, romance & drama"
                                             "discoveryplus" -> "Discovery+, Science, Animal Planet & TLC docu-series"
                                             "disney" -> "Disney, Pixar, Marvel, Star Wars & Nat Geo cinema trailers"
+                                            "hbo" -> "HBO Originals, House of the Dragon, Game of Thrones & Max hits"
+                                            "curiositystream" -> "CuriosityStream science, history, space & nature documentaries"
                                             "googledrive" -> "Stream public and synced Google Drive movies & shared videos"
                                             "imdb" -> "IMDb Top 250 releases, movie charts & HD trailers"
                                             "mxplayer" -> "MX Player OTT web series, short films & movies"

@@ -24,6 +24,119 @@ object HomeFeedCacheManager {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var memoryCachedFeed: List<VideoItem>? = null
 
+    private val DEFAULT_SEED_FEED = listOf(
+        VideoItem(
+            id = "jfKfPfyJRdk",
+            title = "Lofi Hip Hop Radio - Beats to Relax/Study to",
+            uploaderName = "Lofi Girl",
+            uploaderAvatarUrl = "https://yt3.ggpht.com/w95q1G26n7pC-98wVf5Lh2m29zW-o7A800N0f36-39=s176-c-k-c0x00ffffff-no-rj",
+            viewCount = 68400000L,
+            durationSeconds = -1L,
+            thumbnailUrl = "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "dQw4w9WgXcQ",
+            title = "Rick Astley - Never Gonna Give You Up (Official Music Video)",
+            uploaderName = "Rick Astley",
+            uploaderAvatarUrl = "https://yt3.ggpht.com/ytc/AIdro_k6B-98eQ2p=s176-c-k-c0x00ffffff-no-rj",
+            viewCount = 1580000000L,
+            durationSeconds = 212L,
+            thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "kJQP7kiw5Fk",
+            title = "Luis Fonsi - Despacito ft. Daddy Yankee",
+            uploaderName = "Luis Fonsi",
+            viewCount = 8500000000L,
+            durationSeconds = 281L,
+            thumbnailUrl = "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "9bZkp7q19f0",
+            title = "PSY - GANGNAM STYLE (강남스타일) M/V",
+            uploaderName = "officialpsy",
+            viewCount = 5200000000L,
+            durationSeconds = 252L,
+            thumbnailUrl = "https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "JGwWNGJdvx8",
+            title = "Ed Sheeran - Shape of You (Official Music Video)",
+            uploaderName = "Ed Sheeran",
+            viewCount = 6300000000L,
+            durationSeconds = 235L,
+            thumbnailUrl = "https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "OPf0YbXqDm0",
+            title = "Mark Ronson - Uptown Funk (Official Video) ft. Bruno Mars",
+            uploaderName = "MarkRonsonVEVO",
+            viewCount = 5100000000L,
+            durationSeconds = 270L,
+            thumbnailUrl = "https://i.ytimg.com/vi/OPf0YbXqDm0/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "fJ9rUzIMcZQ",
+            title = "Queen - Bohemian Rhapsody (Official Video Remastered)",
+            uploaderName = "Queen Official",
+            viewCount = 1700000000L,
+            durationSeconds = 359L,
+            thumbnailUrl = "https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "hT_nvWreIhg",
+            title = "OneRepublic - Counting Stars (Official Music Video)",
+            uploaderName = "OneRepublic",
+            viewCount = 4000000000L,
+            durationSeconds = 283L,
+            thumbnailUrl = "https://i.ytimg.com/vi/hT_nvWreIhg/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "2Vv-BfVoq4g",
+            title = "Ed Sheeran - Perfect (Official Music Video)",
+            uploaderName = "Ed Sheeran",
+            viewCount = 3800000000L,
+            durationSeconds = 279L,
+            thumbnailUrl = "https://i.ytimg.com/vi/2Vv-BfVoq4g/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "RgKAFK5djSk",
+            title = "Wiz Khalifa - See You Again ft. Charlie Puth [Official Video] Furious 7 Soundtrack",
+            uploaderName = "Wiz Khalifa",
+            viewCount = 6200000000L,
+            durationSeconds = 237L,
+            thumbnailUrl = "https://i.ytimg.com/vi/RgKAFK5djSk/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "CevxZvSJLk8",
+            title = "Katy Perry - Roar (Official)",
+            uploaderName = "KatyPerryVEVO",
+            viewCount = 4000000000L,
+            durationSeconds = 269L,
+            thumbnailUrl = "https://i.ytimg.com/vi/CevxZvSJLk8/hqdefault.jpg",
+            providerId = "youtube"
+        ),
+        VideoItem(
+            id = "YQHsXMglC9A",
+            title = "Adele - Hello (Official Music Video)",
+            uploaderName = "Adele",
+            viewCount = 3100000000L,
+            durationSeconds = 367L,
+            thumbnailUrl = "https://i.ytimg.com/vi/YQHsXMglC9A/hqdefault.jpg",
+            providerId = "youtube"
+        )
+    )
+
     /**
      * Loads cached feed items synchronously on startup in < 3 milliseconds.
      */
@@ -32,7 +145,11 @@ object HomeFeedCacheManager {
 
         val file = File(context.filesDir, CACHE_FILE_NAME)
         if (!file.exists() || file.length() == 0L) {
-            return emptyList()
+            // Save seed feed asynchronously and return it immediately for 0ms cold start
+            saveCachedFeed(context, DEFAULT_SEED_FEED)
+            memoryCachedFeed = DEFAULT_SEED_FEED
+            ThumbnailOptimizer.preloadThumbnails(context, DEFAULT_SEED_FEED.take(12))
+            return DEFAULT_SEED_FEED
         }
 
         try {

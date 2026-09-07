@@ -103,7 +103,17 @@ object YtDlpResolver {
             u.startsWith("cammodels:") ||
             u.startsWith("chaturbate:") ||
             u.startsWith("discoveryplus") ||
-            u.startsWith("disney")
+            u.startsWith("disney") ||
+            u.startsWith("hbo") ||
+            u.startsWith("hbomax") ||
+            u.startsWith("max:") ||
+            u.startsWith("curiositystream") ||
+            u.startsWith("curiosity") ||
+            u.startsWith("youtube:") ||
+            u.startsWith("ytsearch") ||
+            u.startsWith(":ytrec") ||
+            u.startsWith("youtubeytbe:") ||
+            u.startsWith("youtubelivestreamembed:")
         ) {
             return true
         }
@@ -140,6 +150,8 @@ object YtDlpResolver {
             "chaturbate.com",
             "discoveryplus.in", "discoveryplus.com",
             "disneyplus.com",
+            "hbo.com", "hbomax.com", "max.com", "play.max.com", "play.hbomax.com",
+            "curiositystream.com",
             "tiktok.com",
             "twitch.tv",
             "soundcloud.com"
@@ -228,6 +240,35 @@ object YtDlpResolver {
                 targetUrl.startsWith("tnaflix:", ignoreCase = true) -> "https://www.tnaflix.com/video${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("crunchyroll:", ignoreCase = true) -> "https://www.crunchyroll.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("sonyliv:", ignoreCase = true) -> "https://www.sonyliv.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("hbo:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("hbomax:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("max:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("curiositystream:collections:", ignoreCase = true) -> "https://curiositystream.com/collections/${targetUrl.substringAfter("curiositystream:collections:")}"
+                targetUrl.startsWith("curiositystream:series:", ignoreCase = true) -> "https://curiositystream.com/series/${targetUrl.substringAfter("curiositystream:series:")}"
+                targetUrl.startsWith("curiositystream:", ignoreCase = true) -> "https://curiositystream.com/video/${targetUrl.substringAfter("curiositystream:")}"
+                targetUrl.startsWith("curiosity:", ignoreCase = true) -> "https://curiositystream.com/video/${targetUrl.substringAfter("curiosity:")}"
+                targetUrl.startsWith("youtube:playlist:", ignoreCase = true) -> {
+                    val plId = targetUrl.substringAfter("youtube:playlist:").trim()
+                    if (plId.startsWith("http")) plId else "https://www.youtube.com/playlist?list=$plId"
+                }
+                targetUrl.startsWith("youtube:recommended:", ignoreCase = true) || targetUrl.equals(":ytrec", ignoreCase = true) -> ":ytrec"
+                targetUrl.startsWith("youtube:search:", ignoreCase = true) -> {
+                    val q = targetUrl.substringAfter("youtube:search:").trim()
+                    if (q.startsWith("ytsearch")) q else "ytsearch1:$q"
+                }
+                targetUrl.startsWith("youtube:search_url:", ignoreCase = true) -> {
+                    val u = targetUrl.substringAfter("youtube:search_url:").trim()
+                    if (u.startsWith("http")) u else "https://www.youtube.com/results?search_query=$u"
+                }
+                targetUrl.startsWith("youtubelivestreamembed:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter("youtubelivestreamembed:").trim()
+                    if (id.startsWith("http")) id else "https://www.youtube.com/embed/$id"
+                }
+                targetUrl.startsWith("youtubeytbe:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter("youtubeytbe:").trim()
+                    if (id.startsWith("http")) id else "https://youtu.be/$id"
+                }
+                targetUrl.startsWith("ytsearch:", ignoreCase = true) || targetUrl.startsWith("ytsearch1:", ignoreCase = true) -> targetUrl
                 targetUrl.startsWith("bilisearch", ignoreCase = true) -> targetUrl
                 targetUrl.startsWith("BV", ignoreCase = true) || targetUrl.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$targetUrl"
                 targetUrl.startsWith("ep", ignoreCase = true) || targetUrl.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$targetUrl"
@@ -436,6 +477,22 @@ object YtDlpResolver {
                 lowerUrl.contains("disney") -> {
                     request.addOption("--add-header", "Referer: https://www.disneyplus.com/")
                     domainHeaders["Referer"] = "https://www.disneyplus.com/"
+                }
+                lowerUrl.contains("hbo") || lowerUrl.contains("hbomax") || lowerUrl.contains("max.com") || lowerUrl.startsWith("hbo:") || lowerUrl.startsWith("hbomax:") || lowerUrl.startsWith("max:") -> {
+                    request.addOption("--add-header", "Referer: https://play.max.com/")
+                    request.addOption("--add-header", "Origin: https://play.max.com")
+                    request.addOption("--add-header", "X-Forwarded-For: 208.80.154.224")
+                    request.addOption("--geo-bypass")
+                    request.addOption("--geo-bypass-country", "US")
+                    domainHeaders["Referer"] = "https://play.max.com/"
+                    domainHeaders["Origin"] = "https://play.max.com"
+                    domainHeaders["X-Forwarded-For"] = "208.80.154.224"
+                }
+                lowerUrl.contains("curiositystream") || lowerUrl.startsWith("curiositystream:") || lowerUrl.startsWith("curiosity:") -> {
+                    request.addOption("--add-header", "Referer: https://curiositystream.com/")
+                    request.addOption("--add-header", "Origin: https://curiositystream.com")
+                    domainHeaders["Referer"] = "https://curiositystream.com/"
+                    domainHeaders["Origin"] = "https://curiositystream.com"
                 }
             }
 
@@ -710,6 +767,34 @@ object YtDlpResolver {
                 )
             }
 
+            // Parse Chapters (Native yt-dlp chapters + custom description timestamps)
+            val parsedChapters = mutableListOf<com.example.extractor.chapters.VideoChapter>()
+            val rawChapters = json.optJSONArray("chapters")
+            if (rawChapters != null && rawChapters.length() > 0) {
+                for (ci in 0 until rawChapters.length()) {
+                    val chObj = rawChapters.optJSONObject(ci) ?: continue
+                    val chTitle = chObj.optString("title", "Chapter ${ci + 1}")
+                    val startSec = chObj.optDouble("start_time", 0.0)
+                    val endSec = chObj.optDouble("end_time", 0.0)
+                    parsedChapters.add(
+                        com.example.extractor.chapters.VideoChapter(
+                            title = chTitle,
+                            startTimeMs = (startSec * 1000).toLong(),
+                            endTimeMs = (endSec * 1000).toLong()
+                        )
+                    )
+                }
+            }
+            if (parsedChapters.isEmpty()) {
+                val durSec = json.optLong("duration", 0L)
+                parsedChapters.addAll(
+                    com.example.extractor.chapters.YTCustomChapters.extractChapters(
+                        description = description,
+                        durationMs = durSec * 1000L
+                    )
+                )
+            }
+
             val streamData = StreamData(
                 videoId = videoId,
                 videoUrl = bestOption.videoUrl ?: "",
@@ -724,7 +809,8 @@ object YtDlpResolver {
                 providerType = ProviderType.DIRECT,
                 headers = bestOption.headers,
                 tags = extractedTags,
-                category = primaryCat
+                category = primaryCat,
+                chapters = parsedChapters
             )
 
             Log.i(TAG, "yt-dlp success: found ${distinctOptions.size} streams, selected '${bestOption.qualityLabel}'")

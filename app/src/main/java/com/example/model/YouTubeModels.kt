@@ -197,7 +197,8 @@ data class StreamData(
     val translatedTitleHI: String? = null,
     val detectedLanguage: String? = null,
     val translatedDescriptionEN: String? = null,
-    val translatedDescriptionHI: String? = null
+    val translatedDescriptionHI: String? = null,
+    val chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList()
 ) {
     fun getDisplayTitle(showOriginal: Boolean = false, appLanguage: String = "en"): String {
         if (showOriginal) {

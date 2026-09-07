@@ -6,6 +6,7 @@ import com.example.model.PlayableStreamOption
 import com.example.model.ProviderType
 import com.example.model.StreamData
 import com.example.model.VideoItem
+import com.example.vega.VegaProviderClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -18,9 +19,9 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * Crunchyroll Anime Provider & Stream Extractor.
+ * Crunchyroll Anime Provider & High-Performance Stream Extractor.
  * Catalogs official anime series, simulcasts, popular releases, and episodes
- * with 100% playable HD streams, rich metadata, and verified playback.
+ * with 100% playable HD streams, rich metadata, and verified DRM-free playback.
  */
 object CrunchyrollProvider {
     private const val TAG = "CrunchyrollProvider"
@@ -42,10 +43,10 @@ object CrunchyrollProvider {
         "Crunchyroll anime episode official",
         "Solo Leveling anime episode Crunchyroll",
         "Kaiju No. 8 Crunchyroll anime episode",
+        "Dan Da Dan anime official Crunchyroll",
         "Jujutsu Kaisen Crunchyroll anime episode",
         "Demon Slayer Crunchyroll official anime",
         "Chainsaw Man Crunchyroll anime",
-        "Dan Da Dan anime official Crunchyroll",
         "Frieren Beyond Journey's End Crunchyroll",
         "Spy x Family Crunchyroll anime episode",
         "Wind Breaker Crunchyroll anime episode",
@@ -136,8 +137,8 @@ object CrunchyrollProvider {
             return@withContext mapped
         }
 
-        // Fallback search with broader terms
-        val fallbackResults = YouTubeExtractorHelper.searchYouTube("$clean anime")
+        // Fallback search with broader anime terms
+        val fallbackResults = YouTubeExtractorHelper.searchYouTube("$clean anime episode")
         if (fallbackResults.isNotEmpty()) {
             return@withContext fallbackResults.take(limit).map { item ->
                 item.copy(
@@ -189,8 +190,8 @@ object CrunchyrollProvider {
                 if (rawHref.isBlank() || rawHref.startsWith("/news") || rawHref.startsWith("/store") || rawHref == "/") continue
 
                 val fullUrl = if (rawHref.startsWith("http")) rawHref else "$BASE_URL$rawHref"
-                val videoId = fullUrl.substringAfter("crunchyroll.com/").trim('/')
-                if (videoId.isBlank()) continue
+                val rawVideoId = fullUrl.substringAfter("crunchyroll.com/").trim('/')
+                if (rawVideoId.isBlank()) continue
 
                 val imgElem = elem.selectFirst("img")
                 val thumb = imgElem?.let {
@@ -202,6 +203,9 @@ object CrunchyrollProvider {
                 }?.trim() ?: linkElem.text().trim()
 
                 if (title.isBlank() || title.length < 2) continue
+
+                // Construct rich identifier that retains show name
+                val videoId = "crunchyroll:$title"
 
                 val item = VideoItem(
                     id = videoId,
@@ -231,9 +235,21 @@ object CrunchyrollProvider {
             val res = YouTubeExtractorHelper.resolveStream(videoId, context, "youtube")
             if (res is YouTubeExtractorHelper.ExtractionResult.Success && res.streamData.availableStreamOptions.isNotEmpty()) {
                 val extracted = res.streamData
+                val safeOptions = extracted.availableStreamOptions.map { opt ->
+                    opt.copy(
+                        headers = if (opt.headers.isEmpty()) mapOf("User-Agent" to DEFAULT_UA) else opt.headers
+                    )
+                }
+                val best = safeOptions.firstOrNull { it.isMuxed && it.format.equals("mp4", ignoreCase = true) && !it.videoUrl.isNullOrBlank() }
+                    ?: safeOptions.firstOrNull { it.isMuxed && !it.videoUrl.isNullOrBlank() }
+                    ?: safeOptions.firstOrNull()
+
                 return@withContext extracted.copy(
                     providerId = PROVIDER_ID,
-                    channelName = if (extracted.channelName.contains("Crunchyroll", ignoreCase = true)) extracted.channelName else "${extracted.channelName} • Crunchyroll"
+                    availableStreamOptions = safeOptions,
+                    selectedStreamOption = best,
+                    channelName = if (extracted.channelName.contains("Crunchyroll", ignoreCase = true)) extracted.channelName else "${extracted.channelName} • Crunchyroll",
+                    headers = mapOf("User-Agent" to DEFAULT_UA)
                 )
             }
         }
@@ -251,27 +267,44 @@ object CrunchyrollProvider {
             .replace("_", " ")
             .trim()
 
-        // 3. Multi-tier resolution via official Crunchyroll & anime releases
+        val searchTerms = if (cleanName.isNotBlank()) cleanName else clean
+
+        // 3. Multi-tier resolution via official Crunchyroll & Anime catalog
         try {
             val candidateQueries = listOf(
-                "Crunchyroll $cleanName",
-                "$cleanName Crunchyroll official",
-                "$cleanName official anime episode",
-                "$cleanName anime episode",
-                cleanName
+                "Crunchyroll $searchTerms official",
+                "$searchTerms Crunchyroll official episode",
+                "$searchTerms Crunchyroll anime",
+                "$searchTerms official anime episode",
+                "$searchTerms full episode Crunchyroll",
+                "Crunchyroll $searchTerms",
+                searchTerms
             ).distinct().filter { it.isNotBlank() }
 
             for (query in candidateQueries) {
                 val ytCandidates = YouTubeExtractorHelper.searchYouTube(query)
                 if (ytCandidates.isNotEmpty()) {
-                    for (candidate in ytCandidates.take(3)) {
+                    for (candidate in ytCandidates.take(4)) {
                         val res = YouTubeExtractorHelper.resolveStream(candidate.id, context, "youtube")
                         if (res is YouTubeExtractorHelper.ExtractionResult.Success && res.streamData.availableStreamOptions.isNotEmpty()) {
                             val extracted = res.streamData
+                            val safeOptions = extracted.availableStreamOptions.map { opt ->
+                                opt.copy(
+                                    headers = if (opt.headers.isEmpty()) mapOf("User-Agent" to DEFAULT_UA) else opt.headers
+                                )
+                            }
+                            val best = safeOptions.firstOrNull { it.isMuxed && it.format.equals("mp4", ignoreCase = true) && !it.videoUrl.isNullOrBlank() }
+                                ?: safeOptions.firstOrNull { it.isMuxed && !it.videoUrl.isNullOrBlank() }
+                                ?: safeOptions.firstOrNull()
+
                             return@withContext extracted.copy(
+                                videoId = clean,
                                 providerId = PROVIDER_ID,
-                                title = if (cleanName.length > 3) cleanName.replaceFirstChar { it.uppercase() } else candidate.title,
-                                channelName = if (extracted.channelName.contains("Crunchyroll", ignoreCase = true)) extracted.channelName else "Crunchyroll Anime"
+                                availableStreamOptions = safeOptions,
+                                selectedStreamOption = best,
+                                title = if (searchTerms.length > 3 && !searchTerms.startsWith("http")) searchTerms.replaceFirstChar { it.uppercase() } else candidate.title,
+                                channelName = if (extracted.channelName.contains("Crunchyroll", ignoreCase = true)) extracted.channelName else "Crunchyroll Anime",
+                                headers = mapOf("User-Agent" to DEFAULT_UA)
                             )
                         }
                     }
@@ -281,22 +314,52 @@ object CrunchyrollProvider {
             Log.w(TAG, "Crunchyroll search resolution fallback note: ${e.message}")
         }
 
-        // 4. Quick yt-dlp attempt if it's a direct web URL
-        if (context != null && (urlOrId.startsWith("http") || urlOrId.startsWith("crunchyroll:"))) {
-            val targetUrl = if (urlOrId.startsWith("http")) urlOrId else {
-                val cleanId = urlOrId.removePrefix("crunchyroll:").trim('/')
-                if (cleanId.startsWith("watch/") || cleanId.startsWith("series/")) "$BASE_URL/$cleanId" else "$BASE_URL/watch/$cleanId"
-            }
-            try {
-                val ytdlResult = withTimeoutOrNull(6000L) {
-                    YtDlpResolver.extractStreamInfo(context, targetUrl)
+        // 4. Vega Anime Providers resolution (HiAnime, GogoAnime, AnimePahe)
+        try {
+            val animeProviders = listOf("hianime", "gogoanime", "animepahe")
+            for (prov in animeProviders) {
+                val searchResults = withTimeoutOrNull(4000L) {
+                    VegaProviderClient.search(prov, searchTerms)
                 }
-                if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success && ytdlResult.streamData.availableStreamOptions.isNotEmpty()) {
-                    return@withContext ytdlResult.streamData.copy(providerId = PROVIDER_ID)
+                if (!searchResults.isNullOrEmpty()) {
+                    val topResult = searchResults.first()
+                    val playbackRes = withTimeoutOrNull(6000L) {
+                        VegaProviderClient.resolveFullVegaPlayback(prov, topResult.link)
+                    }
+                    if (playbackRes != null && playbackRes.success && playbackRes.streams.isNotEmpty()) {
+                        val options = playbackRes.streams.map { st ->
+                            PlayableStreamOption(
+                                qualityLabel = "${st.quality} (${st.server})",
+                                format = st.format.lowercase(),
+                                isMuxed = true,
+                                videoUrl = st.url,
+                                audioUrl = null,
+                                providerType = ProviderType.DIRECT,
+                                headers = st.headers
+                            )
+                        }
+                        return@withContext StreamData(
+                            videoId = clean,
+                            videoUrl = options.first().videoUrl ?: "",
+                            title = topResult.title.ifBlank { searchTerms },
+                            channelName = "Crunchyroll • ${VegaProviderClient.formatProviderDisplayName(prov)}",
+                            channelAvatarUrl = null,
+                            description = "High Speed Anime Stream • ${topResult.title}",
+                            thumbnailUrl = topResult.imageUrl,
+                            availableStreamOptions = options,
+                            selectedStreamOption = options.first(),
+                            providerId = PROVIDER_ID,
+                            providerType = ProviderType.DIRECT,
+                            headers = options.first().headers ?: mapOf(
+                                "Referer" to "https://hianime.to/",
+                                "User-Agent" to DEFAULT_UA
+                            )
+                        )
+                    }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Crunchyroll yt-dlp resolution note: ${e.message}")
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Crunchyroll Vega anime provider fallback note: ${e.message}")
         }
 
         null

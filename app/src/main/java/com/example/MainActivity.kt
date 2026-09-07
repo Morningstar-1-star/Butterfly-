@@ -18,9 +18,11 @@ import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.ui.MainViewModel
 import com.example.ui.animation.ButterflyOpeningAnimation
 import com.example.ui.animation.FairyBunnyOpeningAnimation
+import com.example.ui.animation.MtvMoonButterflyOpeningAnimation
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
@@ -30,6 +32,11 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+            splashScreenView.remove()
+        }
+
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setupHighRefreshRate()
@@ -72,6 +79,18 @@ class MainActivity : ComponentActivity() {
                             }
                             MainViewModel.OpeningAnimationStyle.FAIRY_BUNNY -> {
                                 FairyBunnyOpeningAnimation(
+                                    themeMode = themeMode,
+                                    accentColor = accentColor,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(9999f),
+                                    onAnimationFinished = {
+                                        viewModel.dismissOpeningAnimation()
+                                    }
+                                )
+                            }
+                            MainViewModel.OpeningAnimationStyle.MTV_MOON_FLAG -> {
+                                MtvMoonButterflyOpeningAnimation(
                                     themeMode = themeMode,
                                     accentColor = accentColor,
                                     modifier = Modifier

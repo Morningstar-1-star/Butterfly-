@@ -151,6 +151,14 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://www.disneyplus.com/")
                 builder.header("Origin", "https://www.disneyplus.com")
             }
+            urlStr.contains("max.com") || urlStr.contains("hbo.com") || urlStr.contains("hbomax.com") -> {
+                builder.header("Referer", "https://play.max.com/")
+                builder.header("Origin", "https://play.max.com")
+            }
+            urlStr.contains("curiositystream") -> {
+                builder.header("Referer", "https://curiositystream.com/")
+                builder.header("Origin", "https://curiositystream.com")
+            }
             urlStr.contains("drive.google.com") || urlStr.contains("googleusercontent.com") || urlStr.contains("drive.usercontent.google.com") -> {
                 builder.header("Referer", "https://drive.google.com/")
             }
@@ -162,17 +170,34 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://www.imdb.com/")
                 builder.header("Origin", "https://www.imdb.com")
             }
-            urlStr.contains("noodlemagazine.com") -> {
+            urlStr.contains("hanime1") || urlStr.contains("hanime.tv") || urlStr.contains("hanime") || urlStr.contains("hembed.com") || urlStr.contains("vdownload") -> {
+                val ref = if (urlStr.contains("hanime.tv")) "https://hanime.tv/" else "https://hanime1.me/"
+                val orig = if (urlStr.contains("hanime.tv")) "https://hanime.tv" else "https://hanime1.me"
+                builder.header("Referer", ref)
+                builder.header("Origin", orig)
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; country=US; language=en; ft_mature=1; consent=1")
+            }
+            urlStr.contains("noodlemagazine") || urlStr.contains("noodlemag") -> {
                 builder.header("Referer", "https://noodlemagazine.com/")
                 builder.header("Origin", "https://noodlemagazine.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; ft_mature=1; consent=1")
+            }
+            urlStr.contains("vk.com") || urlStr.contains("vkvideo.ru") || urlStr.contains("vkuser") || urlStr.contains("mycdn.me") || urlStr.contains("userapi.com") || urlStr.contains("ok.ru") || urlStr.contains("odnoklassniki.ru") -> {
+                builder.header("Referer", "https://vk.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("Cookie")
             }
             urlStr.contains("popcorntime") -> {
                 builder.header("Referer", "https://popcorntime.pro/")
                 builder.header("Origin", "https://popcorntime.pro")
             }
-            urlStr.contains("sonyliv.com") -> {
+            urlStr.contains("sonyliv") || urlStr.contains("setindia") || urlStr.contains("sonypicturesnetworks") -> {
                 builder.header("Referer", "https://www.sonyliv.com/")
                 builder.header("Origin", "https://www.sonyliv.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
             urlStr.contains("thisvid.com") -> {
                 builder.header("Referer", "https://thisvid.com/")
@@ -183,6 +208,16 @@ object GlobalPlayerManager {
                 builder.header("Referer", "https://www.tnaflix.com/")
                 builder.header("Origin", "https://www.tnaflix.com")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1")
+            }
+            urlStr.contains("crunchyroll") || urlStr.contains("vrv.co") || urlStr.contains("akamaized.net") -> {
+                builder.header("Referer", "https://www.crunchyroll.com/")
+                builder.header("Origin", "https://www.crunchyroll.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            }
+            urlStr.contains("hianime") || urlStr.contains("megacloud") || urlStr.contains("rapid-cloud") || urlStr.contains("kaido") || urlStr.contains("aniwatch") || urlStr.contains("animepahe") || urlStr.contains("gogoanime") -> {
+                builder.header("Referer", "https://hianime.to/")
+                builder.header("Origin", "https://hianime.to")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
         }
 
@@ -490,8 +525,8 @@ object GlobalPlayerManager {
                     return try {
                         androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                             .setAudioProcessors(arrayOf(audioEnhancementProcessor))
-                            .setEnableFloatOutput(enableFloatOutput)
-                            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                            .setEnableFloatOutput(false)
+                            .setEnableAudioTrackPlaybackParams(true)
                             .build()
                     } catch (e: Throwable) {
                         android.util.Log.w("GlobalPlayerManager", "AudioSink build fallback: ${e.message}")
@@ -601,6 +636,32 @@ object GlobalPlayerManager {
                         causeMessage = rootCause?.message,
                         httpStatus = httpStatus
                     )
+
+                    // Resilient auto-failover: if current stream option failed with 403 or playback error, try alternative options
+                    val currentData = _activeStreamData.value
+                    val currentOption = currentData?.selectedStreamOption
+                    if (currentData != null && currentData.availableStreamOptions.size > 1) {
+                        val remainingOptions = currentData.availableStreamOptions.filter {
+                            it.videoUrl != currentOption?.videoUrl && !it.videoUrl.isNullOrBlank()
+                        }
+                        if (remainingOptions.isNotEmpty()) {
+                            val nextOption = remainingOptions.first()
+                            android.util.Log.i("GlobalPlayerManager", "Auto-recovering from playback error ($httpStatus), trying alternate stream: ${nextOption.qualityLabel}")
+                            appContext?.let { ctx ->
+                                kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+                                    prepareAndPlay(
+                                        context = ctx,
+                                        streamData = currentData,
+                                        streamOption = nextOption,
+                                        hlsUrl = null,
+                                        captionOption = null,
+                                        initialPos = _currentPositionMs.value
+                                    )
+                                }
+                                return
+                            }
+                        }
+                    }
 
                     val detailedError = StringBuilder("Media3 Error [$errorCodeName / ${error.errorCode}]: ${error.message ?: "Unknown error"}")
                     if (rootCause != null) {
@@ -891,7 +952,6 @@ object GlobalPlayerManager {
                 .setConstantBitrateSeekingEnabled(true)
                 .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_READ_SEF_DATA)
                 .setFragmentedMp4ExtractorFlags(androidx.media3.extractor.mp4.FragmentedMp4Extractor.FLAG_ENABLE_EMSG_TRACK)
-                .setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
 
             val errorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
                 override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
@@ -928,10 +988,10 @@ object GlobalPlayerManager {
                 // Inject domain-specific referer & origin headers if not explicitly specified
                 val lowerTarget = targetUrl.lowercase()
                 val isGoogleStorageOrPublic = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") || lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com") ||
-                        lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") || lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") || lowerTarget.contains("githubusercontent")
+                        lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") || lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") || lowerTarget.contains("githubusercontent") || lowerTarget.contains("cloudflarestream")
                 val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos-") || lowerTarget.contains("akamaized") || streamData?.providerId == "bilibili"
 
-                val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkuser") || lowerTarget.contains("mycdn.me") || lowerTarget.contains("vk-cdn") || lowerTarget.contains("userapi.com")
+                val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkvideo") || lowerTarget.contains("vkuser") || lowerTarget.contains("mycdn.me") || lowerTarget.contains("vk-cdn") || lowerTarget.contains("userapi.com") || lowerTarget.contains("ok.ru") || lowerTarget.contains("odnoklassniki")
 
                 if (isGoogleStorageOrPublic) {
                     reqHeaders.remove("Referer")
@@ -1040,16 +1100,19 @@ object GlobalPlayerManager {
                                     reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
                                 }
                             }
-                            lowerTarget.contains("hanime1") || lowerTarget.contains("hanime.tv") || lowerTarget.contains("hanime") || lowerTarget.contains("hembed.com") || lowerTarget.contains("vdownload") -> {
-                                reqHeaders["Referer"] = "https://hanime1.com/"
+                            lowerTarget.contains("hanime1") || lowerTarget.contains("hanime.tv") || lowerTarget.contains("hanime") || lowerTarget.contains("hembed.com") || lowerTarget.contains("vdownload") || streamData?.providerId == "hanime1" -> {
+                                val ref = if (lowerTarget.contains("hanime.tv")) "https://hanime.tv/" else "https://hanime1.me/"
+                                val orig = if (lowerTarget.contains("hanime.tv")) "https://hanime.tv" else "https://hanime1.me"
+                                reqHeaders["Referer"] = ref
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
-                                    reqHeaders["Origin"] = "https://hanime1.com"
+                                    reqHeaders["Origin"] = orig
                                 }
                                 if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
-                                    reqHeaders["Cookie"] = "age_verified=1; country=US; language=en"
+                                    reqHeaders["Cookie"] = "age_verified=1; country=US; language=en; ft_mature=1; consent=1"
                                 }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
-                            lowerTarget.contains("noodlemagazine.com") || lowerTarget.contains("noodlemag") -> {
+                            (lowerTarget.contains("noodlemagazine") || lowerTarget.contains("noodlemag") || streamData?.providerId == "noodlemagazine") && !isGoogleStorageOrPublic && !isVkStream -> {
                                 reqHeaders["Referer"] = "https://noodlemagazine.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://noodlemagazine.com"
@@ -1057,6 +1120,7 @@ object GlobalPlayerManager {
                                 if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
                                     reqHeaders["Cookie"] = "age_verified=1; platform=pc; ft_mature=1; consent=1"
                                 }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
                             lowerTarget.contains("thisvid.com") || lowerTarget.contains("tvid") -> {
                                 reqHeaders["Referer"] = "https://thisvid.com/"
@@ -1102,6 +1166,27 @@ object GlobalPlayerManager {
                                     reqHeaders["Origin"] = "https://javtiful.com"
                                 }
                                 reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                            }
+                            lowerTarget.contains("sonyliv") || lowerTarget.contains("setindia") || lowerTarget.contains("sonypicturesnetworks") || streamData?.providerId == "sonyliv" -> {
+                                reqHeaders["Referer"] = "https://www.sonyliv.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.sonyliv.com"
+                                }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                            }
+                            lowerTarget.contains("crunchyroll") || lowerTarget.contains("vrv.co") || lowerTarget.contains("akamaized.net") || streamData?.providerId == "crunchyroll" -> {
+                                reqHeaders["Referer"] = "https://www.crunchyroll.com/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://www.crunchyroll.com"
+                                }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                            }
+                            lowerTarget.contains("hianime") || lowerTarget.contains("megacloud") || lowerTarget.contains("rapid-cloud") || lowerTarget.contains("kaido") || lowerTarget.contains("aniwatch") || lowerTarget.contains("animepahe") || lowerTarget.contains("gogoanime") -> {
+                                reqHeaders["Referer"] = "https://hianime.to/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://hianime.to"
+                                }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
                         }
                     }

@@ -93,6 +93,9 @@ fun SearchScreen(
     val recentSearches by viewModel.recentSearches.collectAsState()
     val trendingTopics by viewModel.trendingTopics.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
+    val directUrlMatchItem by viewModel.directUrlMatchItem.collectAsState()
+    val detectedCategoryTags by viewModel.detectedCategoryTags.collectAsState()
+    val clipboardUrlSuggestion by viewModel.clipboardUrlSuggestion.collectAsState()
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
 
@@ -103,6 +106,7 @@ fun SearchScreen(
     LaunchedEffect(Unit) {
         try {
             focusRequester.requestFocus()
+            viewModel.checkClipboardForVideoUrl()
         } catch (_: Exception) {}
     }
 
@@ -234,11 +238,17 @@ fun SearchScreen(
                 onValueChange = { viewModel.updateSearchQuery(it) },
                 placeholder = {
                     Text(
-                        text = "Search movies, TV shows and anime...",
-                        fontSize = 15.sp,
+                        text = "Search title, tags (#fantasy), or paste video link...",
+                        fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 },
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                ),
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.updateSearchQuery("") }) {
@@ -268,7 +278,7 @@ fun SearchScreen(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .height(48.dp)
+                    .defaultMinSize(minHeight = 44.dp)
                     .focusRequester(focusRequester)
             )
 
@@ -343,6 +353,100 @@ fun SearchScreen(
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f), thickness = 1.dp)
+
+        // CLIPBOARD URL QUICK PASTE BANNER
+        androidx.compose.animation.AnimatedVisibility(
+            visible = clipboardUrlSuggestion != null && searchQuery.isBlank()
+        ) {
+            clipboardUrlSuggestion?.let { clipUrl ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clickable {
+                            viewModel.updateSearchQuery(clipUrl)
+                            viewModel.performSearch(clipUrl)
+                            viewModel.clearClipboardSuggestion()
+                        },
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = "Paste Link",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Paste & Search Link: ",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = clipUrl,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        IconButton(
+                            onClick = { viewModel.clearClipboardSuggestion() },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // DETECTED CATEGORY & GENRE TAG BADGES
+        if (detectedCategoryTags.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                item {
+                    Text(
+                        text = "Tags:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                items(detectedCategoryTags) { tag ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "#$tag",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
 
         // HORIZONTAL QUICK FILTER CHIPS (YouTube Style Bar)
         if (searchResults.isNotEmpty()) {
@@ -626,6 +730,185 @@ fun SearchScreen(
                     contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 0.dp, end = 0.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // DIRECT URL MATCH HERO CARD
+                    directUrlMatchItem?.let { heroVideo ->
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .clickable { onSelectVideo(heroVideo) },
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        // Header badge
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(MaterialTheme.colorScheme.primary)
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AutoAwesome,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "DIRECT LINK MATCH",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    letterSpacing = 0.8.sp
+                                                )
+                                            }
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)
+                                            ) {
+                                                Text(
+                                                    text = heroVideo.providerId?.uppercase() ?: "VIDEO",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Video Thumbnail Card
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp)
+                                                .background(Color.Black)
+                                        ) {
+                                            AsyncImage(
+                                                model = heroVideo.thumbnailUrl,
+                                                contentDescription = heroVideo.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                            // Play Button Overlay
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(54.dp)
+                                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                                                    .align(Alignment.Center),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = "Play Direct Match",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(36.dp)
+                                                )
+                                            }
+                                            // Duration pill
+                                            if (heroVideo.durationSeconds > 0) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color.Black.copy(alpha = 0.8f),
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomEnd)
+                                                        .padding(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = com.example.util.DateUtils.formatDurationSeconds(heroVideo.durationSeconds),
+                                                        fontSize = 11.sp,
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Video Details Footer
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Text(
+                                                text = heroVideo.title,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                val heroViews = remember(heroVideo.viewCount, heroVideo.formattedViews) {
+                                                    com.example.util.DateUtils.formatViews(heroVideo.viewCount, heroVideo.formattedViews)
+                                                }
+                                                val heroTimeAgo = remember(heroVideo.uploadDate) {
+                                                    com.example.util.DateUtils.formatRelativeTime(heroVideo.uploadDate)
+                                                }
+                                                val heroMetadataLine = remember(heroVideo.uploaderName, heroViews, heroTimeAgo) {
+                                                    com.example.util.DateUtils.buildYouTubeMetadataLine(
+                                                        channelName = heroVideo.uploaderName,
+                                                        formattedViews = heroViews,
+                                                        timeAgo = heroTimeAgo
+                                                    )
+                                                }
+                                                Text(
+                                                    text = heroMetadataLine.ifBlank { heroVideo.uploaderName },
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Button(
+                                                onClick = { onSelectVideo(heroVideo) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Play Original Video Now", fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Layers,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Related Videos Across All Sources",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
                     item {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             if (activeSanitized != null && activeSanitized?.wasCleaned == true) {
@@ -1131,6 +1414,8 @@ private fun getProviderChipInfo(id: String, defaultName: String): Triple<String,
         "amazonminitv", "minitv" -> Triple("miniTV", Icons.Default.Tv, Color(0xFFFF9900))
         "discoveryplus", "discovery" -> Triple("Discovery+", Icons.Default.VideoLibrary, Color(0xFF00838F))
         "disney", "disneyplus" -> Triple("Disney+", Icons.Default.Star, Color(0xFF113CCF))
+        "hbo", "hbomax", "max" -> Triple("HBO Max", Icons.Default.Movie, Color(0xFF5822B4))
+        "curiositystream", "curiosity" -> Triple("CuriosityStream", Icons.Default.VideoLibrary, Color(0xFFE50914))
         "googledrive", "gdrive", "google_drive" -> Triple("Drive", Icons.Default.Cloud, Color(0xFF0F9D58))
         "imdb" -> Triple("IMDb", Icons.Default.Movie, Color(0xFFE4BB24))
         "mxplayer" -> Triple("MX Player", Icons.Default.PlayArrow, Color(0xFF1565C0))

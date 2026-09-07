@@ -86,6 +86,7 @@ fun AccountScreen(
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAvatarPickerSheet by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
+    var showAccountsAndSourcesSheet by remember { mutableStateOf(false) }
     var showSupabaseDialog by remember { mutableStateOf(false) }
 
     val supabaseLoggedIn by com.example.supabase.SupabaseAuthManager.isLoggedIn.collectAsState()
@@ -482,6 +483,13 @@ fun AccountScreen(
                         subtitle = "Personality, Hall of Fame, Hall of Shame & Trophies",
                         onClick = { showBadgesSheet = true }
                     )
+
+                    AccountMenuListItem(
+                        icon = Icons.Outlined.Hub,
+                        title = "Accounts & Sources",
+                        subtitle = "Connect YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV",
+                        onClick = { showAccountsAndSourcesSheet = true }
+                    )
                 }
             }
         }
@@ -723,6 +731,18 @@ fun AccountScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
+
+                        OutlinedButton(
+                            onClick = {
+                                showAccountsDialog = false
+                                showAccountsAndSourcesSheet = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Outlined.Hub, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Manage Streaming Sources & Logins")
+                        }
                     }
                 },
                 confirmButton = {
@@ -730,6 +750,13 @@ fun AccountScreen(
                         Text("Close")
                     }
                 }
+            )
+        }
+
+        // ACCOUNTS & SOURCES SHEET (Grayjay Model)
+        if (showAccountsAndSourcesSheet) {
+            AccountsAndSourcesSheet(
+                onDismiss = { showAccountsAndSourcesSheet = false }
             )
         }
 
@@ -1508,9 +1535,18 @@ private fun HistoryVideoCard(
             }
         }
 
-        // Channel Name
+        // Channel Name & Unified Metadata Line
+        val historyMetadataLine = remember(video.uploaderName, video.formattedViews, video.viewCount, video.uploadDate) {
+            val views = com.example.util.DateUtils.formatViews(video.viewCount, video.formattedViews)
+            val timeAgo = com.example.util.DateUtils.formatRelativeTime(video.uploadDate)
+            com.example.util.DateUtils.buildYouTubeMetadataLine(
+                channelName = video.uploaderName,
+                formattedViews = views,
+                timeAgo = timeAgo
+            )
+        }
         Text(
-            text = video.uploaderName.ifBlank { "Channel" },
+            text = historyMetadataLine.ifBlank { video.uploaderName.ifBlank { "Channel" } },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

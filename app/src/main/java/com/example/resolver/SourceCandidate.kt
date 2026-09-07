@@ -9,8 +9,19 @@ enum class SourceStreamType {
     EMBED_WEBVIEW
 }
 
+enum class StreamHealthStatus {
+    DISCOVERED,
+    RESOLVED,
+    HTTP_REACHABLE,
+    RANGE_SUPPORTED,
+    PLAYER_VERIFIED,
+    FAILED,
+    WEBVIEW_REQUIRED
+}
+
 data class PlaybackCapabilities(
     val supportsSeeking: Boolean = true,
+    val supportsRangeSeeking: Boolean = true,
     val supportsTrackSelection: Boolean = true,
     val supportsSpeedChange: Boolean = true,
     val isLiveStream: Boolean = false
@@ -41,6 +52,7 @@ data class SourceCandidate(
     val audioTracks: List<String> = emptyList(),
     val videoTracks: List<String> = emptyList(),
     val healthScore: Int = 100, // 0-100 score
+    val healthStatus: StreamHealthStatus = StreamHealthStatus.RESOLVED,
     val isPlayable: Boolean = true,
     val capabilities: PlaybackCapabilities = PlaybackCapabilities(),
     val extraData: Map<String, String> = emptyMap()

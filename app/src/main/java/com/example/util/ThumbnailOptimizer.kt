@@ -210,6 +210,12 @@ object ThumbnailOptimizer {
             lowerUrl.contains("noodlemagazine.com") -> {
                 builder.setHeader("Referer", "https://noodlemagazine.com/")
             }
+            lowerUrl.contains("hanime1") || lowerUrl.contains("hanime.tv") || lowerUrl.contains("hembed.com") || lowerUrl.contains("vdownload") -> {
+                builder.setHeader("Referer", if (lowerUrl.contains("hanime.tv")) "https://hanime.tv/" else "https://hanime1.me/")
+                builder.setHeader("Origin", if (lowerUrl.contains("hanime.tv")) "https://hanime.tv" else "https://hanime1.me")
+                builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.setHeader("Cookie", "age_verified=1; country=US; language=en; ft_mature=1; consent=1")
+            }
             lowerUrl.contains("media-amazon.com") || lowerUrl.contains("ssl-images-amazon.com") || lowerUrl.contains("images-eu.ssl-images-amazon.com") -> {
                 // AWS CloudFront for Amazon & IMDb media: Do NOT set foreign referer as CloudFront blocks cross-domain referers with 403
                 builder.setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
@@ -227,6 +233,14 @@ object ThumbnailOptimizer {
             }
             lowerUrl.contains("disneyplus") -> {
                 builder.setHeader("Referer", "https://www.disneyplus.com/")
+            }
+            lowerUrl.contains("max.com") || lowerUrl.contains("hbo.com") || lowerUrl.contains("hbomax.com") -> {
+                builder.setHeader("Referer", "https://play.max.com/")
+                builder.setHeader("Origin", "https://play.max.com")
+            }
+            lowerUrl.contains("curiositystream") -> {
+                builder.setHeader("Referer", "https://curiositystream.com/")
+                builder.setHeader("Origin", "https://curiositystream.com")
             }
             lowerUrl.contains("drive.google.com") || lowerUrl.contains("googleusercontent.com") -> {
                 builder.setHeader("Referer", "https://drive.google.com/")

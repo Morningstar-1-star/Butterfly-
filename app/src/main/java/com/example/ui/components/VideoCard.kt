@@ -151,6 +151,8 @@ fun VideoCard(
             pid == "amazonminitv" || pid == "minitv" -> "MiniTV"
             pid == "discoveryplus" || pid == "discovery" -> "Discovery+"
             pid == "disney" || pid == "disneyplus" -> "Disney+"
+            pid == "hbo" || pid == "hbomax" || pid == "max" -> "HBO Max"
+            pid == "curiositystream" || pid == "curiosity" -> "CuriosityStream"
             pid == "googledrive" || pid == "gdrive" || pid == "google_drive" -> "Google Drive"
             pid == "imdb" -> "IMDb"
             pid == "mxplayer" -> "MX Player"
@@ -249,23 +251,12 @@ fun VideoCard(
         video.tags.firstOrNull { it.startsWith("★") || it.contains("★") }
     }
 
-    val statsLine = remember(video.formattedViews, video.uploadDate, seriesPillText, ratingTag) {
-        buildString {
-            if (video.formattedViews.isNotEmpty()) {
-                append(video.formattedViews)
-            }
-            if (!ratingTag.isNullOrBlank()) {
-                if (isNotEmpty()) append(" • ")
-                append(ratingTag)
-            }
-            if (!video.uploadDate.isNullOrEmpty()) {
-                if (isNotEmpty()) append(" • ")
-                append(video.uploadDate)
-            } else if (!seriesPillText.isNullOrEmpty()) {
-                if (isNotEmpty()) append(" • ")
-                append(seriesPillText)
-            }
-        }
+    val formattedTimeAgo = remember(video.uploadDate) {
+        com.example.util.DateUtils.formatRelativeTime(video.uploadDate)
+    }
+
+    val formattedViewsText = remember(video.formattedViews, video.viewCount) {
+        com.example.util.DateUtils.formatViews(video.viewCount, video.formattedViews)
     }
 
     val effectiveThumbnailUrl = remember(video.thumbnailUrl, video.id, video.providerId) {
@@ -414,15 +405,12 @@ fun VideoCard(
                     .then(scrubModifier)
             ) {
                 if (thumbnailImageRequest != null) {
-                    // Ambient blurred background layer so portrait posters or non-16:9 images fill the canvas seamlessly
+                    // Single ultra-fast high-performance artwork layer (standard YouTube 16:9 crop)
                     AsyncImage(
                         model = thumbnailImageRequest,
-                        contentDescription = null,
+                        contentDescription = video.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .blur(24.dp)
-                            .alpha(0.55f)
+                        modifier = Modifier.fillMaxSize()
                     )
 
                     // Subtle bottom gradient for badge legibility
@@ -438,14 +426,6 @@ fun VideoCard(
                                     startY = 120f
                                 )
                             )
-                    )
-
-                    // Sharp authentic artwork (preserves 100% of title logos & keyart without cropping)
-                    AsyncImage(
-                        model = thumbnailImageRequest,
-                        contentDescription = video.title,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Box(
@@ -735,23 +715,45 @@ fun VideoCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
+                    val youtubeMetadataLine = remember(
+                        targetChannelName,
+                        formattedViewsText,
+                        formattedTimeAgo,
+                        ratingTag,
+                        seriesPillText
+                    ) {
+                        com.example.util.DateUtils.buildYouTubeMetadataLine(
+                            channelName = targetChannelName,
+                            formattedViews = formattedViewsText,
+                            timeAgo = formattedTimeAgo,
+                            extraTag = ratingTag ?: if (targetChannelName.isBlank()) seriesPillText else null
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(3.dp))
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = targetChannelName,
+                            text = youtubeMetadataLine,
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.Medium
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 16.sp
                             ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = if (onChannelClick != null && targetChannelName.isNotBlank()) {
-                                Modifier.clickable { onChannelClick(targetChannelName) }
-                            } else Modifier
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .then(
+                                    if (onChannelClick != null && targetChannelName.isNotBlank()) {
+                                        Modifier.clickable { onChannelClick(targetChannelName) }
+                                    } else Modifier
+                                )
                         )
 
                         if (hasTranslation) {
@@ -781,16 +783,6 @@ fun VideoCard(
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    Text(
-                        text = statsLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
 
                     if (!video.recommendationReason.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(3.dp))

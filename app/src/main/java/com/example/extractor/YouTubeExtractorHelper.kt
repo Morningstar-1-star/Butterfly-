@@ -66,14 +66,16 @@ object YouTubeExtractorHelper {
     suspend fun fetchYouTubeTrending(context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
         val combinedTrending = mutableListOf<VideoItem>()
 
-        // Step 1: NewPipe Trending Kiosk
+        // Step 1: NewPipe Trending Kiosk (Fast-Path)
         try {
             ensureNewPipeInitialized()
-            val kioskInfo = org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(
-                ServiceList.YouTube,
-                "Trending"
-            )
-            val items = kioskInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+            val kioskInfo = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(
+                    ServiceList.YouTube,
+                    "Trending"
+                )
+            }
+            val items = kioskInfo?.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
                 ?.mapNotNull { item ->
                     val vId = when {
                         item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
@@ -105,45 +107,25 @@ object YouTubeExtractorHelper {
             if (items.isNotEmpty()) {
                 Log.i(TAG, "Fetched ${items.size} trending videos via NewPipe Kiosk")
                 combinedTrending.addAll(items)
+                return@withContext combinedTrending.distinctBy { it.id }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "NewPipe trending kiosk fetch failed: ${e.message}")
+            Log.w(TAG, "NewPipe trending kiosk fetch note: ${e.message}")
         }
 
-        // Step 2: Dynamic Multi-Topic Expansion only if kiosk returned too few items (< 10)
-        if (combinedTrending.size < 10) {
-            val dynamicTrendingTopics = listOf(
-                "latest viral trending videos",
-                "official music videos 2026 top hits",
-                "official movie trailers 4K",
-                "trending anime episodes and scenes"
-            ).shuffled().take(1)
-
-            for (topic in dynamicTrendingTopics) {
-                try {
-                    val topicResults = searchYouTube(topic, context).take(10)
-                    combinedTrending.addAll(topicResults)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Dynamic topic search failed for '$topic': ${e.message}")
-                }
+        // Step 2: Single Fast Dynamic Fallback only if kiosk failed/timed out
+        if (combinedTrending.isEmpty()) {
+            try {
+                val topicResults = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                    searchYouTube("trending videos 2026", context).take(12)
+                } ?: emptyList()
+                combinedTrending.addAll(topicResults)
+            } catch (e: Exception) {
+                Log.w(TAG, "Dynamic trending search fallback note: ${e.message}")
             }
         }
 
-        // Step 3: Additional topic search fallback if still low
-        if (combinedTrending.size < 8) {
-            val fallbackTopics = listOf("top news today", "viral videos", "music hits 2026")
-            for (fTopic in fallbackTopics) {
-                try {
-                    val fResults = searchYouTube(fTopic, context).take(6)
-                    combinedTrending.addAll(fResults)
-                    if (combinedTrending.size >= 12) break
-                } catch (e: Exception) {
-                    Log.w(TAG, "Fallback topic search failed for '$fTopic': ${e.message}")
-                }
-            }
-        }
-
-        combinedTrending.distinctBy { it.id }.shuffled()
+        combinedTrending.distinctBy { it.id }
     }
 
     suspend fun searchYouTube(query: String, context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -643,6 +625,24 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isHbo = providerId == "hbo" || providerId == "hbomax" || providerId == "max" || urlOrId.contains("max.com") || urlOrId.contains("hbo.com") || urlOrId.contains("hbomax.com")
+        if (isHbo) {
+            val hboData = HboProvider.getStreamData(urlOrId, context)
+            if (hboData != null) {
+                Log.i(TAG, "Resolved via HboProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(hboData)
+            }
+        }
+
+        val isCuriosity = providerId == "curiositystream" || providerId == "curiosity" || urlOrId.contains("curiositystream.com") || urlOrId.startsWith("curiositystream:") || urlOrId.startsWith("curiosity:")
+        if (isCuriosity) {
+            val curiosityData = CuriosityStreamProvider.getStreamData(urlOrId, context)
+            if (curiosityData != null) {
+                Log.i(TAG, "Resolved via CuriosityStreamProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(curiosityData)
+            }
+        }
+
         val isDisney = providerId == "disney" || providerId == "disneyplus" || urlOrId.contains("disneyplus.com")
         if (isDisney) {
             val disneyData = DisneyProvider.getStreamData(urlOrId, context)
@@ -1126,7 +1126,11 @@ object YouTubeExtractorHelper {
                         category = null,
                         providerId = "youtube",
                         providerType = ProviderType.DIRECT,
-                        headers = ytHeaders
+                        headers = ytHeaders,
+                        chapters = com.example.extractor.chapters.YTCustomChapters.extractChapters(
+                            description = desc,
+                            durationMs = (streamInfo.duration ?: 0L) * 1000L
+                        )
                     )
                     Log.i(TAG, "NewPipe extraction success: ${sortedOptions.size} formats available. Selected: ${bestOption.qualityLabel}")
                     return@withContext ExtractionResult.Success(streamData)

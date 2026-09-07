@@ -116,7 +116,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                         MultiSourceProvider.search(ctx, "youtube", cleanQuery, 25, 1)
                     }
                 }
-                _searchResults.value = results
+                val translatedResults = com.example.util.UniversalTranslator.translateVideoItemList(results)
+                _searchResults.value = translatedResults
             } catch (e: Exception) {
                 Log.e(TAG, "Search execution failed", e)
                 _searchResults.value = emptyList()

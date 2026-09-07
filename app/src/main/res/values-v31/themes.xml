@@ -4,11 +4,8 @@
     <style name="Theme.MyApplication" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#0B101D</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/transparent_splash</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
         <item name="postSplashScreenTheme">@style/Theme.MyApplication.Main</item>
-        <item name="android:windowBackground">#0B101D</item>
-    </style>
-
-    <style name="Theme.MyApplication.Main" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">#0B101D</item>
     </style>
 </resources>

@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -69,6 +70,7 @@ fun UniversalVideoPlayer(
     hlsUrl: String?,
     captionOption: CaptionOption?,
     streamData: StreamData? = null,
+    chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
     providerId: String? = null,
     isPlaying: Boolean = true,
     videoId: String? = null,
@@ -98,6 +100,7 @@ fun UniversalVideoPlayer(
     var customRatiosList by remember { mutableStateOf(listOf("16:8", "18:9", "21:9")) }
     var showAspectRatioSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showChaptersSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showVideoEffectsSheet by remember { mutableStateOf(false) }
     var showAudioEnhancementSheet by remember { mutableStateOf(false) }
@@ -119,6 +122,22 @@ fun UniversalVideoPlayer(
     val audioTracks by GlobalPlayerManager.audioTracks.collectAsState()
     val speedOptions = remember { listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f) }
     var isMusicTrackDetected by remember { mutableStateOf(false) }
+
+    val effectiveChapters = remember(chapters, streamData, activeStreamData) {
+        if (chapters.isNotEmpty()) {
+            chapters
+        } else {
+            val fromData = streamData?.chapters?.takeIf { it.isNotEmpty() }
+                ?: activeStreamData?.chapters?.takeIf { it.isNotEmpty() }
+            if (fromData != null) {
+                fromData
+            } else {
+                val desc = streamData?.description ?: activeStreamData?.description ?: ""
+                val dur = GlobalPlayerManager.durationMs.value
+                com.example.extractor.chapters.YTCustomChapters.extractChapters(desc, dur)
+            }
+        }
+    }
 
     // Resolve Default Playback Speed
     LaunchedEffect(videoId, rawVideoUrl, activeStreamData) {
@@ -771,6 +790,24 @@ fun UniversalVideoPlayer(
                             )
                         }
 
+                        // YouTube Video Chapters Button
+                        if (effectiveChapters.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    GlobalPlayerManager.showControls()
+                                    showChaptersSheet = true
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ViewList,
+                                    contentDescription = "Video Chapters",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
                         // Settings Gear Icon
                         IconButton(
                             onClick = {
@@ -903,6 +940,7 @@ fun UniversalVideoPlayer(
                         durationMs = totalDurMs,
                         bufferedPositionMs = bufferedPosMs,
                         segments = smartSkipSegments,
+                        chapters = effectiveChapters,
                         isLandscape = isLandscape,
                         onSeekStarted = { GlobalPlayerManager.showControls() },
                         onSeekScrubbing = { /* Scrubbing */ },
@@ -967,6 +1005,42 @@ fun UniversalVideoPlayer(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
+                            }
+
+                            // Current Chapter Pill (Tapping opens chapters list)
+                            val currentChapter = remember(currentPosMs, effectiveChapters) {
+                                effectiveChapters.lastOrNull { currentPosMs >= it.startTimeMs }
+                            }
+                            if (currentChapter != null) {
+                                Surface(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        showChaptersSheet = true
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color.White.copy(alpha = 0.18f),
+                                    contentColor = Color.White
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = currentChapter.title,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 120.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.ChevronRight,
+                                            contentDescription = "Chapters",
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -1917,6 +1991,44 @@ fun UniversalVideoPlayer(
                             )
                         }
 
+                        // 6.5 YouTube Video Chapters
+                        if (effectiveChapters.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        showSettingsSheet = false
+                                        showChaptersSheet = true
+                                    }
+                                    .padding(vertical = 14.dp, horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ViewList,
+                                        contentDescription = "Chapters",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Chapters",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Text(
+                                    text = "${effectiveChapters.size} chapters",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         // 7. Additional Settings (Ambient Mode, Loop, etc.)
                         Row(
                             modifier = Modifier
@@ -1985,6 +2097,25 @@ fun UniversalVideoPlayer(
                     }
                 },
                 onDismiss = { showAspectRatioSheet = false }
+            )
+        }
+
+        // Dedicated YouTube Chapters Sheet
+        if (showChaptersSheet && effectiveChapters.isNotEmpty()) {
+            val currentPosMsForSheet by GlobalPlayerManager.currentPositionMs.collectAsState()
+            val totalDurMsForSheet by GlobalPlayerManager.durationMs.collectAsState()
+
+            com.example.ui.components.YouTubeChaptersSheet(
+                chapters = effectiveChapters,
+                currentPositionMs = currentPosMsForSheet,
+                videoDurationMs = totalDurMsForSheet,
+                videoThumbnailUrl = streamData?.thumbnailUrl ?: activeStreamData?.thumbnailUrl,
+                videoTitle = streamData?.title ?: activeStreamData?.title ?: "",
+                onSeekTo = { targetMs ->
+                    GlobalPlayerManager.seekTo(targetMs)
+                    showChaptersSheet = false
+                },
+                onDismiss = { showChaptersSheet = false }
             )
         }
 

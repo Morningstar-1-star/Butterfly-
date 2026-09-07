@@ -28,10 +28,16 @@ object CommentExtractorHelper {
 
     // Public Invidious / Piped fallback instances for YouTube comments
     private val YOUTUBE_COMMENT_APIS = listOf(
+        "https://invidious.jing.rocks/api/v1/comments/",
         "https://inv.nadeko.net/api/v1/comments/",
         "https://invidious.nerdvpn.de/api/v1/comments/",
-        "https://invidious.jing.rocks/api/v1/comments/",
+        "https://inv.tux.pizza/api/v1/comments/",
+        "https://invidious.private.coffee/api/v1/comments/",
+        "https://invidious.projectsegfau.lt/api/v1/comments/",
+        "https://iv.ggtyler.dev/api/v1/comments/",
         "https://pipedapi.kavin.rocks/comments/",
+        "https://pipedapi.drgns.space/comments/",
+        "https://api.piped.privacydev.net/comments/",
         "https://api.invidious.io/api/v1/comments/",
         "https://yewtu.be/api/v1/comments/",
         "https://vid.puffyan.us/api/v1/comments/"

@@ -122,13 +122,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 } ?: emptyList()
 
                 if (fetched.isNotEmpty()) {
+                    val translated = com.example.util.UniversalTranslator.translateVideoItemList(fetched)
                     if (forceRefresh) {
-                        _videoItems.value = fetched
-                        com.example.util.HomeFeedCacheManager.saveCachedFeed(ctx, fetched)
+                        _videoItems.value = translated
+                        com.example.util.HomeFeedCacheManager.saveCachedFeed(ctx, translated)
                     } else {
                         val current = _videoItems.value.toMutableList()
                         val existingIds = current.map { it.id }.toSet()
-                        val newUnique = fetched.filter { it.id !in existingIds }
+                        val newUnique = translated.filter { it.id !in existingIds }
                         current.addAll(newUnique)
                         _videoItems.value = current
                     }
@@ -161,9 +162,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 if (more.isEmpty()) {
                     _hasMoreContent.value = false
                 } else {
+                    val translatedMore = com.example.util.UniversalTranslator.translateVideoItemList(more)
                     val current = _videoItems.value.toMutableList()
                     val existingIds = current.map { it.id }.toSet()
-                    current.addAll(more.filter { it.id !in existingIds })
+                    current.addAll(translatedMore.filter { it.id !in existingIds })
                     _videoItems.value = current
                 }
             } catch (e: Exception) {
