@@ -127,7 +127,13 @@ class MainApplication : Application() {
                     urlStr.contains("rule34video.com") -> {
                         requestBuilder.header("Referer", "https://rule34video.com/")
                     }
-                    urlStr.contains("bilibili.com") || urlStr.contains("hdslb.com") || urlStr.contains("bilivideo.com") -> {
+                    urlStr.contains("vk.com") || urlStr.contains("vkvideo") || urlStr.contains("vkuser") || urlStr.contains("mycdn") || urlStr.contains("vk-cdn") || urlStr.contains("userapi") || urlStr.contains("ok.ru") || urlStr.contains("odnoklassniki") -> {
+                        requestBuilder.header("Referer", "https://vk.com/")
+                    }
+                    urlStr.contains("noodlemagazine") || urlStr.contains("noodlemag") -> {
+                        requestBuilder.header("Referer", "https://noodlemagazine.com/")
+                    }
+                    urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos") || urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") || urlStr.contains("mirror08c") || urlStr.contains("bstar") -> {
                         requestBuilder.header("Referer", "https://www.bilibili.com/")
                     }
                     urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("starott.com") -> {
@@ -154,8 +160,7 @@ class MainApplication : Application() {
                     .build()
             }
             .respectCacheHeaders(false)
-            .bitmapConfig(Bitmap.Config.RGB_565)
-            .allowHardware(true)
+            .allowHardware(false)
             .allowRgb565(true)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)

@@ -167,6 +167,15 @@ data class CaptionOption(
     val url: String
 )
 
+data class VideoHeatmap(
+    val points: List<Float> = emptyList(),
+    val peakPositionMs: Long = 0L,
+    val peakFraction: Float = 0f
+) {
+    val isEmpty: Boolean get() = points.isEmpty()
+    val isNotEmpty: Boolean get() = points.isNotEmpty()
+}
+
 data class StreamData(
     val videoId: String,
     val videoUrl: String = "",
@@ -198,7 +207,8 @@ data class StreamData(
     val detectedLanguage: String? = null,
     val translatedDescriptionEN: String? = null,
     val translatedDescriptionHI: String? = null,
-    val chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList()
+    val chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
+    val heatmap: VideoHeatmap? = null
 ) {
     fun getDisplayTitle(showOriginal: Boolean = false, appLanguage: String = "en"): String {
         if (showOriginal) {

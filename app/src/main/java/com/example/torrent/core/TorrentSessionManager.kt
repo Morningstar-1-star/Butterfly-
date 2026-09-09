@@ -65,6 +65,51 @@ class TorrentSessionManager(
     private val isStopping = AtomicBoolean(false)
     private val fileLock = ReentrantLock()
 
+    private val ALLOWED_VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "mov", "m4v")
+
+    fun updateHttpStatus(status: String, range: String = "") {
+        _stats.value = _stats.value.copy(
+            httpStatusCode = status,
+            lastRangeHeader = range
+        )
+    }
+
+    private fun isMatchingEpisode(fileName: String, season: Int?, episode: Int?): Boolean {
+        if (episode == null) return false
+        val lower = fileName.lowercase()
+
+        // Match SxxExx or SxEx patterns
+        if (season != null) {
+            val sRegex = Regex("""[sS]0*${season}[._\s-]*[eE]0*${episode}(?!\d)""")
+            if (sRegex.containsMatchIn(lower)) return true
+
+            val xRegex = Regex("""\b0*${season}[xX]0*${episode}(?!\d)""")
+            if (xRegex.containsMatchIn(lower)) return true
+        }
+
+        // Match episode only patterns: e.g. E05, EP05, [05], Episode 05
+        val epRegex = Regex("""(?:\b[eE][pP]?|\bepisode[._\s-]*|\[)0*${episode}(?:\]|\b|(?=[._\s-]))""")
+        return epRegex.containsMatchIn(lower)
+    }
+
+    private fun isSampleOrIgnoredFile(path: String, name: String, length: Long, totalTorrentLength: Long): Boolean {
+        val lowerPath = path.lowercase()
+        val lowerName = name.lowercase()
+
+        // Ignored keywords
+        if (lowerPath.contains("sample") || lowerName.contains("sample")) return true
+        if (lowerPath.contains("trailer") || lowerName.contains("trailer")) return true
+        if (lowerPath.contains("featurette") || lowerName.contains("featurette")) return true
+        if (lowerPath.contains("bonus") || lowerName.contains("bonus")) return true
+        if (lowerName.startsWith("sample")) return true
+
+        // If torrent is large (>100MB) and this video file is small (<25MB), it is likely a sample
+        if (totalTorrentLength > 100 * 1024 * 1024L && length < 25 * 1024 * 1024L) {
+            return true
+        }
+        return false
+    }
+
     fun startSession(release: TorrentRelease, streamPort: Int = 8899): TorrentStreamSession {
         isStopping.set(false)
         stopSession(clearCache = false)
@@ -124,35 +169,38 @@ class TorrentSessionManager(
 
                 var ti = initialHandle?.torrentFile() ?: engine.findHandle(infoHash)?.torrentFile()
                 var attempts = 0
-                while (ti == null && attempts < 30 && !isStopping.get()) {
-                    delay(400)
+                val maxAttempts = 60 // 60 * 500ms = 30s
+                while (ti == null && attempts < maxAttempts && !isStopping.get()) {
+                    delay(500)
                     ti = engine.findHandle(infoHash)?.torrentFile()
                     attempts++
+                    if (attempts == 25 && ti == null) {
+                        Log.i(TAG, "Attempting fallback fetchMagnetMetadata for $infoHash")
+                        ti = engine.fetchMagnetMetadata(effectiveMagnetUrl, timeoutSec = 8)
+                    }
                 }
 
                 if (ti == null && !isStopping.get()) {
-                    Log.i(TAG, "Polling metadata for magnet: $infoHash via fetchMagnetMetadata fallback")
-                    ti = engine.fetchMagnetMetadata(effectiveMagnetUrl, timeoutSec = 15)
-                }
-
-                // Continuous retry loop for niche/low-seeder magnets until metadata arrives or session stops
-                while (ti == null && !isStopping.get()) {
+                    val peers = engine.getPeers(infoHash).size
+                    val errCode = if (peers == 0) TorrentErrorCode.NO_PEERS else TorrentErrorCode.NO_METADATA
+                    val errMsg = if (peers == 0) "No peers found in torrent swarm" else "Torrent metadata timed out"
+                    Log.w(TAG, "Metadata timeout: $errCode ($errMsg)")
                     _stats.value = _stats.value.copy(
-                        state = TorrentEngineState.BUFFERING,
-                        errorMessage = "Searching DHT & trackers for swarm metadata..."
+                        state = TorrentEngineState.ERROR,
+                        errorCode = errCode,
+                        errorMessage = errMsg
                     )
-                    delay(2500)
-                    ti = engine.findHandle(infoHash)?.torrentFile()
-                        ?: engine.fetchMagnetMetadata(effectiveMagnetUrl, timeoutSec = 12)
+                    return@launch
                 }
 
                 if (ti != null && !isStopping.get()) {
-                    onMetadataLoaded(ti, release, streamPort)
+                    onMetadataLoaded(ti, effectiveRelease, streamPort)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in session startup: ${e.message}", e)
                 _stats.value = _stats.value.copy(
                     state = TorrentEngineState.ERROR,
+                    errorCode = TorrentErrorCode.NO_METADATA,
                     errorMessage = e.message
                 )
             }
@@ -162,7 +210,7 @@ class TorrentSessionManager(
 
         return TorrentStreamSession(
             sessionId = infoHash,
-            release = release,
+            release = effectiveRelease,
             httpStreamUrl = "http://127.0.0.1:$streamPort/stream?hash=$infoHash",
             localFilePath = activeFileOnDisk?.absolutePath,
             fileIndex = activeFileItem?.index ?: 0
@@ -180,7 +228,8 @@ class TorrentSessionManager(
             val name = fileStorage.fileName(i)
             val size = fileStorage.fileSize(i)
             val offset = fileStorage.fileOffset(i)
-            val isVideo = isVideoFile(path)
+            val ext = path.substringAfterLast('.', "").lowercase()
+            val isVideo = ext in ALLOWED_VIDEO_EXTENSIONS && !isSampleOrIgnoredFile(path, name, size, ti.totalSize())
             filesList.add(
                 TorrentFileItem(
                     index = i,
@@ -193,23 +242,35 @@ class TorrentSessionManager(
             )
         }
 
+        val videoCandidates = filesList.filter { it.isVideo }
+        if (videoCandidates.isEmpty()) {
+            Log.e(TAG, "No valid video file (.mp4/.mkv/.webm/.mov/.m4v) found in torrent!")
+            _stats.value = _stats.value.copy(
+                state = TorrentEngineState.ERROR,
+                errorCode = TorrentErrorCode.NO_VIDEO_FILE,
+                errorMessage = "No compatible video file (.mp4/.mkv/.webm/.mov/.m4v) found in torrent."
+            )
+            return
+        }
+
         // Determine target video file
-        val targetFile = if (release.fileIndex != null && release.fileIndex in 0 until numFiles) {
-            filesList[release.fileIndex]
+        val targetFile = if (release.fileIndex != null && release.fileIndex in videoCandidates.map { it.index }) {
+            videoCandidates.first { it.index == release.fileIndex }
+        } else if (release.season != null || release.episode != null) {
+            videoCandidates.firstOrNull { isMatchingEpisode(it.name, release.season, release.episode) }
+                ?: videoCandidates.firstOrNull { isMatchingEpisode(it.path, release.season, release.episode) }
+                ?: videoCandidates.maxByOrNull { it.length }!!
         } else if (!release.fileName.isNullOrBlank()) {
-            filesList.firstOrNull { it.name.equals(release.fileName, ignoreCase = true) }
-                ?: filesList.filter { it.isVideo }.maxByOrNull { it.length }
-                ?: filesList.maxByOrNull { it.length }
-                ?: filesList[0]
+            videoCandidates.firstOrNull { it.name.equals(release.fileName, ignoreCase = true) }
+                ?: videoCandidates.firstOrNull { it.name.contains(release.fileName, ignoreCase = true) }
+                ?: videoCandidates.maxByOrNull { it.length }!!
         } else {
-            filesList.filter { it.isVideo }.maxByOrNull { it.length }
-                ?: filesList.maxByOrNull { it.length }
-                ?: filesList[0]
+            videoCandidates.maxByOrNull { it.length }!!
         }
 
         activeFileItem = targetFile
         val priorities = Array(numFiles) { i ->
-            if (i == targetFile.index) Priority.DEFAULT else Priority.IGNORE
+            if (i == targetFile.index) Priority.TOP_PRIORITY else Priority.IGNORE
         }
 
         val saveDir = engine.cacheDir
@@ -228,6 +289,7 @@ class TorrentSessionManager(
 
         // Resolve absolute file path on disk
         val resolvedPath = File(saveDir, targetFile.path)
+        resolvedPath.parentFile?.mkdirs()
         activeFileOnDisk = resolvedPath
 
         // Prioritize head & tail pieces for instant media container parsing
@@ -248,19 +310,18 @@ class TorrentSessionManager(
         val startPiece = (file.offset / pieceLen).toInt()
         val endPiece = ((file.offset + file.length - 1) / pieceLen).toInt()
         val totalPieces = ti.numPieces()
-
         val infoHash = ti.infoHash().toHex()
 
-        // Boost first few pieces (head) with highest deadline
+        // Boost first 8 pieces (head) with highest deadline
         for (i in 0 until HEAD_PIECES_COUNT) {
             val p = startPiece + i
             if (p in 0 until totalPieces) {
                 engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
-                engine.setPieceDeadline(infoHash, p, 50) // 50ms deadline
+                engine.setPieceDeadline(infoHash, p, 50)
             }
         }
 
-        // Boost last few pieces (tail) for MKV/MP4 container indexes & moov atom
+        // Boost last 6 pieces (tail) for MKV/MP4 container indexes & moov atom
         for (i in 0 until TAIL_PIECES_COUNT) {
             val p = endPiece - i
             if (p in 0 until totalPieces && p >= startPiece) {
@@ -291,7 +352,7 @@ class TorrentSessionManager(
             engine.setPieceDeadline(infoHash, currentPiece, 50)
         }
 
-        // Prioritize lookahead window (~30-60 MB)
+        // Prioritize lookahead window (~30 MB)
         val windowPieces = (BUFFER_WINDOW_BYTES / pieceLen).toInt().coerceAtLeast(8)
         for (i in 1 until windowPieces) {
             val p = currentPiece + i
@@ -316,16 +377,44 @@ class TorrentSessionManager(
         val endPiece = (absoluteEnd / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
 
         for (p in startPiece..endPiece) {
-            engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
-            engine.setPieceDeadline(infoHash, p, 50)
+            if (!engine.havePiece(infoHash, p)) {
+                engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
+                engine.setPieceDeadline(infoHash, p, 50)
+            }
+        }
+
+        // Also prioritize upcoming lookahead pieces
+        val lookaheadEnd = minOf(endPiece + 4, ti.numPieces() - 1)
+        for (p in (endPiece + 1)..lookaheadEnd) {
+            if (!engine.havePiece(infoHash, p)) {
+                engine.setPiecePriority(infoHash, p, Priority.TOP_PRIORITY)
+                engine.setPieceDeadline(infoHash, p, 150)
+            }
         }
 
         val startMs = System.currentTimeMillis()
         while (System.currentTimeMillis() - startMs < timeoutMs && !isStopping.get()) {
-            if (isRangeDownloaded(offset, length)) return true
+            if (isRangeDownloaded(offset, length)) {
+                engine.flushCache(infoHash)
+                return true
+            }
             try { Thread.sleep(50) } catch (_: Exception) { break }
         }
-        return isRangeDownloaded(offset, length)
+
+        val downloaded = isRangeDownloaded(offset, length)
+        if (downloaded) {
+            engine.flushCache(infoHash)
+            return true
+        }
+
+        if (!isStopping.get()) {
+            Log.w(TAG, "awaitRangeAvailable timed out for offset $offset, len $length")
+            _stats.value = _stats.value.copy(
+                errorCode = TorrentErrorCode.BUFFER_TIMEOUT,
+                errorMessage = "Buffer timeout waiting for swarm piece data"
+            )
+        }
+        return false
     }
 
     fun isRangeDownloaded(offset: Long, length: Int): Boolean {
@@ -342,12 +431,8 @@ class TorrentSessionManager(
         val startPiece = (absoluteStart / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
         val endPiece = (absoluteEnd / pieceLen).toInt().coerceIn(0, ti.numPieces() - 1)
 
-        val th = engine.findHandle(infoHash) ?: return false
-        val st = try { th.status() } catch (_: Exception) { return false }
-        val bitfield = st.pieces() ?: return false
-
         for (p in startPiece..endPiece) {
-            if (p < bitfield.size() && !bitfield.getBit(p)) {
+            if (!engine.havePiece(infoHash, p)) {
                 return false
             }
         }

@@ -243,6 +243,8 @@ object RedTubeProvider {
 
                     val primaryUrl = primaryStream?.videoUrl ?: hlsMasterUrl ?: ""
 
+                    val heatmapData = com.example.util.HeatmapHelper.extractFromHtml(html, duration * 1000L)
+
                     Log.i(TAG, "Successfully extracted RedTube stream for $cleanId (${sortedOptions.size} options)")
                     return@withContext StreamData(
                         videoId = cleanId,
@@ -255,7 +257,8 @@ object RedTubeProvider {
                         selectedStreamOption = primaryStream,
                         hlsUrl = hlsMasterUrl,
                         providerId = PROVIDER_ID,
-                        headers = defaultHeaders
+                        headers = defaultHeaders,
+                        heatmap = heatmapData
                     )
                 }
             }

@@ -158,6 +158,7 @@ class TorrentHttpServer(
             // If metadata is still unavailable after 45s, return 503 Service Unavailable
             if (totalLength <= 0) {
                 Log.w("ButterflyTorrent", "Torrent metadata timed out after 45s for hash ${activeHash ?: requestedHash}. Returning 503.")
+                engine.updateHttpStatus("503 Service Unavailable", headers["range"] ?: "")
                 sendResponse(
                     outStream,
                     "503 Service Unavailable",
@@ -216,6 +217,7 @@ class TorrentHttpServer(
             }
 
             if (isRangeInvalid) {
+                engine.updateHttpStatus("416 Range Not Satisfiable", rangeHeader ?: "")
                 sendResponse(
                     outStream,
                     "416 Range Not Satisfiable",
@@ -231,6 +233,7 @@ class TorrentHttpServer(
 
             val contentLength = (endByte - startByte + 1).coerceAtLeast(0L)
             val statusCode = if (isRangeRequest) "206 Partial Content" else "200 OK"
+            engine.updateHttpStatus(statusCode, rangeHeader ?: "bytes 0-$endByte")
 
             val responseHeaders = mutableMapOf(
                 "Accept-Ranges" to "bytes",
@@ -261,28 +264,24 @@ class TorrentHttpServer(
             // Stream body in chunks
             var currentOffset = startByte
             val buffer = ByteArray(BUFFER_SIZE)
-            var zeroReadCount = 0
 
             while (currentOffset <= endByte && isRunning.get() && !socket.isClosed) {
                 val bytesToRead = minOf(BUFFER_SIZE.toLong(), (endByte - currentOffset + 1)).toInt()
-                val bytesRead = engine.readBytesForStream(currentOffset, bytesToRead, buffer, 0)
+                val available = engine.awaitRangeAvailable(currentOffset, bytesToRead, timeoutMs = 15000L)
+                if (!available) {
+                    engine.updateHttpStatus("504 Buffer Timeout", rangeHeader ?: "")
+                    Log.w("ButterflyTorrent", "HTTP streaming timed out waiting for pieces at offset $currentOffset")
+                    break
+                }
 
+                val bytesRead = engine.readBytesForStream(currentOffset, bytesToRead, buffer, 0)
                 if (bytesRead > 0) {
-                    zeroReadCount = 0
                     outStream.write(buffer, 0, bytesRead)
                     currentOffset += bytesRead
                     outStream.flush()
                 } else if (bytesRead == -1) {
                     // EOF reached
                     break
-                } else {
-                    zeroReadCount++
-                    if (zeroReadCount > 200) { // 200 * 100ms = 20s timeout
-                        Log.w("ButterflyTorrent", "HTTP streaming timed out waiting for pieces at offset $currentOffset")
-                        break
-                    }
-                    if (!isRunning.get() || socket.isClosed) break
-                    kotlinx.coroutines.delay(100)
                 }
             }
             Log.d("ButterflyTorrent", "Streamed ${currentOffset - startByte} bytes to client for hash ${activeHash ?: requestedHash}")

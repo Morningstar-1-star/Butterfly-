@@ -405,6 +405,17 @@ object YouTubeExtractorHelper {
             )
         }
 
+        val isSextb = providerId == "sextb" || urlOrId.contains("sextb.net") || urlOrId.contains("sextb.date") ||
+                urlOrId.contains("sextb.cc") || urlOrId.contains("streamtb.me") || urlOrId.contains("streamtb.com") ||
+                urlOrId.startsWith("sextb:", ignoreCase = true)
+        if (isSextb) {
+            val sextbData = SextbProvider.getStreamData(urlOrId, context)
+            if (sextbData != null) {
+                Log.i(TAG, "Resolved via SextbProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(sextbData)
+            }
+        }
+
         val isEporner = providerId == "eporner" || urlOrId.contains("eporner.com")
         if (isEporner) {
             val epornerData = EpornerProvider.getStreamData(urlOrId, context)

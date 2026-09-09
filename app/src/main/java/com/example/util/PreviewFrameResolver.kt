@@ -70,22 +70,33 @@ object PreviewFrameResolver {
             }
         }
 
-        // 2. XVIDEOS (30 storyboard teaser frames: xv_1_t.jpg .. xv_30_t.jpg)
+        // 2. XVIDEOS (30 storyboard teaser frames: xv_1_t.jpg .. xv_30_t.jpg or hash.1.jpg .. hash.30.jpg)
         if (provider.contains("xvideos") || thumbLower.contains("xvideos")) {
+            // Hash format with frame index: .../thumbs169ll/2c/b4/.../2cb4b3012903847a98a09b3c4a259c84.14.jpg
+            val hashMatcher = Regex("""/([a-f0-9]{16,40})\.(\d+)\.jpg""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (hashMatcher != null) {
+                val hash = hashMatcher.groupValues[1]
+                val base = rawThumb.substring(0, hashMatcher.range.first)
+                return (1..30).map { idx -> "$base/$hash.$idx.jpg" }
+            }
+
             // New CDN style: .../xv_XX_t.jpg or .../xv_XX.jpg
-            val xvMatcher = Regex("""/xv_(\d+)(_t)?\.jpg""").find(rawThumb)
+            val xvMatcher = Regex("""/xv_(\d+)(_t)?\.jpg""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (xvMatcher != null) {
                 val hasT = xvMatcher.groupValues[2]
                 val base = rawThumb.substring(0, xvMatcher.range.first)
                 val tSuffix = if (hasT.isNotEmpty()) "_t.jpg" else ".jpg"
                 return (1..30).map { idx -> "$base/xv_$idx$tSuffix" }
             }
-            // Older style: .../thumbs169.../XX.jpg
-            val numMatcher = Regex("""/(\d+)\.jpg""").find(rawThumb)
+
+            // Older style: .../thumbs169.../XX.jpg (only 1 to 30 frame index, NOT large video IDs)
+            val numMatcher = Regex("""/([1-9]|[12]\d|30)\.jpg""").find(rawThumb)
             if (numMatcher != null) {
                 val base = rawThumb.substring(0, numMatcher.range.first)
                 return (1..30).map { idx -> "$base/$idx.jpg" }
             }
+
+            return listOf(rawThumb)
         }
 
         // 3. PORNHUB (16 teaser scene frames: 1.jpg .. 16.jpg, handles (m=eaAaGwObaaaa)1.jpg & CDN paths)
@@ -143,7 +154,7 @@ object PreviewFrameResolver {
                 val prefix = ttHostMatch.groupValues[1]
                 return (1..16).map { idx -> "${prefix}${idx}.jpg" }
             }
-            val numMatch = Regex("""/(\d+)\.jpg""").find(rawThumb)
+            val numMatch = Regex("""/([1-9]|1[0-6])\.jpg""").find(rawThumb)
             if (numMatch != null) {
                 val base = rawThumb.substring(0, numMatch.range.first)
                 return (1..16).map { idx -> "$base/$idx.jpg" }
@@ -152,7 +163,7 @@ object PreviewFrameResolver {
 
         // 7. RULE34VIDEO & KVS (10-15 frames: /1.jpg .. /10.jpg)
         if (provider.contains("rule34") || thumbLower.contains("rule34video") || thumbLower.contains("videos_screenshots")) {
-            val r34Matcher = Regex("""/(\d+)\.jpg""").find(rawThumb)
+            val r34Matcher = Regex("""/([1-9]|1[0-5])\.jpg""").find(rawThumb)
             if (r34Matcher != null) {
                 val base = rawThumb.substring(0, r34Matcher.range.first)
                 return (1..10).map { idx -> "$base/$idx.jpg" }

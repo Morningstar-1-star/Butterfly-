@@ -292,25 +292,56 @@ object ThisVidProvider {
                 if (!author.isNullOrBlank()) resolvedChannel = author
 
                 val videoSources = mutableListOf<PlayableStreamOption>()
-                val videoUrlMatcher = Pattern.compile("""(?:video_url|video_alt_url|file|src|source|videoUrl)\s*:\s*["'](https?:\\?/\\?/[^"']+\.(?:mp4|m3u8)[^"']*)["']""", Pattern.CASE_INSENSITIVE)
-                val matcher = videoUrlMatcher.matcher(html)
+                val addedUrls = mutableSetOf<String>()
+
+                // KVS Player script extraction (video_url, video_alt_url, video_alt_url1, etc.)
+                val kvsPattern = Pattern.compile("""(?:video_url|video_alt_url\d*|file|videoUrl|get_file)\s*:\s*["']([^"']+)["']""", Pattern.CASE_INSENSITIVE)
+                val matcher = kvsPattern.matcher(html)
                 while (matcher.find()) {
-                    val rawUrl = matcher.group(1)?.replace("\\/", "/") ?: continue
-                    if (rawUrl.contains("preview") || rawUrl.contains("poster") || rawUrl.contains("thumb")) continue
-                    val isHls = rawUrl.contains(".m3u8")
-                    val streamHeaders = if (rawUrl.contains("thisvid.com") || rawUrl.contains("tvid")) {
-                        defaultHeaders
-                    } else {
-                        mapOf("User-Agent" to DEFAULT_UA)
+                    val rawMatch = matcher.group(1) ?: continue
+                    var cleanUrl = rawMatch.replace("\\/", "/")
+                        .replace(Regex("""^function/\d+/"""), "")
+                        .trim()
+
+                    if (cleanUrl.contains("preview") || cleanUrl.contains("poster") || cleanUrl.contains("thumb") || cleanUrl.endsWith(".jpg") || cleanUrl.endsWith(".png") || cleanUrl.endsWith(".gif") || cleanUrl.endsWith(".css") || cleanUrl.endsWith(".js")) continue
+
+                    if (cleanUrl.startsWith("/get_file/") || cleanUrl.startsWith("get_file/")) {
+                        cleanUrl = if (cleanUrl.startsWith("/")) "$BASE_URL$cleanUrl" else "$BASE_URL/$cleanUrl"
+                    } else if (cleanUrl.startsWith("//")) {
+                        cleanUrl = "https:$cleanUrl"
                     }
+
+                    cleanUrl = unescapeUrl(cleanUrl)
+
+                    // Ensure cleanUrl is a media stream (must contain /get_file/ or direct video extensions)
+                    val isMediaStream = cleanUrl.contains("/get_file/") || cleanUrl.contains(".mp4") || cleanUrl.contains(".m3u8") || cleanUrl.contains(".flv")
+                    if (!isMediaStream) continue
+
+                    // Exclude HTML webpage pages mistakenly extracted from JS code
+                    if (cleanUrl.contains("/videos/") || cleanUrl.contains("/categories/") || cleanUrl.contains("/tags/") || cleanUrl.contains("/members/") || cleanUrl.contains("/community/")) continue
+
+                    if (!cleanUrl.startsWith("http")) continue
+                    if (addedUrls.contains(cleanUrl)) continue
+                    addedUrls.add(cleanUrl)
+
+                    val isHls = cleanUrl.contains(".m3u8")
+                    val quality = when {
+                        cleanUrl.contains("1080") -> "1080p HD"
+                        cleanUrl.contains("720") -> "720p HD"
+                        cleanUrl.contains("480") -> "480p SD"
+                        cleanUrl.contains("360") -> "360p SD"
+                        isHls -> "1080p / 720p HLS Stream"
+                        else -> "HD Direct Stream"
+                    }
+
                     videoSources.add(
                         PlayableStreamOption(
-                            qualityLabel = if (isHls) "1080p / 720p HLS Stream" else "HD MP4 Direct",
+                            qualityLabel = quality,
                             format = if (isHls) "m3u8" else "mp4",
                             isMuxed = true,
-                            videoUrl = rawUrl,
+                            videoUrl = cleanUrl,
                             providerType = ProviderType.DIRECT,
-                            headers = streamHeaders
+                            headers = getStreamHeadersForUrl(cleanUrl)
                         )
                     )
                 }
@@ -319,19 +350,69 @@ object ThisVidProvider {
                 val videoTags = doc.select("video source, video[src]")
                 for (vTag in videoTags) {
                     val vSrc = vTag.attr("src").ifBlank { vTag.attr("data-src") }
-                    if (vSrc.isNotBlank() && (vSrc.contains(".mp4") || vSrc.contains(".m3u8"))) {
+                    if (vSrc.isNotBlank()) {
                         val fullSrc = if (vSrc.startsWith("//")) "https:$vSrc" else if (!vSrc.startsWith("http")) "$BASE_URL$vSrc" else vSrc
-                        val isHls = fullSrc.contains(".m3u8")
-                        videoSources.add(
-                            PlayableStreamOption(
-                                qualityLabel = if (isHls) "1080p HLS Master" else "HD Direct MP4",
-                                format = if (isHls) "m3u8" else "mp4",
-                                isMuxed = true,
-                                videoUrl = fullSrc,
-                                providerType = ProviderType.DIRECT,
-                                headers = if (fullSrc.contains("thisvid.com")) defaultHeaders else mapOf("User-Agent" to DEFAULT_UA)
+                        val cleanUrl = unescapeUrl(fullSrc)
+                        if (cleanUrl.startsWith("http") && !addedUrls.contains(cleanUrl)) {
+                            addedUrls.add(cleanUrl)
+                            val isHls = cleanUrl.contains(".m3u8")
+                            videoSources.add(
+                                PlayableStreamOption(
+                                    qualityLabel = if (isHls) "1080p HLS Master" else "HD Direct MP4",
+                                    format = if (isHls) "m3u8" else "mp4",
+                                    isMuxed = true,
+                                    videoUrl = cleanUrl,
+                                    providerType = ProviderType.DIRECT,
+                                    headers = getStreamHeadersForUrl(cleanUrl)
+                                )
                             )
-                        )
+                        }
+                    }
+                }
+
+                // Check iframe embeds
+                val iframes = doc.select("iframe[src], iframe[data-src]")
+                for (iframe in iframes) {
+                    var iframeSrc = iframe.attr("src").ifBlank { iframe.attr("data-src") }.trim()
+                    if (iframeSrc.startsWith("//")) iframeSrc = "https:$iframeSrc"
+                    if (iframeSrc.startsWith("/")) iframeSrc = "$BASE_URL$iframeSrc"
+                    if (iframeSrc.startsWith("http") && !iframeSrc.contains(targetUrl)) {
+                        try {
+                            val iframeReq = Request.Builder()
+                                .url(iframeSrc)
+                                .headers(okhttp3.Headers.Builder().apply { defaultHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                                .build()
+                            val iframeHtml = httpClient.newCall(iframeReq).execute().use { resp ->
+                                if (resp.isSuccessful) resp.body?.string() else null
+                            }
+                            if (!iframeHtml.isNullOrBlank()) {
+                                val iframeMatcher = kvsPattern.matcher(iframeHtml)
+                                while (iframeMatcher.find()) {
+                                    val rawUrl = iframeMatcher.group(1) ?: continue
+                                    val cleanUrl = unescapeUrl(rawUrl)
+                                    if (cleanUrl.contains("preview") || cleanUrl.contains("poster") || cleanUrl.contains("thumb") || cleanUrl.endsWith(".jpg") || cleanUrl.endsWith(".png")) continue
+                                    val isMediaStream = cleanUrl.contains("/get_file/") || cleanUrl.contains(".mp4") || cleanUrl.contains(".m3u8") || cleanUrl.contains(".flv")
+                                    if (!isMediaStream) continue
+                                    if (cleanUrl.contains("/videos/") || cleanUrl.contains("/categories/") || cleanUrl.contains("/tags/") || cleanUrl.contains("/members/")) continue
+                                    if (!cleanUrl.startsWith("http") || addedUrls.contains(cleanUrl)) continue
+                                    addedUrls.add(cleanUrl)
+
+                                    val isHls = cleanUrl.contains(".m3u8")
+                                    videoSources.add(
+                                        PlayableStreamOption(
+                                            qualityLabel = if (isHls) "Embed HLS Stream" else "Embed Direct MP4",
+                                            format = if (isHls) "m3u8" else "mp4",
+                                            isMuxed = true,
+                                            videoUrl = cleanUrl,
+                                            providerType = ProviderType.DIRECT,
+                                            headers = getStreamHeadersForUrl(cleanUrl)
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "ThisVid iframe extraction error: ${e.message}")
+                        }
                     }
                 }
 
@@ -430,6 +511,37 @@ object ThisVidProvider {
             providerId = PROVIDER_ID,
             headers = cleanFallbackHeaders
         )
+    }
+
+    private fun getStreamHeadersForUrl(url: String): Map<String, String> {
+        val lower = url.lowercase()
+        return if (lower.contains("thisvid") || lower.contains("tvid")) {
+            mapOf(
+                "User-Agent" to DEFAULT_UA,
+                "Referer" to "$BASE_URL/",
+                "Origin" to BASE_URL,
+                "Cookie" to "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1",
+                "Accept" to "*/*"
+            )
+        } else {
+            mapOf("User-Agent" to DEFAULT_UA)
+        }
+    }
+
+    private fun unescapeUrl(raw: String): String {
+        var clean = raw.replace("\\/", "/")
+            .replace("\\u0026", "&")
+            .replace("&amp;", "&")
+            .replace("&#38;", "&")
+            .replace("&#x26;", "&")
+            .replace("\\\\", "")
+            .trim()
+
+        while (clean.contains("&amp;")) {
+            clean = clean.replace("&amp;", "&")
+        }
+
+        return clean
     }
 
     private fun getCuratedThisVidList(limit: Int, page: Int): List<VideoItem> {

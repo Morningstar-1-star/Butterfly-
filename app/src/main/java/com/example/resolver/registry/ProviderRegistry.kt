@@ -243,6 +243,22 @@ object ProviderRegistry {
         // Adult & JAV Providers
         register(
             ProviderDescriptor(
+                id = "sextb",
+                displayName = "SEXТB",
+                category = ProviderCategory.ADULT,
+                baseDomain = "https://sextb.net",
+                mirrors = listOf("https://sextb.net", "https://sextb.date", "https://sextb.cc"),
+                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.HLS, ProviderCapability.SUBTITLE),
+                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO, MediaType.MOVIE, MediaType.UNKNOWN),
+                supportsDirect = true,
+                supportsHls = true,
+                supportsSubtitles = true,
+                priority = 94,
+                sourceProvider = com.example.resolver.providers.SextbSourceProvider()
+            )
+        )
+        register(
+            ProviderDescriptor(
                 id = "jable",
                 displayName = "JableTV (HLS 1080p)",
                 category = ProviderCategory.ADULT,

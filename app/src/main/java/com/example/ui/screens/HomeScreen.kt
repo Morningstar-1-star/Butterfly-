@@ -419,6 +419,13 @@ fun HomeScreen(
                             )
                         }
 
+                        AppScreen.TORRENT_DEBUG -> {
+                            TorrentDebugScreen(
+                                viewModel = viewModel,
+                                onBackClick = { viewModel.navigateToScreen(AppScreen.SETTINGS) }
+                            )
+                        }
+
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
@@ -674,13 +681,13 @@ fun HomeScreen(
                 ?: trendingVideos.firstOrNull()?.title 
                 ?: searchQuery
 
-            val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches, activeProviderId) {
+            val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches, activeProviderId, adultContentEnabled) {
                 if (activeProviderId == "bilibili") {
                     listOf("All", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
                 } else if (activeProviderId == "bigo") {
                     listOf("All", "Music & Singing", "Gaming", "Dance", "Talk & Chat", "DJ", "Cosplay", "Entertainment", "Fitness", "Travel", "ASMR", "Food")
                 } else {
-                    buildSmartTags(activeContextTitle, searchQuery, recentSearches)
+                    buildSmartTags(activeContextTitle, searchQuery, recentSearches, adultContentEnabled)
                 }
             }
 
@@ -834,11 +841,19 @@ fun HomeScreen(
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
+                                                 ) {
+                                                    if (provider.id == "sextb") {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Explicit,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFE91E63),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
                                                     Text(
                                                         text = provider.name,
                                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (provider.id == "sextb") Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
                                                     )
                                                 }
                                             },
@@ -856,6 +871,67 @@ fun HomeScreen(
                                                 viewModel.setActiveProvider(provider.id)
                                                 isSourceMenuExpanded = false
                                             }
+                                        )
+                                    }
+
+                                    if (adultContentEnabled) {
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.SwapHoriz,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Switch to Mainstream Sources",
+                                                        fontSize = 13.sp
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                viewModel.setAdultContentEnabled(false)
+                                                viewModel.setActiveProvider("all")
+                                                isSourceMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // DEDICATED SEXTB 18+ CHIP (Only shown when 18+ mode is enabled)
+                        if (adultContentEnabled) {
+                            item {
+                                val isSextbActive = (activeProviderId == "sextb")
+                                Surface(
+                                    onClick = {
+                                        viewModel.setActiveProvider("sextb")
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSextbActive) Color(0xFFE91E63) else Color(0xFFE91E63).copy(alpha = 0.15f),
+                                    contentColor = if (isSextbActive) Color.White else Color(0xFFE91E63),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Explicit,
+                                            contentDescription = "SEXTB Source",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = if (isSextbActive) Color.White else Color(0xFFE91E63)
+                                        )
+                                        Text(
+                                            text = "SEXТB",
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSextbActive) FontWeight.Bold else FontWeight.SemiBold
                                         )
                                     }
                                 }
@@ -1228,13 +1304,24 @@ fun SubscriptionsContent(
 private fun buildSmartTags(
     activeTitle: String?,
     currentQuery: String?,
-    recentSearches: List<String> = emptyList()
+    recentSearches: List<String> = emptyList(),
+    adultContentEnabled: Boolean = false
 ): List<String> {
     val tags = mutableListOf<String>()
     tags.add("All")
 
+    val adultKeywords = setOf("sextb", "streamtb", "18+", "adult", "porn", "xxx", "jav", "hentai", "123av", "javtiful")
+    val eligibleSearches = if (adultContentEnabled) {
+        recentSearches.filter { !it.lowercase().contains("sextb") && !it.lowercase().contains("streamtb") }
+    } else {
+        recentSearches.filter { search ->
+            val s = search.lowercase()
+            adultKeywords.none { s.contains(it) }
+        }
+    }
+
     // 1. Elevate top recent searches & topics directly into smart tag chips
-    for (search in recentSearches.take(4)) {
+    for (search in eligibleSearches.take(4)) {
         val clean = search.trim()
         if (clean.length in 3..25 && !setOf("all", "video", "movies", "show", "watch").contains(clean.lowercase())) {
             val formatted = clean.split(" ").joinToString(" ") { word ->
@@ -1246,7 +1333,7 @@ private fun buildSmartTags(
         }
     }
 
-    val combined = "${activeTitle ?: ""} ${currentQuery ?: ""} ${recentSearches.take(3).joinToString(" ")}".lowercase()
+    val combined = "${activeTitle ?: ""} ${currentQuery ?: ""} ${eligibleSearches.take(3).joinToString(" ")}".lowercase()
 
     // Music & Song detection for tags
     if (combined.contains("song") || combined.contains("music") || combined.contains("audio") || 
@@ -1314,7 +1401,16 @@ private fun buildSmartTags(
         if (!tags.contains(cat)) tags.add(cat)
     }
 
-    return tags.filter { !it.contains("torrent", ignoreCase = true) && !it.contains("toreent", ignoreCase = true) }.distinct()
+    return tags.filter { tag ->
+        val lower = tag.lowercase()
+        val notTorrent = !lower.contains("torrent") && !lower.contains("toreent")
+        val notSextb = !lower.contains("sextb") && !lower.contains("streamtb")
+        if (!adultContentEnabled) {
+            notTorrent && notSextb && adultKeywords.none { lower.contains(it) }
+        } else {
+            notTorrent && notSextb
+        }
+    }.distinct()
 }
 
 @Composable

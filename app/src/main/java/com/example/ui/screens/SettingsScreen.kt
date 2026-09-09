@@ -43,6 +43,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
     ACCOUNTS_SOURCES("Accounts & Sources", "YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
     PROVIDERS("Content Sources", "Manage YouTube, Dailymotion, BitTorrent & more", Icons.Outlined.Source),
+    SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
     BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
     VEGA("Vega Movies & Series", "Movie extensions, anime providers & add-ons", Icons.Outlined.Movie),
@@ -247,6 +248,7 @@ fun SettingsScreen(
                     SettingsCategory.PLAYBACK,
                     SettingsCategory.ACCOUNTS_SOURCES,
                     SettingsCategory.PROVIDERS,
+                    SettingsCategory.SUBTITLE_PROVIDERS,
                     SettingsCategory.VEGA,
                     SettingsCategory.ADULT_18,
                     SettingsCategory.SMART_SKIP,
@@ -266,6 +268,7 @@ fun SettingsScreen(
                             SettingsCategory.LANGUAGE -> (if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English") + if (autoTranslateMetadata) " • Auto-translate ON" else " • Auto-translate OFF"
                             SettingsCategory.BATTERY_SAVER -> if (isPowerSaveActive) "Active ($batteryLevel% • Eco Power Mode)" else "Optimizations, RAM & battery saver ($batteryLevel%)"
                             SettingsCategory.PLAYBACK -> "${defaultResolutionPref.value} • ${doubleTapSeekPref.intValue}s seek"
+                            SettingsCategory.SUBTITLE_PROVIDERS -> "SubDL, OpenSubtitles, SubtitleCat & Bazarr"
                             SettingsCategory.ADULT_18 -> if (adultContentEnabled) "Enabled (18+ sources only)" else "Disabled"
                             SettingsCategory.DNS_NETWORK -> if (viewModel.isSecureDnsEnabled.collectAsState().value) viewModel.selectedDnsProvider.collectAsState().value.displayName else "Disabled (ISP)"
                             else -> category.subtitle
@@ -282,6 +285,12 @@ fun SettingsScreen(
             } else {
                 // SUB-SCREEN DETAIL PAGES
                 when (currentCategory) {
+                    SettingsCategory.SUBTITLE_PROVIDERS -> {
+                        SubtitleProvidersSettingsScreen(
+                            onBackClick = { currentCategory = null }
+                        )
+                    }
+
                     SettingsCategory.BATTERY_SAVER -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -857,6 +866,9 @@ fun SettingsScreen(
                                     )
                                 }
                                 val adultProviders = listOf(
+                                    "sextb" to "SEXТB (StreamTB)",
+                                    "123av" to "123AV (JAV & Player)",
+                                    "javtiful" to "Javtiful (JAV)",
                                     "pornhub" to "Pornhub",
                                     "xvideos" to "XVideos",
                                     "spankbang" to "SpankBang",
@@ -957,6 +969,72 @@ fun SettingsScreen(
                                             }
                                             Text(
                                                 text = "Log into YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFE91E63).copy(alpha = 0.12f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                        .clickable { currentCategory = SettingsCategory.ADULT_18 }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFE91E63).copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Explicit,
+                                                contentDescription = null,
+                                                tint = Color(0xFFE91E63),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = "SEXТB & 18+ Adult Sources",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFFE91E63)
+                                                ) {
+                                                    Text(
+                                                        text = if (adultContentEnabled) "ENABLED" else "18+",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "Manage SEXТB (StreamTB), JAV (123AV, Javtiful) & mature tube sources",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1702,6 +1780,43 @@ fun SettingsScreen(
                                 }
                             }
 
+                            // Torrent Pipeline Debugger Card
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "TORRENT STREAMING PIPELINE DEBUGGER",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "Inspect live swarm telemetry, piece buffer window, HTTP 206 server status, and test magnet playback.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            }
+                                            Button(
+                                                onClick = { viewModel.navigateToScreen(com.example.model.AppScreen.TORRENT_DEBUG) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                            ) {
+                                                Text("Open")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Torrentio, Vega & Debrid Card
                             item {
                                 Card(
@@ -1931,6 +2046,19 @@ fun SettingsScreen(
                                             ) {
                                                 Text("Save Subtitle Keys")
                                             }
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedButton(
+                                            onClick = { currentCategory = SettingsCategory.SUBTITLE_PROVIDERS },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.ClosedCaption,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Manage Subtitle Plugins & Bazarr Providers")
                                         }
                                     }
                                 }

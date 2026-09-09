@@ -395,9 +395,9 @@ object BilibiliProvider {
         val distinctOptions = streamOptions.distinctBy { it.qualityLabel }
         val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
             ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") }
+            ?: distinctOptions.firstOrNull { it.isMuxed }
             ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") && it.qualityLabel.contains("H.264") }
             ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") && it.qualityLabel.contains("H.264") }
-            ?: distinctOptions.firstOrNull { it.isMuxed }
             ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
             ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") }
             ?: distinctOptions.first()
@@ -796,9 +796,14 @@ object BilibiliProvider {
             }
         }
 
-        // Enforce HTTPS to prevent cleartext blocking and ISP throttling
+        // Only upgrade to HTTPS if it's a standard CDN hostname and not an IP or custom port or MCDN node
         if (cleanUrl.startsWith("http://")) {
-            cleanUrl = "https://" + cleanUrl.removePrefix("http://")
+            val lower = cleanUrl.lowercase()
+            val isCustomPort = lower.contains(":4483") || lower.contains(":8080") || lower.contains(":8000") || lower.contains(":8443")
+            val isMcdnOrIp = lower.contains("mcdn") || lower.contains("p2p") || lower.matches(Regex(".*http://\\d+\\.\\d+\\.\\d+\\.\\d+.*"))
+            if (!isCustomPort && !isMcdnOrIp && (lower.contains("bilivideo") || lower.contains("bilibili") || lower.contains("hdslb") || lower.contains("akamaized"))) {
+                cleanUrl = "https://" + cleanUrl.removePrefix("http://")
+            }
         }
 
         return cleanUrl
@@ -917,7 +922,7 @@ object BilibiliProvider {
                             streamOptions.add(
                                 PlayableStreamOption(
                                     qualityLabel = label,
-                                    format = "video",
+                                    format = "video_mp4",
                                     isMuxed = bestAudioUrl.isBlank(),
                                     videoUrl = vUrl,
                                     audioUrl = if (bestAudioUrl.isNotBlank()) bestAudioUrl else null,
@@ -1007,14 +1012,36 @@ object BilibiliProvider {
             }
         }
 
+        // 4. Mobile Android progressive direct MP4 stream
+        val androidDeferred = async(Dispatchers.IO) {
+            try {
+                val androidUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=0&platform=android&high_quality=1"
+                val androidReq = Request.Builder()
+                    .url(androidUrl)
+                    .header("User-Agent", "Bilibili Freedome/5.50.0")
+                    .header("Referer", REFERER)
+                    .header("Cookie", getBilibiliCookie())
+                    .build()
+
+                httpClient.newCall(androidReq).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching android playurl: ${e.message}")
+                null
+            }
+        }
+
         val progJsonStr = progDeferred.await()
         val dashCompatJsonStr = dashCompatDeferred.await()
         val dashFullJsonStr = dashFullDeferred.await()
+        val androidJsonStr = androidDeferred.await()
 
         // Process Progressive Muxed Streams (fnval=0)
-        if (!progJsonStr.isNullOrBlank()) {
+        val progressiveJsonList = listOfNotNull(progJsonStr, androidJsonStr)
+        for (pJsonStr in progressiveJsonList) {
             try {
-                val playJson = JSONObject(progJsonStr)
+                val playJson = JSONObject(pJsonStr)
                 val playData = playJson.optJSONObject("data") ?: playJson.optJSONObject("result")
                 val durlArr = playData?.optJSONArray("durl")
 
@@ -1033,16 +1060,18 @@ object BilibiliProvider {
                                 else -> "Progressive Stream (MP4 Direct)"
                             }
 
-                            streamOptions.add(
-                                PlayableStreamOption(
-                                    qualityLabel = qLabel,
-                                    format = "mp4",
-                                    isMuxed = true,
-                                    videoUrl = sUrl,
-                                    providerType = ProviderType.DIRECT,
-                                    headers = biliHeaders
+                            if (streamOptions.none { it.videoUrl == sUrl }) {
+                                streamOptions.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = qLabel,
+                                        format = "mp4",
+                                        isMuxed = true,
+                                        videoUrl = sUrl,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = biliHeaders
+                                    )
                                 )
-                            )
+                            }
                             break
                         }
                     }
@@ -1110,7 +1139,7 @@ object BilibiliProvider {
                         streamOptions.add(
                             PlayableStreamOption(
                                 qualityLabel = label,
-                                format = "video",
+                                format = "video_mp4",
                                 isMuxed = bestAudioUrl.isBlank(),
                                 videoUrl = vUrl,
                                 audioUrl = if (bestAudioUrl.isNotBlank()) bestAudioUrl else null,

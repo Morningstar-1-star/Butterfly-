@@ -14,7 +14,11 @@ data class SubtitleSearchQuery(
     val imdbId: String? = null,
     val languageCode: String? = null,
     val releaseName: String? = null,
-    val mediaIdentity: MediaIdentity? = null
+    val mediaIdentity: MediaIdentity? = null,
+    val fps: Float? = null,
+    val resolution: String? = null,
+    val movieHash: String? = null,
+    val fileSizeBytes: Long? = null
 )
 
 enum class SubtitleFormat(val extension: String, val mimeType: String) {
@@ -51,7 +55,14 @@ data class SubtitleItem(
     val matchScore: Int = 100, // 0..100 ranking score
     val sourceType: SubtitleSourceType = SubtitleSourceType.EXTERNAL_PROVIDER,
     val headers: Map<String, String> = emptyMap(),
-    val releaseInfo: String? = null
+    val releaseInfo: String? = null,
+    val fps: Float? = null,
+    val resolution: String? = null,
+    val isForced: Boolean = false,
+    val movieHash: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val downloadsCount: Int = 0
 )
 
 /**

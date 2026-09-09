@@ -18,4 +18,5 @@ interface TorrentEngineInterface {
     fun getActiveFileLength(): Long
     fun getActiveFilePath(): String?
     fun isRangeAvailable(offset: Long, length: Int): Boolean
+    fun updateHttpStatus(status: String, range: String = "")
 }

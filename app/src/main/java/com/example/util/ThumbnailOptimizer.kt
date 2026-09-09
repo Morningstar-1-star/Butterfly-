@@ -110,19 +110,14 @@ object ThumbnailOptimizer {
 
         val builder = ImageRequest.Builder(context)
             .data(optimizedUrl)
-            .memoryCacheKey(optimizedUrl)
-            .diskCacheKey(optimizedUrl)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .size(coil.size.Size(width = 480, height = 270))
-            .precision(coil.size.Precision.INEXACT)
-            .bitmapConfig(Bitmap.Config.RGB_565)
-            .allowHardware(true)
+            .allowHardware(false)
             .allowRgb565(true)
             .crossfade(crossfadeMillis)
             .dispatcher(Dispatchers.IO)
-            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
 
         // Domain-specific anti-hotlinking headers
@@ -258,6 +253,102 @@ object ThumbnailOptimizer {
         }
 
         return builder.build()
+    }
+
+    fun getOptimizedPosterUrl(rawUrl: String?): String? {
+        if (rawUrl.isNullOrBlank()) return null
+        val trimmed = rawUrl.trim()
+        if (trimmed.contains("image.tmdb.org/t/p/")) {
+            // Ultra-compact w185 resolution (~12KB to 20KB) for lightning-fast poster loading
+            return trimmed
+                .replace("/original/", "/w185/")
+                .replace("/w1280/", "/w185/")
+                .replace("/w780/", "/w185/")
+                .replace("/w500/", "/w185/")
+                .replace("/w342/", "/w185/")
+        }
+        return getOptimizedThumbnailUrl(trimmed, preferCompact = true)
+    }
+
+    fun getOptimizedBackdropUrl(rawUrl: String?): String? {
+        if (rawUrl.isNullOrBlank()) return null
+        val trimmed = rawUrl.trim()
+        if (trimmed.contains("image.tmdb.org/t/p/")) {
+            // High-efficiency w780 resolution for banners and hero carousel
+            return trimmed
+                .replace("/original/", "/w780/")
+                .replace("/w1280/", "/w780/")
+                .replace("/w500/", "/w780/")
+        }
+        return getOptimizedThumbnailUrl(trimmed, preferCompact = false)
+    }
+
+    /**
+     * Build an ultra-fast, lightweight ImageRequest specifically tailored for 2:3 movie/show posters.
+     * Uses w185 downsampling, RGB_565 bitmap config (50% RAM reduction, instant decode),
+     * and aggressive disk/memory caching for immediate loading without lag.
+     */
+    fun buildPosterRequest(
+        context: Context,
+        url: String?,
+        crossfadeMillis: Int = 120
+    ): ImageRequest? {
+        val optimizedUrl = getOptimizedPosterUrl(url) ?: return null
+
+        return ImageRequest.Builder(context)
+            .data(optimizedUrl)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .allowHardware(false)
+            .allowRgb565(true)
+            .crossfade(crossfadeMillis)
+            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
+    }
+
+    /**
+     * Build an optimized ImageRequest for hero banners and backdrop images.
+     */
+    fun buildBackdropRequest(
+        context: Context,
+        url: String?,
+        crossfadeMillis: Int = 150
+    ): ImageRequest? {
+        val optimizedUrl = getOptimizedBackdropUrl(url) ?: return null
+
+        return ImageRequest.Builder(context)
+            .data(optimizedUrl)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .allowHardware(false)
+            .allowRgb565(true)
+            .crossfade(crossfadeMillis)
+            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
+    }
+
+    /**
+     * Preloads poster URLs into Coil's RAM & disk cache for zero-latency scrolling.
+     */
+    fun preloadPosters(context: Context, urls: List<String?>, maxCount: Int = 30) {
+        if (urls.isEmpty()) return
+        val imageLoader = Coil.imageLoader(context)
+
+        preloadScope.launch {
+            try {
+                urls.filterNotNull().take(maxCount).forEach { rawUrl ->
+                    val request = buildPosterRequest(context, rawUrl, crossfadeMillis = 0)
+                    if (request != null) {
+                        imageLoader.enqueue(request)
+                    }
+                }
+            } catch (ignored: Exception) {
+            }
+        }
     }
 
     /**

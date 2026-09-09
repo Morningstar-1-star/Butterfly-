@@ -941,6 +941,7 @@ fun UniversalVideoPlayer(
                         bufferedPositionMs = bufferedPosMs,
                         segments = smartSkipSegments,
                         chapters = effectiveChapters,
+                        heatmap = activeStreamData?.heatmap,
                         isLandscape = isLandscape,
                         onSeekStarted = { GlobalPlayerManager.showControls() },
                         onSeekScrubbing = { /* Scrubbing */ },
@@ -1005,6 +1006,34 @@ fun UniversalVideoPlayer(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
+                            }
+
+                            // Most Replayed / Heatmap Peak Quick Jump Chip
+                            val currentHeatmap = activeStreamData?.heatmap
+                            if (currentHeatmap != null && currentHeatmap.isNotEmpty && currentHeatmap.peakPositionMs > 0L) {
+                                Surface(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        GlobalPlayerManager.seekTo(currentHeatmap.peakPositionMs)
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFFF9900).copy(alpha = 0.25f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF9900).copy(alpha = 0.65f)),
+                                    contentColor = Color(0xFFFFCC00)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(text = "🔥", fontSize = 10.sp)
+                                        Text(
+                                            text = "Peak ${formatVideoTimestamp(currentHeatmap.peakPositionMs)}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
 
                             // Current Chapter Pill (Tapping opens chapters list)

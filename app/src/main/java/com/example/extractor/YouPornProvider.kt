@@ -556,6 +556,11 @@ object YouPornProvider {
 
                     Log.i(TAG, "Successfully extracted ${sortedOptions.size} stream options for YouPorn: $targetUrl")
 
+                    val durPattern = Pattern.compile(""""video_duration"\s*:\s*"?(\d+)"?""", Pattern.CASE_INSENSITIVE)
+                    val durMatcher = durPattern.matcher(html)
+                    val durSec = if (durMatcher.find()) durMatcher.group(1)?.toLongOrNull() ?: 0L else 0L
+                    val heatmapData = com.example.util.HeatmapHelper.extractFromHtml(html, durSec * 1000L)
+
                     return@withContext StreamData(
                         videoId = targetUrl,
                         videoUrl = primaryUrl,
@@ -565,7 +570,8 @@ object YouPornProvider {
                         availableStreamOptions = sortedOptions,
                         selectedStreamOption = primaryStream,
                         providerId = PROVIDER_ID,
-                        headers = COMMON_HEADERS
+                        headers = COMMON_HEADERS,
+                        heatmap = heatmapData
                     )
                 }
             }

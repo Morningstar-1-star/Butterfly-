@@ -19,7 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.VideoHeatmap
 import kotlin.math.roundToInt
 
 fun formatVideoTimestamp(millis: Long): String {
@@ -54,6 +57,7 @@ fun YouTubePreciseSeekBar(
     modifier: Modifier = Modifier,
     segments: List<com.example.smartskip.SkipSegment> = emptyList(),
     chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
+    heatmap: VideoHeatmap? = null,
     activeColor: Color = Color(0xFFFF0033),
     bufferedColor: Color = Color.White.copy(alpha = 0.55f),
     inactiveColor: Color = Color.White.copy(alpha = 0.25f),
@@ -69,11 +73,18 @@ fun YouTubePreciseSeekBar(
     val displayPosition = if (isDragging) scrubPositionMs else currentPositionMs.coerceIn(0L, safeDuration)
     val progressFraction = (displayPosition.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
     val bufferedFraction = (bufferedPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+    val hasHeatmap = heatmap != null && heatmap.isNotEmpty
+
+    val outerBoxHeight = if (hasHeatmap) {
+        if (isLandscape) 48.dp else 62.dp
+    } else {
+        if (isLandscape) 26.dp else 44.dp
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(if (isLandscape) 26.dp else 44.dp)
+            .height(outerBoxHeight)
             .onSizeChanged { trackWidthPx = it.width.toFloat().coerceAtLeast(1f) },
         contentAlignment = Alignment.BottomCenter
     ) {
@@ -99,8 +110,24 @@ fun YouTubePreciseSeekBar(
                 val currentChapter = remember(scrubPositionMs, chapters) {
                     chapters.lastOrNull { scrubPositionMs >= it.startTimeMs }
                 }
+                val isNearPeak = hasHeatmap && heatmap != null &&
+                        kotlin.math.abs(progressFraction - heatmap.peakFraction) < 0.05f
+
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (currentChapter != null) {
+                    if (isNearPeak) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(text = "🔥", fontSize = 10.sp)
+                            Text(
+                                text = "Most Replayed",
+                                color = Color(0xFFFFB300),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else if (currentChapter != null) {
                         Text(
                             text = currentChapter.title,
                             color = Color.White,
@@ -112,8 +139,8 @@ fun YouTubePreciseSeekBar(
                     }
                     Text(
                         text = "${formatVideoTimestamp(scrubPositionMs)} / ${formatVideoTimestamp(durationMs)}",
-                        color = if (currentChapter != null) Color.White.copy(alpha = 0.85f) else Color.White,
-                        fontSize = if (currentChapter != null) 10.sp else 12.sp,
+                        color = if (isNearPeak) Color(0xFFFFE082) else if (currentChapter != null) Color.White.copy(alpha = 0.85f) else Color.White,
+                        fontSize = if (currentChapter != null || isNearPeak) 10.sp else 12.sp,
                         fontWeight = FontWeight.Medium,
                         fontFamily = FontFamily.Monospace
                     )
@@ -122,10 +149,16 @@ fun YouTubePreciseSeekBar(
         }
 
         // The Seekbar Canvas Track & Thumb with Touch Gestures
+        val touchTrackHeight = if (hasHeatmap) {
+            if (isLandscape) 42.dp else 52.dp
+        } else {
+            24.dp
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(24.dp)
+                .height(touchTrackHeight)
                 .pointerInput(safeDuration) {
                     detectTapGestures(
                         onPress = { offset ->
@@ -169,10 +202,15 @@ fun YouTubePreciseSeekBar(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.fillMaxWidth().height(if (isLandscape) 12.dp else 16.dp)) {
+            val canvasHeightDp = if (hasHeatmap) {
+                if (isLandscape) 38.dp else 48.dp
+            } else {
+                if (isLandscape) 12.dp else 16.dp
+            }
+
+            Canvas(modifier = Modifier.fillMaxWidth().height(canvasHeightDp)) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
-                val centerY = canvasHeight / 2f
 
                 val barHeight = if (isLandscape) {
                     if (isDragging) 3.5.dp.toPx() else 2.dp.toPx()
@@ -180,6 +218,103 @@ fun YouTubePreciseSeekBar(
                     if (isDragging) 6.dp.toPx() else 3.5.dp.toPx()
                 }
                 val cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
+
+                val centerY = if (hasHeatmap) {
+                    canvasHeight - (barHeight / 2f) - 6.dp.toPx()
+                } else {
+                    canvasHeight / 2f
+                }
+                val baselineY = centerY - (barHeight / 2f)
+
+                // 0. Heatmap Waveform (Most Replayed Graph)
+                if (hasHeatmap && heatmap != null && heatmap.points.size >= 4) {
+                    val pts = heatmap.points
+                    val n = pts.size
+                    val maxWaveHeight = if (isLandscape) 24.dp.toPx() else 32.dp.toPx()
+
+                    val wavePath = Path()
+                    val strokePath = Path()
+
+                    val firstY = baselineY - (pts[0] * maxWaveHeight).coerceAtLeast(1.dp.toPx())
+                    wavePath.moveTo(0f, baselineY)
+                    wavePath.lineTo(0f, firstY)
+                    strokePath.moveTo(0f, firstY)
+
+                    for (i in 0 until n - 1) {
+                        val x0 = (i.toFloat() / (n - 1).toFloat()) * canvasWidth
+                        val y0 = baselineY - (pts[i] * maxWaveHeight).coerceAtLeast(1.dp.toPx())
+                        val x1 = ((i + 1).toFloat() / (n - 1).toFloat()) * canvasWidth
+                        val y1 = baselineY - (pts[i + 1] * maxWaveHeight).coerceAtLeast(1.dp.toPx())
+
+                        val midX = (x0 + x1) / 2f
+                        wavePath.cubicTo(midX, y0, midX, y1, x1, y1)
+                        strokePath.cubicTo(midX, y0, midX, y1, x1, y1)
+                    }
+
+                    wavePath.lineTo(canvasWidth, baselineY)
+                    wavePath.lineTo(0f, baselineY)
+                    wavePath.close()
+
+                    // Unplayed / base heatmap fill
+                    drawPath(
+                        path = wavePath,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.50f),
+                                Color.White.copy(alpha = 0.15f)
+                            ),
+                            startY = baselineY - maxWaveHeight,
+                            endY = baselineY
+                        )
+                    )
+
+                    // Played portion of heatmap highlighted
+                    val activeW = canvasWidth * progressFraction
+                    if (activeW > 0f) {
+                        clipRect(left = 0f, top = 0f, right = activeW, bottom = canvasHeight) {
+                            drawPath(
+                                path = wavePath,
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        activeColor.copy(alpha = 0.70f),
+                                        activeColor.copy(alpha = 0.25f)
+                                    ),
+                                    startY = baselineY - maxWaveHeight,
+                                    endY = baselineY
+                                )
+                            )
+                        }
+                    }
+
+                    // Top crisp line of heatmap
+                    drawPath(
+                        path = strokePath,
+                        color = Color.White.copy(alpha = 0.85f),
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+
+                    // Subtle highlight at the highest peak
+                    if (heatmap.peakFraction in 0f..1f) {
+                        val peakX = heatmap.peakFraction * canvasWidth
+                        val peakIdx = (heatmap.peakFraction * (n - 1)).roundToInt().coerceIn(0, n - 1)
+                        val peakY = baselineY - (pts[peakIdx] * maxWaveHeight).coerceAtLeast(1.dp.toPx())
+
+                        drawCircle(
+                            color = Color(0xFFFF9900).copy(alpha = 0.45f),
+                            radius = 4.dp.toPx(),
+                            center = Offset(peakX, peakY)
+                        )
+                        drawCircle(
+                            color = Color(0xFFFFCC00),
+                            radius = 2.dp.toPx(),
+                            center = Offset(peakX, peakY)
+                        )
+                    }
+                }
 
                 // 1. Inactive background track (full width)
                 drawRoundRect(

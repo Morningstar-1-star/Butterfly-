@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -38,76 +40,229 @@ object XVideosProvider {
 
     private fun parseXVideosHtml(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
+        val seenUrls = mutableSetOf<String>()
         try {
             val req = Request.Builder()
                 .url(targetUrl)
                 .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Cookie", "age_verified=1")
+                .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 .header("Referer", "https://www.xvideos.com/")
+                .header("Accept-Language", "en-US,en;q=0.9")
                 .build()
 
             val html = httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             } ?: return list
 
-            val pattern = Pattern.compile("""<a\s+href="(/video(?:\.?\d+|[^"'\s]+)/[^"]*)"[^>]*title="([^"]+)"""", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(html)
-            val seenIds = mutableSetOf<String>()
+            val doc = Jsoup.parse(html, "https://www.xvideos.com/")
 
-            val thumbPattern = Pattern.compile("""(?:data-src|data-thumb|data-poster|data-pv|data-image|src)=["']([^"'\s,]+?\.(?:jpg|jpeg|webp|png)[^"'\s,]*)["']""", Pattern.CASE_INSENSITIVE)
-            val thumbMatcher = thumbPattern.matcher(html)
-            val thumbs = mutableListOf<String>()
-            while (thumbMatcher.find()) {
-                var rawT = thumbMatcher.group(1)?.trim() ?: ""
-                if (rawT.startsWith("//")) rawT = "https:$rawT"
-                else if (rawT.startsWith("/")) rawT = "https://www.xvideos.com$rawT"
-                if (rawT.isNotBlank()) thumbs.add(rawT)
-            }
+            // 1. PRIMARY PARSER: Card-based Jsoup parsing
+            // Each video block is parsed in total isolation so title, thumbnail, duration and link can NEVER desync
+            val cards = doc.select(".thumb-block, div[id^=video_], div[data-id], .mozaique > div")
+            for (card in cards) {
+                if (list.size >= limit) break
 
-            var thumbIdx = 0
-            while (matcher.find() && list.size < limit) {
-                val path = matcher.group(1) ?: continue
-                val title = matcher.group(2) ?: "XVideos"
+                val linkEl = card.selectFirst("a[href*=/video]")
+                    ?: card.selectFirst(".thumb a")
+                    ?: card.selectFirst("p.title a")
+                    ?: card.selectFirst("a[href^=\"/video\"]")
+                    ?: continue
 
-                if (seenIds.contains(path)) continue
-                seenIds.add(path)
+                var href = linkEl.attr("href").trim()
+                if (href.isBlank() || href == "#" || href.contains("/channels/") || href.contains("/tags/") || href.contains("/profiles/") || href.contains("/categories/")) {
+                    continue
+                }
 
-                var thumb = if (thumbIdx < thumbs.size) thumbs[thumbIdx++] else ""
-                if (thumb.startsWith("//")) thumb = "https:$thumb"
-                else if (thumb.startsWith("/")) thumb = "https://www.xvideos.com$thumb"
+                if (!href.startsWith("http")) {
+                    href = if (href.startsWith("/")) "https://www.xvideos.com$href" else "https://www.xvideos.com/$href"
+                }
 
-                // Extract duration near match region if available
-                val startIdx = matcher.start()
-                val endIdx = (startIdx + 400).coerceAtMost(html.length)
-                val snippet = html.substring(startIdx, endIdx)
-                var durSec = -1L
-                val durMatch = Pattern.compile("""(?:duration|min|duration-box)[^>]*>([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)""").matcher(snippet)
-                if (durMatch.find()) {
-                    durSec = parseDurationToSeconds(durMatch.group(1))
-                } else {
-                    val fallbackDur = Pattern.compile("([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)").matcher(snippet)
-                    if (fallbackDur.find()) {
-                        durSec = parseDurationToSeconds(fallbackDur.group(1))
+                if (seenUrls.contains(href)) continue
+                seenUrls.add(href)
+
+                val videoId = card.attr("data-id").ifBlank {
+                    card.attr("id").removePrefix("video_").ifBlank {
+                        Regex("""/video(?:\.?\w+)?/([0-9a-zA-Z_-]+)""").find(href)?.groupValues?.get(1) ?: href
                     }
                 }
 
+                // Title: extracted specifically from this card
+                var title = ""
+                val titleEl = card.selectFirst("p.title a") ?: card.selectFirst(".title a") ?: card.selectFirst(".title")
+                if (titleEl != null) {
+                    title = titleEl.attr("title").ifBlank { titleEl.text() }
+                }
+                if (title.isBlank()) {
+                    title = linkEl.attr("title").ifBlank { linkEl.text() }
+                }
+                if (title.isBlank()) {
+                    title = card.selectFirst("img")?.attr("alt") ?: ""
+                }
+                if (title.isBlank() || title.equals("XVideos", ignoreCase = true)) {
+                    val slug = href.substringAfterLast("/").substringBefore("?").replace("_", " ").replace("-", " ")
+                    if (slug.isNotBlank() && slug.length > 3) {
+                        title = slug
+                    }
+                }
+                title = Parser.unescapeEntities(title.trim(), false)
+                    .replace(Regex("""\s*-\s*XVIDEOS\.COM\s*$""", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("""\s*-\s*Xvideos\.com\s*$""", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                if (title.isBlank()) title = "XVideos Video $videoId"
+
+                // Thumbnail: extracted specifically from this card
+                var thumb = ""
+                val imgEl = card.selectFirst(".thumb a img") ?: card.selectFirst("img")
+                if (imgEl != null) {
+                    val candidates = listOf(
+                        imgEl.attr("data-src"),
+                        imgEl.attr("data-thumb"),
+                        imgEl.attr("data-image"),
+                        imgEl.attr("data-poster"),
+                        imgEl.attr("data-original"),
+                        imgEl.attr("data-pv"),
+                        imgEl.attr("data-src1"),
+                        imgEl.attr("src")
+                    )
+                    for (cand in candidates) {
+                        val c = cand.trim()
+                        if (c.isNotBlank() &&
+                            !c.contains("blank.gif") &&
+                            !c.contains("loading.gif") &&
+                            !c.contains("pixel.gif") &&
+                            !c.startsWith("data:image") &&
+                            (c.contains(".jpg") || c.contains(".jpeg") || c.contains(".webp") || c.contains(".png") || c.contains("xvideos-cdn") || c.contains("xv-cdn"))
+                        ) {
+                            thumb = c
+                            break
+                        }
+                    }
+                }
+
+                if (thumb.isBlank()) {
+                    val cardHtml = card.html()
+                    val thumbRegex = Pattern.compile("""(?:data-src|data-thumb|data-image|data-poster|src)=["']([^"'\s,]+?\.(?:jpg|jpeg|webp|png)[^"'\s,]*)["']""", Pattern.CASE_INSENSITIVE)
+                    val tm = thumbRegex.matcher(cardHtml)
+                    while (tm.find()) {
+                        val c = tm.group(1)?.trim() ?: continue
+                        if (!c.contains("blank.gif") && !c.contains("loading.gif") && !c.contains("pixel.gif") && !c.startsWith("data:")) {
+                            thumb = c
+                            break
+                        }
+                    }
+                }
+
+                if (thumb.startsWith("//")) thumb = "https:$thumb"
+                else if (thumb.startsWith("/")) thumb = "https://www.xvideos.com$thumb"
+
+                // Duration
+                val durText = card.selectFirst(".duration, span.duration, .metadata .duration, .bg .duration")?.text()?.trim()
+                val durSec = parseDurationToSeconds(durText)
+
+                // Uploader
+                val uploaderEl = card.selectFirst(".metadata .name a, .metadata a, .name a, .uploader a, .profile a")
+                val uploaderName = uploaderEl?.text()?.trim()?.ifBlank { "XVideos" } ?: "XVideos"
+                val uploaderUrl = uploaderEl?.attr("href")?.let {
+                    if (it.startsWith("/")) "https://www.xvideos.com$it" else it
+                }
+
+                // Preview frames for horizontal scrubber
                 val previewList = if (thumb.isNotBlank()) {
                     com.example.util.PreviewFrameResolver.resolvePreviewFrames(
-                        VideoItem(id = "https://www.xvideos.com$path", title = title, uploaderName = "XVideos", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                        VideoItem(
+                            id = href,
+                            title = title,
+                            uploaderName = uploaderName,
+                            uploaderUrl = uploaderUrl,
+                            thumbnailUrl = thumb,
+                            durationSeconds = durSec,
+                            providerId = PROVIDER_ID
+                        )
                     )
                 } else emptyList()
 
+                // Optional preview video clip URL if present on hover
+                val previewClip = imgEl?.attr("data-pv")?.takeIf { it.isNotBlank() && it.startsWith("http") }
+                    ?: card.attr("data-pv").takeIf { it.isNotBlank() && it.startsWith("http") }
+
                 list.add(
                     VideoItem(
-                        id = "https://www.xvideos.com$path",
+                        id = href,
                         title = title,
-                        uploaderName = "XVideos",
+                        uploaderName = uploaderName,
+                        uploaderUrl = uploaderUrl,
                         thumbnailUrl = thumb,
                         durationSeconds = durSec,
                         providerId = PROVIDER_ID,
-                        previewThumbnails = previewList
+                        previewThumbnails = previewList,
+                        previewClipUrl = previewClip
                     )
                 )
+            }
+
+            // 2. FALLBACK PARSER: If Jsoup card selectors found nothing, use block-scoped regex
+            if (list.isEmpty()) {
+                val blockPattern = Pattern.compile("""<div[^>]*class="[^"]*thumb-block[^"]*"[^>]*>(.*?)</div>\s*</div>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+                val blockMatcher = blockPattern.matcher(html)
+                while (blockMatcher.find() && list.size < limit) {
+                    val block = blockMatcher.group(1) ?: continue
+
+                    val linkMatcher = Pattern.compile("""href="(/video(?:\.?\d+|[^"'\s]+)/[^"]*)"""", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (!linkMatcher.find()) continue
+                    var path = linkMatcher.group(1) ?: continue
+                    if (!path.startsWith("http")) {
+                        path = if (path.startsWith("/")) "https://www.xvideos.com$path" else "https://www.xvideos.com/$path"
+                    }
+                    if (seenUrls.contains(path)) continue
+                    seenUrls.add(path)
+
+                    var title = ""
+                    val titleMatcher = Pattern.compile("""(?:title="([^"]+)"|class="[^"]*title[^"]*"[^>]*>([^<]+))""", Pattern.CASE_INSENSITIVE).matcher(block)
+                    if (titleMatcher.find()) {
+                        title = (titleMatcher.group(1) ?: titleMatcher.group(2) ?: "").trim()
+                    }
+                    if (title.isBlank() || title.equals("XVideos", ignoreCase = true)) {
+                        val slug = path.substringAfterLast("/").substringBefore("?").replace("_", " ").replace("-", " ")
+                        if (slug.isNotBlank()) title = slug
+                    }
+                    title = Parser.unescapeEntities(title, false)
+                        .replace(Regex("""\s*-\s*XVIDEOS\.COM\s*$""", RegexOption.IGNORE_CASE), "")
+                        .replace(Regex("""\s*-\s*Xvideos\.com\s*$""", RegexOption.IGNORE_CASE), "")
+                        .trim()
+
+                    var thumb = ""
+                    val thumbMatcher = Pattern.compile("""(?:data-src|data-thumb|data-image|data-poster|src)=["']([^"'\s,]+?\.(?:jpg|jpeg|webp|png)[^"'\s,]*)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
+                    while (thumbMatcher.find()) {
+                        val c = thumbMatcher.group(1)?.trim() ?: continue
+                        if (!c.contains("blank.gif") && !c.contains("loading.gif") && !c.contains("pixel.gif") && !c.startsWith("data:")) {
+                            thumb = c
+                            break
+                        }
+                    }
+                    if (thumb.startsWith("//")) thumb = "https:$thumb"
+                    else if (thumb.startsWith("/")) thumb = "https://www.xvideos.com$thumb"
+
+                    val durMatcher = Pattern.compile("""(?:duration|min|duration-box)[^>]*>([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?|[0-9]+\s*(?:min|h|sec))""", Pattern.CASE_INSENSITIVE).matcher(block)
+                    val durSec = if (durMatcher.find()) parseDurationToSeconds(durMatcher.group(1)) else -1L
+
+                    val previewList = if (thumb.isNotBlank()) {
+                        com.example.util.PreviewFrameResolver.resolvePreviewFrames(
+                            VideoItem(id = path, title = title, uploaderName = "XVideos", thumbnailUrl = thumb, providerId = PROVIDER_ID)
+                        )
+                    } else emptyList()
+
+                    list.add(
+                        VideoItem(
+                            id = path,
+                            title = title,
+                            uploaderName = "XVideos",
+                            thumbnailUrl = thumb,
+                            durationSeconds = durSec,
+                            providerId = PROVIDER_ID,
+                            previewThumbnails = previewList
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "XVideos parse error: ${e.message}")
@@ -125,7 +280,7 @@ object XVideosProvider {
 
         val xvHeaders = mapOf(
             "User-Agent" to DEFAULT_USER_AGENT,
-            "Cookie" to "age_verified=1",
+            "Cookie" to "age_verified=1; platform=pc; has_consent=1",
             "Referer" to "https://www.xvideos.com/"
         )
 
@@ -133,7 +288,7 @@ object XVideosProvider {
             val req = Request.Builder()
                 .url(targetUrl)
                 .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Cookie", "age_verified=1")
+                .header("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 .header("Referer", "https://www.xvideos.com/")
                 .build()
 
@@ -142,13 +297,60 @@ object XVideosProvider {
             }
 
             if (!html.isNullOrBlank()) {
-                val titlePattern = Pattern.compile("""<meta\s+property="og:title"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE)
-                val titleMatcher = titlePattern.matcher(html)
-                val title = if (titleMatcher.find()) titleMatcher.group(1) ?: "XVideos" else "XVideos"
+                // 1. Title extraction: prioritize html5player.setVideoTitle
+                var title = ""
+                val jsTitleMatch = Pattern.compile("""html5player\.setVideoTitle\s*\(\s*['"]([^'"]+)['"]\s*\)""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (jsTitleMatch.find()) {
+                    title = jsTitleMatch.group(1)?.trim() ?: ""
+                }
+                if (title.isBlank()) {
+                    val ogTitleMatch = Pattern.compile("""<meta\s+property="og:title"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (ogTitleMatch.find()) {
+                        title = ogTitleMatch.group(1)?.trim() ?: ""
+                    }
+                }
+                if (title.isBlank()) {
+                    val docTitleMatch = Pattern.compile("""<title>([^<]+)</title>""", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (docTitleMatch.find()) {
+                        title = docTitleMatch.group(1)?.trim() ?: ""
+                    }
+                }
+                title = Parser.unescapeEntities(title, false)
+                    .replace(Regex("""\s*-\s*XVIDEOS\.COM\s*$""", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("""\s*-\s*Xvideos\.com\s*$""", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                if (title.isBlank()) title = "XVideos"
 
-                val thumbPattern = Pattern.compile("""<meta\s+property="og:image"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE)
-                val thumbMatcher = thumbPattern.matcher(html)
-                val thumb = if (thumbMatcher.find()) thumbMatcher.group(1) ?: "" else ""
+                // 2. Thumbnail extraction: prioritize high-res 16:9 thumb from player
+                var thumb = ""
+                val jsThumb169Match = Pattern.compile("""html5player\.setThumbUrl169\s*\(\s*['"]([^'"]+)['"]\s*\)""", Pattern.CASE_INSENSITIVE).matcher(html)
+                if (jsThumb169Match.find()) {
+                    thumb = jsThumb169Match.group(1)?.trim() ?: ""
+                }
+                if (thumb.isBlank()) {
+                    val jsThumbMatch = Pattern.compile("""html5player\.setThumbUrl\s*\(\s*['"]([^'"]+)['"]\s*\)""", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (jsThumbMatch.find()) {
+                        thumb = jsThumbMatch.group(1)?.trim() ?: ""
+                    }
+                }
+                if (thumb.isBlank()) {
+                    val ogImageMatch = Pattern.compile("""<meta\s+property="og:image"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (ogImageMatch.find()) {
+                        thumb = ogImageMatch.group(1)?.trim() ?: ""
+                    }
+                }
+                if (thumb.isBlank()) {
+                    val twImageMatch = Pattern.compile("""<meta\s+name="twitter:image"\s+content="([^"]+)"""", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (twImageMatch.find()) {
+                        thumb = twImageMatch.group(1)?.trim() ?: ""
+                    }
+                }
+                if (thumb.startsWith("//")) thumb = "https:$thumb"
+                else if (thumb.startsWith("/")) thumb = "https://www.xvideos.com$thumb"
+
+                // 3. Uploader extraction
+                val uploaderMatch = Pattern.compile("""<span[^>]*class="[^"]*name[^"]*"[^>]*><a[^>]*>([^<]+)</a></span>""", Pattern.CASE_INSENSITIVE).matcher(html)
+                val uploaderName = if (uploaderMatch.find()) uploaderMatch.group(1)?.trim() ?: "XVideos" else "XVideos"
 
                 val options = mutableListOf<PlayableStreamOption>()
 
@@ -209,13 +411,34 @@ object XVideosProvider {
                     }
                 }
 
+                // Generic video_url fallback
+                if (options.isEmpty()) {
+                    val genericPattern = Pattern.compile("""html5player\.setVideoUrl\s*\(\s*['"]([^'"]+)['"]\s*\)""", Pattern.CASE_INSENSITIVE)
+                    val gm = genericPattern.matcher(html)
+                    if (gm.find()) {
+                        val gUrl = gm.group(1) ?: ""
+                        if (gUrl.isNotBlank()) {
+                            options.add(
+                                PlayableStreamOption(
+                                    qualityLabel = "Standard Quality MP4",
+                                    format = "mp4",
+                                    isMuxed = true,
+                                    videoUrl = gUrl,
+                                    providerType = ProviderType.DIRECT,
+                                    headers = xvHeaders
+                                )
+                            )
+                        }
+                    }
+                }
+
                 if (options.isNotEmpty()) {
                     val bestOption = options.first()
                     return@withContext StreamData(
                         videoId = targetUrl,
                         videoUrl = bestOption.videoUrl ?: "",
                         title = title,
-                        channelName = "XVideos",
+                        channelName = uploaderName,
                         description = title,
                         thumbnailUrl = thumb,
                         availableStreamOptions = options,

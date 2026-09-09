@@ -146,6 +146,15 @@ data class TorrentSettings(
     val customTrackers: List<String> = emptyList()
 )
 
+object TorrentErrorCode {
+    const val NO_METADATA = "NO_METADATA"
+    const val NO_PEERS = "NO_PEERS"
+    const val NO_VIDEO_FILE = "NO_VIDEO_FILE"
+    const val BUFFER_TIMEOUT = "BUFFER_TIMEOUT"
+    const val HTTP_RANGE_ERROR = "HTTP_RANGE_ERROR"
+    const val MEDIA3_ERROR = "MEDIA3_ERROR"
+}
+
 data class TorrentEngineStats(
     val state: TorrentEngineState = TorrentEngineState.IDLE,
     val infoHash: String = "",
@@ -164,6 +173,9 @@ data class TorrentEngineStats(
     val streamPort: Int = 8899,
     val streamUrl: String = "",
     val errorMessage: String? = null,
+    val errorCode: String? = null,
+    val httpStatusCode: String = "",
+    val lastRangeHeader: String = "",
     val dhtNodes: Long = 0L,
     val activePeersList: List<TorrentPeerInfo> = emptyList(),
     val trackersList: List<TorrentTrackerInfo> = emptyList()

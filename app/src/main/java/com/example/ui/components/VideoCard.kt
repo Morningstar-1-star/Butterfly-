@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.WatchLater
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -166,6 +167,9 @@ fun VideoCard(
                 }
             }
             pid == "jikan_anime" || pid == "nyaa" || titleLower.contains("anime") || uploaderLower.contains("anime") || uploaderLower.contains("ghibli") || uploaderLower.contains("toei") || uploaderLower.contains("mappa") || uploaderLower.contains("aniplex") -> "Anime"
+            pid.contains("sextb") -> "SEXТB"
+            pid.contains("123av") -> "123AV"
+            pid.contains("javtiful") -> "Javtiful"
             pid.contains("apijav") || pid.contains("eporner") || pid.contains("porn") || pid.contains("hentai") || pid.contains("javinfo") -> "18+"
             video.id.startsWith("tv_") || (pid.contains("eztv") && (titleLower.contains("s0") || titleLower.contains("season"))) -> "Series"
             video.id.startsWith("movie_") || video.id.replace("tmdb_", "").all { it.isDigit() } || pid in listOf("tmdb", "tmdb_movies") -> "Movie"
@@ -198,6 +202,9 @@ fun VideoCard(
             name == "Movie" || name == "Movies" -> Color(0xFFE5A00D)
             name == "Series" -> Color(0xFF0288D1)
             name == "Anime" -> Color(0xFFE91E63)
+            name == "SEXТB" -> Color(0xFFE91E63)
+            name == "123AV" -> Color(0xFF9C27B0)
+            name == "Javtiful" -> Color(0xFF673AB7)
             name == "18+" -> Color(0xFFC2185B)
             name == "YouTube" -> Color(0xFFFF0000)
             else -> Color(0xFF1976D2)
@@ -262,7 +269,7 @@ fun VideoCard(
     val effectiveThumbnailUrl = remember(video.thumbnailUrl, video.id, video.providerId) {
         val raw = video.thumbnailUrl?.trim()
         when {
-            !raw.isNullOrBlank() && !raw.contains("placeholder") && (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("//")) -> {
+            !raw.isNullOrBlank() && !raw.contains("placeholder") && !raw.contains("blank.gif") && !raw.contains("loading.gif") && (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("//")) -> {
                 if (raw.startsWith("//")) "https:$raw" else raw
             }
             video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
@@ -406,11 +413,40 @@ fun VideoCard(
             ) {
                 if (thumbnailImageRequest != null) {
                     // Single ultra-fast high-performance artwork layer (standard YouTube 16:9 crop)
-                    AsyncImage(
+                    SubcomposeAsyncImage(
                         model = thumbnailImageRequest,
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                )
+                            }
+                        },
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
+                        }
                     )
 
                     // Subtle bottom gradient for badge legibility

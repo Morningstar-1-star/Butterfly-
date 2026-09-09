@@ -89,7 +89,7 @@ object CategoryTagDetector {
             val providerId = detectProviderFromUrl(trimmed)
             val domainName = providerId?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() } ?: "Direct Link"
             val tags = mutableListOf("Direct Link", domainName)
-            if (providerId in listOf("eporner", "pornhub", "xvideos", "hqporner", "spankbang", "123av", "javtiful")) {
+            if (providerId in listOf("eporner", "pornhub", "xvideos", "hqporner", "spankbang", "123av", "javtiful", "sextb")) {
                 tags.add("18+ Adult")
             }
             return TagAnalysisResult(
@@ -181,6 +181,7 @@ object CategoryTagDetector {
             lower.contains("youporn.com") -> "youporn"
             lower.contains("mega.nz") || lower.contains("mega.io") -> "mega"
             lower.contains("t.me") || lower.contains("telegram") -> "telegram"
+            lower.contains("sextb.net") || lower.contains("sextb") || lower.contains("streamtb.me") -> "sextb"
             else -> "youtube"
         }
     }

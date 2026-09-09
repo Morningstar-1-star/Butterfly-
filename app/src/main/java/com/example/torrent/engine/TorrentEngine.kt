@@ -74,6 +74,10 @@ class TorrentEngine(private val context: Context) : TorrentEngineInterface {
         return sessionManager.isRangeDownloaded(offset, length)
     }
 
+    override fun updateHttpStatus(status: String, range: String) {
+        sessionManager.updateHttpStatus(status, range)
+    }
+
     fun getFileLength(): Long {
         return sessionManager.activeFileItem?.length
             ?: 0L

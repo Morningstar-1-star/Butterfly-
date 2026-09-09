@@ -40,7 +40,7 @@ object AppConfig {
     private const val KEY_MAGNETIO_ENABLED = "magnetio_enabled"
 
     // Default working keys & mirrors
-    const val DEFAULT_TMDB_API_KEY = "b4ef3b290130df4d8de63d410db2bdfc"
+    const val DEFAULT_TMDB_API_KEY = "3155fdb497f7575a144f26adebcbf980"
     const val DEFAULT_TMDB_READ_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIzMTU1ZmRiNDk3Zjc1NzVhMTQ0ZjI2YWRlYmNiZjk4MCIsIm5iZiI6MTc3NTcwNjIzNy43NDUsInN1YiI6IjY5ZDcyMDdkNmJiYTRiYzAzOTEwNjI2ZSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ._4WdklzSx9za_YAGeMlABQ1jMEOPCLa6mEWtGQLqrw0"
     const val DEFAULT_TRAKT_CLIENT_ID = "9434714b83b9485c37a7865f58ad942ec7e1f64c372d0cf304f6ac882d307bb7"
     const val DEFAULT_WATCHMODE_API_KEY = "wm_-yvlXIr6cXJxkpC90gpkhfp5VHMWhXJH7PJ1ht9OLjg"
@@ -152,11 +152,18 @@ object AppConfig {
     const val TMDB_IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
     const val TMDB_IMAGE_BASE_W342 = "https://image.tmdb.org/t/p/w342"
     const val TMDB_IMAGE_BASE_W185 = "https://image.tmdb.org/t/p/w185"
-    const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
+    const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
+    const val TMDB_BACKDROP_BASE_W1280 = "https://image.tmdb.org/t/p/w1280"
+    const val TMDB_BACKDROP_BASE_W780 = "https://image.tmdb.org/t/p/w780"
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        cachedTmdbKey = prefs.getString(KEY_TMDB_API_KEY, null)?.ifBlank { null } ?: DEFAULT_TMDB_API_KEY
+        val storedTmdbKey = prefs.getString(KEY_TMDB_API_KEY, null)?.ifBlank { null }
+        cachedTmdbKey = if (storedTmdbKey == null || storedTmdbKey == "b4ef3b290130df4d8de63d410db2bdfc") {
+            DEFAULT_TMDB_API_KEY
+        } else {
+            storedTmdbKey
+        }
         cachedSubdlKey = prefs.getString(KEY_SUBDL_API_KEY, null)?.ifBlank { null } ?: DEFAULT_SUBDL_API_KEY
         cachedOpenSubKey = prefs.getString(KEY_OPENSUBTITLES_API_KEY, null)?.ifBlank { null } ?: DEFAULT_OPENSUBTITLES_API_KEY
         cachedTorrentioUrl = prefs.getString(KEY_TORRENTIO_BASE_URL, null)?.ifBlank { null } ?: DEFAULT_TORRENTIO_BASE_URL

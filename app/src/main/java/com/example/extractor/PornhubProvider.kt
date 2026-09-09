@@ -459,6 +459,7 @@ object PornhubProvider {
 
                 val streamOptions = mutableListOf<PlayableStreamOption>()
                 var durationSeconds = 0L
+                var heatmapData: com.example.model.VideoHeatmap? = null
 
                 if (fvJsonStr.isNotBlank()) {
                     try {
@@ -471,6 +472,11 @@ object PornhubProvider {
                         if (fvThumb.isNotBlank()) thumb = fvThumb
 
                         durationSeconds = fvObj.optLong("video_duration", 0L)
+
+                        val hsArr = fvObj.optJSONArray("hotspots")
+                        if (hsArr != null && hsArr.length() > 0) {
+                            heatmapData = com.example.util.HeatmapHelper.fromJSONArray(hsArr, durationSeconds * 1000L)
+                        }
 
                         if (fvObj.has("mediaDefinitions")) {
                             val mediaArr = fvObj.getJSONArray("mediaDefinitions")
@@ -578,6 +584,10 @@ object PornhubProvider {
                     val firstUrl = sortedOptions.firstOrNull()?.videoUrl ?: ""
                     val hlsUrl = sortedOptions.firstOrNull { it.format == "m3u8" }?.videoUrl
 
+                    if (heatmapData == null) {
+                        heatmapData = com.example.util.HeatmapHelper.extractFromHtml(html, durationSeconds * 1000L)
+                    }
+
                     return@withContext StreamData(
                         videoId = vk,
                         videoUrl = firstUrl,
@@ -588,7 +598,8 @@ object PornhubProvider {
                         selectedStreamOption = sortedOptions.firstOrNull(),
                         hlsUrl = hlsUrl,
                         providerId = PROVIDER_ID,
-                        headers = defaultHeaders
+                        headers = defaultHeaders,
+                        heatmap = heatmapData
                     )
                 }
             } catch (e: Exception) {

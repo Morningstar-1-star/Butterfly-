@@ -486,13 +486,46 @@ object NoodleMagazineProvider {
     private fun extractIframeStreams(iframeUrl: String, sources: MutableList<PlayableStreamOption>) {
         try {
             val lower = iframeUrl.lowercase()
-            if (lower.contains("vk.com") || lower.contains("vkvideo.ru") || lower.contains("vkuser") || lower.contains("mycdn.me")) {
+            if (lower.contains("vk.com") || lower.contains("vkvideo") || lower.contains("vkuser") || lower.contains("mycdn") || lower.contains("userapi")) {
                 extractVkEmbedStreams(iframeUrl, sources)
             } else if (lower.contains("ok.ru") || lower.contains("odnoklassniki.ru")) {
                 extractOkRuStreams(iframeUrl, sources)
+            } else if (lower.contains("noodlemagazine") || lower.contains("noodlemag")) {
+                extractNoodleEmbedStreams(iframeUrl, sources)
             }
         } catch (e: Exception) {
             Log.w(TAG, "extractIframeStreams for $iframeUrl error: ${e.message}")
+        }
+    }
+
+    private fun extractNoodleEmbedStreams(embedUrl: String, sources: MutableList<PlayableStreamOption>) {
+        try {
+            val req = Request.Builder()
+                .url(embedUrl)
+                .headers(okhttp3.Headers.Builder().apply { defaultHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                .build()
+
+            val html = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return
+
+            extractDirectScriptStreams(html, sources)
+
+            val doc = Jsoup.parse(html)
+            for (iframe in doc.select("iframe[src], iframe[data-src]")) {
+                var src = iframe.attr("src").ifBlank { iframe.attr("data-src") }.trim()
+                if (src.startsWith("//")) src = "https:$src"
+                if (src.isNotBlank() && !src.equals(embedUrl, ignoreCase = true)) {
+                    val lower = src.lowercase()
+                    if (lower.contains("vk.com") || lower.contains("vkvideo") || lower.contains("vkuser") || lower.contains("mycdn") || lower.contains("userapi")) {
+                        extractVkEmbedStreams(src, sources)
+                    } else if (lower.contains("ok.ru")) {
+                        extractOkRuStreams(src, sources)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "extractNoodleEmbedStreams error: ${e.message}")
         }
     }
 
@@ -580,13 +613,14 @@ object NoodleMagazineProvider {
                             val vObj = videos.optJSONObject(i) ?: continue
                             val name = vObj.optString("name", "HD")
                             val vUrl = vObj.optString("url")
-                            if (vUrl.startsWith("http")) {
+                            val cleanVUrl = unescapeUrl(vUrl)
+                            if (cleanVUrl.startsWith("http")) {
                                 sources.add(
                                     PlayableStreamOption(
                                         qualityLabel = "$name (OK.ru)",
-                                        format = if (vUrl.contains(".m3u8")) "m3u8" else "mp4",
+                                        format = if (cleanVUrl.contains(".m3u8")) "m3u8" else "mp4",
                                         isMuxed = true,
-                                        videoUrl = vUrl,
+                                        videoUrl = cleanVUrl,
                                         providerType = ProviderType.OTHER,
                                         headers = mapOf("User-Agent" to DEFAULT_UA)
                                     )
@@ -604,11 +638,17 @@ object NoodleMagazineProvider {
     private fun getHeadersForStreamUrl(url: String): Map<String, String> {
         val lower = url.lowercase()
         return when {
-            lower.contains("vk.com") || lower.contains("vkuser") || lower.contains("mycdn.me") || lower.contains("vkvideo") -> {
+            lower.contains("vk.com") || lower.contains("vkuser") || lower.contains("mycdn") || lower.contains("vkvideo") || lower.contains("userapi") || lower.contains("ok.ru") || lower.contains("odnoklassniki") -> {
                 mapOf("User-Agent" to DEFAULT_UA, "Referer" to "https://vk.com/")
             }
             lower.contains("noodlemagazine") || lower.contains("noodlemag") -> {
-                defaultHeaders
+                mapOf(
+                    "User-Agent" to DEFAULT_UA,
+                    "Referer" to "$BASE_URL/",
+                    "Origin" to BASE_URL,
+                    "Cookie" to "age_verified=1; platform=pc; ft_mature=1; consent=1",
+                    "Accept" to "*/*"
+                )
             }
             lower.contains("commondatastorage") || lower.contains("googleapis.com") || lower.contains("cloudflarestream") -> {
                 mapOf("User-Agent" to DEFAULT_UA)
@@ -620,10 +660,19 @@ object NoodleMagazineProvider {
     }
 
     private fun unescapeUrl(raw: String): String {
-        return raw.replace("\\/", "/")
+        var clean = raw.replace("\\/", "/")
             .replace("\\u0026", "&")
+            .replace("&amp;", "&")
+            .replace("&#38;", "&")
+            .replace("&#x26;", "&")
             .replace("\\\\", "")
             .trim()
+
+        while (clean.contains("&amp;")) {
+            clean = clean.replace("&amp;", "&")
+        }
+
+        return clean
     }
 
     private fun extractVideoId(urlOrId: String): String {

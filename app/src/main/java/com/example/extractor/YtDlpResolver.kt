@@ -795,6 +795,13 @@ object YtDlpResolver {
                 )
             }
 
+            // Parse Heatmap ("Most Replayed" curve from YouTube / supported providers)
+            val durSec = json.optLong("duration", 0L)
+            val parsedHeatmap = com.example.util.HeatmapHelper.fromYtDlpHeatmap(
+                rawHeatmap = json.optJSONArray("heatmap"),
+                durationMs = durSec * 1000L
+            )
+
             val streamData = StreamData(
                 videoId = videoId,
                 videoUrl = bestOption.videoUrl ?: "",
@@ -810,7 +817,8 @@ object YtDlpResolver {
                 headers = bestOption.headers,
                 tags = extractedTags,
                 category = primaryCat,
-                chapters = parsedChapters
+                chapters = parsedChapters,
+                heatmap = parsedHeatmap
             )
 
             Log.i(TAG, "yt-dlp success: found ${distinctOptions.size} streams, selected '${bestOption.qualityLabel}'")

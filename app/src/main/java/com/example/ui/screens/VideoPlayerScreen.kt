@@ -209,22 +209,22 @@ fun VideoPlayerScreen(
 
     val dragOffsetY = remember { Animatable(0f) }
     val density = LocalDensity.current
-    val maxDockDistancePx = with(density) { 360.dp.toPx() }
-    val minimizeThresholdPx = with(density) { 80.dp.toPx() }
+    val maxDockDistancePx = with(density) { 380.dp.toPx() }
+    val minimizeThresholdPx = with(density) { 70.dp.toPx() }
 
     val currentDragY = dragOffsetY.value.coerceAtLeast(0f)
     val dragFraction = (currentDragY / maxDockDistancePx).coerceIn(0f, 1f)
 
     // Details sheet fades out smoothly during vertical drag
-    val detailsAlpha = (1.0f - dragFraction * 2.5f).coerceIn(0f, 1f)
-    val detailsTranslationY = currentDragY * 0.8f
+    val detailsAlpha = (1.0f - dragFraction * 2.2f).coerceIn(0f, 1f)
+    val detailsTranslationY = currentDragY * 0.7f
 
     // 16:9 video player scales and translates down cleanly towards mini-player position
-    val playerScale = 1.0f - (dragFraction * 0.30f)
-    val playerTranslationX = dragFraction * (with(density) { 48.dp.toPx() })
-    val playerTranslationY = currentDragY * 0.85f
-    val playerCornerDp = (dragFraction * 16).dp
-    val bgOverlayAlpha = (1.0f - dragFraction * 1.2f).coerceIn(0f, 1f)
+    val playerScale = 1.0f - (dragFraction * 0.45f)
+    val playerTranslationX = dragFraction * (with(density) { 65.dp.toPx() })
+    val playerTranslationY = currentDragY
+    val playerCornerDp = (dragFraction * 14).dp
+    val bgOverlayAlpha = (1.0f - dragFraction * 1.3f).coerceIn(0f, 1f)
 
     val minimizePlayerAction: () -> Unit = {
         onBackClick()
@@ -449,10 +449,10 @@ fun VideoPlayerScreen(
                             },
                             onSwipeDownEnd = { accumulatedDy ->
                                 coroutineScope.launch {
-                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 50f) {
+                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 40f) {
                                         minimizePlayerAction()
                                     } else {
-                                        dragOffsetY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+                                        dragOffsetY.animateTo(0f, spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow))
                                     }
                                 }
                             },

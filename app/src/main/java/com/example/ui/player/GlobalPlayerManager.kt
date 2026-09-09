@@ -55,7 +55,7 @@ object GlobalPlayerManager {
                 builder.removeHeader("Cookie")
                 builder.removeHeader("cookie")
             }
-            urlStr.contains("vk.com") || urlStr.contains("vkuser.net") || urlStr.contains("vkuservideo.net") || urlStr.contains("mycdn.me") || urlStr.contains("vk-cdn.me") || urlStr.contains("userapi.com") -> {
+            urlStr.contains("vk.com") || urlStr.contains("vkvideo") || urlStr.contains("vkuser") || urlStr.contains("mycdn") || urlStr.contains("vk-cdn") || urlStr.contains("userapi") || urlStr.contains("ok.ru") || urlStr.contains("odnoklassniki") -> {
                 builder.header("Referer", "https://vk.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.removeHeader("Origin")
@@ -63,7 +63,7 @@ object GlobalPlayerManager {
                 builder.removeHeader("Cookie")
                 builder.removeHeader("cookie")
             }
-            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos-") || urlStr.contains("akamaized") -> {
+            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos") || urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") || urlStr.contains("mirror08c") || urlStr.contains("bstar") -> {
                 builder.header("Referer", "https://www.bilibili.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.header("Accept", "*/*")
@@ -199,10 +199,11 @@ object GlobalPlayerManager {
                 builder.header("Origin", "https://www.sonyliv.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            urlStr.contains("thisvid.com") -> {
+            urlStr.contains("thisvid") || urlStr.contains("tvid") -> {
                 builder.header("Referer", "https://thisvid.com/")
                 builder.header("Origin", "https://thisvid.com")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1; kt_disclaimer=1")
             }
             urlStr.contains("tnaflix.com") -> {
                 builder.header("Referer", "https://www.tnaflix.com/")
@@ -495,6 +496,7 @@ object GlobalPlayerManager {
     }
 
     private var playbackFailedListener: ((Int?) -> Unit)? = null
+    private val failedStreamUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     fun setPlaybackFailedListener(listener: ((Int?) -> Unit)?) {
         playbackFailedListener = listener
@@ -640,9 +642,11 @@ object GlobalPlayerManager {
                     // Resilient auto-failover: if current stream option failed with 403 or playback error, try alternative options
                     val currentData = _activeStreamData.value
                     val currentOption = currentData?.selectedStreamOption
+                    currentOption?.videoUrl?.let { failedStreamUrls.add(it) }
+
                     if (currentData != null && currentData.availableStreamOptions.size > 1) {
                         val remainingOptions = currentData.availableStreamOptions.filter {
-                            it.videoUrl != currentOption?.videoUrl && !it.videoUrl.isNullOrBlank()
+                            !it.videoUrl.isNullOrBlank() && !failedStreamUrls.contains(it.videoUrl)
                         }
                         if (remainingOptions.isNotEmpty()) {
                             val nextOption = remainingOptions.first()
@@ -663,11 +667,34 @@ object GlobalPlayerManager {
                         }
                     }
 
-                    val detailedError = StringBuilder("Media3 Error [$errorCodeName / ${error.errorCode}]: ${error.message ?: "Unknown error"}")
+                    val torrentEngine = appContext?.let { com.example.torrent.engine.TorrentEngine.getInstance(it) }
+                    val torrentStats = torrentEngine?.stats?.value
+                    val currentUri = exoPlayerInstance?.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
+                    val isTorrentLocalhost = currentUri.contains("127.0.0.1") || currentUri.contains("localhost")
+
+                    val detailedError = StringBuilder()
+                    when {
+                        isTorrentLocalhost && httpStatus == 416 -> {
+                            detailedError.append("[HTTP_RANGE_ERROR]: Requested byte range not satisfiable (HTTP 416)")
+                        }
+                        isTorrentLocalhost && httpStatus == 503 -> {
+                            detailedError.append("[NO_METADATA]: Swarm metadata timed out (HTTP 503)")
+                        }
+                        isTorrentLocalhost && httpStatus == 504 -> {
+                            detailedError.append("[BUFFER_TIMEOUT]: Swarm pieces timed out while buffering playback window (HTTP 504)")
+                        }
+                        isTorrentLocalhost && torrentStats?.errorCode != null -> {
+                            detailedError.append("[${torrentStats.errorCode}]: ${torrentStats.errorMessage ?: "Torrent swarm failure"}")
+                        }
+                        else -> {
+                            detailedError.append("[MEDIA3_ERROR / $errorCodeName]: ${error.message ?: "Playback failure"}")
+                        }
+                    }
+
                     if (rootCause != null) {
                         detailedError.append("\nCause: [${rootCause.javaClass.simpleName}] ${rootCause.message}")
                     }
-                    if (httpStatus != null) {
+                    if (httpStatus != null && !detailedError.contains("HTTP $httpStatus")) {
                         detailedError.append(" (HTTP Status $httpStatus)")
                     }
 
@@ -879,6 +906,9 @@ object GlobalPlayerManager {
         val player = getExoPlayer(context)
         _playbackEnded.value = false
         if (streamData != null) {
+            if (streamData.videoId != _activeStreamData.value?.videoId) {
+                failedStreamUrls.clear()
+            }
             _activeStreamData.value = streamData
             _bilibiliSubtitleTracks.value = streamData.captionOptions
             if (streamData.captionOptions.isNotEmpty()) {
@@ -989,9 +1019,9 @@ object GlobalPlayerManager {
                 val lowerTarget = targetUrl.lowercase()
                 val isGoogleStorageOrPublic = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") || lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com") ||
                         lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") || lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") || lowerTarget.contains("githubusercontent") || lowerTarget.contains("cloudflarestream")
-                val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos-") || lowerTarget.contains("akamaized") || streamData?.providerId == "bilibili"
+                val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") || lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos") || lowerTarget.contains("akamaized") || lowerTarget.contains("bcache") || lowerTarget.contains("mirrorali") || lowerTarget.contains("mirrorcos") || lowerTarget.contains("mirrorhw") || lowerTarget.contains("mirrorbos") || lowerTarget.contains("mirror08c") || lowerTarget.contains("bstar") || streamData?.providerId == "bilibili"
 
-                val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkvideo") || lowerTarget.contains("vkuser") || lowerTarget.contains("mycdn.me") || lowerTarget.contains("vk-cdn") || lowerTarget.contains("userapi.com") || lowerTarget.contains("ok.ru") || lowerTarget.contains("odnoklassniki")
+                val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkvideo") || lowerTarget.contains("vkuser") || lowerTarget.contains("mycdn") || lowerTarget.contains("vk-cdn") || lowerTarget.contains("userapi") || lowerTarget.contains("ok.ru") || lowerTarget.contains("odnoklassniki")
 
                 if (isGoogleStorageOrPublic) {
                     reqHeaders.remove("Referer")
@@ -1122,14 +1152,15 @@ object GlobalPlayerManager {
                                 }
                                 reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
-                            lowerTarget.contains("thisvid.com") || lowerTarget.contains("tvid") -> {
+                            lowerTarget.contains("thisvid") || lowerTarget.contains("tvid") -> {
                                 reqHeaders["Referer"] = "https://thisvid.com/"
                                 if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
                                     reqHeaders["Origin"] = "https://thisvid.com"
                                 }
                                 if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) {
-                                    reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
+                                    reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1; kt_disclaimer=1"
                                 }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
                             lowerTarget.contains("hqporner.com") || lowerTarget.contains("hqporner") || lowerTarget.contains("hqplayer") -> {
                                 reqHeaders["Referer"] = "https://hqporner.com/"
@@ -1159,6 +1190,13 @@ object GlobalPlayerManager {
                                     reqHeaders["Origin"] = "https://javplayer.cc"
                                 }
                                 reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                            }
+                            lowerTarget.contains("streamtb") || lowerTarget.contains("sextb") || streamData?.providerId == "sextb" -> {
+                                reqHeaders["Referer"] = "https://streamtb.me/"
+                                if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                                    reqHeaders["Origin"] = "https://streamtb.me"
+                                }
+                                reqHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                             }
                             lowerTarget.contains("fast-stream") || lowerTarget.contains("javtiful.com") || lowerTarget.contains("jav.si") || streamData?.providerId == "javtiful" -> {
                                 reqHeaders["Referer"] = "https://javtiful.com/"
@@ -1248,23 +1286,25 @@ object GlobalPlayerManager {
 
                 val builder = MediaItem.Builder().setUri(uri)
 
-                if (lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.contains(".m3u8") || lowerUrl.contains("m3u8")) {
+                val isExplicitHls = lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.endsWith(".m3u8") || lowerUrl.contains(".m3u8?") || lowerUrl.contains("/hls/") || lowerUrl.contains("format=m3u8") || lowerUrl.contains("type=m3u8")
+                val isExplicitMpd = lowerFormat == "mpd" || lowerUrl.endsWith(".mpd") || lowerUrl.contains(".mpd?")
+                val isExplicitMkv = lowerFormat == "mkv" || lowerUrl.endsWith(".mkv") || lowerUrl.contains("video%2fx-matroska")
+                val isExplicitAudioWebm = lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")
+                val isExplicitVideoWebm = lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.endsWith(".webm")
+                val isExplicitAudioMp4 = lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.endsWith(".m4a")
+
+                if (isExplicitHls) {
                     builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                } else if (lowerFormat == "mpd" || lowerUrl.contains(".mpd")) {
+                } else if (isExplicitMpd) {
                     builder.setMimeType(MimeTypes.APPLICATION_MPD)
-                } else if (lowerFormat == "mkv" || lowerUrl.contains(".mkv") || lowerUrl.contains("video%2fx-matroska") || lowerUrl.contains("video/x-matroska")) {
+                } else if (isExplicitMkv) {
                     builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
-                } else if (lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm") || (lowerFormat == "webm" && (lowerUrl.contains("audio") || lowerUrl.contains("mime=audio")))) {
+                } else if (isExplicitAudioWebm) {
                     builder.setMimeType(MimeTypes.AUDIO_WEBM)
-                } else if (lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.contains(".webm")) {
+                } else if (isExplicitVideoWebm) {
                     builder.setMimeType(MimeTypes.VIDEO_WEBM)
-                } else if (lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerFormat == "aac" || lowerFormat == "mp3" ||
-                    lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4") || lowerUrl.contains("mime=audio%2fm4a") || lowerUrl.contains(".m4a") ||
-                    lowerUrl.contains("-30280.m4s") || lowerUrl.contains("-30232.m4s") || lowerUrl.contains("-30216.m4s") || lowerUrl.contains("-30250.m4s") || lowerUrl.contains("-30251.m4s") || lowerUrl.contains("_da3-1-302") || lowerUrl.contains("-302")
-                ) {
+                } else if (isExplicitAudioMp4) {
                     builder.setMimeType(MimeTypes.AUDIO_MP4)
-                } else if (lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4") || lowerUrl.contains(".mp4")) {
-                    builder.setMimeType(MimeTypes.VIDEO_MP4)
                 }
 
                 if (subtitles.isNotEmpty()) {
@@ -1305,7 +1345,7 @@ object GlobalPlayerManager {
                     val audioHeaders = if (streamOption.audioHeaders.isNotEmpty()) streamOption.audioHeaders else streamOption.headers
                     val audioSourceFactory = createMediaSourceFactory(aUrl, audioHeaders)
 
-                    val videoItem = buildMediaItem(vUrl, streamOption.format.ifEmpty { "video" }, subtitleConfigs)
+                    val videoItem = buildMediaItem(vUrl, streamOption.format.ifEmpty { "video_mp4" }, subtitleConfigs)
                     val audioItem = buildMediaItem(aUrl, if (aUrl.contains("webm")) "audio_webm" else "audio_mp4")
                     if (videoItem != null && audioItem != null) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)

@@ -190,7 +190,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val adultIdsList = listOf(
-        "123av", "javtiful", "jav_all", "pornhub", "xvideos", "chaturbate", "cam4", "cammodels",
+        "sextb", "123av", "javtiful", "jav_all", "pornhub", "xvideos", "chaturbate", "cam4", "cammodels",
         "noodlemagazine", "thisvid", "tnaflix", "spankbang", "motherless", "playvid", "txxx", "eporner", "hanime1", "hqporner", "redtube",
         "xhamster", "beeg", "4tube", "rule34video", "youporn"
     )
@@ -598,7 +598,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPipMode.value = enabled
     }
 
-    private val adultProviderIds = setOf("eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "spankbang", "motherless", "playvid", "txxx")
+    private val adultProviderIds = setOf("sextb", "123av", "javtiful", "jav_all", "eporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn", "apijav", "hanime1", "hqporner", "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "spankbang", "motherless", "playvid", "txxx")
 
     fun isAdultProviderId(providerId: String?): Boolean {
         if (providerId.isNullOrBlank()) return false
@@ -2486,6 +2486,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
             val adultProviders = listOf(
+                Triple("sextb", "SEXТB (StreamTB)", "SEXТB Asian & Japanese adult video catalog with native StreamTB HLS resolution"),
                 Triple("123av", "123AV (JAV & Player)", "123AV Japanese Adult Video catalog & JAVPlayer HLS direct streams"),
                 Triple("javtiful", "Javtiful (JAV)", "Javtiful trending JAV video catalog & high-speed streaming"),
                 Triple("jav_all", "All JAV Sources", "Aggregated JAV trending feed & releases across all JAV providers"),
@@ -3361,7 +3362,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
                         "crunchyroll", "sonyliv",
-                        "123av", "javtiful", "jav_all",
+                        "sextb", "123av", "javtiful", "jav_all",
                         "hanime1", "hqporner", "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster", "youporn",
                         "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                         "spankbang", "motherless", "playvid", "txxx"
@@ -3570,7 +3571,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "dailymotion", "bilibili", "vimeo", "hotstar", "twitch", "bigo", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
                         "crunchyroll", "sonyliv",
-                        "123av", "javtiful", "jav_all",
+                        "sextb", "123av", "javtiful", "jav_all",
                         "hanime1", "hqporner", "pornhub", "beeg",
                         "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                         "spankbang", "motherless", "playvid", "txxx"
@@ -3755,7 +3756,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
                             "crunchyroll", "sonyliv"
                         ) + (if (adultEnabled) listOf(
-                            "123av", "javtiful", "jav_all",
+                            "sextb", "123av", "javtiful", "jav_all",
                             "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "motherless", "playvid", "txxx"
@@ -3800,7 +3801,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
                             "crunchyroll", "sonyliv"
                         ) + (if (adultEnabled) listOf(
-                            "123av", "javtiful", "jav_all",
+                            "sextb", "123av", "javtiful", "jav_all",
                             "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "motherless", "playvid", "txxx"
@@ -4334,9 +4335,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?: result.streamData.availableStreamOptions.firstOrNull { !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
                     _selectedStreamOption.value = primary
                     _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
-                    if (!result.streamData.channelAvatarUrl.isNullOrBlank()) {
+                    val streamThumb = result.streamData.thumbnailUrl?.takeIf { it.isNotBlank() && !it.contains("blank.gif") && !it.contains("loading.gif") }
+                    val streamTitle = result.streamData.title.takeIf { it.isNotBlank() && !it.equals("XVideos", ignoreCase = true) && !it.equals("Video", ignoreCase = true) }
+                    val streamChannel = result.streamData.channelName.takeIf { it.isNotBlank() && !it.equals("XVideos", ignoreCase = true) && !it.equals("Video", ignoreCase = true) }
+                    if (streamThumb != null || streamTitle != null || streamChannel != null || !result.streamData.channelAvatarUrl.isNullOrBlank()) {
                         _activeVideoItem.value = _activeVideoItem.value?.copy(
-                            uploaderAvatarUrl = result.streamData.channelAvatarUrl
+                            title = streamTitle ?: _activeVideoItem.value?.title ?: "",
+                            uploaderName = streamChannel ?: _activeVideoItem.value?.uploaderName ?: "XVideos",
+                            thumbnailUrl = streamThumb ?: _activeVideoItem.value?.thumbnailUrl,
+                            uploaderAvatarUrl = result.streamData.channelAvatarUrl ?: _activeVideoItem.value?.uploaderAvatarUrl
                         )
                     }
                     loadTvSeasons(result.streamData)
@@ -5161,6 +5168,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     hlsUrl = null,
                     captionOption = null
                 )
+            }
+        }
+    }
+
+    fun playTorrentMagnetDirect(magnetUrl: String, title: String = "Torrent Stream Test") {
+        val parsed = com.example.torrent.protocol.MagnetParser.parse(magnetUrl)
+        val infoHash = parsed?.infoHashHex ?: ""
+        val release = com.example.torrent.model.TorrentRelease(
+            title = title,
+            infoHash = infoHash,
+            magnetUrl = magnetUrl,
+            provider = "Direct Torrent Test",
+            seeders = 10,
+            leechers = 2,
+            sizeBytes = 0L,
+            formattedSize = "Streaming"
+        )
+        val identity = com.example.torrent.provider.MediaIdentity(
+            title = title,
+            mediaType = "movie"
+        )
+        playTorrentRelease(release, identity)
+    }
+
+    fun stopTorrentSession(clearCache: Boolean = false) {
+        torrentEngine.stopSession(clearCache = clearCache)
+        com.example.ui.player.GlobalPlayerManager.stopAndClear()
+    }
+
+    fun seekTorrentStream(fraction: Float) {
+        val totalLen = torrentEngine.getActiveFileLength()
+        if (totalLen > 0L) {
+            val targetOffset = (totalLen * fraction).toLong()
+            torrentEngine.onPlaybackSeek(targetOffset)
+            val durationMs = com.example.ui.player.GlobalPlayerManager.durationMs.value
+            if (durationMs > 0L) {
+                com.example.ui.player.GlobalPlayerManager.seekTo((durationMs * fraction).toLong())
             }
         }
     }

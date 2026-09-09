@@ -60,7 +60,13 @@ data class ExploreMediaItem(
     val relatedContent: List<ExploreMediaItem> = emptyList(),
     val runtimeText: String? = null,
     val director: String? = null,
-    val tagline: String? = null
+    val writer: String? = null,
+    val tagline: String? = null,
+    val productionCompanies: List<String> = emptyList(),
+    val certification: String? = null,
+    val originCountry: String? = null,
+    val originalLanguage: String? = null,
+    val releaseDateFull: String? = null
 ) {
     val displayRating: String
         get() = if (rating > 0.0) String.format("%.1f", rating) else "N/A"

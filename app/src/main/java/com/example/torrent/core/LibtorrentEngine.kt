@@ -320,6 +320,21 @@ class LibtorrentEngine(private val context: Context) {
         findHandle(infoHashHex)?.resume()
     }
 
+    fun havePiece(infoHashHex: String, pieceIndex: Int): Boolean {
+        val th = findHandle(infoHashHex) ?: return false
+        return try {
+            th.havePiece(pieceIndex)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun flushCache(infoHashHex: String) {
+        try {
+            findHandle(infoHashHex)?.flushCache()
+        } catch (_: Exception) {}
+    }
+
     fun remove(infoHashHex: String, deleteFiles: Boolean = false) {
         val th = findHandle(infoHashHex) ?: return
         try {

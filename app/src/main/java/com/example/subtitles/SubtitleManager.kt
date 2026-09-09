@@ -2,51 +2,47 @@ package com.example.subtitles
 
 import android.content.Context
 import android.util.Log
-import com.example.model.CaptionOption
 import com.example.model.MediaIdentity
 import com.example.model.StreamData
-import com.example.subtitles.providers.AssrtProvider
-import com.example.subtitles.providers.BazarrSubtitleProvider
-import com.example.subtitles.providers.JimakuProvider
-import com.example.subtitles.providers.OpenSubtitlesProvider
-import com.example.subtitles.providers.PodnapisiProvider
-import com.example.subtitles.providers.SubDlProvider
-import com.example.subtitles.providers.SubSourceProvider
-import com.example.subtitles.providers.SubsceneProvider
+import com.example.subtitles.plugin.SubtitlePluginRegistry
 import com.example.util.SubtitleCue
 import com.example.util.SubtitleTranslator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 /**
- * External Subtitle Provider Manager orchestrates the strict fallback hierarchy:
- * 1. Embedded subtitles (detected from Media3/stream)
- * 2. Bilibili subtitles (native API JSON subtitles)
- * 3. External subtitle providers (OpenSubtitles, SubDL, Jimaku, SubSource, Bazarr Catalog, etc.)
- * 4. Cached transcript / Cached Subtitle
- * 5. Voice Activity Detection (RMS detection)
+ * Butterfly Subtitle Manager.
+ * Implements the unified subtitle architecture:
+ * "Butterfly Core → Subtitle Manager → Provider Plugins → unified results → deduplicate/rank → download"
+ *
+ * Concurrently queries enabled plugins with timeout and error fallback,
+ * ranks results according to the strict criteria:
+ * language → release/title match → season/episode → FPS → resolution → HI/Forced → hash,
+ * and deduplicates identical subtitle tracks.
  */
 object SubtitleManager {
     private const val TAG = "SubtitleManager"
+    private const val DEFAULT_PLUGIN_TIMEOUT_MS = 8000L
 
-    private val providers = listOf<SubtitleProvider>(
-        OpenSubtitlesProvider(),
-        SubDlProvider(),
-        JimakuProvider(),
-        SubSourceProvider(),
-        AssrtProvider(),
-        SubsceneProvider(),
-        PodnapisiProvider(),
-        BazarrSubtitleProvider()
-    )
+    private val directClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
 
     private val _discoveredSubtitles = MutableStateFlow<List<SubtitleItem>>(emptyList())
     val discoveredSubtitles: StateFlow<List<SubtitleItem>> = _discoveredSubtitles.asStateFlow()
@@ -69,11 +65,18 @@ object SubtitleManager {
     private val _selectedLanguage = MutableStateFlow("en")
     val selectedLanguage: StateFlow<String> = _selectedLanguage.asStateFlow()
 
+    private val _preferHearingImpaired = MutableStateFlow(false)
+    val preferHearingImpaired: StateFlow<Boolean> = _preferHearingImpaired.asStateFlow()
+
     private var searchJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    fun setPreferHearingImpaired(prefer: Boolean) {
+        _preferHearingImpaired.value = prefer
+    }
+
     /**
-     * Initializes and executes the full multi-tier subtitle discovery pipeline.
+     * Resolves subtitles for playback by running the concurrent discovery pipeline.
      */
     fun resolveSubtitlesForPlayback(
         context: Context,
@@ -101,7 +104,10 @@ object SubtitleManager {
             // Step 1: Detect Embedded Subtitles & Bilibili Native Subtitles
             if (streamData.captionOptions.isNotEmpty()) {
                 streamData.captionOptions.forEachIndexed { idx, cap ->
-                    val isBilibili = streamData.providerId == "bilibili" || cap.url.contains("bilibili") || cap.url.contains("biliapi")
+                    val isBilibili = streamData.providerId == "bilibili" ||
+                            cap.url.contains("bilibili") ||
+                            cap.url.contains("biliapi")
+
                     val subItem = SubtitleItem(
                         id = "native_${cap.languageCode}_$idx",
                         providerId = if (isBilibili) "bilibili" else "embedded",
@@ -118,45 +124,226 @@ object SubtitleManager {
                 }
             }
 
-            // Step 2: Search External Subtitle Providers in parallel
+            // Step 2: Concurrently query all enabled plugins
             val query = buildSearchQuery(streamData, mediaIdentity)
-            val externalSubtitles = searchExternalProviders(query)
+            val externalSubtitles = searchPluginProviders(context, query)
             combinedResults.addAll(externalSubtitles)
 
-            // Step 3: Sort & Rank Results
-            val ranked = rankSubtitles(combinedResults, _selectedLanguage.value)
+            // Step 3: Deduplicate identical subtitles across providers
+            val deduplicated = deduplicateSubtitles(combinedResults)
+
+            // Step 4: Strict Rank: language → release/title match → season/episode → FPS → resolution → HI/Forced → hash
+            val ranked = rankSubtitles(deduplicated, query, _selectedLanguage.value, _preferHearingImpaired.value)
             _discoveredSubtitles.value = ranked
             _isSearching.value = false
 
-            // Step 4: Check if usable subtitle exists
+            // Step 5: Select best match
             if (ranked.isNotEmpty()) {
                 val bestMatch = ranked.first()
-                Log.i(TAG, "Best subtitle found: [${bestMatch.providerName}] ${bestMatch.title} (${bestMatch.languageCode})")
+                Log.i(TAG, "Selected best subtitle: [${bestMatch.providerName}] ${bestMatch.title} (${bestMatch.languageCode}) score=${bestMatch.matchScore}")
                 selectSubtitle(context, bestMatch)
                 onUsableSubtitleFound?.invoke(bestMatch)
             } else {
-                Log.i(TAG, "No usable subtitle found across external providers. Triggering Whisper.cpp fallback.")
+                Log.i(TAG, "No usable subtitles found across plugins. Triggering fallback.")
                 onFallbackToWhisper?.invoke()
             }
         }
     }
 
-    private suspend fun searchExternalProviders(query: SubtitleSearchQuery): List<SubtitleItem> = withContext(Dispatchers.IO) {
-        val deferredList = providers.filter { it.isEnabled }.map { provider ->
-            async {
-                try {
-                    provider.search(query)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Provider ${provider.name} search failed: ${e.message}")
-                    emptyList()
+    /**
+     * Concurrently searches all enabled provider plugins with individual timeouts.
+     */
+    suspend fun searchPluginProviders(
+        context: Context,
+        query: SubtitleSearchQuery,
+        timeoutMs: Long = DEFAULT_PLUGIN_TIMEOUT_MS
+    ): List<SubtitleItem> = withContext(Dispatchers.IO) {
+        val plugins = SubtitlePluginRegistry.getEnabledPlugins(context)
+        if (plugins.isEmpty()) {
+            Log.w(TAG, "No subtitle plugins are currently enabled in settings")
+            return@withContext emptyList()
+        }
+
+        supervisorScope {
+            val deferredList = plugins.map { plugin ->
+                async {
+                    try {
+                        withTimeoutOrNull(timeoutMs) {
+                            plugin.search(query)
+                        } ?: run {
+                            Log.w(TAG, "Plugin ${plugin.name} timed out after ${timeoutMs}ms")
+                            emptyList()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Plugin ${plugin.name} search failed: ${e.message}")
+                        emptyList()
+                    }
                 }
             }
+            deferredList.map { it.await() }.flatten()
         }
-        deferredList.awaitAll().flatten()
     }
 
     /**
-     * Selects and loads a subtitle track, parsing its cues and caching it.
+     * Deduplicates identical or duplicate subtitles across providers.
+     * Keeps the track with higher matchScore and more complete metadata.
+     */
+    fun deduplicateSubtitles(items: List<SubtitleItem>): List<SubtitleItem> {
+        val seenUrls = mutableSetOf<String>()
+        val groupedByKey = mutableMapOf<String, SubtitleItem>()
+
+        for (item in items) {
+            val normUrl = item.downloadUrl.trim()
+            if (normUrl.isNotBlank() && seenUrls.contains(normUrl)) {
+                continue
+            }
+            if (normUrl.isNotBlank()) {
+                seenUrls.add(normUrl)
+            }
+
+            // Normalization key: language + normalized title + season/episode
+            val cleanTitle = normalizeReleaseName(item.releaseInfo ?: item.title)
+            val dedupeKey = "${item.languageCode.lowercase()}_${cleanTitle}_s${item.season ?: 0}e${item.episode ?: 0}"
+
+            val existing = groupedByKey[dedupeKey]
+            if (existing == null) {
+                groupedByKey[dedupeKey] = item
+            } else {
+                // If this duplicate has better metadata (e.g. FPS or resolution), prefer it
+                val existingQuality = (if (existing.fps != null) 1 else 0) + (if (existing.resolution != null) 1 else 0)
+                val newQuality = (if (item.fps != null) 1 else 0) + (if (item.resolution != null) 1 else 0)
+                if (newQuality > existingQuality || item.matchScore > existing.matchScore) {
+                    groupedByKey[dedupeKey] = item
+                }
+            }
+        }
+        return groupedByKey.values.toList()
+    }
+
+    /**
+     * Ranks subtitles by:
+     * 1. Language (Exact target match > Prefix match > English fallback)
+     * 2. Release / Title match (Exact name > token overlap)
+     * 3. Season & Episode (Exact match > season only > penalty on mismatch)
+     * 4. FPS (Matches video stream fps or standard 23.976/24/25)
+     * 5. Resolution (2160p/4K > 1080p > 720p match)
+     * 6. Hearing Impaired / Forced (Preferred HI badge, non-auto-generated)
+     * 7. Hash / Exact match
+     */
+    fun rankSubtitles(
+        items: List<SubtitleItem>,
+        query: SubtitleSearchQuery,
+        targetLang: String,
+        preferHi: Boolean
+    ): List<SubtitleItem> {
+        val queryTokens = extractTokens(query.releaseName ?: query.title)
+
+        return items.map { item ->
+            val score = calculateSubtitleScore(item, query, queryTokens, targetLang, preferHi)
+            item.copy(matchScore = score)
+        }.sortedByDescending { it.matchScore }
+    }
+
+    private fun calculateSubtitleScore(
+        item: SubtitleItem,
+        query: SubtitleSearchQuery,
+        queryTokens: Set<String>,
+        targetLang: String,
+        preferHi: Boolean
+    ): Int {
+        var score = 0
+
+        // Inbuilt captions (Bilibili / container) given top baseline
+        if (item.sourceType == SubtitleSourceType.EMBEDDED || item.sourceType == SubtitleSourceType.BILIBILI) {
+            score += 20000
+        }
+
+        // 1. Language Hierarchy
+        val itemLang = item.languageCode.lowercase().trim()
+        val target = targetLang.lowercase().trim()
+        when {
+            itemLang == target -> score += 10000
+            itemLang.startsWith(target) || target.startsWith(itemLang) -> score += 6000
+            itemLang == "en" -> score += 2500
+            else -> score += 200
+        }
+
+        // 2. Release & Title Match
+        val itemText = (item.releaseInfo ?: item.title).lowercase()
+        val normQueryTitle = query.title.lowercase().trim()
+
+        if (normQueryTitle.isNotBlank() && itemText.contains(normQueryTitle)) {
+            score += 3000
+        }
+
+        val itemTokens = extractTokens(itemText)
+        val matchingTokens = queryTokens.intersect(itemTokens)
+        score += (matchingTokens.size * 250).coerceAtMost(2500)
+
+        // Quality token bonus: e.g. "bluray", "web-dl", "yify", "x264", "x265", "hevc"
+        val qualityKeywords = setOf("bluray", "bdrip", "brrip", "web-dl", "webrip", "yify", "rarbg", "x264", "x265", "hevc")
+        val commonQuality = qualityKeywords.intersect(matchingTokens)
+        score += commonQuality.size * 300
+
+        // 3. Season & Episode Match
+        if (query.season != null && query.episode != null) {
+            if (item.season == query.season && item.episode == query.episode) {
+                score += 3500
+            } else if (item.season != null && item.episode != null &&
+                (item.season != query.season || item.episode != query.episode)) {
+                // Heavily penalize wrong season or wrong episode to guarantee it never ranks
+                score -= 20000
+            } else {
+                // Check if string contains SxxExx matching
+                val sStr = "s%02de%02d".format(query.season, query.episode)
+                val sShort = "%dx%d".format(query.season, query.episode)
+                if (itemText.contains(sStr) || itemText.contains(sShort)) {
+                    score += 3000
+                }
+            }
+        }
+
+        // 4. FPS Match
+        if (query.fps != null && item.fps != null) {
+            if (abs(query.fps - item.fps) < 0.05f) {
+                score += 1200
+            } else if (abs(query.fps - item.fps) < 0.5f) {
+                score += 500
+            }
+        } else if (item.fps != null && abs(item.fps - 23.976f) < 0.05f) {
+            score += 300
+        }
+
+        // 5. Resolution Match
+        val queryRes = query.resolution ?: extractResolution(query.releaseName ?: query.title)
+        val itemRes = item.resolution ?: extractResolution(itemText)
+        if (queryRes != null && itemRes != null && queryRes.equals(itemRes, ignoreCase = true)) {
+            score += 800
+        }
+
+        // 6. HI / Forced Match
+        if (preferHi) {
+            if (item.isHearingImpaired) score += 500
+        } else {
+            if (!item.isHearingImpaired) score += 500
+        }
+        if (!item.isAutoGenerated) {
+            score += 300
+        }
+
+        // 7. Hash / Exact match
+        if (!query.movieHash.isNullOrBlank() && query.movieHash == item.movieHash) {
+            score += 6000
+        }
+
+        // Add intrinsic provider match score
+        score += item.matchScore
+
+        return score
+    }
+
+    /**
+     * Selects and loads a subtitle track, downloading through its provider plugin.
      */
     fun selectSubtitle(context: Context, item: SubtitleItem?) {
         _activeSubtitleItem.value = item
@@ -179,11 +366,10 @@ object SubtitleManager {
                 // Check Disk Cache
                 var rawContent = SubtitleCache.getDiskCachedSubtitle(context, cacheKey)
                 if (rawContent == null) {
-                    val provider = providers.find { it.id == item.providerId }
-                    rawContent = if (provider != null) {
-                        provider.fetchContent(item)
+                    val plugin = SubtitlePluginRegistry.getPlugin(item.providerId, context)
+                    rawContent = if (plugin != null) {
+                        plugin.fetchContent(item)
                     } else {
-                        // Direct download e.g. for Bilibili or embedded URL
                         downloadDirect(item.downloadUrl, item.headers)
                     }
 
@@ -206,7 +392,7 @@ object SubtitleManager {
     }
 
     /**
-     * Sets user's target language with automatic cue translation and cache reuse.
+     * Changes user's target language with automatic cue translation.
      */
     fun setSelectedLanguage(targetLang: String) {
         _selectedLanguage.value = targetLang
@@ -230,7 +416,6 @@ object SubtitleManager {
         val activeItem = _activeSubtitleItem.value ?: return
         val cacheKey = "${activeItem.id}_${activeItem.languageCode}"
 
-        // Check if translation is cached
         val cachedTranslated = SubtitleCache.getTranslatedCues(cacheKey, targetLang)
         if (cachedTranslated != null && cachedTranslated.isNotEmpty()) {
             _activeCues.value = cachedTranslated
@@ -242,15 +427,11 @@ object SubtitleManager {
             return
         }
 
-        // Translate cues
         val translated = SubtitleTranslator.translateCues(baseCues, targetLang = targetLang, sourceLang = sourceLang)
         SubtitleCache.putTranslatedCues(cacheKey, targetLang, translated)
         _activeCues.value = translated
     }
 
-    /**
-     * Updates active subtitle texts according to player playback position.
-     */
     fun updatePlaybackPosition(positionMs: Long) {
         val cues = _activeCues.value
         if (cues.isEmpty()) return
@@ -274,6 +455,8 @@ object SubtitleManager {
             year = yearMatch.groupValues[1].toIntOrNull()
         }
 
+        val resolution = extractResolution(title)
+
         return SubtitleSearchQuery(
             title = title,
             year = year,
@@ -282,49 +465,48 @@ object SubtitleManager {
             tmdbId = mediaIdentity?.tmdbId,
             imdbId = mediaIdentity?.imdbId,
             languageCode = _selectedLanguage.value,
-            mediaIdentity = mediaIdentity
+            releaseName = title,
+            mediaIdentity = mediaIdentity,
+            resolution = resolution
         )
     }
 
-    private fun rankSubtitles(items: List<SubtitleItem>, targetLang: String): List<SubtitleItem> {
-        return items.sortedWith(
-            compareByDescending<SubtitleItem> {
-                // Priority 1: Inbuilt Video Captions First (YouTube/Bilibili/Video Container)
-                when (it.sourceType) {
-                    SubtitleSourceType.EMBEDDED -> 2000
-                    SubtitleSourceType.BILIBILI -> 2000
-                    SubtitleSourceType.EXTERNAL_PROVIDER -> 300
-                    SubtitleSourceType.CACHED -> 200
-                    SubtitleSourceType.VOICE_ACTIVITY_DETECTION -> 100
-                }
-            }.thenByDescending {
-                // Priority 2: Exact Language Match
-                if (it.languageCode.equals(targetLang, ignoreCase = true)) 1000
-                else if (it.languageCode.startsWith(targetLang, ignoreCase = true)) 500
-                else if (it.languageCode.contains("en", ignoreCase = true)) 200
-                else 0
-            }.thenByDescending {
-                // Priority 3: Non-auto-generated human captions
-                if (!it.title.contains("auto", ignoreCase = true) && !it.title.contains("generated", ignoreCase = true)) 200 else 50
-            }.thenByDescending {
-                // Priority 4: Match score
-                it.matchScore
-            }
-        )
+    private fun extractTokens(text: String): Set<String> {
+        return text.lowercase()
+            .replace(Regex("[^a-z0-9]"), " ")
+            .split(Regex("\\s+"))
+            .filter { it.length >= 3 }
+            .toSet()
+    }
+
+    private fun normalizeReleaseName(name: String): String {
+        return name.lowercase()
+            .replace(Regex("[^a-z0-9]"), "")
+            .take(30)
+    }
+
+    private fun extractResolution(text: String): String? {
+        val lower = text.lowercase()
+        return when {
+            lower.contains("2160p") || lower.contains("4k") -> "2160p"
+            lower.contains("1080p") -> "1080p"
+            lower.contains("720p") -> "720p"
+            lower.contains("480p") -> "480p"
+            else -> null
+        }
     }
 
     private suspend fun downloadDirect(url: String, headers: Map<String, String>): String? = withContext(Dispatchers.IO) {
         try {
-            val reqBuilder = okhttp3.Request.Builder().url(url)
+            val reqBuilder = Request.Builder().url(url)
             headers.forEach { (k, v) -> reqBuilder.header(k, v) }
             if (!headers.containsKey("User-Agent")) {
-                reqBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                reqBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Butterfly/2.0")
             }
             if (url.contains("bilibili")) {
                 reqBuilder.header("Referer", "https://www.bilibili.com/")
             }
-            val client = okhttp3.OkHttpClient()
-            client.newCall(reqBuilder.build()).execute().use { resp ->
+            directClient.newCall(reqBuilder.build()).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             }
         } catch (e: Exception) {
