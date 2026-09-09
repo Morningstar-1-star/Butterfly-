@@ -1,43 +1,46 @@
 package com.example.extractor.sextb
 
+import android.content.Context
 import android.util.Log
 import com.example.model.CaptionOption
 import com.example.util.JsUnpacker
 import com.example.util.SecureDnsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.Headers
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
+import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 /**
- * Resolves SEXТB page and iframe embed endpoints (StreamTB / player AJAX / packed JS)
- * into standardized playable HLS (.m3u8) or MP4 VideoSource items.
+ * Resolves SEXТB page and iframe embed endpoints using the real upstream pipeline:
  *
- * Implements CloudStream 18+ and JAVM resolution patterns adapted to Butterfly.
+ * Details Page
+ *   → `.episode-list .btn-player` (data-id & data-source)
+ *   → POST `/ajax/player`
+ *   → Extract returned iframe URL
+ *   → Stbturbo extractor (`#video_player[data-hash]`) or StreamTape extractor
+ *   → HLS (.m3u8) / MP4 streams for Butterfly ExoPlayer.
+ *
+ * WebView fallback is strictly retained for when native HTTP/JS resolution fails (e.g. anti-bot challenge).
  */
 object SextbResolver {
 
     private const val TAG = "SextbResolver"
     const val DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    const val MAIN_URL = "https://sextb.net"
+    const val AJAX_PLAYER_URL = "https://sextb.net/ajax/player"
 
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .dns(SecureDnsManager.appDns)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val httpClient get() = SextbNetwork.httpClient
 
     private val M3U8_URL_REGEX = Pattern.compile("""https?://[^"'\s<>]+\.m3u8(?:[^"'\s<>]*)?""", Pattern.CASE_INSENSITIVE)
     private val MP4_URL_REGEX = Pattern.compile("""https?://[^"'\s<>]+\.mp4(?:[^"'\s<>]*)?""", Pattern.CASE_INSENSITIVE)
     private val SOURCES_REGEX = Pattern.compile("""sources\s*:\s*(\[[^\]]+\])""", Pattern.CASE_INSENSITIVE)
-    private val FILE_KEY_REGEX = Pattern.compile("""["']?(?:file|src)["']?\s*:\s*["']([^"']+)["']""", Pattern.CASE_INSENSITIVE)
 
     /**
      * Resolves all playable media sources for a SEXТB video page or direct embed URL.
@@ -45,121 +48,238 @@ object SextbResolver {
     suspend fun resolveVideoSources(
         pageOrEmbedUrl: String,
         pageHtml: String? = null,
-        customHeaders: Map<String, String> = emptyMap()
+        customHeaders: Map<String, String> = emptyMap(),
+        context: Context? = null
     ): List<VideoSource> = withContext(Dispatchers.IO) {
         val resolvedSources = mutableListOf<VideoSource>()
         val startTime = System.currentTimeMillis()
 
-        Log.d(TAG, "SEXТB player: Resolving sources for target $pageOrEmbedUrl")
+        Log.d(TAG, "SEXТB resolver: Resolving sources for target $pageOrEmbedUrl")
 
-        // 1. If page HTML was already fetched, inspect it for direct sources & embeds
+        // 1. Direct embed check: if the URL itself is already an iframe player
+        if (isEmbedPlayerUrl(pageOrEmbedUrl)) {
+            val directEmbedSources = resolveIframeEmbed(pageOrEmbedUrl, "https://sextb.net/")
+            if (directEmbedSources.isNotEmpty()) {
+                return@withContext normalizeAndDeduplicateSources(directEmbedSources)
+            }
+        }
+
+        // 2. Fetch page HTML if not provided
         var html = pageHtml
         if (html == null) {
             html = fetchHtmlSafely(pageOrEmbedUrl, customHeaders)
         }
 
-        if (html != null) {
-            // Check if page returned a 404 or Not Found error
-            if (html.contains("<title>404") || html.contains("404 Page Not Found") || html.contains("Page Not Found | SEXTB")) {
-                Log.w(TAG, "SEXТB extractor: Page indicates 404 Not Found: $pageOrEmbedUrl")
-                return@withContext emptyList()
+        // Check if native fetch failed or returned Cloudflare challenge / block / 404
+        if (html == null || html.contains("<title>404") || html.contains("404 Page Not Found") || html.contains("Page Not Found | SEXTB") ||
+            html.contains("Access Restricted", ignoreCase = true) || html.contains("Attention Required! | Cloudflare") || html.contains("Checking your browser")
+        ) {
+            Log.w(TAG, "SEXТB resolver: Native fetch blocked or failed for $pageOrEmbedUrl, falling back to WebView resolution")
+            if (context != null) {
+                val fallbackSource = SextbWebViewFallback.resolveWithFallback(context, pageOrEmbedUrl)
+                if (fallbackSource != null) {
+                    return@withContext listOf(fallbackSource)
+                }
             }
+            return@withContext emptyList()
+        }
 
-            // Check direct sources in HTML
-            val doc = Jsoup.parse(html, pageOrEmbedUrl)
-            val directSources = SextbParser.parseDirectVideoSources(doc, pageOrEmbedUrl)
-            if (directSources.isNotEmpty()) {
-                Log.i(TAG, "SEXТB extractor: Found ${directSources.size} direct sources in main page HTML")
-                resolvedSources.addAll(directSources)
-            }
+        val doc = Jsoup.parse(html, pageOrEmbedUrl)
 
-            // Check if page contains packed JS
-            val unpackedHtml = unpackAllScripts(html)
-            val scriptSources = extractStreamUrlsFromText(unpackedHtml, pageOrEmbedUrl)
-            resolvedSources.addAll(scriptSources)
+        // 3. Upstream SEXТB Pipeline:
+        // Details page -> .episode-list .btn-player -> data-id + data-source -> POST /ajax/player -> iframe
+        val btnPlayers = doc.select(".episode-list .btn-player, .btn-player")
+        val globalFilmId = doc.selectFirst(".episode-list .btn-player, .btn-player")?.attr("data-source")?.ifBlank { "" } ?: ""
 
-            // Locate iframe / embed URLs
-            val embedUrls = SextbParser.extractPlayerEmbedUrls(html, pageOrEmbedUrl)
-            Log.d(TAG, "SEXТB player: Found ${embedUrls.size} embed/iframe endpoints")
+        if (btnPlayers.isNotEmpty()) {
+            Log.d(TAG, "SEXТB resolver: Found ${btnPlayers.size} player buttons in .episode-list")
+            // Resolve buttons (deduplicated by data-id)
+            val seenEpisodes = mutableSetOf<String>()
+            for (btn in btnPlayers) {
+                val episode = btn.attr("data-id").trim()
+                val filmId = btn.attr("data-source").ifBlank { globalFilmId }.trim()
+                if (episode.isBlank() || seenEpisodes.contains(episode)) continue
+                seenEpisodes.add(episode)
 
-            for (embedUrl in embedUrls) {
-                try {
-                    val embedSources = resolveEmbedUrl(embedUrl, pageOrEmbedUrl)
-                    resolvedSources.addAll(embedSources)
-                } catch (e: Exception) {
-                    Log.w(TAG, "SEXТB player: Failed to resolve embed endpoint $embedUrl: ${e.message}")
+                val iframes = resolveAjaxPlayerIframes(episode, filmId, pageOrEmbedUrl)
+                for (iframeUrl in iframes) {
+                    val iframeStreams = resolveIframeEmbed(iframeUrl, pageOrEmbedUrl)
+                    resolvedSources.addAll(iframeStreams)
+                }
+
+                if (resolvedSources.isNotEmpty()) {
+                    // Successfully extracted streams from first valid player button
+                    break
                 }
             }
         }
 
-        // 2. If target is itself an embed player (e.g. streamtb.me/e/...), resolve it directly
-        if (isEmbedPlayerUrl(pageOrEmbedUrl)) {
-            val directEmbedSources = resolveEmbedUrl(pageOrEmbedUrl, "https://sextb.net/")
-            resolvedSources.addAll(directEmbedSources)
+        // 4. Fallback: direct iframes in page HTML
+        if (resolvedSources.isEmpty()) {
+            val embedUrls = SextbParser.extractPlayerEmbedUrls(html, pageOrEmbedUrl)
+            for (embedUrl in embedUrls) {
+                try {
+                    val streams = resolveIframeEmbed(embedUrl, pageOrEmbedUrl)
+                    resolvedSources.addAll(streams)
+                } catch (e: Exception) {
+                    Log.w(TAG, "SEXТB resolver: Embed error for $embedUrl: ${e.message}")
+                }
+            }
         }
 
-        // Normalize and deduplicate sources
+        // 5. Fallback: direct HTML5 video / script sources
+        if (resolvedSources.isEmpty()) {
+            val directSources = SextbParser.parseDirectVideoSources(doc, pageOrEmbedUrl)
+            resolvedSources.addAll(directSources)
+
+            val unpackedHtml = unpackAllScripts(html)
+            val scriptSources = extractStreamUrlsFromText(unpackedHtml, pageOrEmbedUrl)
+            resolvedSources.addAll(scriptSources)
+        }
+
+        // 6. Final fallback: Headless WebView if native resolution produced no sources
+        if (resolvedSources.isEmpty() && context != null) {
+            Log.i(TAG, "SEXТB resolver: Native resolution empty, triggering WebView fallback")
+            val fallbackSource = SextbWebViewFallback.resolveWithFallback(context, pageOrEmbedUrl)
+            if (fallbackSource != null) {
+                resolvedSources.add(fallbackSource)
+            }
+        }
+
         val normalized = normalizeAndDeduplicateSources(resolvedSources)
         val elapsed = System.currentTimeMillis() - startTime
         Log.i(TAG, "SEXТB resolver: Completed in ${elapsed}ms. Found ${normalized.size} distinct stream variants.")
-
         normalized
     }
 
     /**
-     * Resolves a StreamTB or player embed URL by fetching its HTML and API endpoints.
+     * Executes the upstream POST /ajax/player call.
+     * Form parameters: episode = data-id, filmId = data-source
+     * Returns list of extracted iframe URLs.
      */
-    suspend fun resolveEmbedUrl(embedUrl: String, parentReferer: String): List<VideoSource> = withContext(Dispatchers.IO) {
+    suspend fun resolveAjaxPlayerIframes(
+        episode: String,
+        filmId: String,
+        refererUrl: String
+    ): List<String> = withContext(Dispatchers.IO) {
+        val iframes = mutableListOf<String>()
+        try {
+            val formBody = FormBody.Builder()
+                .add("episode", episode)
+                .add("filmId", filmId)
+                .add("film_id", filmId)
+                .build()
+
+            val req = Request.Builder()
+                .url(AJAX_PLAYER_URL)
+                .post(formBody)
+                .header("User-Agent", DEFAULT_UA)
+                .header("Referer", refererUrl)
+                .header("Origin", MAIN_URL)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "*/*")
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .build()
+
+            val resp = httpClient.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val responseBody = resp.body?.string() ?: ""
+                val extracted = extractIframeUrlsFromAjaxResponse(responseBody)
+                iframes.addAll(extracted)
+                Log.d(TAG, "POST /ajax/player extracted ${iframes.size} iframes: $iframes")
+            } else {
+                Log.w(TAG, "POST /ajax/player failed with HTTP ${resp.code}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed POST to /ajax/player (episode=$episode, filmId=$filmId): ${e.message}")
+        }
+        iframes
+    }
+
+    /**
+     * Extracts iframe URLs from the AJAX response body (HTML snippet or JSON).
+     */
+    fun extractIframeUrlsFromAjaxResponse(responseBody: String): List<String> {
+        val list = mutableListOf<String>()
+
+        // 1. DOM parse with Jsoup
+        val doc = Jsoup.parse(responseBody)
+        val iframeElements = doc.select("iframe")
+        for (iframe in iframeElements) {
+            val src = iframe.attr("src").ifBlank { iframe.attr("data-src") }
+            if (src.isNotBlank()) {
+                val cleaned = cleanIframeUrl(src)
+                if (cleaned.isNotBlank() && !list.contains(cleaned)) {
+                    list.add(cleaned)
+                }
+            }
+        }
+
+        // 2. Regex fallback for escaped HTML/JSON responses
+        val iframeRegex = Regex("""(?:<iframe[^>]+src=|"iframe"\s*:\s*|src=)\\?["']([^"'\\]+)\\?["']""", RegexOption.IGNORE_CASE)
+        for (match in iframeRegex.findAll(responseBody)) {
+            val src = match.groupValues[1]
+            val cleaned = cleanIframeUrl(src)
+            if (cleaned.isNotBlank() && !list.contains(cleaned)) {
+                list.add(cleaned)
+            }
+        }
+
+        // 3. Direct embed player URLs anywhere in response
+        val embedRegex = Regex("""https?://[^"'\s<>]*(?:stbturbo|streamtape|streamtb)[^"'\s<>]*""", RegexOption.IGNORE_CASE)
+        for (match in embedRegex.findAll(responseBody)) {
+            val src = match.groupValues[0].replace("\\/", "/").trim()
+            val cleaned = cleanIframeUrl(src)
+            if (cleaned.isNotBlank() && !list.contains(cleaned)) {
+                list.add(cleaned)
+            }
+        }
+
+        return list
+    }
+
+    /**
+     * Resolves an iframe embed URL using the appropriate extractor (Stbturbo, StreamTape, or fallback).
+     */
+    suspend fun resolveIframeEmbed(iframeUrl: String, parentReferer: String = "https://sextb.net/"): List<VideoSource> = withContext(Dispatchers.IO) {
+        val lower = iframeUrl.lowercase()
+        when {
+            StbturboExtractor.canHandle(iframeUrl) -> {
+                StbturboExtractor.extractStream(iframeUrl, parentReferer)
+            }
+            StreamTapeExtractor.canHandle(iframeUrl) -> {
+                StreamTapeExtractor.extractStream(iframeUrl, parentReferer)
+            }
+            else -> {
+                // First try Stbturbo extraction pattern (#video_player[data-hash])
+                val stbStreams = StbturboExtractor.extractStream(iframeUrl, parentReferer)
+                if (stbStreams.isNotEmpty()) {
+                    stbStreams
+                } else {
+                    resolveGenericEmbed(iframeUrl, parentReferer)
+                }
+            }
+        }
+    }
+
+    private suspend fun resolveGenericEmbed(embedUrl: String, parentReferer: String): List<VideoSource> = withContext(Dispatchers.IO) {
         val sources = mutableListOf<VideoSource>()
         val embedHost = extractHost(embedUrl)
 
         val headers = mapOf(
             "User-Agent" to DEFAULT_UA,
             "Referer" to parentReferer,
-            "Origin" to extractOrigin(parentReferer),
+            "Origin" to "https://$embedHost",
             "Accept" to "*/*"
         )
 
         val embedHtml = fetchHtmlSafely(embedUrl, headers) ?: return@withContext emptyList()
         val unpackedEmbed = unpackAllScripts(embedHtml)
 
-        // 1. Extract direct stream URLs from embed HTML/JS
+        // Extract direct stream URLs from embed HTML/JS
         val streamUrls = extractStreamUrlsFromText(unpackedEmbed, embedUrl)
         sources.addAll(streamUrls)
 
-        // 2. Check for StreamTB API endpoint: /api/source/{id} or /ajax/get_link/
-        val embedId = extractEmbedId(embedUrl)
-        if (embedId.isNotBlank() && (embedUrl.contains("streamtb") || embedUrl.contains("sextb"))) {
-            val apiEndpoints = listOf(
-                "https://$embedHost/api/source/$embedId",
-                "https://$embedHost/ajax/get_link/$embedId",
-                "https://$embedHost/api/player/$embedId"
-            )
-
-            val apiHeaders = headers + mapOf(
-                "X-Requested-With" to "XMLHttpRequest",
-                "Referer" to embedUrl,
-                "Origin" to "https://$embedHost"
-            )
-
-            for (endpoint in apiEndpoints) {
-                try {
-                    val jsonResp = fetchJsonSafely(endpoint, apiHeaders)
-                    if (jsonResp != null) {
-                        val parsed = parseApiSources(jsonResp, embedUrl, "https://$embedHost")
-                        if (parsed.isNotEmpty()) {
-                            Log.d(TAG, "SEXТB extractor: Successfully extracted ${parsed.size} streams from API endpoint")
-                            sources.addAll(parsed)
-                            break
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.v(TAG, "API endpoint check $endpoint non-critical: ${e.message}")
-                }
-            }
-        }
-
-        // Scope headers specifically for playback
         val playbackHeaders = mapOf(
             "User-Agent" to DEFAULT_UA,
             "Referer" to embedUrl,
@@ -200,8 +320,9 @@ object SextbResolver {
                                     url = file,
                                     mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
                                     quality = SextbParser.normalizeQualityLabel(label),
+                                    isHls = isHls,
                                     headers = playbackHeaders,
-                                    sourceName = "SEXТB StreamTB"
+                                    sourceName = "SEXТB Player"
                                 )
                             )
                         }
@@ -220,6 +341,7 @@ object SextbResolver {
                         url = url,
                         mimeType = "application/x-mpegURL",
                         quality = "1080p",
+                        isHls = true,
                         headers = playbackHeaders,
                         sourceName = "SEXТB HLS Master"
                     )
@@ -237,6 +359,7 @@ object SextbResolver {
                         url = url,
                         mimeType = "video/mp4",
                         quality = "1080p",
+                        isHls = false,
                         headers = playbackHeaders,
                         sourceName = "SEXТB Direct MP4"
                     )
@@ -247,61 +370,24 @@ object SextbResolver {
         return sources
     }
 
-    private fun parseApiSources(json: JSONObject, referer: String, origin: String): List<VideoSource> {
-        val list = mutableListOf<VideoSource>()
-        val playbackHeaders = mapOf(
-            "User-Agent" to DEFAULT_UA,
-            "Referer" to referer,
-            "Origin" to origin
-        )
+    fun cleanIframeUrl(raw: String): String {
+        val cleaned = raw.replace("\\\"", "").replace("\\/", "/").substringBefore("?").trim()
+        return StbturboExtractor.httpsify(cleaned)
+    }
 
-        val sourcesArray = json.optJSONArray("sources")
-            ?: json.optJSONArray("data")
-            ?: json.optJSONObject("data")?.optJSONArray("sources")
-
-        if (sourcesArray != null) {
-            for (i in 0 until sourcesArray.length()) {
-                val item = sourcesArray.optJSONObject(i) ?: continue
-                val file = item.optString("file").ifBlank { item.optString("url") }
-                val label = item.optString("label", "1080p")
-                val type = item.optString("type")
-                if (file.isNotBlank()) {
-                    val isHls = file.contains(".m3u8") || type.contains("hls", ignoreCase = true)
-                    list.add(
-                        VideoSource(
-                            url = file,
-                            mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
-                            quality = SextbParser.normalizeQualityLabel(label),
-                            headers = playbackHeaders,
-                            sourceName = "SEXТB StreamTB ($label)"
-                        )
-                    )
-                }
-            }
-        }
-
-        // Check for direct file parameter in top-level JSON
-        val singleFile = json.optString("file").ifBlank { json.optString("url") }
-        if (singleFile.isNotBlank() && singleFile.startsWith("http")) {
-            val isHls = singleFile.contains(".m3u8")
-            list.add(
-                VideoSource(
-                    url = singleFile,
-                    mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
-                    quality = "1080p",
-                    headers = playbackHeaders,
-                    sourceName = "SEXТB StreamTB"
-                )
-            )
-        }
-
-        return list
+    fun isEmbedPlayerUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return StbturboExtractor.canHandle(lower) ||
+                StreamTapeExtractor.canHandle(lower) ||
+                lower.contains("/embed/") ||
+                lower.contains("/e/") ||
+                lower.contains("streamtb") ||
+                lower.contains("stbturbo")
     }
 
     private fun normalizeAndDeduplicateSources(sources: List<VideoSource>): List<VideoSource> {
         if (sources.isEmpty()) return emptyList()
 
-        // Prioritize HLS master playlists first, then 1080p, 720p, 480p
         val qualityOrder = listOf("4K", "1080p", "720p", "480p", "360p", "Auto")
         return sources.distinctBy { it.url }
             .sortedWith(
@@ -325,7 +411,7 @@ object SextbResolver {
         return sb.toString()
     }
 
-    private fun fetchHtmlSafely(url: String, headers: Map<String, String>): String? {
+    fun fetchHtmlSafely(url: String, headers: Map<String, String> = emptyMap()): String? {
         return try {
             val reqBuilder = Request.Builder().url(url)
             headers.forEach { (k, v) -> reqBuilder.header(k, v) }
@@ -344,41 +430,11 @@ object SextbResolver {
         }
     }
 
-    private fun fetchJsonSafely(url: String, headers: Map<String, String>): JSONObject? {
-        val body = fetchHtmlSafely(url, headers) ?: return null
-        return try {
-            JSONObject(body)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun isEmbedPlayerUrl(url: String): Boolean {
-        val lower = url.lowercase()
-        return lower.contains("streamtb") || lower.contains("/embed/") || lower.contains("/e/") || lower.contains("player")
-    }
-
     private fun extractHost(url: String): String {
         return try {
-            java.net.URI(url).host ?: "streamtb.me"
+            URI(url).host ?: "stbturbo.xyz"
         } catch (_: Exception) {
-            "streamtb.me"
+            "stbturbo.xyz"
         }
-    }
-
-    private fun extractOrigin(url: String): String {
-        return try {
-            val uri = java.net.URI(url)
-            val scheme = uri.scheme ?: "https"
-            val host = uri.host ?: "sextb.net"
-            "$scheme://$host"
-        } catch (_: Exception) {
-            "https://sextb.net"
-        }
-    }
-
-    private fun extractEmbedId(url: String): String {
-        val clean = url.substringBefore("?").removeSuffix("/")
-        return clean.substringAfterLast("/")
     }
 }

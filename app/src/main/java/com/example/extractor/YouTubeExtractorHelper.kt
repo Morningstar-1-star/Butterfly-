@@ -407,13 +407,22 @@ object YouTubeExtractorHelper {
 
         val isSextb = providerId == "sextb" || urlOrId.contains("sextb.net") || urlOrId.contains("sextb.date") ||
                 urlOrId.contains("sextb.cc") || urlOrId.contains("streamtb.me") || urlOrId.contains("streamtb.com") ||
-                urlOrId.startsWith("sextb:", ignoreCase = true)
+                urlOrId.contains("stbturbo") || urlOrId.startsWith("sextb:", ignoreCase = true)
         if (isSextb) {
             val sextbData = SextbProvider.getStreamData(urlOrId, context)
             if (sextbData != null) {
                 Log.i(TAG, "Resolved via SextbProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(sextbData)
             }
+            return@withContext ExtractionResult.Error(
+                ExtractorErrorDetails(
+                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                    message = "Unable to extract stream from SEXТB",
+                    rawExceptionName = "SextbExtractionException",
+                    fullStackTrace = "",
+                    urlOrId = urlOrId
+                )
+            )
         }
 
         val isEporner = providerId == "eporner" || urlOrId.contains("eporner.com")

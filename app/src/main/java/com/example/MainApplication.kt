@@ -28,12 +28,41 @@ class MainApplication : Application() {
         appContext = this
 
         com.example.util.AppConfig.init(this)
-        com.example.util.SecureDnsManager.init(this)
-        com.example.supabase.SupabaseAuthManager.init(this)
-        com.example.supabase.SupabaseSyncManager.init(this)
-        com.example.util.GoogleDriveSyncManager.init(this)
-        com.example.auth.SourceAccountManager.init(this)
-        com.example.util.PlaybackResumeManager.getRawSavedPosition(this, "_warmup")
+
+        // Move non-essential / cloud / sync systems to background IO initialization
+        // so that cold start and Home feed rendering are never blocked
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                com.example.util.SecureDnsManager.init(this@MainApplication)
+            } catch (e: Exception) {
+                Log.w("MainApplication", "SecureDnsManager init note: ${e.message}")
+            }
+            try {
+                com.example.supabase.SupabaseAuthManager.init(this@MainApplication)
+            } catch (e: Exception) {
+                Log.w("MainApplication", "SupabaseAuthManager init note: ${e.message}")
+            }
+            try {
+                com.example.supabase.SupabaseSyncManager.init(this@MainApplication)
+            } catch (e: Exception) {
+                Log.w("MainApplication", "SupabaseSyncManager init note: ${e.message}")
+            }
+            try {
+                com.example.util.GoogleDriveSyncManager.init(this@MainApplication)
+            } catch (e: Exception) {
+                Log.w("MainApplication", "GoogleDriveSyncManager init note: ${e.message}")
+            }
+            try {
+                com.example.auth.SourceAccountManager.init(this@MainApplication)
+            } catch (e: Exception) {
+                Log.w("MainApplication", "SourceAccountManager init note: ${e.message}")
+            }
+            try {
+                com.example.util.PlaybackResumeManager.getRawSavedPosition(this@MainApplication, "_warmup")
+            } catch (e: Exception) {
+                Log.w("MainApplication", "PlaybackResumeManager warmup note: ${e.message}")
+            }
+        }
 
         // Configure YouTube Proof-of-Origin Token Provider for NewPipe extractor
         com.example.extractor.YouTubeExtractorHelper.setPoTokenProvider(object : com.example.extractor.YouTubeExtractorHelper.CustomPoTokenProvider {
@@ -70,14 +99,14 @@ class MainApplication : Application() {
             }
         })
 
-        // Configure high-performance Coil ImageLoader with high concurrency & large RAM/disk cache
+        // Configure mobile-optimized Coil ImageLoader with sensible concurrency & RAM/disk cache
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
             .dns(com.example.util.SecureDnsManager.appDns)
             .dispatcher(okhttp3.Dispatcher().apply {
-                maxRequests = 64
-                maxRequestsPerHost = 24
+                maxRequests = 16
+                maxRequestsPerHost = 6
             })
-            .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectionPool(okhttp3.ConnectionPool(8, 2, java.util.concurrent.TimeUnit.MINUTES))
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
             .addInterceptor { chain ->
@@ -149,14 +178,14 @@ class MainApplication : Application() {
             .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.35) // 35% RAM cache for instant back-and-forth scroll reuse
+                    .maxSizePercent(0.20) // 20% RAM cache for smooth scrolling without memory pressure
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache_v4"))
-                    .maxSizeBytes(250L * 1024L * 1024L) // 250 MB dedicated disk cache
+                    .maxSizeBytes(150L * 1024L * 1024L) // 150 MB dedicated disk cache
                     .build()
             }
             .respectCacheHeaders(false)

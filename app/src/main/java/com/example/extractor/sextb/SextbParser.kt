@@ -22,12 +22,70 @@ object SextbParser {
 
     /**
      * Parses a search or catalog listing page into a list of VideoItem.
+     * Upstream CloudStream uses `.tray-item` as primary card container.
      */
     fun parseSearchResults(html: String, baseUrl: String): List<VideoItem> {
         val doc = Jsoup.parse(html, baseUrl)
         val items = mutableListOf<VideoItem>()
 
-        // Scoped card selectors in priority order
+        // 1. Primary upstream selector: .tray-item
+        val trayItems = doc.select(".tray-item")
+        if (trayItems.isNotEmpty()) {
+            for (el in trayItems) {
+                val linkEl = el.selectFirst("a:nth-of-type(1)") ?: el.selectFirst("a[href]") ?: continue
+                var rawHref = linkEl.attr("abs:href").ifBlank { linkEl.attr("href") }
+                if (rawHref.isBlank() || rawHref.startsWith("#") || rawHref.startsWith("javascript:")) continue
+                if (!rawHref.startsWith("http")) {
+                    val cleanBase = baseUrl.removeSuffix("/")
+                    val cleanPath = if (rawHref.startsWith("/")) rawHref else "/$rawHref"
+                    rawHref = cleanBase + cleanPath
+                }
+
+                val id = extractVideoIdFromUrl(rawHref)
+                if (id.isBlank()) continue
+
+                val title = el.selectFirst(".tray-item-title")?.text()?.trim()
+                    ?: linkEl.attr("title").ifBlank { linkEl.text() }
+                if (title.isBlank()) continue
+
+                val thumbEl = el.selectFirst(".tray-item-thumbnail") ?: el.selectFirst("img")
+                val thumb = thumbEl?.let {
+                    it.attr("abs:data-src").ifBlank {
+                        it.attr("data-src").ifBlank {
+                            it.attr("abs:data-original").ifBlank {
+                                it.attr("abs:src").ifBlank { it.attr("src") }
+                            }
+                        }
+                    }
+                }?.let { if (it.startsWith("//")) "https:$it" else it }
+                    ?.takeIf { it.isNotBlank() && !it.endsWith(".svg") }
+
+                val durationText = el.selectFirst(".tray-film-views, .duration, .time, span[class*=\"duration\"]")?.text()?.trim() ?: ""
+                val durationSec = parseDurationToSeconds(durationText)
+
+                val qualityBadge = el.selectFirst(".tray-item-quality, .quality, .hd, .badge")?.text()?.trim()
+                val tags = mutableListOf<String>()
+                if (!qualityBadge.isNullOrBlank()) tags.add(qualityBadge)
+
+                items.add(
+                    VideoItem(
+                        id = id,
+                        title = title.trim(),
+                        uploaderName = "SEXТB",
+                        uploaderUrl = rawHref,
+                        thumbnailUrl = thumb,
+                        providerId = "sextb",
+                        durationSeconds = durationSec,
+                        tags = tags
+                    )
+                )
+            }
+            if (items.isNotEmpty()) {
+                return items.distinctBy { it.id }
+            }
+        }
+
+        // 2. Scoped card selectors fallback
         val cardElements = doc.select(
             ".video-item, .item-video, .movie-item, article.video, .thumb-block, .card-video, " +
             "div[class*=\"video-card\"], div[class*=\"thumb\"], .item, article"
@@ -152,7 +210,10 @@ object SextbParser {
                 if (tag.isNotBlank() && !tags.contains(tag)) tags.add(tag)
             }
 
-        // 10. Episodes
+        // 10. Episodes & Player Server Buttons
+        val btnPlayers = doc.select(".episode-list .btn-player, .btn-player")
+        val defaultFilmId = doc.selectFirst(".episode-list .btn-player, .btn-player")?.attr("data-source")?.takeIf { it.isNotBlank() }
+        val defaultEpisodeId = doc.selectFirst(".episode-list .btn-player, .btn-player")?.attr("data-id")?.takeIf { it.isNotBlank() }
         val episodes = parseEpisodes(doc, title, pageUrl)
 
         // 11. Scoped Video Sources from the page itself
@@ -173,15 +234,43 @@ object SextbParser {
             categories = tags,
             tags = tags,
             episodes = episodes,
-            availableSources = sources
+            availableSources = sources,
+            defaultEpisodeId = defaultEpisodeId,
+            defaultFilmId = defaultFilmId
         )
     }
 
     /**
-     * Extracts episodes for multi-part videos or series.
+     * Extracts episodes for multi-part videos or series, prioritizing .episode-list .btn-player.
      */
     fun parseEpisodes(doc: Document, seriesTitle: String, pageUrl: String): List<SextbEpisode> {
         val episodes = mutableListOf<SextbEpisode>()
+
+        // 1. Primary upstream button player items: .episode-list .btn-player
+        val btnPlayers = doc.select(".episode-list .btn-player, .btn-player")
+        val globalFilmId = doc.selectFirst(".episode-list .btn-player, .btn-player")?.attr("data-source")?.ifBlank { "" } ?: ""
+        if (btnPlayers.isNotEmpty()) {
+            var epNum = 1
+            for (btn in btnPlayers) {
+                val dataId = btn.attr("data-id")
+                val dataSource = btn.attr("data-source").ifBlank { globalFilmId }
+                val title = btn.text().trim().ifBlank { "Episode $epNum" }
+                val epId = dataId.ifBlank { "ep_$epNum" }
+                episodes.add(
+                    SextbEpisode(
+                        id = epId,
+                        episodeNumber = epNum++,
+                        title = title,
+                        pageUrl = pageUrl,
+                        dataId = dataId,
+                        dataSource = dataSource
+                    )
+                )
+            }
+            return episodes
+        }
+
+        // 2. Fallback link-based episodes
         val episodeEls = doc.select(
             ".episodes-list a, .episode-item a, .server-item a, div[class*=\"episode\"] a, " +
             "ul.episodes li a, .parts-list a"

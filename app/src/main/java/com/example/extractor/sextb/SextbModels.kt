@@ -65,7 +65,9 @@ data class SextbEpisode(
     val episodeNumber: Int,
     val title: String,
     val pageUrl: String,
-    val thumbnailUrl: String? = null
+    val thumbnailUrl: String? = null,
+    val dataId: String? = null,
+    val dataSource: String? = null
 ) {
     fun toVideoItem(seriesTitle: String): VideoItem {
         return VideoItem(
@@ -98,7 +100,9 @@ data class SextbVideoDetails(
     val categories: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val episodes: List<SextbEpisode> = emptyList(),
-    val availableSources: List<VideoSource> = emptyList()
+    val availableSources: List<VideoSource> = emptyList(),
+    val defaultEpisodeId: String? = null,
+    val defaultFilmId: String? = null
 ) {
     fun toVideoItem(): VideoItem {
         val allTags = (tags + categories + listOfNotNull(studio, director) + actors).distinct()

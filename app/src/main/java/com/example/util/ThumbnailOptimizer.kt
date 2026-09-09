@@ -333,8 +333,9 @@ object ThumbnailOptimizer {
 
     /**
      * Preloads poster URLs into Coil's RAM & disk cache for zero-latency scrolling.
+     * Restricted to visible/near-visible items (maxCount = 6) to avoid network/CPU spikes.
      */
-    fun preloadPosters(context: Context, urls: List<String?>, maxCount: Int = 30) {
+    fun preloadPosters(context: Context, urls: List<String?>, maxCount: Int = 6) {
         if (urls.isEmpty()) return
         val imageLoader = Coil.imageLoader(context)
 
@@ -352,10 +353,10 @@ object ThumbnailOptimizer {
     }
 
     /**
-     * Preloads a batch of thumbnail URLs in parallel into Coil's RAM & disk cache
-     * before the user scrolls to them, eliminating scrolling pop-in, blank boxes, and stutter.
+     * Preloads a small batch of thumbnail URLs in parallel into Coil's RAM & disk cache
+     * for visible/near-visible items, eliminating scrolling stutter without saturating mobile network.
      */
-    fun preloadThumbnails(context: Context, videos: List<VideoItem>, maxCount: Int = 24) {
+    fun preloadThumbnails(context: Context, videos: List<VideoItem>, maxCount: Int = 6) {
         if (videos.isEmpty()) return
         val imageLoader = Coil.imageLoader(context)
 
@@ -374,9 +375,9 @@ object ThumbnailOptimizer {
     }
 
     /**
-     * Preloads a list of raw thumbnail URLs directly into cache.
+     * Preloads a list of raw thumbnail URLs directly into cache (limited to visible items).
      */
-    fun preloadUrls(context: Context, urls: List<String?>, maxCount: Int = 20) {
+    fun preloadUrls(context: Context, urls: List<String?>, maxCount: Int = 6) {
         if (urls.isEmpty()) return
         val imageLoader = Coil.imageLoader(context)
 

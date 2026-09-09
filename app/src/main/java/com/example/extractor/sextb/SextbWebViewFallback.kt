@@ -2,15 +2,18 @@ package com.example.extractor.sextb
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.SslErrorHandler
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -57,6 +60,21 @@ object SextbWebViewFallback {
         }
     }
 
+    private class FallbackBridge(
+        private val onMedia: (String) -> Unit,
+        private val onIframe: (String) -> Unit
+    ) {
+        @android.webkit.JavascriptInterface
+        fun onMediaFound(url: String) {
+            onMedia(url)
+        }
+
+        @android.webkit.JavascriptInterface
+        fun onIframeFound(url: String) {
+            onIframe(url)
+        }
+    }
+
     private suspend fun runHeadlessCapture(
         context: Context,
         targetUrl: String
@@ -81,16 +99,82 @@ object SextbWebViewFallback {
         }
 
         try {
+            android.webkit.CookieManager.getInstance().apply {
+                setAcceptCookie(true)
+            }
+
             webView = WebView(context.applicationContext).apply {
+                android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
-                    databaseEnabled = false
+                    databaseEnabled = true
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    javaScriptCanOpenWindowsAutomatically = true
                     mediaPlaybackRequiresUserGesture = false
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     userAgentString = SextbResolver.DEFAULT_UA
                     cacheMode = WebSettings.LOAD_NO_CACHE
                 }
+
+                addJavascriptInterface(
+                    FallbackBridge(
+                        onMedia = { mediaUrl ->
+                            if (isResolved.compareAndSet(false, true)) {
+                                Log.i(TAG, "SEXТB fallback: Found media stream via JS Bridge: $mediaUrl")
+                                val isHls = mediaUrl.contains(".m3u8") || !mediaUrl.contains(".mp4")
+                                val clean = StbturboExtractor.httpsify(mediaUrl)
+                                val streamHost = StbturboExtractor.extractHost(clean)
+                                val playbackHost = if (streamHost.isNotBlank()) streamHost else "stbturbo.xyz"
+                                val source = VideoSource(
+                                    url = clean,
+                                    mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
+                                    quality = "1080p",
+                                    isHls = isHls,
+                                    headers = mapOf(
+                                        "Referer" to "https://$playbackHost/",
+                                        "User-Agent" to SextbResolver.DEFAULT_UA,
+                                        "Origin" to "https://$playbackHost"
+                                    ),
+                                    sourceName = "SEXТB Direct"
+                                )
+                                Handler(Looper.getMainLooper()).post {
+                                    cleanupWebView()
+                                    if (continuation.isActive) {
+                                        continuation.resume(source)
+                                    }
+                                }
+                            }
+                        },
+                        onIframe = { iframeUrl ->
+                            if (!isResolved.get()) {
+                                val cleanIframe = SextbResolver.cleanIframeUrl(iframeUrl)
+                                Log.i(TAG, "SEXТB fallback: Detected player iframe via JS Bridge: $cleanIframe")
+                                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                    val extracted = SextbResolver.resolveIframeEmbed(cleanIframe, targetUrl)
+                                    if (extracted.isNotEmpty() && isResolved.compareAndSet(false, true)) {
+                                        Handler(Looper.getMainLooper()).post {
+                                            cleanupWebView()
+                                            if (continuation.isActive) {
+                                                continuation.resume(extracted.first())
+                                            }
+                                        }
+                                    } else if (!isResolved.get()) {
+                                        // Load the iframe directly into the WebView so its player initializes in the top window
+                                        Handler(Looper.getMainLooper()).post {
+                                            if (!isResolved.get()) {
+                                                webView?.loadUrl(cleanIframe)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ),
+                    "SextbBridge"
+                )
 
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
@@ -99,24 +183,17 @@ object SextbWebViewFallback {
                     ): WebResourceResponse? {
                         val reqUrl = request?.url?.toString() ?: return null
 
+                        // 1. Direct media stream interception (.m3u8, .mp4)
                         if (isMediaStreamUrl(reqUrl) && isResolved.compareAndSet(false, true)) {
                             Log.i(TAG, "SEXТB fallback: Detected playable stream via request interception: ${sanitizeLogUrl(reqUrl)}")
 
-                            val reqHeaders = mutableMapOf<String, String>()
-                            request.requestHeaders?.forEach { (k, v) ->
-                                if (k.equals("Referer", ignoreCase = true) ||
-                                    k.equals("Origin", ignoreCase = true) ||
-                                    k.equals("User-Agent", ignoreCase = true)
-                                ) {
-                                    reqHeaders[k] = v
-                                }
-                            }
-                            if (!reqHeaders.containsKey("Referer")) {
-                                reqHeaders["Referer"] = targetUrl
-                            }
-                            if (!reqHeaders.containsKey("User-Agent")) {
-                                reqHeaders["User-Agent"] = SextbResolver.DEFAULT_UA
-                            }
+                            val streamHost = StbturboExtractor.extractHost(reqUrl)
+                            val playbackHost = if (streamHost.isNotBlank()) streamHost else "stbturbo.xyz"
+                            val reqHeaders = mutableMapOf(
+                                "User-Agent" to SextbResolver.DEFAULT_UA,
+                                "Referer" to "https://$playbackHost/",
+                                "Origin" to "https://$playbackHost"
+                            )
 
                             val isHls = reqUrl.contains(".m3u8")
                             val source = VideoSource(
@@ -124,7 +201,7 @@ object SextbWebViewFallback {
                                 mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
                                 quality = "1080p",
                                 headers = reqHeaders,
-                                sourceName = "SEXТB WebView Fallback"
+                                sourceName = "SEXТB Stream"
                             )
 
                             Handler(Looper.getMainLooper()).post {
@@ -135,49 +212,147 @@ object SextbWebViewFallback {
                             }
                         }
 
+                        // 2. Iframe player embed URL interception
+                        if (SextbResolver.isEmbedPlayerUrl(reqUrl) && !isResolved.get()) {
+                            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                val streams = SextbResolver.resolveIframeEmbed(reqUrl, targetUrl)
+                                if (streams.isNotEmpty() && isResolved.compareAndSet(false, true)) {
+                                    Handler(Looper.getMainLooper()).post {
+                                        cleanupWebView()
+                                        if (continuation.isActive) {
+                                            continuation.resume(streams.first())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         return super.shouldInterceptRequest(view, request)
+                    }
+
+                    override fun onReceivedSslError(
+                        view: WebView?,
+                        handler: SslErrorHandler?,
+                        error: SslError?
+                    ) {
+                        Log.d(TAG, "SEXТB fallback: Proceeding through SSL certificate warning in fallback WebView")
+                        handler?.proceed()
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         if (isResolved.get()) return
 
-                        // Evaluate JS for HTML5 video element source or player config
                         val jsExtract = """
                             (function() {
-                                var v = document.querySelector('video');
-                                if (v && v.src && v.src.indexOf('http') === 0) return v.src;
-                                if (v && v.currentSrc && v.currentSrc.indexOf('http') === 0) return v.currentSrc;
-                                var s = document.querySelector('video source');
-                                if (s && s.src && s.src.indexOf('http') === 0) return s.src;
-                                return '';
+                                try {
+                                    var origFetch = window.fetch;
+                                    if (origFetch) {
+                                        window.fetch = function() {
+                                            return origFetch.apply(this, arguments).then(function(res) {
+                                                try {
+                                                    var cln = res.clone();
+                                                    cln.text().then(function(txt) {
+                                                        if (window.SextbBridge) {
+                                                            var matches = txt.match(/https?:\/\/[^\s"'<>\\]+/g);
+                                                            if (matches) {
+                                                                for (var i = 0; i < matches.length; i++) {
+                                                                    var m = matches[i].replace(/\\\//g, '/');
+                                                                    if (m.indexOf('.m3u8') !== -1 || m.indexOf('.mp4') !== -1) {
+                                                                        window.SextbBridge.onMediaFound(m);
+                                                                    } else if (m.indexOf('stbturbo') !== -1 || m.indexOf('streamtb') !== -1 || m.indexOf('streamtape') !== -1) {
+                                                                        window.SextbBridge.onIframeFound(m);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }).catch(function(){});
+                                                } catch(e) {}
+                                                return res;
+                                            });
+                                        };
+                                    }
+                                } catch(e) {}
+
+                                try {
+                                    var origOpen = XMLHttpRequest.prototype.open;
+                                    var origSend = XMLHttpRequest.prototype.send;
+                                    XMLHttpRequest.prototype.open = function(method, url) {
+                                        this._url = url;
+                                        return origOpen.apply(this, arguments);
+                                    };
+                                    XMLHttpRequest.prototype.send = function(data) {
+                                        this.addEventListener('load', function() {
+                                            try {
+                                                if (this.responseText && window.SextbBridge) {
+                                                    var matches = this.responseText.match(/https?:\/\/[^\s"'<>\\]+/g);
+                                                    if (matches) {
+                                                        for (var i = 0; i < matches.length; i++) {
+                                                            var m = matches[i].replace(/\\\//g, '/');
+                                                            if (m.indexOf('.m3u8') !== -1 || m.indexOf('.mp4') !== -1) {
+                                                                window.SextbBridge.onMediaFound(m);
+                                                            } else if (m.indexOf('stbturbo') !== -1 || m.indexOf('streamtb') !== -1 || m.indexOf('streamtape') !== -1) {
+                                                                window.SextbBridge.onIframeFound(m);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } catch(e) {}
+                                        });
+                                        return origSend.apply(this, arguments);
+                                    };
+                                } catch(e) {}
+
+                                function scan() {
+                                    try {
+                                        var vp = document.querySelector('#video_player') || document.querySelector('[data-hash]') || document.querySelector('.player-wrapper');
+                                        if (vp) {
+                                            var hash = vp.getAttribute('data-hash') || vp.getAttribute('data-src');
+                                            if (hash && hash.length > 5) {
+                                                window.SextbBridge.onMediaFound(hash);
+                                                return true;
+                                            }
+                                        }
+                                        var v = document.querySelector('video');
+                                        if (v) {
+                                            if (v.src && v.src.indexOf('http') === 0) {
+                                                window.SextbBridge.onMediaFound(v.src);
+                                                return true;
+                                            }
+                                            if (v.currentSrc && v.currentSrc.indexOf('http') === 0) {
+                                                window.SextbBridge.onMediaFound(v.currentSrc);
+                                                return true;
+                                            }
+                                        }
+                                        var ifrs = document.querySelectorAll('iframe');
+                                        for (var j = 0; j < ifrs.length; j++) {
+                                            var src = ifrs[j].src || ifrs[j].getAttribute('data-src') || '';
+                                            if (src && src.indexOf('http') === 0 && !src.includes('google') && !src.includes('ads') && !src.includes('analytics')) {
+                                                window.SextbBridge.onIframeFound(src);
+                                                return true;
+                                            }
+                                        }
+                                    } catch(e) {}
+                                    return false;
+                                }
+
+                                if (!scan()) {
+                                    var btns = document.querySelectorAll('.episode-list .btn-player, .btn-player, .play-btn, .btn-play, #btn-player, .server-btn, [data-source]');
+                                    for (var b = 0; b < btns.length; b++) {
+                                        try { btns[b].click(); } catch(e) {}
+                                    }
+                                    var attempts = 0;
+                                    var timer = setInterval(function() {
+                                        attempts++;
+                                        if (scan() || attempts > 35) {
+                                            clearInterval(timer);
+                                        }
+                                    }, 250);
+                                }
                             })();
                         """.trimIndent()
 
-                        view?.evaluateJavascript(jsExtract) { result ->
-                            if (!isResolved.get()) {
-                                val cleanUrl = result?.trim('"', '\'') ?: ""
-                                if (isMediaStreamUrl(cleanUrl) && isResolved.compareAndSet(false, true)) {
-                                    Log.i(TAG, "SEXТB fallback: Extracted media from DOM video element: ${sanitizeLogUrl(cleanUrl)}")
-                                    val isHls = cleanUrl.contains(".m3u8")
-                                    val source = VideoSource(
-                                        url = cleanUrl,
-                                        mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
-                                        quality = "1080p",
-                                        headers = mapOf(
-                                            "Referer" to targetUrl,
-                                            "User-Agent" to SextbResolver.DEFAULT_UA
-                                        ),
-                                        sourceName = "SEXТB WebView DOM"
-                                    )
-
-                                    cleanupWebView()
-                                    if (continuation.isActive) {
-                                        continuation.resume(source)
-                                    }
-                                }
-                            }
-                        }
+                        view?.evaluateJavascript(jsExtract, null)
                     }
 
                     override fun onReceivedError(
@@ -274,15 +449,16 @@ object SextbWebViewFallback {
                                         val js = """
                                             (function() {
                                                 var items = [];
-                                                var nodes = document.querySelectorAll('.video-item, .item, .thumb-block, a[href*="/video/"]');
+                                                var nodes = document.querySelectorAll('.tray-item, .video-item, .item, .thumb-block, a[href*="/video/"]');
                                                 for (var i = 0; i < nodes.length && items.length < 30; i++) {
                                                     var el = nodes[i];
-                                                    var a = el.tagName.toLowerCase() === 'a' ? el : el.querySelector('a[href*="/video/"]');
+                                                    var a = el.querySelector('a:nth-of-type(1)') || el.querySelector('a[href*="/video/"]') || (el.tagName.toLowerCase() === 'a' ? el : null);
                                                     if (!a || !a.href) continue;
-                                                    var img = el.querySelector('img');
-                                                    var title = a.getAttribute('title') || (img ? img.getAttribute('alt') : '') || a.innerText.trim();
+                                                    var titleEl = el.querySelector('.tray-item-title') || el.querySelector('.title, h2, h3, h4');
+                                                    var title = titleEl ? titleEl.innerText.trim() : (a.getAttribute('title') || a.innerText.trim());
+                                                    var img = el.querySelector('.tray-item-thumbnail') || el.querySelector('img');
                                                     var thumb = img ? (img.getAttribute('data-src') || img.getAttribute('src') || '') : '';
-                                                    var durEl = el.querySelector('.duration, .time');
+                                                    var durEl = el.querySelector('.tray-film-views, .duration, .time');
                                                     var dur = durEl ? durEl.innerText.trim() : '';
                                                     items.push({
                                                         href: a.href,
@@ -333,6 +509,14 @@ object SextbWebViewFallback {
                                             }
                                         }
                                     }, 1200L)
+                                }
+
+                                override fun onReceivedSslError(
+                                    view: WebView?,
+                                    handler: SslErrorHandler?,
+                                    error: SslError?
+                                ) {
+                                    handler?.proceed()
                                 }
 
                                 override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {

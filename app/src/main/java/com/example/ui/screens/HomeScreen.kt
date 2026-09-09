@@ -434,7 +434,7 @@ fun HomeScreen(
 
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
-                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 24)
+                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 6)
                                 }
                             }
 

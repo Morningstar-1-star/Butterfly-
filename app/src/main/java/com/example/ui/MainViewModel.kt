@@ -31,6 +31,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -2814,10 +2816,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshProvidersList()
-        fetchAvailableVegaProviders()
         loadTrending()
         loadTrendingTopics()
         loadSubscriptionFeed()
+        viewModelScope.launch(Dispatchers.IO) {
+            // Lazy background fetch for remote Vega catalogs after Home load starts
+            kotlinx.coroutines.delay(1500L)
+            try {
+                fetchAvailableVegaProviders()
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Remote Vega note: ${e.message}")
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             libraryRepository.watchLaterFlow.collect { items ->
                 _watchLaterList.value = items
@@ -3507,29 +3517,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return if (balancedList.isNotEmpty()) balancedList else filtered
                 }
 
-                // --- BATCH 1: FAST PRIMARY PROVIDERS (YouTube, Archive, Eporner, Dailymotion, Bilibili, Vimeo, Hotstar, bun-tel-meg) ---
+                // --- MULTI-TIER SCHEDULING WITH GLOBAL CONCURRENCY & CIRCUIT BREAKER ---
                 val provLimit = if (activeProv == "all") 8 else 25
+                val globalLimiter = kotlinx.coroutines.sync.Semaphore(5)
 
+                // Progressive updater that merges new batches smoothly and updates UI immediately
+                fun updateFeedProgressively(newItems: List<VideoItem>) {
+                    if (newItems.isEmpty()) return
+                    synchronized(collectedFeed) {
+                        collectedFeed.addAll(newItems)
+                    }
+                    val currentSnapshot = synchronized(collectedFeed) { ArrayList(collectedFeed) }
+                    val balanced = buildBalancedFeed(currentSnapshot)
+                    if (balanced.isNotEmpty()) {
+                        _trendingVideos.value = balanced
+                        _isLoadingTrending.value = false
+                        com.example.util.ThumbnailOptimizer.preloadThumbnails(getApplication(), balanced.take(6))
+                        com.example.util.HomeFeedCacheManager.saveCachedFeed(getApplication(), balanced)
+                        com.example.util.HomeFeedCache.saveFeed(getApplication(), balanced)
+                    }
+                }
+
+                // Helper to safely execute a provider task with isolation, health checks, and global concurrency limit
+                suspend fun fetchSafely(providerId: String, timeoutMs: Long, block: suspend () -> List<VideoItem>): List<VideoItem> {
+                    if (com.example.resolver.health.ProviderHealthManager.isQuarantined(providerId)) {
+                        return emptyList()
+                    }
+                    val start = System.currentTimeMillis()
+                    return try {
+                        globalLimiter.withPermit {
+                            val items = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { block() } ?: emptyList()
+                            if (items.isNotEmpty()) {
+                                com.example.resolver.health.ProviderHealthManager.recordSuccess(
+                                    providerId = providerId,
+                                    domain = null,
+                                    latencyMs = System.currentTimeMillis() - start
+                                )
+                            }
+                            items
+                        }
+                    } catch (e: Exception) {
+                        com.example.resolver.health.ProviderHealthManager.recordFailure(
+                            providerId = providerId,
+                            domain = null,
+                            failureType = com.example.resolver.health.FailureType.TIMEOUT
+                        )
+                        Log.w("MainViewModel", "Feed provider note for $providerId: ${e.message}")
+                        emptyList()
+                    }
+                }
+
+                // === PRIORITY 1: FAST PRIMARY ESSENTIAL PROVIDERS ===
                 supervisorScope {
-                    // 1. YouTube (Priority Instant Dispatch)
+                    // 1. YouTube (Instant dispatch)
                     if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                         launch(Dispatchers.IO) {
-                            try {
-                                val ytItems = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                                    com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
-                                } ?: emptyList()
-                                if (ytItems.isNotEmpty()) {
-                                    val toAdd = if (activeProv == "all") ytItems.take(12) else ytItems
-                                    synchronized(collectedFeed) { collectedFeed.addAll(toAdd) }
-                                    // Immediate progressive UI update for YouTube results
-                                    if (_trendingVideos.value.isEmpty() || activeProv == "youtube") {
-                                        _trendingVideos.value = toAdd
-                                        _isLoadingTrending.value = false
-                                        com.example.util.ThumbnailOptimizer.preloadThumbnails(getApplication(), toAdd.take(12))
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "YouTube trending note: ${e.message}")
+                            val ytItems = fetchSafely("youtube", 3000L) {
+                                com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication())
+                            }
+                            if (ytItems.isNotEmpty()) {
+                                updateFeedProgressively(if (activeProv == "all") ytItems.take(12) else ytItems)
                             }
                         }
                     }
@@ -3537,86 +3584,95 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // 2. Archive.org
                     if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                         launch(Dispatchers.IO) {
-                            try {
-                                val arcItems = kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                                    com.example.extractor.ArchiveOrgProvider.getHome(1)
-                                } ?: emptyList()
-                                if (arcItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(if (activeProv == "all") arcItems.take(8) else arcItems) }
-                                }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "ArchiveOrg note: ${e.message}")
+                            val arcItems = fetchSafely("archive_org", 3000L) {
+                                com.example.extractor.ArchiveOrgProvider.getHome(1)
+                            }
+                            if (arcItems.isNotEmpty()) {
+                                updateFeedProgressively(if (activeProv == "all") arcItems.take(8) else arcItems)
                             }
                         }
                     }
 
-                    // 3. Eporner
+                    // 3. Dailymotion
+                    if ((activeProv == "all" || activeProv == "dailymotion") && enabledSet.contains("dailymotion")) {
+                        launch(Dispatchers.IO) {
+                            val dmItems = fetchSafely("dailymotion", 3000L) {
+                                com.example.extractor.MultiSourceProvider.getHome(getApplication(), "dailymotion", provLimit, 1)
+                            }
+                            if (dmItems.isNotEmpty()) {
+                                updateFeedProgressively(dmItems)
+                            }
+                        }
+                    }
+
+                    // 4. Bilibili
+                    if ((activeProv == "all" || activeProv == "bilibili") && enabledSet.contains("bilibili")) {
+                        launch(Dispatchers.IO) {
+                            val biliItems = fetchSafely("bilibili", 3000L) {
+                                com.example.extractor.BilibiliProvider.getHomeVideos(1, provLimit)
+                            }
+                            if (biliItems.isNotEmpty()) {
+                                updateFeedProgressively(biliItems)
+                            }
+                        }
+                    }
+
+                    // 5. Vimeo
+                    if ((activeProv == "all" || activeProv == "vimeo") && enabledSet.contains("vimeo")) {
+                        launch(Dispatchers.IO) {
+                            val vimItems = fetchSafely("vimeo", 3000L) {
+                                com.example.extractor.MultiSourceProvider.getHome(getApplication(), "vimeo", provLimit, 1)
+                            }
+                            if (vimItems.isNotEmpty()) {
+                                updateFeedProgressively(vimItems)
+                            }
+                        }
+                    }
+
+                    // 6. Eporner (if adult content enabled)
                     if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         launch(Dispatchers.IO) {
-                            try {
-                                val epItems = kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                                    com.example.extractor.EpornerProvider.getHome(provLimit)
-                                } ?: emptyList()
-                                if (epItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(epItems) }
-                                }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "Eporner note: ${e.message}")
+                            val epItems = fetchSafely("eporner", 3000L) {
+                                com.example.extractor.EpornerProvider.getHome(provLimit)
+                            }
+                            if (epItems.isNotEmpty()) {
+                                updateFeedProgressively(epItems)
                             }
                         }
                     }
+                }
 
-                    // 4. MultiSource fast providers
-                    val fastMultiSources = listOf(
-                        "dailymotion", "bilibili", "vimeo", "hotstar", "twitch", "bigo", "bun-tel-meg",
-                        "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
-                        "crunchyroll", "sonyliv",
-                        "sextb", "123av", "javtiful", "jav_all",
-                        "hanime1", "hqporner", "pornhub", "beeg",
-                        "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
-                        "spankbang", "motherless", "playvid", "txxx"
-                    )
-                    val targetFastSources = when {
-                        activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
-                        else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
-                    }
+                // === PRIORITY 2: SECONDARY FAST MULTISOURCE PROVIDERS ===
+                val fastMultiSources = listOf(
+                    "hotstar", "twitch", "bigo", "bun-tel-meg",
+                    "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
+                    "crunchyroll", "sonyliv",
+                    "sextb", "123av", "javtiful", "jav_all",
+                    "hanime1", "hqporner", "pornhub", "beeg",
+                    "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
+                    "spankbang", "motherless", "playvid", "txxx"
+                )
+                val targetFastSources = when {
+                    activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
+                    else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
+                }
 
-                    targetFastSources.forEach { prov ->
-                        launch(Dispatchers.IO) {
-                            try {
-                                val timeoutMs = if (activeProv == prov) 6000L else 3000L
-                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-                                    if (prov == "bilibili") {
-                                        com.example.extractor.BilibiliProvider.getHomeVideos(1, provLimit)
-                                    } else {
-                                        com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, provLimit, 1)
-                                    }
-                                } ?: emptyList()
+                if (targetFastSources.isNotEmpty()) {
+                    supervisorScope {
+                        targetFastSources.forEach { prov ->
+                            launch(Dispatchers.IO) {
+                                val srcItems = fetchSafely(prov, 3500L) {
+                                    com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, provLimit, 1)
+                                }
                                 if (srcItems.isNotEmpty()) {
-                                    synchronized(collectedFeed) { collectedFeed.addAll(srcItems) }
+                                    updateFeedProgressively(srcItems)
                                 }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "Source note for $prov: ${e.message}")
                             }
                         }
                     }
                 }
 
-                // Batch 1 Primary Load Complete! Emit atomic update to UI.
-                val batch1Feed: List<VideoItem>
-                synchronized(collectedFeed) {
-                    batch1Feed = ArrayList(collectedFeed)
-                }
-                val primaryResult = buildBalancedFeed(batch1Feed)
-                if (primaryResult.isNotEmpty()) {
-                    _trendingVideos.value = primaryResult
-                    _isLoadingTrending.value = false
-                    com.example.util.ThumbnailOptimizer.preloadThumbnails(getApplication(), primaryResult)
-                }
-
-                // --- BATCH 2: HEAVY SCRAPERS, VEGA & TORRENT (APPEND-ONLY) ---
-                val secondaryCollected = mutableListOf<VideoItem>()
-
+                // === PRIORITY 3: HEAVY SCRAPERS, VEGA CATALOGS & BITTORRENT (BACKGROUND DISPATCH) ===
                 val heavyAdultSources = listOf("xvideos", "4tube", "rule34video", "redtube", "xhamster", "youporn")
                 val targetHeavySources = when {
                     activeProv == "all" -> heavyAdultSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
@@ -3624,17 +3680,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 supervisorScope {
+                    // Heavy adult scrapers
                     targetHeavySources.forEach { prov ->
                         launch(Dispatchers.IO) {
-                            try {
-                                val srcItems = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                    com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, provLimit, 1)
-                                } ?: emptyList()
-                                if (srcItems.isNotEmpty()) {
-                                    synchronized(secondaryCollected) { secondaryCollected.addAll(srcItems) }
-                                }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "Heavy source note for $prov: ${e.message}")
+                            val srcItems = fetchSafely(prov, 4000L) {
+                                com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, provLimit, 1)
+                            }
+                            if (srcItems.isNotEmpty()) {
+                                updateFeedProgressively(srcItems)
                             }
                         }
                     }
@@ -3652,66 +3705,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     targetVega.forEach { vegaProv ->
                         launch(Dispatchers.IO) {
-                            try {
-                                val vResults = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                    com.example.vega.VegaProviderClient.getHomeContent(vegaProv.id)
-                                } ?: emptyList()
-                                if (vResults.isNotEmpty()) {
-                                    val vItems = vResults.map { vItem ->
-                                        val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
-                                        val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
-                                        val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, vItem.title).logoUrls.firstOrNull()
-                                        VideoItem(
-                                            id = "vega_${vegaProv.id}::${vItem.link}",
-                                            title = vItem.title,
-                                            uploaderName = studio,
-                                            uploaderAvatarUrl = studioLogo,
-                                            thumbnailUrl = vItem.imageUrl ?: "",
-                                            durationSeconds = -1L,
-                                            providerId = "vega_${vegaProv.id}"
-                                        )
-                                    }
-                                    synchronized(secondaryCollected) { secondaryCollected.addAll(if (activeProv == "all") vItems.take(8) else vItems) }
+                            val vResults = fetchSafely("vega_${vegaProv.id}", 4000L) {
+                                val list = com.example.vega.VegaProviderClient.getHomeContent(vegaProv.id)
+                                list.map { vItem ->
+                                    val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
+                                    val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
+                                    val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, vItem.title).logoUrls.firstOrNull()
+                                    VideoItem(
+                                        id = "vega_${vegaProv.id}::${vItem.link}",
+                                        title = vItem.title,
+                                        uploaderName = studio,
+                                        uploaderAvatarUrl = studioLogo,
+                                        thumbnailUrl = vItem.imageUrl ?: "",
+                                        durationSeconds = -1L,
+                                        providerId = "vega_${vegaProv.id}"
+                                    )
                                 }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "Vega trending note for ${vegaProv.id}: ${e.message}")
+                            }
+                            if (vResults.isNotEmpty()) {
+                                updateFeedProgressively(if (activeProv == "all") vResults.take(8) else vResults)
                             }
                         }
                     }
 
-                    // Torrent Feed
+                    // Torrent Trending Feed
                     if ((activeProv == "all" || activeProv == "torrent") && enabledSet.contains("torrent")) {
                         launch(Dispatchers.IO) {
-                            try {
-                                val torrentItems = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                    fetchTorrentTrendingFeed()
-                                } ?: emptyList()
-                                if (torrentItems.isNotEmpty()) {
-                                    synchronized(secondaryCollected) { secondaryCollected.addAll(if (activeProv == "all") torrentItems.take(8) else torrentItems) }
-                                }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "Torrent trending note: ${e.message}")
+                            val torrentItems = fetchSafely("torrent", 4000L) {
+                                fetchTorrentTrendingFeed()
+                            }
+                            if (torrentItems.isNotEmpty()) {
+                                updateFeedProgressively(if (activeProv == "all") torrentItems.take(8) else torrentItems)
                             }
                         }
                     }
                 }
 
-                // Balance secondary items with existing feed
-                val secondarySnapshot: List<VideoItem>
-                synchronized(secondaryCollected) {
-                    secondarySnapshot = ArrayList(secondaryCollected)
-                }
-                if (secondarySnapshot.isNotEmpty()) {
-                    val currentList = _trendingVideos.value
-                    val currentIds = currentList.mapTo(HashSet()) { (it.providerId ?: "") + "_" + it.id }
-                    val newUniqueSecondary = secondarySnapshot.filter { !currentIds.contains((it.providerId ?: "") + "_" + it.id) }
-                    if (newUniqueSecondary.isNotEmpty()) {
-                        val combined = currentList + newUniqueSecondary
-                        _trendingVideos.value = buildBalancedFeed(combined)
-                    }
-                }
-
-                // Save loaded feed to disk cache
+                // Final cache check
                 if (_trendingVideos.value.isNotEmpty()) {
                     com.example.util.HomeFeedCacheManager.saveCachedFeed(getApplication(), _trendingVideos.value)
                     com.example.util.HomeFeedCache.saveFeed(getApplication(), _trendingVideos.value)
@@ -4070,6 +4100,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("motherless.com", ignoreCase = true) || cleanIdOrUrl.startsWith("motherless:", ignoreCase = true) -> "motherless"
                 cleanIdOrUrl.contains("playvid.com", ignoreCase = true) || cleanIdOrUrl.startsWith("playvid:", ignoreCase = true) -> "playvid"
                 cleanIdOrUrl.contains("txxx.com", ignoreCase = true) || cleanIdOrUrl.startsWith("txxx:", ignoreCase = true) -> "txxx"
+                cleanIdOrUrl.contains("sextb", ignoreCase = true) || cleanIdOrUrl.contains("stbturbo", ignoreCase = true) || cleanIdOrUrl.contains("streamtb", ignoreCase = true) || cleanIdOrUrl.startsWith("sextb:", ignoreCase = true) -> "sextb"
+                cleanIdOrUrl.startsWith("123av_", ignoreCase = true) || cleanIdOrUrl.contains("123av", ignoreCase = true) || cleanIdOrUrl.contains("javplayer", ignoreCase = true) -> "123av"
+                cleanIdOrUrl.startsWith("javtiful_", ignoreCase = true) || cleanIdOrUrl.contains("javtiful", ignoreCase = true) -> "javtiful"
                 _activeProviderId.value != "all" && _activeProviderId.value.isNotBlank() -> _activeProviderId.value
                 else -> "all"
             }
@@ -4858,7 +4891,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- BitTorrent Native Engine & P2P Stream Pipeline ---
-    private val torrentEngine = com.example.torrent.engine.TorrentEngine.getInstance(getApplication())
+    private val torrentEngine by lazy { com.example.torrent.engine.TorrentEngine.getInstance(getApplication()) }
     private var torrentHttpServer: com.example.torrent.server.TorrentHttpServer? = null
     private val activeTorrentReleasesMap = java.util.concurrent.ConcurrentHashMap<String, com.example.torrent.model.TorrentRelease>()
 
@@ -4869,7 +4902,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return server.start()
     }
 
-    val torrentEngineStats: StateFlow<com.example.torrent.model.TorrentEngineStats> = torrentEngine.stats
+    val torrentEngineStats: StateFlow<com.example.torrent.model.TorrentEngineStats> by lazy { torrentEngine.stats }
 
     private val _torrentReleases = MutableStateFlow<List<com.example.torrent.model.TorrentRelease>>(emptyList())
     val torrentReleases: StateFlow<List<com.example.torrent.model.TorrentRelease>> = _torrentReleases.asStateFlow()

@@ -2,6 +2,7 @@ package com.example.subtitles.whisper
 
 import android.content.Context
 import android.util.Log
+import com.example.util.NetworkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -22,7 +23,7 @@ class WhisperModelManager(private val context: Context) {
     }
 
     private val modelsDir = File(context.filesDir, "whisper_models").apply { mkdirs() }
-    private val httpClient = OkHttpClient()
+    private val httpClient = NetworkManager.mediaClient
 
     fun isModelDownloaded(modelType: WhisperModelType = WhisperModelType.TINY_EN): Boolean {
         val file = File(modelsDir, modelType.fileName)
