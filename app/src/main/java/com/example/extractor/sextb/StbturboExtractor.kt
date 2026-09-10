@@ -123,23 +123,26 @@ object StbturboExtractor {
         )
 
         // 1. Primary upstream selector: #video_player[data-hash]
-        val playerEl = doc.selectFirst("#video_player") ?: doc.selectFirst("[data-hash]")
-        val dataHash = playerEl?.attr("data-hash")?.trim()
+        val playerEl = doc.selectFirst("#video_player") ?: doc.selectFirst("[data-hash]") ?: doc.selectFirst(".player-wrapper [data-hash]")
+        val dataHash = playerEl?.attr("data-hash")?.trim() ?: playerEl?.attr("data-src")?.trim()
 
         if (!dataHash.isNullOrBlank()) {
             val hlsUrl = httpsify(dataHash)
-            sources.add(
-                VideoSource(
-                    url = hlsUrl,
-                    mimeType = "application/x-mpegURL",
-                    quality = "1080p",
-                    isHls = true,
-                    headers = playbackHeaders,
-                    sourceName = "Stbturbo"
+            if (hlsUrl.isNotBlank()) {
+                val isHls = hlsUrl.contains(".m3u8") || !hlsUrl.contains(".mp4")
+                sources.add(
+                    VideoSource(
+                        url = hlsUrl,
+                        mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
+                        quality = "1080p",
+                        isHls = isHls,
+                        headers = playbackHeaders,
+                        sourceName = "Stbturbo"
+                    )
                 )
-            )
-            Log.i(TAG, "Resolved Stbturbo HLS stream: $hlsUrl")
-            return sources
+                Log.i(TAG, "Resolved Stbturbo stream: $hlsUrl")
+                return sources
+            }
         }
 
         // 2. Direct HTML5 video / source fallback
@@ -162,22 +165,33 @@ object StbturboExtractor {
             return sources
         }
 
-        // 3. Fallback regex search for master.m3u8 or .m3u8 in scripts
-        val m3u8Regex = Pattern.compile("""https?://[^"'\s<>]+\.m3u8(?:[^"'\s<>]*)?""", Pattern.CASE_INSENSITIVE)
-        val matcher = m3u8Regex.matcher(html)
-        if (matcher.find()) {
-            val hlsUrl = httpsify(matcher.group(0))
-            sources.add(
-                VideoSource(
-                    url = hlsUrl,
-                    mimeType = "application/x-mpegURL",
-                    quality = "1080p",
-                    isHls = true,
-                    headers = playbackHeaders,
-                    sourceName = "Stbturbo HLS"
-                )
-            )
+        // 3. Fallback: Search in script tags and unpacked JavaScript
+        val unpackedHtml = SextbResolver.unpackAllScripts(html)
+        val scriptSources = SextbResolver.extractStreamUrlsFromText(unpackedHtml, embedUrl)
+        if (scriptSources.isNotEmpty()) {
+            sources.addAll(scriptSources)
             return sources
+        }
+
+        // 4. Fallback regex search for master.m3u8 or .m3u8 / .mp4 anywhere in HTML
+        val m3u8Regex = Pattern.compile("""https?://[^"'\s<>]+\.(?:m3u8|mp4)(?:[^"'\s<>]*)?""", Pattern.CASE_INSENSITIVE)
+        val matcher = m3u8Regex.matcher(unpackedHtml)
+        while (matcher.find()) {
+            val foundUrl = httpsify(matcher.group(0))
+            if (foundUrl.isNotBlank() && !foundUrl.contains("thumb") && !foundUrl.contains("preview")) {
+                val isHls = foundUrl.contains(".m3u8")
+                sources.add(
+                    VideoSource(
+                        url = foundUrl,
+                        mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
+                        quality = "1080p",
+                        isHls = isHls,
+                        headers = playbackHeaders,
+                        sourceName = "Stbturbo Stream"
+                    )
+                )
+                return sources
+            }
         }
 
         return sources

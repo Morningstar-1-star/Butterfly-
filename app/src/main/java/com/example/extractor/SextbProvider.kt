@@ -47,6 +47,17 @@ object SextbProvider {
     // Safe In-memory Caching: Metadata & Search ONLY (Stream URLs are NEVER cached)
     private val searchCache = LruCache<String, List<VideoItem>>(50)
     private val detailsCache = LruCache<String, SextbVideoDetails>(100)
+    private val knownPageUrlMap = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun registerPageUrl(idOrSlug: String, pageUrl: String) {
+        if (idOrSlug.isNotBlank() && pageUrl.isNotBlank() && pageUrl.startsWith("http")) {
+            knownPageUrlMap[idOrSlug.trim()] = pageUrl.trim()
+            val slug = SextbParser.extractVideoIdFromUrl(pageUrl)
+            if (slug.isNotBlank()) {
+                knownPageUrlMap[slug] = pageUrl.trim()
+            }
+        }
+    }
 
     /**
      * 1. search(query)
@@ -84,6 +95,9 @@ object SextbProvider {
                 val html = resp.body?.string() ?: ""
                 val items = SextbParser.parseSearchResults(html, DEFAULT_BASE_URL)
                 if (items.isNotEmpty()) {
+                    items.forEach { item ->
+                        item.uploaderUrl?.let { registerPageUrl(item.id, it) }
+                    }
                     val bounded = items.take(limit)
                     searchCache.put(cacheKey, bounded)
                     Log.i(TAG, "SEXТB search: Native HTTP found ${items.size} results for '$cleanQuery'")
@@ -102,6 +116,9 @@ object SextbProvider {
             try {
                 val webItems = SextbWebViewFallback.scrapeCatalog(context, searchUrl)
                 if (webItems.isNotEmpty()) {
+                    webItems.forEach { item ->
+                        item.uploaderUrl?.let { registerPageUrl(item.id, it) }
+                    }
                     val bounded = webItems.take(limit)
                     searchCache.put(cacheKey, bounded)
                     Log.i(TAG, "SEXТB search: WebView fallback found ${bounded.size} results")
@@ -153,6 +170,9 @@ object SextbProvider {
                     val html = resp.body?.string() ?: ""
                     val items = SextbParser.parseSearchResults(html, DEFAULT_BASE_URL)
                     if (items.isNotEmpty()) {
+                        items.forEach { item ->
+                            item.uploaderUrl?.let { registerPageUrl(item.id, it) }
+                        }
                         val bounded = items.take(limit)
                         searchCache.put(cacheKey, bounded)
                         Log.i(TAG, "SEXТB home: Loaded ${bounded.size} items from $url")
@@ -171,6 +191,9 @@ object SextbProvider {
                 val homeUrl = "$DEFAULT_BASE_URL/uncensored/pg-$page"
                 val webItems = SextbWebViewFallback.scrapeCatalog(context, homeUrl)
                 if (webItems.isNotEmpty()) {
+                    webItems.forEach { item ->
+                        item.uploaderUrl?.let { registerPageUrl(item.id, it) }
+                    }
                     val bounded = webItems.take(limit)
                     searchCache.put(cacheKey, bounded)
                     return@withContext bounded
@@ -198,28 +221,33 @@ object SextbProvider {
 
         Log.i(TAG, "SEXТB details: Fetching details for $pageUrl")
 
-        try {
-            val req = Request.Builder()
-                .url(pageUrl)
-                .header("User-Agent", SextbResolver.DEFAULT_UA)
-                .header("Referer", "$DEFAULT_BASE_URL/")
-                .build()
+        val candidateUrls = getCandidateUrls(urlOrId)
 
-            val resp = httpClient.newCall(req).execute()
-            if (resp.isSuccessful) {
-                val html = resp.body?.string() ?: ""
-                if (!html.contains("404 Page Not Found") && !html.contains("Page Not Found | SEXTB") && !html.contains("Access Restricted", ignoreCase = true)) {
-                    val details = SextbParser.parseDetailsPage(html, pageUrl)
-                    if (details.title.isNotBlank() && !details.title.contains("404")) {
-                        detailsCache.put(cacheKey, details)
-                        return@withContext details
+        for (targetUrl in candidateUrls) {
+            try {
+                val req = Request.Builder()
+                    .url(targetUrl)
+                    .header("User-Agent", SextbResolver.DEFAULT_UA)
+                    .header("Referer", "$DEFAULT_BASE_URL/")
+                    .build()
+
+                val resp = httpClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string() ?: ""
+                    if (!html.contains("404 Page Not Found") && !html.contains("Page Not Found | SEXTB") &&
+                        !html.contains("Access Restricted", ignoreCase = true) && !html.contains("<title>404")
+                    ) {
+                        val details = SextbParser.parseDetailsPage(html, targetUrl)
+                        if (details.title.isNotBlank() && !details.title.contains("404")) {
+                            registerPageUrl(urlOrId, targetUrl)
+                            detailsCache.put(cacheKey, details)
+                            return@withContext details
+                        }
                     }
                 }
-            } else {
-                Log.w(TAG, "SEXТB details: HTTP response ${resp.code} on $pageUrl")
+            } catch (e: Exception) {
+                Log.w(TAG, "SEXТB details: Network attempt failed for $targetUrl: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "SEXТB details: Network failure loading details: ${e.message}")
         }
 
         // Return baseline details with id and cleaned title from URL slug
@@ -255,13 +283,35 @@ object SextbProvider {
      * 5. resolveSource(url) - Returns all available VideoSource variants (1080p, 720p, etc.)
      */
     suspend fun resolveSource(urlOrId: String, context: Context? = null): List<VideoSource> = withContext(Dispatchers.IO) {
-        val pageUrl = normalizePageUrl(urlOrId)
-        Log.i(TAG, "SEXТB resolver: Resolving media sources for $pageUrl")
+        val candidateUrls = getCandidateUrls(urlOrId)
+        Log.i(TAG, "SEXТB resolver: Resolving media sources for $urlOrId (candidates: ${candidateUrls.size})")
 
-        val sources = SextbResolver.resolveVideoSources(pageUrl, context = context)
-        if (sources.isNotEmpty()) {
-            Log.i(TAG, "SEXТB resolver: Successfully resolved ${sources.size} stream variants")
-            return@withContext sources
+        for (targetUrl in candidateUrls) {
+            val sources = SextbResolver.resolveVideoSources(targetUrl, context = context)
+            if (sources.isNotEmpty()) {
+                registerPageUrl(urlOrId, targetUrl)
+                Log.i(TAG, "SEXТB resolver: Successfully resolved ${sources.size} stream variants from $targetUrl")
+                return@withContext sources
+            }
+        }
+
+        // Fallback: If slug was passed, try searching for the exact title/slug to discover the real page URL
+        val cleanSlug = SextbParser.extractVideoIdFromUrl(urlOrId)
+        if (cleanSlug.isNotBlank() && cleanSlug.length > 3 && !urlOrId.startsWith("http")) {
+            try {
+                val searchResults = search(cleanSlug, limit = 5, context = context)
+                val matching = searchResults.firstOrNull { it.id.equals(cleanSlug, ignoreCase = true) || it.uploaderUrl?.contains(cleanSlug) == true }
+                    ?: searchResults.firstOrNull()
+                val realUrl = matching?.uploaderUrl
+                if (!realUrl.isNullOrBlank()) {
+                    Log.i(TAG, "SEXТB resolver: Discovered real URL through search: $realUrl")
+                    val sources = SextbResolver.resolveVideoSources(realUrl, context = context)
+                    if (sources.isNotEmpty()) {
+                        registerPageUrl(urlOrId, realUrl)
+                        return@withContext sources
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         Log.w(TAG, "SEXТB resolver: Failed to resolve media sources (${SextbError.SOURCE_NOT_FOUND.code})")
@@ -273,10 +323,10 @@ object SextbProvider {
      */
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val pageUrl = normalizePageUrl(urlOrId)
-        Log.i(TAG, "SEXТB extractor: getStreamData for $pageUrl")
+        Log.i(TAG, "SEXТB extractor: getStreamData for $urlOrId -> $pageUrl")
 
-        val details = loadDetails(pageUrl, context)
-        val sources = resolveSource(pageUrl, context)
+        val details = loadDetails(urlOrId, context)
+        val sources = resolveSource(urlOrId, context)
         if (sources.isNotEmpty()) {
             val validDetails = if (details.title.contains("404", ignoreCase = true) || details.title.isBlank() || details.title.equals("Video", ignoreCase = true)) {
                 val cleanSlug = SextbParser.extractVideoIdFromUrl(pageUrl)
@@ -291,17 +341,45 @@ object SextbProvider {
             return@withContext streamData
         }
 
-        Log.w(TAG, "SEXТB extractor: No stream sources returned for $pageUrl")
+        Log.w(TAG, "SEXТB extractor: No stream sources returned for $urlOrId")
         null
     }
 
-    fun normalizePageUrl(urlOrId: String): String {
+    fun getCandidateUrls(urlOrId: String): List<String> {
         val trimmed = urlOrId.trim().removePrefix("sextb:").trim()
+        val list = mutableListOf<String>()
+
+        // 1. Direct URL if already absolute
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            return trimmed
+            list.add(trimmed)
+            return list
         }
-        val cleanId = trimmed.removePrefix("/").removePrefix("video/").removePrefix("watch/").removeSuffix("/")
-        return "$DEFAULT_BASE_URL/video/$cleanId/"
+
+        // 2. Look up in knownPageUrlMap
+        knownPageUrlMap[trimmed]?.let { list.add(it) }
+
+        val cleanId = trimmed.removePrefix("/").removePrefix("video/").removePrefix("watch/").removePrefix("uncensored/").removePrefix("censored/").removeSuffix("/")
+        knownPageUrlMap[cleanId]?.let { if (!list.contains(it)) list.add(it) }
+
+        // 3. Primary canonical paths on sextb.net
+        val candidates = listOf(
+            "$DEFAULT_BASE_URL/$cleanId/",
+            "$DEFAULT_BASE_URL/uncensored/$cleanId/",
+            "$DEFAULT_BASE_URL/censored/$cleanId/",
+            "$DEFAULT_BASE_URL/watch/$cleanId/",
+            "$DEFAULT_BASE_URL/$cleanId.html",
+            "$DEFAULT_BASE_URL/video/$cleanId/"
+        )
+        for (c in candidates) {
+            if (!list.contains(c)) list.add(c)
+        }
+
+        return list
+    }
+
+    fun normalizePageUrl(urlOrId: String): String {
+        val candidates = getCandidateUrls(urlOrId)
+        return candidates.firstOrNull() ?: "$DEFAULT_BASE_URL/${urlOrId.trim().removePrefix("sextb:").trim()}/"
     }
 
     private fun String.capitalizeWords(): String {

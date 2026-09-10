@@ -137,15 +137,9 @@ object SubtitleManager {
             _discoveredSubtitles.value = ranked
             _isSearching.value = false
 
-            // Step 5: Select best match
+            // Subtitles are stored in _discoveredSubtitles for on-demand user selection via CC button
             if (ranked.isNotEmpty()) {
-                val bestMatch = ranked.first()
-                Log.i(TAG, "Selected best subtitle: [${bestMatch.providerName}] ${bestMatch.title} (${bestMatch.languageCode}) score=${bestMatch.matchScore}")
-                selectSubtitle(context, bestMatch)
-                onUsableSubtitleFound?.invoke(bestMatch)
-            } else {
-                Log.i(TAG, "No usable subtitles found across plugins. Triggering fallback.")
-                onFallbackToWhisper?.invoke()
+                Log.i(TAG, "Discovered ${ranked.size} subtitle tracks ready for user selection. Top: [${ranked.first().providerName}] ${ranked.first().title}")
             }
         }
     }

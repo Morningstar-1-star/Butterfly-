@@ -33,6 +33,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.auth.SourceAccountManager
 import com.example.auth.SourcePlatform
+import kotlinx.coroutines.launch
 
 /**
  * Isolated in-app Web Sandbox for logging into individual streaming platforms (Grayjay style).
@@ -47,6 +48,7 @@ fun SourceLoginSandboxDialog(
     onLoginSuccess: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember { mutableStateOf(platform.defaultLoginUrl) }
     var pageTitle by remember { mutableStateOf(platform.displayName) }
@@ -144,6 +146,15 @@ fun SourceLoginSandboxDialog(
                                             isPremium = true,
                                             planType = "Premium Active"
                                         )
+
+                                        if (platform == SourcePlatform.CRUNCHYROLL) {
+                                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                try {
+                                                    com.example.extractor.CrunchyrollApiClient.getAuthInfo(forceRefresh = true)
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
+
                                         Toast.makeText(context, "${platform.displayName} session saved successfully!", Toast.LENGTH_SHORT).show()
                                         webViewRef?.destroy()
                                         onLoginSuccess()

@@ -48,10 +48,12 @@ fun PersistentPlayerHost(
                 } else {
                     setFullscreenButtonClickListener(null)
                 }
+                com.example.ui.player.core.PlayerFrameCaptureHelper.registerPlayerView(this)
                 applyEffectsToPlayerView(this, videoEffectsConfig)
             }
         },
         update = { playerView ->
+            com.example.ui.player.core.PlayerFrameCaptureHelper.registerPlayerView(playerView)
             if (playerView.player != exoPlayer) {
                 playerView.player = exoPlayer
             }
@@ -71,6 +73,7 @@ fun PersistentPlayerHost(
             applyEffectsToPlayerView(playerView, videoEffectsConfig)
         },
         onRelease = { playerView ->
+            com.example.ui.player.core.PlayerFrameCaptureHelper.unregisterPlayerView(playerView)
             // Detach this playerView from the player without resetting ExoPlayer's active rendering surface
             // if ExoPlayer is still playing or managed globally.
             playerView.setControllerVisibilityListener(null as? PlayerView.ControllerVisibilityListener)

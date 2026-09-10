@@ -115,7 +115,7 @@ object HotstarProvider {
         val results = mutableListOf<VideoItem>()
         YouTubeExtractorHelper.ensureNewPipeInitialized()
 
-        val selectedTopics = topics.shuffled().take(3)
+        val selectedTopics = topics.shuffled().take(8)
         val deferredList = selectedTopics.map { topic ->
             async(Dispatchers.IO) {
                 fetchTopicItems(topic, limitPerTopic = 10)

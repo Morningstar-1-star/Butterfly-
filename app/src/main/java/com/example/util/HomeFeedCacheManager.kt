@@ -214,6 +214,21 @@ object HomeFeedCacheManager {
     }
 
     /**
+     * Clears cached feed snapshot from memory and disk so pull-to-refresh gets 100% fresh data.
+     */
+    fun clearCache(context: Context) {
+        memoryCachedFeed = null
+        try {
+            val file = File(context.filesDir, CACHE_FILE_NAME)
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed deleting cached home feed: ${e.message}")
+        }
+    }
+
+    /**
      * Persists fresh feed snapshot to local storage asynchronously.
      */
     fun saveCachedFeed(context: Context, items: List<VideoItem>) {

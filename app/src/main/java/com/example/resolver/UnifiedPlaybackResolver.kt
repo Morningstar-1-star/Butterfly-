@@ -201,7 +201,7 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             .filter { it.id != primaryCandidate.id && it.providerId != primaryCandidate.providerId }
             .sortedByDescending { SourceRankingEngine.calculateCompositeScore(it) }
 
-        for (candidate in secondaryCandidates.take(3)) {
+        for (candidate in secondaryCandidates.take(6)) {
             onStatus("Cascading to fallback provider: ${candidate.providerName}...")
             val secondarySuccess = switchSource(candidate, currentPos, onStatus)
             if (secondarySuccess) {

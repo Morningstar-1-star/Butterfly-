@@ -85,6 +85,7 @@ fun UniversalVideoPlayer(
     onPreviousClick: (() -> Unit)? = null,
     onSwipeDownDrag: ((dragDeltaY: Float) -> Unit)? = null,
     onSwipeDownEnd: ((accumulatedDy: Float) -> Unit)? = null,
+    onOpenRelatedVideos: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -109,6 +110,7 @@ fun UniversalVideoPlayer(
     var showQualitySubMenu by remember { mutableStateOf(false) }
     var showAudioTrackSubMenu by remember { mutableStateOf(false) }
     var showAdditionalSettingsSubMenu by remember { mutableStateOf(false) }
+    var showLensOverlay by remember { mutableStateOf(false) }
 
     val isAmbientModeEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
     val isLoopVideoEnabled by GlobalPlayerManager.isLoopEnabled.collectAsState()
@@ -320,6 +322,7 @@ fun UniversalVideoPlayer(
                     val touchSlop = viewConfiguration.touchSlop
                     var hasPassedSlop = false
                     var isSwipingDownToMinimize = false
+                    var isSwipingUpForLandscapeRelated = false
 
                     accumulatedDx = 0f
                     accumulatedDy = 0f
@@ -359,7 +362,18 @@ fun UniversalVideoPlayer(
                                 }
                             }
 
-                            if (!isDraggingHorizontally && !isDraggingVertically) {
+                            // Swipe up in landscape mode for related videos
+                            if (isLandscape && onOpenRelatedVideos != null && !isDraggingHorizontally) {
+                                val totalWidth = size.width.toFloat().coerceAtLeast(100f)
+                                val isCenterZone = startPos.x >= totalWidth * 0.35f && startPos.x <= totalWidth * 0.65f
+                                val isSwipeUpIntent = accumulatedDy < -16f && absDy > absDx * 1.1f
+                                if (isSwipingUpForLandscapeRelated || (isSwipeUpIntent && (areControlsVisible || isCenterZone))) {
+                                    isSwipingUpForLandscapeRelated = true
+                                    continue
+                                }
+                            }
+
+                            if (!isDraggingHorizontally && !isDraggingVertically && !isSwipingUpForLandscapeRelated) {
                                 if (absDx > 12f && absDx > absDy) {
                                     isDraggingHorizontally = true
                                 } else if (absDy > 12f && absDy > absDx) {
@@ -378,45 +392,55 @@ fun UniversalVideoPlayer(
                                 val sign = if (deltaSecs >= 0) "+" else ""
                                 gestureNoticeText = "$sign${deltaSecs}s (${formatVideoTimestamp(targetPos)} / ${formatVideoTimestamp(durationMs)})"
                                 gestureNoticeIcon = if (deltaSecs >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
-                            } else if (isDraggingVertically) {
-                                val totalHeight = size.height.toFloat().coerceAtLeast(100f)
-                                val isLeftHalf = startPos.x < size.width * 0.5f
+                            } else if (isDraggingVertically && !isSwipingUpForLandscapeRelated) {
+                                // Volume and Brightness gestures only active when player controls are faded away
+                                if (!areControlsVisible) {
+                                    val totalHeight = size.height.toFloat().coerceAtLeast(100f)
+                                    val isLeftZone = startPos.x < size.width * 0.35f
+                                    val isRightZone = startPos.x > size.width * 0.65f
 
-                                if (isLeftHalf) {
-                                    activeVerticalGestureType = "BRIGHTNESS"
-                                    val delta = -accumulatedDy / totalHeight
-                                    brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
-                                    verticalGestureValue = brightnessLevel
-                                    val activity = context as? Activity
-                                        ?: (context as? ContextWrapper)?.baseContext as? Activity
-                                    activity?.let { act ->
-                                        val lp = act.window.attributes
-                                        lp.screenBrightness = brightnessLevel
-                                        act.window.attributes = lp
-                                    }
-                                } else {
-                                    activeVerticalGestureType = "VOLUME"
-                                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                                    if (audioManager != null) {
-                                        val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                                    if (isLeftZone) {
+                                        activeVerticalGestureType = "BRIGHTNESS"
                                         val delta = -accumulatedDy / totalHeight
-                                        volumeLevel = (initialVolume + delta).coerceIn(0f, 1f)
-                                        verticalGestureValue = volumeLevel
-                                        val targetVol = (volumeLevel * maxVol).toInt()
-                                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                        brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
+                                        verticalGestureValue = brightnessLevel
+                                        val activity = context as? Activity
+                                            ?: (context as? ContextWrapper)?.baseContext as? Activity
+                                        activity?.let { act ->
+                                            val lp = act.window.attributes
+                                            lp.screenBrightness = brightnessLevel
+                                            act.window.attributes = lp
+                                        }
+                                    } else if (isRightZone) {
+                                        activeVerticalGestureType = "VOLUME"
+                                        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                        if (audioManager != null) {
+                                            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                                            val delta = -accumulatedDy / totalHeight
+                                            volumeLevel = (initialVolume + delta).coerceIn(0f, 1f)
+                                            verticalGestureValue = volumeLevel
+                                            val targetVol = (volumeLevel * maxVol).toInt()
+                                            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                        }
                                     }
-                                }
 
-                                verticalGestureJob?.cancel()
-                                verticalGestureJob = coroutineScope.launch {
-                                    delay(900)
-                                    activeVerticalGestureType = null
+                                    verticalGestureJob?.cancel()
+                                    verticalGestureJob = coroutineScope.launch {
+                                        delay(900)
+                                        activeVerticalGestureType = null
+                                    }
                                 }
                             }
                         }
                     } while (event.changes.any { it.pressed })
 
                     if (hasPassedSlop) {
+                        if (isSwipingUpForLandscapeRelated) {
+                            if (accumulatedDy < -30f) {
+                                onOpenRelatedVideos?.invoke()
+                            }
+                            isSwipingUpForLandscapeRelated = false
+                        }
                         if (isSwipingDownToMinimize) {
                             if (onSwipeDownEnd != null) {
                                 onSwipeDownEnd.invoke(accumulatedDy)
@@ -644,6 +668,22 @@ fun UniversalVideoPlayer(
                         ) {
                             Text("Retry Playback", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
+
+                        val availableOptions = (streamData ?: activeStreamData)?.availableStreamOptions ?: emptyList()
+                        val webPlayerOpt = availableOptions.firstOrNull { it.format.equals("embed", true) || it.sourceName.contains("Embed", true) || it.videoUrl?.contains("/embed/") == true }
+                        if (webPlayerOpt != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    onSelectStreamOption(webPlayerOpt)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAD1457))
+                            ) {
+                                Icon(Icons.Default.Public, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Play in Web Player", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
@@ -808,6 +848,22 @@ fun UniversalVideoPlayer(
                             }
                         }
 
+                        // Google Lens / Visual Search & Text Copy Button
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.pause()
+                                showLensOverlay = true
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Google Lens & Circle to Search",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
                         // Settings Gear Icon
                         IconButton(
                             onClick = {
@@ -838,71 +894,109 @@ fun UniversalVideoPlayer(
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.Center)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(44.dp)
+                val isCurrentlyPlayingCenter by GlobalPlayerManager.isPlaying.collectAsState()
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Previous Video / Rewind Button
-                    IconButton(
-                        onClick = {
-                            GlobalPlayerManager.showControls()
-                            if (onPreviousClick != null) {
-                                onPreviousClick.invoke()
-                            } else {
-                                val curMs = GlobalPlayerManager.currentPositionMs.value
-                                GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
-                            }
-                        },
-                        modifier = Modifier.size(52.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(44.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous Video",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
+                        // Previous Video / Rewind Button
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                if (onPreviousClick != null) {
+                                    onPreviousClick.invoke()
+                                } else {
+                                    val curMs = GlobalPlayerManager.currentPositionMs.value
+                                    GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
+                                }
+                            },
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Previous Video",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+
+                        // Center Big Play/Pause Button
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                if (isCurrentlyPlayingCenter) {
+                                    GlobalPlayerManager.pause()
+                                } else {
+                                    GlobalPlayerManager.play()
+                                }
+                            },
+                            modifier = Modifier.size(72.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isCurrentlyPlayingCenter) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isCurrentlyPlayingCenter) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(54.dp)
+                            )
+                        }
+
+                        // Next Video / Forward Button
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                if (onNextClick != null) {
+                                    onNextClick.invoke()
+                                } else {
+                                    val curMs = GlobalPlayerManager.currentPositionMs.value
+                                    GlobalPlayerManager.seekTo(curMs + 10000L)
+                                }
+                            },
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Next Video",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
                     }
 
-                    // Center Big Play/Pause Button
-                    val isCurrentlyPlayingCenter by GlobalPlayerManager.isPlaying.collectAsState()
-                    IconButton(
-                        onClick = {
-                            GlobalPlayerManager.showControls()
-                            if (isCurrentlyPlayingCenter) {
+                    // Paused Quick Lens Button
+                    if (!isCurrentlyPlayingCenter) {
+                        Surface(
+                            onClick = {
                                 GlobalPlayerManager.pause()
-                            } else {
-                                GlobalPlayerManager.play()
+                                showLensOverlay = true
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.Black.copy(alpha = 0.75f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = null,
+                                    tint = Color(0xFF4285F4),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Circle to Search / Copy Text",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
-                        },
-                        modifier = Modifier.size(72.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isCurrentlyPlayingCenter) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isCurrentlyPlayingCenter) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(54.dp)
-                        )
-                    }
-
-                    // Next Video / Forward Button
-                    IconButton(
-                        onClick = {
-                            GlobalPlayerManager.showControls()
-                            if (onNextClick != null) {
-                                onNextClick.invoke()
-                            } else {
-                                val curMs = GlobalPlayerManager.currentPositionMs.value
-                                GlobalPlayerManager.seekTo(curMs + 10000L)
-                            }
-                        },
-                        modifier = Modifier.size(52.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next Video",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
+                        }
                     }
                 }
             }
@@ -1073,11 +1167,42 @@ fun UniversalVideoPlayer(
                             }
                         }
 
-                        // Right: Play/Pause, Fullscreen
+                        // Right: More Videos (landscape), Play/Pause, Fullscreen
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            if (isLandscape && onOpenRelatedVideos != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color.White.copy(alpha = 0.18f),
+                                    modifier = Modifier
+                                        .clickable {
+                                            GlobalPlayerManager.showControls()
+                                            onOpenRelatedVideos()
+                                        }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            text = "More videos",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "More videos",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             IconButton(
                                 onClick = {
                                     GlobalPlayerManager.showControls()
@@ -2092,6 +2217,43 @@ fun UniversalVideoPlayer(
                                 fontWeight = FontWeight.Normal
                             )
                         }
+
+                        // 8. Google Lens & Circle-to-Search
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showSettingsSheet = false
+                                    GlobalPlayerManager.pause()
+                                    showLensOverlay = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Circle to Search & Google Lens",
+                                    tint = Color(0xFF4285F4)
+                                )
+                                Text(
+                                    text = "Circle to Search & Google Lens",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = "Extract Text & Search",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -2498,6 +2660,13 @@ fun UniversalVideoPlayer(
                     )
                 }
             }
+        }
+
+        // Google Lens, Circle-to-Search & On-Device OCR Text Recognition Layer
+        if (showLensOverlay) {
+            com.example.ui.player.lens.PlayerLensOverlay(
+                onDismiss = { showLensOverlay = false }
+            )
         }
     }
 }

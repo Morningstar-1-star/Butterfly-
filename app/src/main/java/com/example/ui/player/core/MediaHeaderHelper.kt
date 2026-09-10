@@ -10,6 +10,10 @@ import okhttp3.ResponseBody.Companion.toResponseBody
  */
 object MediaHeaderHelper {
 
+    private val bigoSeedMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    @Volatile
+    private var lastBigoSeed: Long = -1L
+
     val mediaHeaderInterceptor: Interceptor = Interceptor { chain ->
         var request = chain.request()
         val urlStr = request.url.toString().lowercase()
@@ -52,9 +56,11 @@ object MediaHeaderHelper {
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
             }
-            urlStr.contains("eporner") || urlStr.contains("static-cluster") || urlStr.contains("dwn") || urlStr.contains("eporner-cdn") -> {
+            urlStr.contains("eporner.com") || urlStr.contains("eporner") || urlStr.contains("static-cluster") || urlStr.contains("eporner-cdn") -> {
                 builder.header("Referer", "https://www.eporner.com/")
-                builder.header("Origin", "https://www.eporner.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
             }
             urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event") -> {
                 builder.header("Referer", "https://www.dailymotion.com/")
@@ -72,8 +78,9 @@ object MediaHeaderHelper {
             }
             urlStr.contains("4tube.com") || urlStr.contains("ttcache.com") || urlStr.contains("f-cdn.com") || urlStr.contains("foursex.com") || urlStr.contains("pornerbros.com") || urlStr.contains("fux.com") -> {
                 builder.header("Referer", "https://www.4tube.com/")
-                builder.header("Origin", "https://www.4tube.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1")
             }
             urlStr.contains("beeg.com") || urlStr.contains("externulls.com") -> {
@@ -178,15 +185,53 @@ object MediaHeaderHelper {
                 builder.header("Origin", "https://www.sonyliv.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            urlStr.contains("thisvid") || urlStr.contains("tvid") -> {
+            urlStr.contains("thisvid.com") || (urlStr.contains("thisvid") && !urlStr.contains("gtv-videos-bucket")) -> {
                 builder.header("Referer", "https://thisvid.com/")
-                builder.header("Origin", "https://thisvid.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1; kt_disclaimer=1")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
             }
-            urlStr.contains("tnaflix.com") -> {
+            urlStr.contains("txxx") || urlStr.contains("txxx.com") || urlStr.contains("txxx.tube") || urlStr.contains("tubecdn.com") -> {
+                builder.header("Referer", "https://www.txxx.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; country=US; ft_mature=1; consent=1")
+            }
+            urlStr.contains("4tube") || urlStr.contains("4tube.com") || urlStr.contains("fivetube.com") -> {
+                builder.header("Referer", "https://www.4tube.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; country=US; ft_mature=1; consent=1")
+            }
+            urlStr.contains("spankbang") || urlStr.contains("spankbang.com") || urlStr.contains("spankcdn") || urlStr.contains("sb-cd.com") -> {
+                builder.header("Referer", "https://spankbang.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US")
+            }
+            urlStr.contains("motherless") || urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") -> {
+                builder.header("Referer", "https://motherless.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                if (request.header("Cookie") == null) builder.header("Cookie", "content_filter=0; member=1")
+            }
+            urlStr.contains("playvid") || urlStr.contains("playvid.com") -> {
+                builder.header("Referer", "https://www.playvid.com/")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1")
+            }
+            urlStr.contains("tnaflix") || urlStr.contains("tnaflix.com") || urlStr.contains("tnaflixcdn") -> {
                 builder.header("Referer", "https://www.tnaflix.com/")
-                builder.header("Origin", "https://www.tnaflix.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1")
             }
             urlStr.contains("crunchyroll") || urlStr.contains("vrv.co") || urlStr.contains("akamaized.net") -> {
@@ -219,7 +264,7 @@ object MediaHeaderHelper {
         val response = chain.proceed(builder.build())
         if (!response.isSuccessful) return@Interceptor response
 
-        val isBigoStream = urlStr.contains("cubetecn.com") || urlStr.contains("bigo.tv") || urlStr.contains("bigolive.tv") || urlStr.contains("bigo.sg") || urlStr.contains("bigocdn.com")
+        val isBigoStream = urlStr.contains("cubetecn.com") || urlStr.contains("bigo.tv") || urlStr.contains("bigolive.tv") || urlStr.contains("bigo.sg") || urlStr.contains("bigocdn.com") || urlStr.contains("da7akni.net") || urlStr.contains("piojm.tech")
 
         if (isBigoStream) {
             val responseBody = response.body ?: return@Interceptor response
@@ -229,6 +274,15 @@ object MediaHeaderHelper {
 
             if (isM3u8) {
                 val rawText = responseBody.string()
+                val seedMatch = Regex("""#EXT-X-BIGO-WEB-PROTECTION:[^,\r\n]*SEED=(\d+)""").find(rawText)
+                if (seedMatch != null) {
+                    val seedVal = seedMatch.groupValues[1].toLongOrNull() ?: -1L
+                    if (seedVal > 0L) {
+                        lastBigoSeed = seedVal
+                        val pathKey = request.url.encodedPath.substringBeforeLast('/')
+                        bigoSeedMap[pathKey] = seedVal
+                    }
+                }
                 if (rawText.contains("#EXT-X-BIGO-WEB-PROTECTION") || rawText.contains("#EXTM3U")) {
                     val cleanText = rawText.replace(Regex("""#EXT-X-BIGO-WEB-PROTECTION:[^\r\n]*\r?\n?"""), "")
                     val newBody = cleanText.toResponseBody(mediaType)
@@ -239,9 +293,20 @@ object MediaHeaderHelper {
                 }
             } else {
                 val bytes = responseBody.bytes()
-                if (bytes.size >= 376 && bytes[0] != 0x47.toByte() && bytes[376] == 0x47.toByte()) {
-                    val repaired = repairBigoTsSegment(bytes)
-                    val newBody = repaired.toResponseBody(mediaType)
+                if (bytes.size >= 376 && bytes[0] != 0x47.toByte()) {
+                    val pathKey = request.url.encodedPath.substringBeforeLast('/')
+                    val seed = bigoSeedMap[pathKey] ?: lastBigoSeed
+                    val repaired = if (seed > 0L) {
+                        repairBigoTsSegmentWithSeed(bytes, seed)
+                    } else {
+                        repairBigoTsSegment(bytes)
+                    }
+                    val finalBytes = if (repaired.size >= 376 && repaired[0] != 0x47.toByte()) {
+                        repairBigoTsSegment(repaired)
+                    } else {
+                        repaired
+                    }
+                    val newBody = finalBytes.toResponseBody(mediaType)
                     return@Interceptor response.newBuilder().body(newBody).build()
                 } else {
                     val newBody = bytes.toResponseBody(mediaType)
@@ -253,8 +318,36 @@ object MediaHeaderHelper {
         response
     }
 
+    private fun repairBigoTsSegmentWithSeed(rawBytes: ByteArray, seed: Long): ByteArray {
+        if (rawBytes.size < 376 || rawBytes[0] == 0x47.toByte()) {
+            return rawBytes
+        }
+        val fixed = rawBytes.clone()
+        for (num in 0 until 2) {
+            val imul = ((num + 1) * 2654435769L) and 0xFFFFFFFFL
+            var r = (seed xor imul) and 0xFFFFFFFFL
+            if (r == 0L) {
+                r = 1831565813L
+            }
+            val packetOffset = 188 * num
+            for (offset in 0 until 16) {
+                r = (r xor ((r shl 13) and 0xFFFFFFFFL)) and 0xFFFFFFFFL
+                r = (r xor (r ushr 17)) and 0xFFFFFFFFL
+                r = (r xor ((r shl 5) and 0xFFFFFFFFL)) and 0xFFFFFFFFL
+                var mask = (r and 0xFFL).toInt()
+                if (mask == 0) {
+                    mask = 165
+                }
+                if (packetOffset + offset < fixed.size) {
+                    fixed[packetOffset + offset] = (fixed[packetOffset + offset].toInt() xor mask).toByte()
+                }
+            }
+        }
+        return fixed
+    }
+
     private fun repairBigoTsSegment(rawBytes: ByteArray): ByteArray {
-        if (rawBytes.size < 376 || rawBytes[0] == 0x47.toByte() || rawBytes[376] != 0x47.toByte()) {
+        if (rawBytes.size < 376 || rawBytes[0] == 0x47.toByte()) {
             return rawBytes
         }
         val fixed = rawBytes.clone()

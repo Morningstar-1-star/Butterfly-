@@ -38,6 +38,7 @@ import com.example.model.StreamData
 import com.example.model.VideoTrailerClip
 import com.example.ui.animation.bounceClick
 import com.example.util.TMDBHelper
+import kotlinx.coroutines.launch
 
 enum class MediaSubTab {
     CAST_AND_CREW,
@@ -80,12 +81,12 @@ fun VideoDetailsSection(
     var zoomScreenshotUrl by remember { mutableStateOf<String?>(null) }
     var selectedCastMemberForFilmography by remember { mutableStateOf<CastMember?>(null) }
     var showOriginalTitle by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
-    var showOriginalDescription by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
+    var showTranslatedDescription by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
+    var isTranslatingDescription by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
+    var descriptionTranslationText by remember(streamData?.videoId, previewItem?.id) { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     var titleTranslation by remember(streamData?.videoId, previewItem?.id) {
         mutableStateOf<com.example.util.TranslationResult?>(null)
-    }
-    var descriptionTranslation by remember(streamData?.videoId, previewItem?.id) {
-        mutableStateOf<Pair<String?, String?>?>(null)
     }
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -103,12 +104,6 @@ fun VideoDetailsSection(
     LaunchedEffect(rawTitle) {
         if (rawTitle.isNotBlank() && rawTitle != "Loading video...") {
             titleTranslation = com.example.util.UniversalTranslator.translateTitle(rawTitle)
-        }
-    }
-
-    LaunchedEffect(currentDescription) {
-        if (!currentDescription.isNullOrBlank()) {
-            descriptionTranslation = com.example.util.UniversalTranslator.translateDescription(currentDescription)
         }
     }
 
@@ -677,17 +672,12 @@ fun VideoDetailsSection(
             }
         }
 
-        val plotText = remember(rawPlotText, showOriginalDescription, descriptionTranslation) {
-            if (showOriginalDescription || descriptionTranslation == null) {
-                rawPlotText
+        val plotText = remember(rawPlotText, showTranslatedDescription, descriptionTranslationText) {
+            if (showTranslatedDescription && !descriptionTranslationText.isNullOrBlank()) {
+                descriptionTranslationText!!
             } else {
-                descriptionTranslation?.first ?: rawPlotText
+                rawPlotText
             }
-        }
-
-        val hasDescTranslation = remember(descriptionTranslation, currentDescription) {
-            descriptionTranslation != null && !currentDescription.isNullOrBlank() &&
-            (descriptionTranslation?.first != currentDescription || descriptionTranslation?.second != null)
         }
 
         Card(
@@ -711,20 +701,70 @@ fun VideoDetailsSection(
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    if (hasDescTranslation) {
+                    if (!currentDescription.isNullOrBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            modifier = Modifier.clickable { showOriginalDescription = !showOriginalDescription }
+                            modifier = Modifier.clickable {
+                                if (descriptionTranslationText == null) {
+                                    if (!isTranslatingDescription) {
+                                        isTranslatingDescription = true
+                                        coroutineScope.launch {
+                                            try {
+                                                val res = com.example.util.UniversalTranslator.translateDescription(currentDescription)
+                                                val translated = res.first?.takeIf { it.isNotBlank() } ?: currentDescription
+                                                descriptionTranslationText = translated
+                                                showTranslatedDescription = true
+                                            } catch (e: Exception) {
+                                                android.util.Log.w("VideoDetailsSection", "Failed to translate description: ${e.message}")
+                                            } finally {
+                                                isTranslatingDescription = false
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    showTranslatedDescription = !showTranslatedDescription
+                                }
+                            }
                         ) {
-                            Text(
-                                text = if (showOriginalDescription) "Show Translation" else "Original",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                if (isTranslatingDescription) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(10.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Translating...",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Translate,
+                                        contentDescription = "Translate",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = when {
+                                            descriptionTranslationText == null -> "Translate"
+                                            showTranslatedDescription -> "Original"
+                                            else -> "Show Translation"
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -756,19 +796,6 @@ fun VideoDetailsSection(
                     maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 3,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                if (mediaDetails == null && TMDBHelper.isWebOrAdultProvider(currentProviderId) && isDescriptionExpanded && !forceTmdbLookup) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = { forceTmdbLookup = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Search TMDB Movie Details (For Trailers)", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
 
                 // Top Cast (Always visible directly in description without needing to click Show More)
                 val castList = mediaDetails?.cast ?: emptyList()

@@ -1,6 +1,7 @@
 package com.example.ui.player.core
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -13,6 +14,8 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.example.model.AudioTrackOption
 import com.example.ui.player.audio.AudioEnhancementEngine
 
@@ -48,6 +51,31 @@ class PlayerCore(
             .build()
 
         val audioEnhancementProcessor = AudioEnhancementEngine.getAudioProcessor()
+        val isEmulator = Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.startsWith("unknown") ||
+            Build.MODEL.contains("google_sdk") ||
+            Build.MODEL.contains("Emulator") ||
+            Build.MODEL.contains("Android SDK built for x86") ||
+            Build.HARDWARE.contains("goldfish") ||
+            Build.HARDWARE.contains("ranchu") ||
+            Build.PRODUCT.contains("sdk")
+
+        val customMediaCodecSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
+            val decoders = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, requiresSecure, requiresTunneling)
+            if (isEmulator) {
+                // In emulator environments, virtual hardware codecs (e.g. goldfish) often lack required system resources
+                // and cause CCodec "Failed to query component interface for required system resources: 6" errors.
+                // Prioritize standard software decoders (c2.android.*, OMX.google.*) which reliably execute without hardware interface queries.
+                decoders.sortedWith(
+                    compareByDescending<MediaCodecInfo> {
+                        it.softwareOnly || it.name.startsWith("c2.android.") || it.name.startsWith("OMX.google.")
+                    }.thenBy { it.name.contains("goldfish", ignoreCase = true) }
+                )
+            } else {
+                decoders
+            }
+        }
+
         val renderersFactory = object : DefaultRenderersFactory(appContext) {
             override fun buildAudioSink(
                 context: Context,
@@ -68,6 +96,7 @@ class PlayerCore(
         }.apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+            setMediaCodecSelector(customMediaCodecSelector)
         }
 
         val exo = ExoPlayer.Builder(appContext)

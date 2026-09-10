@@ -294,27 +294,7 @@ fun VideoPlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(Unit) {
-                    var totalDrag = 0f
-                    detectVerticalDragGestures(
-                        onDragStart = { totalDrag = 0f },
-                        onDragEnd = { totalDrag = 0f },
-                        onDragCancel = { totalDrag = 0f },
-                        onVerticalDrag = { change, dragAmount ->
-                            totalDrag += dragAmount
-                            if (totalDrag < -60f && !showLandscapeRelatedDrawer) {
-                                change.consume()
-                                totalDrag = 0f
-                                showLandscapeRelatedDrawer = true
-                            } else if (totalDrag > 60f && showLandscapeRelatedDrawer) {
-                                change.consume()
-                                totalDrag = 0f
-                                showLandscapeRelatedDrawer = false
-                            }
-                        }
-                    )
-                },
+                .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
             if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
@@ -360,6 +340,9 @@ fun VideoPlayerScreen(
                         GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
                     }
                 },
+                onOpenRelatedVideos = {
+                    showLandscapeRelatedDrawer = true
+                },
                 modifier = Modifier.fillMaxSize()
             )
             }
@@ -369,6 +352,7 @@ fun VideoPlayerScreen(
                 isVisible = showLandscapeRelatedDrawer,
                 videos = landscapeVideos,
                 currentVideoId = activeVideoId,
+                currentChannelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName,
                 onVideoClick = { video ->
                     viewModel.playVideo(video.id, video.providerId)
                 },

@@ -347,6 +347,11 @@ class PlaybackSession(private val appContext: Context) {
         _progressFraction.value = 0f
         _bufferedFraction.value = 0f
         _playerError.value = null
+        _subtitleMode.value = SubtitleMode.OFF
+        _currentActiveSubtitleText.value = ""
+        _currentActiveTranslatedText.value = ""
+        _bilibiliCues.value = emptyList()
+        _selectedSubtitleTrack.value = null
         currentLoadedMediaKey = mediaKey
         resumeController.setPendingResumePosition(effectiveResumePos.takeIf { it > 0L })
 
@@ -398,6 +403,7 @@ class PlaybackSession(private val appContext: Context) {
                 val isExplicitAudioWebm = lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")
                 val isExplicitVideoWebm = lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.endsWith(".webm")
                 val isExplicitAudioMp4 = lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4")
+                val isExplicitVideoMp4 = lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4")
 
                 if (isExplicitHls) builder.setMimeType(MimeTypes.APPLICATION_M3U8)
                 else if (isExplicitMpd) builder.setMimeType(MimeTypes.APPLICATION_MPD)
@@ -405,6 +411,7 @@ class PlaybackSession(private val appContext: Context) {
                 else if (isExplicitAudioWebm) builder.setMimeType(MimeTypes.AUDIO_WEBM)
                 else if (isExplicitVideoWebm) builder.setMimeType(MimeTypes.VIDEO_WEBM)
                 else if (isExplicitAudioMp4) builder.setMimeType(MimeTypes.AUDIO_MP4)
+                else if (isExplicitVideoMp4) builder.setMimeType(MimeTypes.VIDEO_MP4)
 
                 if (subtitles.isNotEmpty()) {
                     builder.setSubtitleConfigurations(subtitles)
@@ -448,7 +455,7 @@ class PlaybackSession(private val appContext: Context) {
                     if (videoItem != null && audioItem != null) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         val audioSource = audioSourceFactory.createMediaSource(audioItem)
-                        val mergedSource = MergingMediaSource(true, true, videoSource, audioSource)
+                        val mergedSource = MergingMediaSource(false, false, videoSource, audioSource)
                         player.setMediaSource(mergedSource)
                         mediaSourceSet = true
                     } else if (videoItem != null) {
@@ -532,11 +539,8 @@ class PlaybackSession(private val appContext: Context) {
                 SubtitleManager.resolveSubtitlesForPlayback(
                     context = appContext,
                     streamData = streamData,
-                    onUsableSubtitleFound = { item ->
-                        if (_subtitleMode.value == SubtitleMode.OFF) {
-                            _subtitleMode.value = if (item.providerId == "bilibili") SubtitleMode.BILIBILI_TRANSLATED else SubtitleMode.EXTERNAL_PROVIDER
-                        }
-                    }
+                    onUsableSubtitleFound = null,
+                    onFallbackToWhisper = null
                 )
 
                 scope.launch(Dispatchers.IO) {

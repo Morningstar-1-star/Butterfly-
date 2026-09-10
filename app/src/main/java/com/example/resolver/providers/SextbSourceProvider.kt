@@ -64,8 +64,8 @@ class SextbSourceProvider : SourceProvider {
                 }
             } else {
                 // 2. Otherwise search for matching videos
-                val searchResults = SextbProvider.search(query, limit = 5)
-                for (item in searchResults.take(3)) {
+                val searchResults = SextbProvider.search(query, limit = 10)
+                for (item in searchResults.take(10)) {
                     val pageUrl = item.uploaderUrl ?: SextbProvider.normalizePageUrl(item.id)
                     val sources = SextbProvider.resolveSource(pageUrl)
                     for (src in sources) {

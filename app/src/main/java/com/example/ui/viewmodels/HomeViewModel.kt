@@ -82,6 +82,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _providers.value = list
     }
 
+    private var homeRefreshCount = 0
+
     fun loadTrending(forceRefresh: Boolean = false, topic: String? = null) {
         viewModelScope.launch {
             val ctx = getApplication<Application>()
@@ -95,11 +97,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
             
             if (forceRefresh) {
+                homeRefreshCount++
                 _isRefreshing.value = true
                 homeCurrentPage = 1
                 _hasMoreContent.value = true
+                com.example.util.HomeFeedCacheManager.clearCache(ctx)
             }
             _feedErrorDetails.value = null
+
+            val targetPage = if (forceRefresh) ((homeRefreshCount - 1) % 5) + 1 else 1
 
             try {
                 val targetProvider = _activeProviderId.value
@@ -108,14 +114,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         val query = topic ?: "trending popular videos 2026"
                         if (targetProvider == "all" || targetProvider == "youtube") {
                             val ytList = try {
-                                YouTubeExtractorHelper.fetchYouTubeTrending(ctx)
+                                YouTubeExtractorHelper.fetchYouTubeTrending(ctx, targetPage, forceRefresh)
                             } catch (_: Exception) {
                                 emptyList()
                             }
-                            if (ytList.isNotEmpty()) ytList else MultiSourceProvider.search(ctx, "youtube", query, 20, 1)
+                            if (ytList.isNotEmpty()) ytList else MultiSourceProvider.search(ctx, "youtube", query, 20, targetPage)
                         } else {
-                            MultiSourceProvider.getHome(ctx, targetProvider, 20, 1).ifEmpty {
-                                MultiSourceProvider.search(ctx, targetProvider, query, 20, 1)
+                            MultiSourceProvider.getHome(ctx, targetProvider, 20, targetPage).ifEmpty {
+                                MultiSourceProvider.search(ctx, targetProvider, query, 20, targetPage)
                             }
                         }
                     }

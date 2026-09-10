@@ -346,7 +346,7 @@ fun SearchScreen(
                     selected = isSelected,
                     onClick = {
                         val newSource = if (isSelected && chipData.id != "ALL") "ALL" else chipData.id
-                        viewModel.updateSearchFilter(searchFilter.copy(sourceProviderId = newSource))
+                        viewModel.setSearchSourceProvider(newSource)
                     }
                 )
             }
@@ -776,8 +776,9 @@ fun SearchScreen(
                                                 shape = CircleShape,
                                                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)
                                             ) {
+                                                val heroBadge = com.example.util.SourceTagHelper.getSourceBadge(heroVideo)
                                                 Text(
-                                                    text = heroVideo.providerId?.uppercase() ?: "VIDEO",
+                                                    text = heroBadge.name,
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onPrimary,

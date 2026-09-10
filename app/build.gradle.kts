@@ -126,6 +126,7 @@ dependencies {
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.effect)
   implementation(libs.androidx.media3.datasource.okhttp)
+  implementation(libs.play.services.mlkit.text.recognition)
 
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)

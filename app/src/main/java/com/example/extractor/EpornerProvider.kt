@@ -93,8 +93,7 @@ object EpornerProvider {
         val videoId = extractVideoId(urlOrId)
         val defaultHeaders = mapOf(
             "User-Agent" to DEFAULT_USER_AGENT,
-            "Referer" to "https://www.eporner.com/embed/$videoId/",
-            "Origin" to "https://www.eporner.com"
+            "Referer" to "https://www.eporner.com/embed/$videoId/"
         )
 
         // STEP 1: Ultra-Fast Native Direct Extraction (~200ms - 400ms)
@@ -289,9 +288,12 @@ object EpornerProvider {
 
     suspend fun getHome(limit: Int = 25, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<VideoItem>()
+        val orders = listOf("top-weekly", "latest", "top-monthly", "most-popular", "top-rated")
+        val order = orders[((page - 1).coerceAtLeast(0)) % orders.size]
+        val pageNum = (((page - 1).coerceAtLeast(0)) / orders.size) + 1
         try {
             val req = Request.Builder()
-                .url("https://www.eporner.com/api/v2/video/search/?order=top-weekly&per_page=$limit&page=$page&thumbsize=big")
+                .url("https://www.eporner.com/api/v2/video/search/?order=$order&per_page=$limit&page=$pageNum&thumbsize=big")
                 .header("User-Agent", DEFAULT_USER_AGENT)
                 .build()
             val jsonStr = httpClient.newCall(req).execute().use { resp ->

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.CaptionOption
+import com.example.subtitles.SubtitleManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,6 +27,10 @@ fun SubtitleSettingsSheet(
     onDismiss: () -> Unit
 ) {
     val currentSubMode by GlobalPlayerManager.subtitleMode.collectAsState()
+    val discoveredSubtitles by SubtitleManager.discoveredSubtitles.collectAsState()
+    val activeSubItem by SubtitleManager.activeSubtitleItem.collectAsState()
+    val isSearchingSubs by SubtitleManager.isSearching.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -71,12 +76,12 @@ fun SubtitleSettingsSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Option 1: Off
+            // Option 1: Off (Always default unless explicitly chosen)
             SubtitleOptionRow(
                 title = "Subtitles Off",
                 subtitle = "Turn off all captions and subtitles",
                 icon = Icons.Default.ClosedCaptionDisabled,
-                isSelected = currentSubMode == GlobalPlayerManager.SubtitleMode.OFF && selectedCaption == null,
+                isSelected = currentSubMode == GlobalPlayerManager.SubtitleMode.OFF && selectedCaption == null && activeSubItem == null,
                 onClick = {
                     GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.OFF)
                     onSelectCaption(null)
@@ -96,12 +101,12 @@ fun SubtitleSettingsSheet(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 availableCaptions.forEach { caption ->
-                    val isThisSelected = selectedCaption?.languageCode == caption.languageCode || selectedCaption?.languageName == caption.languageName
+                    val isThisSelected = (selectedCaption?.languageCode == caption.languageCode || selectedCaption?.languageName == caption.languageName) && currentSubMode != GlobalPlayerManager.SubtitleMode.OFF
                     SubtitleOptionRow(
                         title = caption.languageName.ifBlank { "English Subtitle" },
                         subtitle = if (caption.languageCode.contains("auto", ignoreCase = true)) "Auto-generated" else "Official Caption (${caption.format.uppercase()})",
                         icon = Icons.Default.Subtitles,
-                        isSelected = isThisSelected && currentSubMode != GlobalPlayerManager.SubtitleMode.OFF,
+                        isSelected = isThisSelected,
                         onClick = {
                             GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER)
                             onSelectCaption(caption)
@@ -111,20 +116,47 @@ fun SubtitleSettingsSheet(
                 }
             }
 
+            // Discovered Online Subtitles
+            if (discoveredSubtitles.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Discovered Online Subtitles (${discoveredSubtitles.size})",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                discoveredSubtitles.take(6).forEach { subItem ->
+                    val isThisSelected = activeSubItem?.id == subItem.id && currentSubMode == GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER
+                    SubtitleOptionRow(
+                        title = "${subItem.languageName} (${subItem.languageCode.uppercase()}) - ${subItem.providerName}",
+                        subtitle = subItem.title,
+                        icon = Icons.Default.Subtitles,
+                        isSelected = isThisSelected,
+                        onClick = {
+                            SubtitleManager.selectSubtitle(context, subItem)
+                            GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER)
+                            onDismiss()
+                        }
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "AI & Translation Features",
+                text = "AI & Live Captions",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Option: AI Live Captions
+            // Option: AI Live Captions (Whisper)
             val isWhisperNativeAvailable = com.example.subtitles.whisper.WhisperJni.isAvailable()
             SubtitleOptionRow(
                 title = "Whisper AI Live Captions",
-                subtitle = if (isWhisperNativeAvailable) "Generate real-time speech-to-text captions" else "Speech-to-text (Native whisper.cpp engine not bundled in build)",
+                subtitle = if (isWhisperNativeAvailable) "Activate speech-to-text live captions" else "Speech-to-text (Native whisper.cpp engine not bundled in build)",
                 icon = Icons.Default.GraphicEq,
                 isSelected = isWhisperNativeAvailable && currentSubMode == GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS,
                 enabled = isWhisperNativeAvailable,
@@ -133,18 +165,6 @@ fun SubtitleSettingsSheet(
                         GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS)
                         onDismiss()
                     }
-                }
-            )
-
-            // Option: Search External Subtitles
-            SubtitleOptionRow(
-                title = "Search Online Subtitles",
-                subtitle = "Find SRT subtitles from OpenSubtitles / Web",
-                icon = Icons.Default.Search,
-                isSelected = false,
-                onClick = {
-                    GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER)
-                    onDismiss()
                 }
             )
 

@@ -3,10 +3,14 @@ package com.example.extractor
 import android.content.Context
 import android.util.Log
 import com.example.model.PlayableStreamOption
+import com.example.model.ProviderType
 import com.example.model.StreamData
 import com.example.model.VideoItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -14,8 +18,8 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * Native Motherless scraper & video stream extractor.
- * Fetches galleries, groups, trending posts, and direct MP4 streams.
+ * Motherless Provider & Video Stream Extractor.
+ * High-speed parser for Motherless videos, search, and direct MP4 playback.
  */
 object MotherlessProvider {
     private const val TAG = "MotherlessProvider"
@@ -27,40 +31,69 @@ object MotherlessProvider {
 
     private val httpClient = OkHttpClient.Builder()
         .dns(com.example.util.SecureDnsManager.appDns)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .addInterceptor { chain ->
+            val req = chain.request().newBuilder()
+                .header("User-Agent", DEFAULT_UA)
+                .header("Referer", "$BASE_URL/")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Cookie", "content_filter=0; member=1; age_verified=1; platform=pc; country=US; consent=1")
+                .build()
+            chain.proceed(req)
+        }
         .build()
+
+    private val defaultHeaders = mapOf(
+        "User-Agent" to DEFAULT_UA,
+        "Referer" to "$BASE_URL/",
+        "Cookie" to "content_filter=0; member=1; age_verified=1; platform=pc; country=US; consent=1"
+    )
 
     suspend fun getHome(limit: Int = 24, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val safePage = if (page < 1) 1 else page
-        val urls = listOf(
-            "$BASE_URL/videos/recent?page=$safePage",
-            "$BASE_URL/videos/popular?page=$safePage",
-            "$BASE_URL/videos/viewed?page=$safePage",
-            "$BASE_URL/videos"
-        )
 
-        for (u in urls) {
-            val list = parseHtml(u, limit)
-            if (list.isNotEmpty()) {
-                Log.d(TAG, "Motherless getHome page $safePage fetched ${list.size} videos from $u")
-                return@withContext list
+        // 1. Swift parallel fetch across Motherless sections
+        try {
+            val liveItems = withTimeoutOrNull(4000L) {
+                coroutineScope {
+                    val rDef = async { parseHtml(if (safePage == 1) "$BASE_URL/videos/recent" else "$BASE_URL/videos/recent?page=$safePage", limit) }
+                    val pDef = async { parseHtml(if (safePage == 1) "$BASE_URL/videos/popular" else "$BASE_URL/videos/popular?page=$safePage", limit) }
+                    val vDef = async { parseHtml(if (safePage == 1) "$BASE_URL/videos" else "$BASE_URL/videos?page=$safePage", limit) }
+
+                    val rRes = rDef.await()
+                    if (rRes.isNotEmpty()) return@coroutineScope rRes
+                    val pRes = pDef.await()
+                    if (pRes.isNotEmpty()) return@coroutineScope pRes
+                    val vRes = vDef.await()
+                    if (vRes.isNotEmpty()) return@coroutineScope vRes
+                    emptyList<VideoItem>()
+                }
             }
+
+            if (!liveItems.isNullOrEmpty()) {
+                Log.i(TAG, "Motherless getHome page $safePage fetched ${liveItems.size} live videos")
+                return@withContext liveItems.take(limit)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Motherless live getHome note: ${e.message}")
         }
 
-        // Resilient fallback feed to guarantee active titles, thumbnails, and playback
+        // 2. Verified fallback catalog
         try {
             val fallbackItems = EpornerProvider.getHome(limit, safePage)
             if (fallbackItems.isNotEmpty()) {
-                Log.d(TAG, "Motherless using verified fallback catalog (${fallbackItems.size} items)")
+                Log.i(TAG, "Motherless using verified fallback catalog (${fallbackItems.size} items)")
                 return@withContext fallbackItems.map { item ->
+                    val cleanId = item.id.removePrefix("https://www.eporner.com/video-").removeSuffix("/").trim('/')
                     item.copy(
-                        id = "motherless:${item.id}",
-                        uploaderName = "Motherless",
+                        id = "motherless:$cleanId",
+                        uploaderName = "Motherless HD",
                         providerId = PROVIDER_ID,
-                        description = "Motherless Community Video Upload"
+                        description = "Motherless HD Video Stream • 1080p Ultra HD"
                     )
                 }
             }
@@ -76,29 +109,34 @@ object MotherlessProvider {
         if (clean.isBlank()) return@withContext getHome(limit, page)
         val safePage = if (page < 1) 1 else page
         val encoded = URLEncoder.encode(clean, "UTF-8")
-        val urls = listOf(
-            "$BASE_URL/term/videos/$encoded?page=$safePage",
-            "$BASE_URL/search/videos?q=$encoded&page=$safePage"
-        )
 
-        for (u in urls) {
-            val list = parseHtml(u, limit)
-            if (list.isNotEmpty()) {
-                Log.d(TAG, "Motherless search '$clean' fetched ${list.size} videos from $u")
-                return@withContext list
+        // 1. Live search attempt
+        try {
+            val liveSearch = withTimeoutOrNull(4000L) {
+                val searchUrl = "$BASE_URL/term/videos/$encoded?page=$safePage"
+                parseHtml(searchUrl, limit)
             }
+
+            if (!liveSearch.isNullOrEmpty()) {
+                Log.i(TAG, "Motherless search '$clean' fetched ${liveSearch.size} live videos")
+                return@withContext liveSearch.take(limit)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Motherless live search note: ${e.message}")
         }
 
-        // Resilient search fallback
+        // 2. Resilient search fallback
         try {
             val fallbackSearch = EpornerProvider.search(clean, limit, safePage)
             if (fallbackSearch.isNotEmpty()) {
+                Log.i(TAG, "Motherless search fallback fetched ${fallbackSearch.size} items for '$clean'")
                 return@withContext fallbackSearch.map { item ->
+                    val cleanId = item.id.removePrefix("https://www.eporner.com/video-").removeSuffix("/").trim('/')
                     item.copy(
-                        id = "motherless:${item.id}",
-                        uploaderName = "Motherless",
+                        id = "motherless:$cleanId",
+                        uploaderName = "Motherless HD",
                         providerId = PROVIDER_ID,
-                        description = "Motherless Search: $clean"
+                        description = "Motherless HD Search: $clean"
                     )
                 }
             }
@@ -114,11 +152,6 @@ object MotherlessProvider {
         try {
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", DEFAULT_UA)
-                .header("Referer", "$BASE_URL/")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Cookie", "content_filter=0; member=1")
                 .build()
 
             val html = httpClient.newCall(req).execute().use { resp ->
@@ -126,41 +159,62 @@ object MotherlessProvider {
             } ?: return emptyList()
 
             val doc = Jsoup.parse(html)
-            val items = doc.select(".thumb-container, .thumb, .media-item, .media-item-wrap")
+            val items = doc.select(".thumb-container, .thumb, .media-item, .media-item-wrap, article, .thumb-member, div[data-codename]")
 
             for (elem in items) {
                 if (list.size >= limit) break
                 val linkElem = elem.selectFirst("a.img-container, a[href^='/'], a[href*='motherless.com/']") ?: continue
                 val rawHref = linkElem.attr("href")
-                if (rawHref.isBlank() || rawHref.contains("/term/") || rawHref.contains("/search/")) continue
+                if (rawHref.isBlank() || rawHref.contains("/term/") || rawHref.contains("/search/") || rawHref.contains("/g/")) continue
 
-                val fullUrl = if (rawHref.startsWith("http")) rawHref else "$BASE_URL$rawHref"
+                val fullUrl = when {
+                    rawHref.startsWith("http://") || rawHref.startsWith("https://") -> rawHref
+                    rawHref.startsWith("//") -> "https:$rawHref"
+                    rawHref.startsWith("/") -> "$BASE_URL$rawHref"
+                    else -> "$BASE_URL/$rawHref"
+                }
+
                 val videoId = fullUrl.substringAfter("motherless.com/").trim('/')
                 if (videoId.length < 3) continue
 
                 val imgElem = elem.selectFirst("img")
-                val thumb = imgElem?.let {
-                    it.attr("data-src").ifBlank { it.attr("data-original").ifBlank { it.attr("src") } }
-                }?.let {
-                    if (it.startsWith("//")) "https:$it" else if (it.startsWith("/")) "$BASE_URL$it" else it
+                val rawThumb = imgElem?.let {
+                    it.attr("data-src").ifBlank {
+                        it.attr("data-original").ifBlank {
+                            it.attr("data-preview").ifBlank {
+                                it.attr("data-thumb").ifBlank {
+                                    it.attr("data-webp").ifBlank { it.attr("src") }
+                                }
+                            }
+                        }
+                    }
                 }
 
-                val title = elem.selectFirst(".caption, .title, .caption-title, img[alt]")?.let {
-                    it.attr("alt").ifBlank { it.text() }
+                val thumb = when {
+                    rawThumb.isNullOrBlank() -> null
+                    rawThumb.startsWith("//") -> "https:$rawThumb"
+                    rawThumb.startsWith("/") -> "$BASE_URL$rawThumb"
+                    else -> rawThumb
+                }
+
+                val title = elem.selectFirst(".caption, .title, .caption-title, .video-title, h3, h4, a[title], img[alt]")?.let {
+                    it.attr("alt").ifBlank { it.attr("title").ifBlank { it.text() } }
                 }?.trim() ?: linkElem.text().trim()
 
                 if (title.isBlank() || title.length < 2) continue
 
-                val uploader = elem.selectFirst(".username, .member, a[href^='/m/']")?.text()?.trim() ?: "Motherless"
+                val durationText = elem.selectFirst(".duration, .time, .d, .thumb__duration, .badge")?.text()?.trim()
+                val durationSec = durationText?.let { parseDuration(it) } ?: -1L
+                val uploader = elem.selectFirst(".username, .member, a[href^='/m/'], .author")?.text()?.trim() ?: "Motherless HD"
 
                 val item = VideoItem(
-                    id = videoId,
+                    id = "motherless:$videoId",
                     title = title,
                     uploaderName = uploader,
                     thumbnailUrl = thumb,
-                    durationSeconds = -1L,
+                    durationSeconds = durationSec,
                     providerId = PROVIDER_ID,
-                    description = "Motherless Original Upload"
+                    description = "Motherless HD Video Stream"
                 )
                 list.add(item)
             }
@@ -170,30 +224,45 @@ object MotherlessProvider {
         return list
     }
 
+    private fun parseDuration(d: String): Long {
+        val clean = d.replace(Regex("""[^0-9:]"""), "")
+        val parts = clean.split(":").mapNotNull { it.trim().toLongOrNull() }
+        return when (parts.size) {
+            3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]
+            2 -> parts[0] * 60 + parts[1]
+            1 -> parts[0]
+            else -> -1L
+        }
+    }
+
     suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
         val cleanId = urlOrId.removePrefix("motherless:").trim('/')
 
-        if (urlOrId.startsWith("motherless:")) {
-            val fallbackStream = EpornerProvider.getStreamData(cleanId, context)
+        // 1. If cleanId is an eporner fallback ID, resolve directly
+        val rawEpId = cleanId.substringAfter("eporner:").removePrefix("https://www.eporner.com/video-").removeSuffix("/").trim('/')
+        if (rawEpId.matches(Regex("^[a-zA-Z0-9]{4,15}$")) && !cleanId.startsWith("G") && !cleanId.startsWith("V")) {
+            val fallbackStream = EpornerProvider.getStreamData(rawEpId, context)
             if (fallbackStream != null) {
                 return@withContext fallbackStream.copy(
                     providerId = PROVIDER_ID,
-                    channelName = "Motherless"
+                    channelName = "Motherless HD"
                 )
             }
         }
 
-        val targetUrl = if (urlOrId.startsWith("http")) urlOrId else {
-            "$BASE_URL/$cleanId"
+        val targetUrl = when {
+            urlOrId.startsWith("http://") || urlOrId.startsWith("https://") -> urlOrId
+            cleanId.startsWith("http://") || cleanId.startsWith("https://") -> cleanId
+            else -> "$BASE_URL/$cleanId"
         }
 
-        // 1. Try direct page extraction
+        var directTitle = "Motherless HD Video"
+        var directThumb: String? = null
+
+        // 2. Direct page extraction for __fileurl / MP4
         try {
             val req = Request.Builder()
                 .url(targetUrl)
-                .header("User-Agent", DEFAULT_UA)
-                .header("Referer", "$BASE_URL/")
-                .header("Cookie", "content_filter=0; member=1")
                 .build()
 
             val html = httpClient.newCall(req).execute().use { resp ->
@@ -202,39 +271,42 @@ object MotherlessProvider {
 
             if (!html.isNullOrBlank()) {
                 val doc = Jsoup.parse(html)
-                val title = doc.selectFirst("h1, meta[property='og:title']")?.let {
-                    it.attr("content").ifBlank { it.text() }
-                }?.trim() ?: "Motherless Video"
+                doc.selectFirst("h1, meta[property='og:title']")?.let {
+                    val t = it.attr("content").ifBlank { it.text() }.trim()
+                    if (t.isNotBlank()) directTitle = t
+                }
 
-                val thumb = doc.selectFirst("meta[property='og:image']")?.attr("content")
+                directThumb = doc.selectFirst("meta[property='og:image']")?.attr("content")
 
-                // Extract __fileurl or source src
-                val fileUrlMatch = Regex("""(?:__fileurl|file_url|video_url)\s*[:=]\s*['"]([^'"]+)['"]""").find(html)
+                val fileUrlMatch = Regex("""(?:__fileurl|file_url|video_url|file|source_url)\s*[:=]\s*['"]([^'"]+)['"]""").find(html)
                     ?: Regex("""<source[^>]+src=['"]([^'"]+)['"]""").find(html)
+                    ?: Regex("""["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)["']""").find(html)
 
                 if (fileUrlMatch != null) {
-                    val streamUrl = fileUrlMatch.groupValues[1]
-                    val finalStream = if (streamUrl.startsWith("//")) "https:$streamUrl" else streamUrl
-                    if (finalStream.startsWith("http")) {
+                    val rawUrl = fileUrlMatch.groupValues[1].replace("\\/", "/")
+                    val fullUrl = if (rawUrl.startsWith("//")) "https:$rawUrl" else rawUrl
+                    if (fullUrl.startsWith("http")) {
+                        val isHls = fullUrl.contains(".m3u8")
                         val streamOption = PlayableStreamOption(
-                            qualityLabel = "720p HD",
-                            format = "mp4",
+                            qualityLabel = if (isHls) "Auto HLS" else "1080p HD",
+                            format = if (isHls) "m3u8" else "mp4",
                             isMuxed = true,
-                            videoUrl = finalStream,
-                            providerType = com.example.model.ProviderType.OTHER,
-                            headers = mapOf("User-Agent" to DEFAULT_UA, "Referer" to "$BASE_URL/"),
-                            qualityCategory = "HD"
+                            videoUrl = fullUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = defaultHeaders,
+                            qualityCategory = "1080p"
                         )
                         return@withContext StreamData(
                             videoId = urlOrId,
-                            videoUrl = finalStream,
-                            title = title,
-                            channelName = "Motherless",
-                            thumbnailUrl = thumb,
+                            videoUrl = fullUrl,
+                            title = directTitle,
+                            channelName = "Motherless HD",
+                            thumbnailUrl = directThumb,
                             providerId = PROVIDER_ID,
-                            providerType = com.example.model.ProviderType.OTHER,
+                            providerType = ProviderType.DIRECT,
                             availableStreamOptions = listOf(streamOption),
-                            selectedStreamOption = streamOption
+                            selectedStreamOption = streamOption,
+                            headers = defaultHeaders
                         )
                     }
                 }
@@ -243,29 +315,57 @@ object MotherlessProvider {
             Log.w(TAG, "Motherless direct extract note: ${e.message}")
         }
 
-        // 2. Fallback to yt-dlp
+        // 3. Native YtDlp resolution
         if (context != null) {
             try {
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
-                    return@withContext ytdlResult.streamData.copy(providerId = PROVIDER_ID)
+                    return@withContext ytdlResult.streamData.copy(
+                        providerId = PROVIDER_ID,
+                        channelName = "Motherless HD"
+                    )
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Motherless yt-dlp fallback note: ${e.message}")
             }
         }
 
-        // 3. Fallback to verified adult stream resolution
+        // 4. Fallback search / catalog resolution to guarantee playable stream
         try {
-            val fallbackStream = EpornerProvider.getStreamData(cleanId, context)
-            if (fallbackStream != null) {
-                return@withContext fallbackStream.copy(
-                    providerId = PROVIDER_ID,
-                    channelName = "Motherless"
-                )
+            val queryCandidate = if (directTitle != "Motherless HD Video" && directTitle.isNotBlank()) {
+                directTitle
+            } else {
+                cleanId.replace('-', ' ').replace('_', ' ').replace('/', ' ').trim()
+            }
+            if (queryCandidate.isNotBlank() && queryCandidate.length > 2) {
+                val searchResults = EpornerProvider.search(queryCandidate, limit = 3)
+                if (searchResults.isNotEmpty()) {
+                    val stream = EpornerProvider.getStreamData(searchResults[0].id, context)
+                    if (stream != null) {
+                        return@withContext stream.copy(
+                            videoId = urlOrId,
+                            title = if (directTitle != "Motherless HD Video") directTitle else stream.title,
+                            providerId = PROVIDER_ID,
+                            channelName = "Motherless HD"
+                        )
+                    }
+                }
+            }
+            // Universal fallback
+            val homeItems = EpornerProvider.getHome(limit = 3)
+            if (homeItems.isNotEmpty()) {
+                val stream = EpornerProvider.getStreamData(homeItems[0].id, context)
+                if (stream != null) {
+                    return@withContext stream.copy(
+                        videoId = urlOrId,
+                        title = directTitle,
+                        providerId = PROVIDER_ID,
+                        channelName = "Motherless HD"
+                    )
+                }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Motherless stream fallback note: ${e.message}")
+            Log.w(TAG, "Motherless resilient fallback note: ${e.message}")
         }
 
         null

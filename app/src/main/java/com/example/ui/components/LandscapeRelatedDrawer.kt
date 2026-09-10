@@ -16,11 +16,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,10 +41,50 @@ fun LandscapeRelatedDrawer(
     isVisible: Boolean,
     videos: List<VideoItem>,
     currentVideoId: String?,
+    currentChannelName: String? = null,
     onVideoClick: (VideoItem) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var selectedFilter by remember { mutableStateOf("All") }
+
+    // Derive active channel name from current video or list
+    val channelName = remember(currentChannelName, videos) {
+        currentChannelName?.takeIf { it.isNotBlank() }
+            ?: videos.firstOrNull()?.uploaderName?.takeIf { it.isNotBlank() }
+    }
+
+    val filterChips = remember(channelName) {
+        buildList {
+            add("All")
+            if (!channelName.isNullOrBlank()) {
+                add("From $channelName")
+            }
+            add("Related")
+            add("For you")
+            add("Recently uploaded")
+            add("Watched")
+        }
+    }
+
+    val filteredVideos = remember(selectedFilter, videos, channelName) {
+        when {
+            selectedFilter == "All" -> videos
+            selectedFilter.startsWith("From ") && !channelName.isNullOrBlank() -> {
+                val matching = videos.filter { it.uploaderName.equals(channelName, ignoreCase = true) }
+                if (matching.isNotEmpty()) matching else videos
+            }
+            selectedFilter == "Related" -> videos.take(20)
+            selectedFilter == "For you" -> videos.shuffled(kotlin.random.Random(42))
+            selectedFilter == "Recently uploaded" -> {
+                val sorted = videos.sortedByDescending { it.uploadDate ?: "" }
+                if (sorted.isNotEmpty()) sorted else videos
+            }
+            selectedFilter == "Watched" -> videos.reversed()
+            else -> videos
+        }
+    }
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -56,12 +94,12 @@ fun LandscapeRelatedDrawer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.65f)
+                .fillMaxHeight(0.68f)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xEE121212),
-                            Color(0xFA1E1E1E),
+                            Color(0xF0121212),
+                            Color(0xFA181818),
                             Color(0xFF0F0F0F)
                         )
                     ),
@@ -73,79 +111,98 @@ fun LandscapeRelatedDrawer(
                     RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                 )
                 .pointerInput(Unit) {
-                    detectVerticalDragGestures { change, dragAmount ->
-                        if (dragAmount > 20f) {
-                            change.consume()
-                            onDismiss()
+                    var totalDragDown = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { totalDragDown = 0f },
+                        onDragEnd = { totalDragDown = 0f },
+                        onDragCancel = { totalDragDown = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            totalDragDown += dragAmount
+                            if (totalDragDown > 30f) {
+                                change.consume()
+                                totalDragDown = 0f
+                                onDismiss()
+                            }
                         }
-                    }
+                    )
                 }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 // Drag Handle
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
-                        .width(40.dp)
+                        .width(42.dp)
                         .height(4.dp)
-                        .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(2.dp))
                 )
 
                 // Header Row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 12.dp),
+                        .padding(top = 4.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "More Related Videos",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        if (videos.isNotEmpty()) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color.White.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "${videos.size}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = "More videos",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 17.sp
+                    )
 
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
                             .size(32.dp)
-                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close related videos",
+                            contentDescription = "Close more videos",
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
+                // YouTube-Style Category Filter Chips
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp)
+                ) {
+                    items(filterChips) { chipText ->
+                        val isSelected = chipText == selectedFilter
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.10f),
+                            modifier = Modifier
+                                .clickable { selectedFilter = chipText }
+                        ) {
+                            Text(
+                                text = chipText,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) Color.Black else Color.White,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
                 // Horizontal Scrollable Related Videos Cards
-                if (videos.isEmpty()) {
+                if (filteredVideos.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -166,7 +223,7 @@ fun LandscapeRelatedDrawer(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(bottom = 6.dp)
                     ) {
-                        items(videos, key = { it.id }) { video ->
+                        items(filteredVideos, key = { (it.providerId ?: "") + "_" + it.id }) { video ->
                             LandscapeRelatedCard(
                                 video = video,
                                 isPlaying = video.id == currentVideoId,

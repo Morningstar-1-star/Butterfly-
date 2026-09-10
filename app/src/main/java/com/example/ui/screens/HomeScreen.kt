@@ -432,6 +432,19 @@ fun HomeScreen(
                             val feedList = remember(rawFeed) { rawFeed }
                             val shortsFeedList = remember(rawFeed) { rawFeed }
 
+                            LaunchedEffect(feedListState) {
+                                snapshotFlow {
+                                    val layoutInfo = feedListState.layoutInfo
+                                    val totalItems = layoutInfo.totalItemsCount
+                                    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                                    lastVisible >= (totalItems - 4).coerceAtLeast(0) && totalItems > 0
+                                }.distinctUntilChanged().collect { shouldLoadMore ->
+                                    if (shouldLoadMore) {
+                                        viewModel.loadMoreContent()
+                                    }
+                                }
+                            }
+
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
                                     com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 6)
@@ -1579,37 +1592,23 @@ fun SearchRecommendationShelfCard(
                 }
 
                 // Provider badge
-                if (showProviderBadge && !video.providerId.isNullOrBlank()) {
-                    val pid = video.providerId.lowercase()
-                    val titleL = video.title.lowercase()
-                    val badgeName = when {
-                        titleL.contains("song") || titleL.contains("music") || titleL.contains("audio") || titleL.contains("gana") -> "SONG"
-                        pid.contains("torrent") -> {
-                            when {
-                                titleL.contains("anime") -> "ANIME"
-                                titleL.contains("season") || titleL.contains("s0") || video.id.contains("tv_") -> "SERIES"
-                                else -> "MOVIE"
-                            }
+                if (showProviderBadge) {
+                    val badge = com.example.util.SourceTagHelper.getSourceBadge(video)
+                    if (badge.name.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .background(badge.backgroundColor.copy(alpha = 0.95f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge.name,
+                                color = badge.contentColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                        pid.contains("tmdb") -> "TMDB"
-                        pid.contains("archive") -> "Archive"
-                        pid.contains("anime") -> "Anime"
-                        pid.contains("youtube") -> "YouTube"
-                        else -> pid.uppercase()
-                    }
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(6.dp)
-                            .background(Color(0xFF1A1A1E).copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = badgeName,
-                            color = Color(0xFFF5A623),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
                 }
             }

@@ -25,10 +25,13 @@ object VimeoProvider {
         .followSslRedirects(true)
         .build()
 
-    fun getHome(limit: Int): List<VideoItem> {
+    fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
+        val channels = listOf("staffpicks", "animation", "documentary", "shortfilms", "music", "travel", "comedy")
+        val channel = channels[((page - 1).coerceAtLeast(0)) % channels.size]
+        val pageNum = (((page - 1).coerceAtLeast(0)) / channels.size) + 1
         try {
-            val url = "https://vimeo.com/api/v2/channel/staffpicks/videos.json"
+            val url = "https://vimeo.com/api/v2/channel/$channel/videos.json?page=$pageNum"
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", DEFAULT_USER_AGENT)

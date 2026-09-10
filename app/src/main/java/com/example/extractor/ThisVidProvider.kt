@@ -90,7 +90,7 @@ object ThisVidProvider {
                 return@withContext epFallback.map { item ->
                     val cleanSlug = extractVideoId(item.id)
                     item.copy(
-                        id = "$BASE_URL/videos/$cleanSlug",
+                        id = "thisvid:eporner:$cleanSlug",
                         providerId = PROVIDER_ID,
                         uploaderName = "${item.uploaderName.ifBlank { "ThisVid" }} (ThisVid)"
                     )
@@ -140,7 +140,7 @@ object ThisVidProvider {
                 return@withContext epSearch.map { item ->
                     val cleanSlug = extractVideoId(item.id)
                     item.copy(
-                        id = "$BASE_URL/videos/$cleanSlug",
+                        id = "thisvid:eporner:$cleanSlug",
                         providerId = PROVIDER_ID,
                         uploaderName = "${item.uploaderName.ifBlank { "ThisVid" }} (ThisVid)"
                     )
@@ -253,19 +253,39 @@ object ThisVidProvider {
 
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val clean = urlOrId.trim()
+
+        // Fast resolution for Eporner cross-provider fallback items
+        if (clean.contains("thisvid:eporner:") || clean.contains("eporner")) {
+            val epId = clean.substringAfter("thisvid:eporner:").substringAfter("eporner:").removePrefix("https://www.eporner.com/video-").removeSuffix("/").trim('/')
+            val epStream = EpornerProvider.getStreamData(epId, context)
+            if (epStream != null) {
+                return@withContext epStream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = "ThisVid"
+                )
+            }
+        }
+
         val videoSlug = extractVideoId(clean)
         val targetUrl = when {
-            clean.startsWith("http") -> clean
-            clean.startsWith("thisvid:playlist:") -> "$BASE_URL/playlists/${clean.substringAfter("thisvid:playlist:")}"
-            clean.startsWith("thisvid:") -> "$BASE_URL/videos/${clean.substringAfter("thisvid:")}"
-            else -> "$BASE_URL/videos/$clean"
+            clean.startsWith("http://") || clean.startsWith("https://") -> clean
+            clean.startsWith("thisvid:playlist:", ignoreCase = true) -> {
+                val p = clean.substringAfter("thisvid:playlist:").trim('/')
+                if (p.startsWith("http")) p else "$BASE_URL/playlists/$p/"
+            }
+            clean.startsWith("thisvid:", ignoreCase = true) -> {
+                val p = clean.substringAfter("thisvid:").trim('/')
+                if (p.startsWith("http")) p else if (p.startsWith("videos/")) "$BASE_URL/$p" else "$BASE_URL/videos/$p/"
+            }
+            else -> if (clean.startsWith("videos/")) "$BASE_URL/$clean" else "$BASE_URL/videos/$clean/"
         }
 
         var resolvedTitle = "ThisVid Video"
         var resolvedThumbnail = ""
         var resolvedChannel = "ThisVid"
+        var numericId = ""
 
-        // 1. Direct HTML extraction for video sources
+        // 1. Direct HTML metadata extraction
         try {
             val req = Request.Builder()
                 .url(targetUrl)
@@ -291,159 +311,71 @@ object ThisVidProvider {
                 val author = doc.select(".username, .item-user, .author, .uploader").firstOrNull()?.text()?.trim()
                 if (!author.isNullOrBlank()) resolvedChannel = author
 
-                val videoSources = mutableListOf<PlayableStreamOption>()
-                val addedUrls = mutableSetOf<String>()
-
-                // KVS Player script extraction (video_url, video_alt_url, video_alt_url1, etc.)
-                val kvsPattern = Pattern.compile("""(?:video_url|video_alt_url\d*|file|videoUrl|get_file)\s*:\s*["']([^"']+)["']""", Pattern.CASE_INSENSITIVE)
-                val matcher = kvsPattern.matcher(html)
-                while (matcher.find()) {
-                    val rawMatch = matcher.group(1) ?: continue
-                    var cleanUrl = rawMatch.replace("\\/", "/")
-                        .replace(Regex("""^function/\d+/"""), "")
-                        .trim()
-
-                    if (cleanUrl.contains("preview") || cleanUrl.contains("poster") || cleanUrl.contains("thumb") || cleanUrl.endsWith(".jpg") || cleanUrl.endsWith(".png") || cleanUrl.endsWith(".gif") || cleanUrl.endsWith(".css") || cleanUrl.endsWith(".js")) continue
-
-                    if (cleanUrl.startsWith("/get_file/") || cleanUrl.startsWith("get_file/")) {
-                        cleanUrl = if (cleanUrl.startsWith("/")) "$BASE_URL$cleanUrl" else "$BASE_URL/$cleanUrl"
-                    } else if (cleanUrl.startsWith("//")) {
-                        cleanUrl = "https:$cleanUrl"
+                // Find numeric video id for embed player
+                val idPatterns = listOf(
+                    Regex("""video_id\s*:\s*['"]?(\d+)['"]?"""),
+                    Regex("""data-video-id=["'](\d+)["']"""),
+                    Regex("""embed/(\d+)"""),
+                    Regex("""/get_file/\d+/[a-f0-9]+/(\d+)/""")
+                )
+                for (pat in idPatterns) {
+                    val m = pat.find(html)
+                    if (m != null) {
+                        numericId = m.groupValues[1]
+                        break
                     }
-
-                    cleanUrl = unescapeUrl(cleanUrl)
-
-                    // Ensure cleanUrl is a media stream (must contain /get_file/ or direct video extensions)
-                    val isMediaStream = cleanUrl.contains("/get_file/") || cleanUrl.contains(".mp4") || cleanUrl.contains(".m3u8") || cleanUrl.contains(".flv")
-                    if (!isMediaStream) continue
-
-                    // Exclude HTML webpage pages mistakenly extracted from JS code
-                    if (cleanUrl.contains("/videos/") || cleanUrl.contains("/categories/") || cleanUrl.contains("/tags/") || cleanUrl.contains("/members/") || cleanUrl.contains("/community/")) continue
-
-                    if (!cleanUrl.startsWith("http")) continue
-                    if (addedUrls.contains(cleanUrl)) continue
-                    addedUrls.add(cleanUrl)
-
-                    val isHls = cleanUrl.contains(".m3u8")
-                    val quality = when {
-                        cleanUrl.contains("1080") -> "1080p HD"
-                        cleanUrl.contains("720") -> "720p HD"
-                        cleanUrl.contains("480") -> "480p SD"
-                        cleanUrl.contains("360") -> "360p SD"
-                        isHls -> "1080p / 720p HLS Stream"
-                        else -> "HD Direct Stream"
-                    }
-
-                    videoSources.add(
-                        PlayableStreamOption(
-                            qualityLabel = quality,
-                            format = if (isHls) "m3u8" else "mp4",
-                            isMuxed = true,
-                            videoUrl = cleanUrl,
-                            providerType = ProviderType.DIRECT,
-                            headers = getStreamHeadersForUrl(cleanUrl)
-                        )
-                    )
-                }
-
-                // Check HTML5 video elements
-                val videoTags = doc.select("video source, video[src]")
-                for (vTag in videoTags) {
-                    val vSrc = vTag.attr("src").ifBlank { vTag.attr("data-src") }
-                    if (vSrc.isNotBlank()) {
-                        val fullSrc = if (vSrc.startsWith("//")) "https:$vSrc" else if (!vSrc.startsWith("http")) "$BASE_URL$vSrc" else vSrc
-                        val cleanUrl = unescapeUrl(fullSrc)
-                        if (cleanUrl.startsWith("http") && !addedUrls.contains(cleanUrl)) {
-                            addedUrls.add(cleanUrl)
-                            val isHls = cleanUrl.contains(".m3u8")
-                            videoSources.add(
-                                PlayableStreamOption(
-                                    qualityLabel = if (isHls) "1080p HLS Master" else "HD Direct MP4",
-                                    format = if (isHls) "m3u8" else "mp4",
-                                    isMuxed = true,
-                                    videoUrl = cleanUrl,
-                                    providerType = ProviderType.DIRECT,
-                                    headers = getStreamHeadersForUrl(cleanUrl)
-                                )
-                            )
-                        }
-                    }
-                }
-
-                // Check iframe embeds
-                val iframes = doc.select("iframe[src], iframe[data-src]")
-                for (iframe in iframes) {
-                    var iframeSrc = iframe.attr("src").ifBlank { iframe.attr("data-src") }.trim()
-                    if (iframeSrc.startsWith("//")) iframeSrc = "https:$iframeSrc"
-                    if (iframeSrc.startsWith("/")) iframeSrc = "$BASE_URL$iframeSrc"
-                    if (iframeSrc.startsWith("http") && !iframeSrc.contains(targetUrl)) {
-                        try {
-                            val iframeReq = Request.Builder()
-                                .url(iframeSrc)
-                                .headers(okhttp3.Headers.Builder().apply { defaultHeaders.forEach { (k, v) -> add(k, v) } }.build())
-                                .build()
-                            val iframeHtml = httpClient.newCall(iframeReq).execute().use { resp ->
-                                if (resp.isSuccessful) resp.body?.string() else null
-                            }
-                            if (!iframeHtml.isNullOrBlank()) {
-                                val iframeMatcher = kvsPattern.matcher(iframeHtml)
-                                while (iframeMatcher.find()) {
-                                    val rawUrl = iframeMatcher.group(1) ?: continue
-                                    val cleanUrl = unescapeUrl(rawUrl)
-                                    if (cleanUrl.contains("preview") || cleanUrl.contains("poster") || cleanUrl.contains("thumb") || cleanUrl.endsWith(".jpg") || cleanUrl.endsWith(".png")) continue
-                                    val isMediaStream = cleanUrl.contains("/get_file/") || cleanUrl.contains(".mp4") || cleanUrl.contains(".m3u8") || cleanUrl.contains(".flv")
-                                    if (!isMediaStream) continue
-                                    if (cleanUrl.contains("/videos/") || cleanUrl.contains("/categories/") || cleanUrl.contains("/tags/") || cleanUrl.contains("/members/")) continue
-                                    if (!cleanUrl.startsWith("http") || addedUrls.contains(cleanUrl)) continue
-                                    addedUrls.add(cleanUrl)
-
-                                    val isHls = cleanUrl.contains(".m3u8")
-                                    videoSources.add(
-                                        PlayableStreamOption(
-                                            qualityLabel = if (isHls) "Embed HLS Stream" else "Embed Direct MP4",
-                                            format = if (isHls) "m3u8" else "mp4",
-                                            isMuxed = true,
-                                            videoUrl = cleanUrl,
-                                            providerType = ProviderType.DIRECT,
-                                            headers = getStreamHeadersForUrl(cleanUrl)
-                                        )
-                                    )
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "ThisVid iframe extraction error: ${e.message}")
-                        }
-                    }
-                }
-
-                if (videoSources.isNotEmpty()) {
-                    Log.i(TAG, "Successfully extracted ${videoSources.size} streams from ThisVid HTML")
-                    return@withContext StreamData(
-                        videoId = videoSlug,
-                        videoUrl = videoSources.first().videoUrl ?: "",
-                        title = resolvedTitle,
-                        channelName = resolvedChannel,
-                        thumbnailUrl = resolvedThumbnail,
-                        availableStreamOptions = videoSources,
-                        selectedStreamOption = videoSources.first(),
-                        providerId = PROVIDER_ID,
-                        providerType = ProviderType.DIRECT,
-                        headers = videoSources.first().headers
-                    )
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Direct ThisVid extraction error: ${e.message}")
+            Log.w(TAG, "Direct ThisVid metadata extraction: ${e.message}")
         }
 
-        // 2. Try yt-dlp
+        if (numericId.isBlank()) {
+            val numMatch = Regex("""\b(\d{5,})\b""").find(targetUrl)
+            if (numMatch != null) numericId = numMatch.groupValues[1]
+        }
+
+        val embedUrl = if (numericId.isNotBlank()) "$BASE_URL/embed/$numericId/" else targetUrl
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "ThisVid Web Player (HD)",
+            format = "embed",
+            isMuxed = true,
+            videoUrl = embedUrl,
+            providerType = ProviderType.OTHER,
+            sourceName = "ThisVid Embed",
+            headers = mapOf(
+                "Referer" to "$BASE_URL/",
+                "Origin" to BASE_URL,
+                "User-Agent" to DEFAULT_UA
+            )
+        )
+
+        val videoSources = mutableListOf<PlayableStreamOption>()
+
+        // 2. High-speed headless WebView stream sniffer (intercepts decrypted kt_player media)
         if (context != null) {
+            try {
+                val capturedOption = com.example.extractor.thisvid.ThisVidWebViewFallback.resolveStream(context, targetUrl, embedUrl)
+                if (capturedOption != null && !capturedOption.videoUrl.isNullOrBlank()) {
+                    Log.i(TAG, "Successfully captured ThisVid direct stream via headless WebView: ${capturedOption.videoUrl}")
+                    videoSources.add(capturedOption)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "ThisVid headless WebView sniffer: ${e.message}")
+            }
+        }
+
+        // 3. Try yt-dlp native resolution
+        if (videoSources.isEmpty() && context != null) {
             try {
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success && ytdlResult.streamData.videoUrl.isNotBlank()) {
                     Log.i(TAG, "yt-dlp successfully resolved ThisVid stream for $targetUrl")
                     return@withContext ytdlResult.streamData.copy(
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        title = resolvedTitle.ifBlank { ytdlResult.streamData.title },
+                        channelName = resolvedChannel.ifBlank { ytdlResult.streamData.channelName },
+                        thumbnailUrl = resolvedThumbnail.ifBlank { ytdlResult.streamData.thumbnailUrl }
                     )
                 }
             } catch (e: Exception) {
@@ -451,45 +383,33 @@ object ThisVidProvider {
             }
         }
 
-        // 3. Intelligent Cross-Provider Stream Matcher
+        // 4. Add Embed Web Player option (guaranteed to render and play via kt_player in WebView)
+        videoSources.add(embedOption)
+
+        // 5. Cross-provider fallback matching for backup direct streams
         try {
             val candidateTitle = if (resolvedTitle != "ThisVid Video") resolvedTitle else clean.substringAfterLast("/").substringBefore("?")
             val cleanQuery = candidateTitle.replace(Regex("""(?i)(?:thisvid|watch|video|\.html|\d{5,}|[-_])"""), " ").trim()
             if (cleanQuery.isNotBlank() && cleanQuery.length > 2) {
-                val epSearch = EpornerProvider.search(cleanQuery, limit = 3, page = 1)
+                val epSearch = EpornerProvider.search(cleanQuery, limit = 2, page = 1)
                 if (epSearch.isNotEmpty()) {
                     val streamData = EpornerProvider.getStreamData(epSearch.first().id, context)
                     if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Successfully matched ThisVid video to Eporner stream for '$cleanQuery'")
-                        return@withContext streamData.copy(
-                            videoId = videoSlug,
-                            title = resolvedTitle.ifBlank { streamData.title },
-                            channelName = resolvedChannel.ifBlank { "ThisVid" },
-                            thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                            providerId = PROVIDER_ID
-                        )
+                        Log.i(TAG, "Matched ThisVid backup stream via Eporner for '$cleanQuery'")
+                        videoSources.addAll(streamData.availableStreamOptions)
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "ThisVid fallback cross-search note: ${e.message}")
+            Log.w(TAG, "ThisVid cross-search note: ${e.message}")
         }
 
-        // 4. Guaranteed Playback Fallback Stream with clean headers (NO 403)
+        // 6. Guaranteed Fallback Stream
         val streamIdx = Math.abs(videoSlug.hashCode()) % fallbackStreams.size
         val fallbackUrl = fallbackStreams[streamIdx]
-
         val cleanFallbackHeaders = mapOf("User-Agent" to DEFAULT_UA)
 
-        val options = listOf(
-            PlayableStreamOption(
-                qualityLabel = "1080p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = cleanFallbackHeaders
-            ),
+        videoSources.add(
             PlayableStreamOption(
                 qualityLabel = "720p HD",
                 format = "mp4",
@@ -500,16 +420,20 @@ object ThisVidProvider {
             )
         )
 
+        val distinctSources = videoSources.distinctBy { it.videoUrl }
+        val primarySource = distinctSources.first()
+
         StreamData(
             videoId = videoSlug,
-            videoUrl = fallbackUrl,
+            videoUrl = primarySource.videoUrl ?: fallbackUrl,
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = options,
-            selectedStreamOption = options.first(),
+            availableStreamOptions = distinctSources,
+            selectedStreamOption = primarySource,
             providerId = PROVIDER_ID,
-            headers = cleanFallbackHeaders
+            providerType = primarySource.providerType,
+            headers = primarySource.headers
         )
     }
 
@@ -519,7 +443,6 @@ object ThisVidProvider {
             mapOf(
                 "User-Agent" to DEFAULT_UA,
                 "Referer" to "$BASE_URL/",
-                "Origin" to BASE_URL,
                 "Cookie" to "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1",
                 "Accept" to "*/*"
             )

@@ -114,9 +114,9 @@ class MainApplication : Application() {
                 val urlStr = originalRequest.url.toString().lowercase()
                 val requestBuilder = originalRequest.newBuilder()
 
-                // Standard desktop user agent for all thumbnail CDN fetches
+                // Standard desktop user agent and native-safe image formats (WebP/JPEG/PNG) to avoid C2 AVIF codec queries
                 requestBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                requestBuilder.header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                requestBuilder.header("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
                 requestBuilder.header("Sec-Fetch-Dest", "image")
                 requestBuilder.header("Sec-Fetch-Mode", "no-cors")
                 requestBuilder.header("Sec-Fetch-Site", "cross-site")

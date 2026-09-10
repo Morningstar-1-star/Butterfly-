@@ -51,7 +51,7 @@ object MultiSourceProvider {
             "cammodels" -> CamModelsProvider.getHome(limit, page)
             "chaturbate" -> ChaturbateProvider.getHome(limit, page)
             "dailymotion" -> DailymotionProvider.getHome(limit, page)
-            "vimeo" -> getVimeoHome(limit)
+            "vimeo" -> getVimeoHome(limit, page)
             "bilibili" -> getBilibiliHome(page, limit)
             "pornhub" -> PornhubProvider.getHome(limit, page)
             "xvideos" -> getXVideosHome(limit, page)
@@ -68,7 +68,7 @@ object MultiSourceProvider {
             "imdb" -> ImdbProvider.getHome(limit, page)
             "mxplayer" -> MxPlayerProvider.getHome(limit, page)
             "popcorntv", "popcorn" -> PopcornTvProvider.getHome(page, limit)
-            "beeg" -> getBeegHome(limit)
+            "beeg" -> BeegProvider.getHome(limit, page)
             "4tube" -> FourTubeProvider.getHome(page, limit)
             "eporner" -> EpornerProvider.getHome(limit, page)
             "hanime1", "hanime" -> Hanime1Provider.getHome(page, limit)
@@ -214,8 +214,8 @@ object MultiSourceProvider {
     }
 
     // ------------------- VIMEO -------------------
-    private fun getVimeoHome(limit: Int): List<VideoItem> {
-        return VimeoProvider.getHome(limit)
+    private fun getVimeoHome(limit: Int, page: Int = 1): List<VideoItem> {
+        return VimeoProvider.getHome(limit, page)
     }
 
     private fun searchVimeo(query: String, limit: Int): List<VideoItem> {

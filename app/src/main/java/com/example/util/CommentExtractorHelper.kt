@@ -80,17 +80,14 @@ object CommentExtractorHelper {
             }
         }
 
-        // 3. If Vega, Torrent, Movie, TV Series, Archive or Cinema item -> Fetch authentic IMDb / TMDB user reviews
-        val isMovieOrSeriesOrTorrentOrVega = cleanProvider.contains("torrent") ||
-                cleanProvider == "tmdb" ||
-                cleanProvider == "cinemeta" ||
-                cleanProvider == "vega" ||
-                videoId.startsWith("tt") ||
-                videoId.startsWith("movie_") ||
-                videoId.startsWith("tv_") ||
+        // 3. If Vega or Torrent item -> Fetch authentic IMDb / TMDB user reviews
+        val isTorrentOrVega = cleanProvider.contains("torrent") ||
+                cleanProvider.contains("vega") ||
+                videoId.startsWith("torrent_") ||
+                videoId.startsWith("vega_") ||
                 videoId.contains("magnet:", ignoreCase = true)
 
-        if (isMovieOrSeriesOrTorrentOrVega || title.isNotBlank() && (cleanProvider == "archive_org" || cleanProvider.isBlank())) {
+        if (isTorrentOrVega) {
             val tmdbReviews = TMDBHelper.fetchTmdbReviews(
                 title = title,
                 videoId = videoId,
@@ -101,14 +98,14 @@ object CommentExtractorHelper {
             }
         }
 
-        // 2. Bilibili comments
+        // 4. Bilibili comments
         val isBilibili = cleanProvider == "bilibili" || videoId.contains("bilibili") || videoId.contains("b23.tv") || videoId.startsWith("BV", ignoreCase = true) || videoId.startsWith("av", ignoreCase = true)
         if (isBilibili) {
             val biliComments = fetchBilibiliComments(videoId)
             if (biliComments.isNotEmpty()) return@withContext biliComments
         }
 
-        // 3. YouTube comments
+        // 5. YouTube comments
         val isYouTube = cleanProvider == "youtube" || videoId.length == 11 || videoId.startsWith("http") || videoId.contains("youtu")
         if (isYouTube || cleanProvider.isBlank()) {
             val ytId = extractYouTubeId(videoId)
@@ -118,18 +115,6 @@ object CommentExtractorHelper {
 
                 val newPipeComments = fetchYouTubeCommentsViaNewPipe(ytId)
                 if (newPipeComments.isNotEmpty()) return@withContext newPipeComments
-            }
-        }
-
-        // 4. If nothing returned from network yet, try TMDB/IMDb review search by title for any media
-        if (title.isNotBlank()) {
-            val generalReviews = TMDBHelper.fetchTmdbReviews(
-                title = title,
-                videoId = videoId,
-                providerId = providerId
-            )
-            if (generalReviews.isNotEmpty()) {
-                return@withContext generalReviews
             }
         }
 

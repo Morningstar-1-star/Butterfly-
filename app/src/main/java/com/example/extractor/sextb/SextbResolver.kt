@@ -86,18 +86,51 @@ object SextbResolver {
 
         val doc = Jsoup.parse(html, pageOrEmbedUrl)
 
-        // 3. Upstream SEXТB Pipeline:
+        // 3. Direct #video_player on details page check
+        val directPlayerEl = doc.selectFirst("#video_player[data-hash], [data-hash], .player-wrapper [data-hash]")
+        val pageDataHash = directPlayerEl?.attr("data-hash")?.trim() ?: directPlayerEl?.attr("data-src")?.trim()
+        if (!pageDataHash.isNullOrBlank()) {
+            val hlsUrl = StbturboExtractor.httpsify(pageDataHash)
+            if (hlsUrl.isNotBlank()) {
+                val isHls = hlsUrl.contains(".m3u8") || !hlsUrl.contains(".mp4")
+                val streamHost = StbturboExtractor.extractHost(hlsUrl)
+                resolvedSources.add(
+                    VideoSource(
+                        url = hlsUrl,
+                        mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
+                        quality = "1080p",
+                        isHls = isHls,
+                        headers = mapOf(
+                            "User-Agent" to DEFAULT_UA,
+                            "Referer" to pageOrEmbedUrl,
+                            "Origin" to "https://$streamHost"
+                        ),
+                        sourceName = "SEXТB Player"
+                    )
+                )
+            }
+        }
+
+        // 4. Upstream SEXТB Pipeline:
         // Details page -> .episode-list .btn-player -> data-id + data-source -> POST /ajax/player -> iframe
-        val btnPlayers = doc.select(".episode-list .btn-player, .btn-player")
-        val globalFilmId = doc.selectFirst(".episode-list .btn-player, .btn-player")?.attr("data-source")?.ifBlank { "" } ?: ""
+        val btnPlayers = doc.select(".episode-list .btn-player, .btn-player, .play-btn, .btn-play, [data-source], [data-film], [data-id], .server-item, .episode-item a, a[data-id]")
+        var globalFilmId = doc.selectFirst(".episode-list .btn-player, .btn-player, [data-source], [data-film]")?.let {
+            it.attr("data-source").ifBlank { it.attr("data-film") }.ifBlank { it.attr("data-film-id") }
+        }?.ifBlank { "" } ?: ""
+
+        if (globalFilmId.isBlank()) {
+            val filmMatch = Regex("""(?:film_id|filmId|film)\s*[:=]\s*["']?(\d+)""").find(html)
+            if (filmMatch != null) {
+                globalFilmId = filmMatch.groupValues[1]
+            }
+        }
 
         if (btnPlayers.isNotEmpty()) {
-            Log.d(TAG, "SEXТB resolver: Found ${btnPlayers.size} player buttons in .episode-list")
-            // Resolve buttons (deduplicated by data-id)
+            Log.d(TAG, "SEXТB resolver: Found ${btnPlayers.size} player buttons in details page")
             val seenEpisodes = mutableSetOf<String>()
             for (btn in btnPlayers) {
-                val episode = btn.attr("data-id").trim()
-                val filmId = btn.attr("data-source").ifBlank { globalFilmId }.trim()
+                val episode = btn.attr("data-id").ifBlank { btn.attr("data-episode") }.ifBlank { btn.attr("data-ep") }.trim()
+                val filmId = btn.attr("data-source").ifBlank { btn.attr("data-film") }.ifBlank { btn.attr("data-film-id") }.ifBlank { globalFilmId }.trim()
                 if (episode.isBlank() || seenEpisodes.contains(episode)) continue
                 seenEpisodes.add(episode)
 
@@ -108,13 +141,12 @@ object SextbResolver {
                 }
 
                 if (resolvedSources.isNotEmpty()) {
-                    // Successfully extracted streams from first valid player button
                     break
                 }
             }
         }
 
-        // 4. Fallback: direct iframes in page HTML
+        // 5. Fallback: direct iframes in page HTML
         if (resolvedSources.isEmpty()) {
             val embedUrls = SextbParser.extractPlayerEmbedUrls(html, pageOrEmbedUrl)
             for (embedUrl in embedUrls) {
@@ -127,7 +159,7 @@ object SextbResolver {
             }
         }
 
-        // 5. Fallback: direct HTML5 video / script sources
+        // 6. Fallback: direct HTML5 video / script sources
         if (resolvedSources.isEmpty()) {
             val directSources = SextbParser.parseDirectVideoSources(doc, pageOrEmbedUrl)
             resolvedSources.addAll(directSources)
@@ -137,7 +169,7 @@ object SextbResolver {
             resolvedSources.addAll(scriptSources)
         }
 
-        // 6. Final fallback: Headless WebView if native resolution produced no sources
+        // 7. Final fallback: Headless WebView if native resolution produced no sources
         if (resolvedSources.isEmpty() && context != null) {
             Log.i(TAG, "SEXТB resolver: Native resolution empty, triggering WebView fallback")
             val fallbackSource = SextbWebViewFallback.resolveWithFallback(context, pageOrEmbedUrl)
@@ -168,6 +200,9 @@ object SextbResolver {
                 .add("episode", episode)
                 .add("filmId", filmId)
                 .add("film_id", filmId)
+                .add("id", episode)
+                .add("source", filmId)
+                .add("server", "1")
                 .build()
 
             val req = Request.Builder()
@@ -188,7 +223,20 @@ object SextbResolver {
                 iframes.addAll(extracted)
                 Log.d(TAG, "POST /ajax/player extracted ${iframes.size} iframes: $iframes")
             } else {
-                Log.w(TAG, "POST /ajax/player failed with HTTP ${resp.code}")
+                Log.w(TAG, "POST /ajax/player returned HTTP ${resp.code}, trying GET fallback")
+                val getUrl = "$AJAX_PLAYER_URL?episode=$episode&filmId=$filmId&film_id=$filmId"
+                val getReq = Request.Builder()
+                    .url(getUrl)
+                    .header("User-Agent", DEFAULT_UA)
+                    .header("Referer", refererUrl)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .build()
+                val getResp = httpClient.newCall(getReq).execute()
+                if (getResp.isSuccessful) {
+                    val responseBody = getResp.body?.string() ?: ""
+                    val extracted = extractIframeUrlsFromAjaxResponse(responseBody)
+                    iframes.addAll(extracted)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed POST to /ajax/player (episode=$episode, filmId=$filmId): ${e.message}")
@@ -396,7 +444,7 @@ object SextbResolver {
             )
     }
 
-    private fun unpackAllScripts(html: String): String {
+    fun unpackAllScripts(html: String): String {
         val sb = StringBuilder(html)
         val scriptPattern = Pattern.compile("""<script[^>]*>(.*?)</script>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
         val matcher = scriptPattern.matcher(html)

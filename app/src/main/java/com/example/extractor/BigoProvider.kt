@@ -368,6 +368,11 @@ object BigoProvider {
         try {
             val formBody = FormBody.Builder()
                 .add("siteId", siteId)
+                .add("token", "anonymous")
+                .add("verify", "")
+                .add("supportHevc", "0")
+                .add("isPaidShow", "0")
+                .add("mk", "")
                 .build()
 
             val req = Request.Builder()
@@ -388,7 +393,16 @@ object BigoProvider {
                 val json = JSONObject(respStr)
                 if (json.optInt("code", -1) == 0) {
                     val data = json.optJSONObject("data") ?: return null
-                    val hlsUrl = data.optString("hls_src").trim()
+                    var hlsUrl = data.optString("hls_src").trim()
+                    if (hlsUrl.isBlank()) {
+                        hlsUrl = data.optString("src").trim()
+                    }
+                    if (hlsUrl.isBlank()) {
+                        val cdnArr = data.optJSONArray("cdn_src")
+                        if (cdnArr != null && cdnArr.length() > 0) {
+                            hlsUrl = cdnArr.optString(0).trim()
+                        }
+                    }
                     val nickName = data.optString("nick_name").ifBlank { siteId }.trim()
                     val roomTopic = data.optString("roomTopic").ifBlank { "$nickName's Live Stream" }.trim()
                     val rawSnapshot = data.optString("snapshot").ifBlank { data.optString("avatar") }.trim()
@@ -417,12 +431,39 @@ object BigoProvider {
         return null
     }
 
+    private fun fetchUserStudioDetails(siteId: String): JSONObject? {
+        try {
+            val req = Request.Builder()
+                .url("https://ta.bigo.tv/official_website/OUserCenter/getUserInfoStudio?siteId=$siteId&bigoId=$siteId")
+                .get()
+                .header("Referer", "https://www.bigo.tv/")
+                .header("Origin", "https://www.bigo.tv")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .header("Accept", "application/json, text/plain, */*")
+                .build()
+
+            val respStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+
+            if (!respStr.isNullOrBlank()) {
+                val json = JSONObject(respStr)
+                if (json.optInt("code", -1) == 0) {
+                    return json.optJSONObject("data")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchUserStudioDetails error: ${e.message}")
+        }
+        return null
+    }
+
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val bigoId = extractBigoId(urlOrId)
         val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.bigo.tv/$bigoId"
 
         // 1. Direct official studio API call (lightning-fast, ~100-200ms)
-        val studio = fetchStudioInfo(bigoId)
+        var studio = fetchStudioInfo(bigoId)
         if (studio != null && studio.hlsUrl.isNotBlank() && studio.hlsUrl.startsWith("http")) {
             val option = PlayableStreamOption(
                 qualityLabel = "Bigo Live 1080p (Live HLS)",
@@ -446,7 +487,36 @@ object BigoProvider {
             )
         }
 
-        // 2. Try YtDlpResolver (yt-dlp has native Bigo extractor support)
+        // 2. Fetch User Studio Details to check UID and active status
+        val userDetails = fetchUserStudioDetails(bigoId)
+        val uid = userDetails?.optLong("uid", 0L)?.toString()?.ifBlank { null }
+        if (uid != null && uid != bigoId && uid != "0") {
+            val uidStudio = fetchStudioInfo(uid)
+            if (uidStudio != null && uidStudio.hlsUrl.isNotBlank() && uidStudio.hlsUrl.startsWith("http")) {
+                val option = PlayableStreamOption(
+                    qualityLabel = "Bigo Live 1080p (Live HLS)",
+                    format = "m3u8",
+                    isMuxed = true,
+                    videoUrl = uidStudio.hlsUrl,
+                    headers = defaultHeaders
+                )
+                return@withContext StreamData(
+                    videoId = fullUrl,
+                    videoUrl = uidStudio.hlsUrl,
+                    title = if (uidStudio.roomTopic.isNotBlank()) "🔴 LIVE: ${uidStudio.roomTopic}" else "🔴 LIVE: ${uidStudio.nickName}",
+                    channelName = "${uidStudio.nickName} (Bigo)",
+                    channelAvatarUrl = uidStudio.avatar.ifBlank { uidStudio.snapshot },
+                    viewCount = uidStudio.userCount,
+                    availableStreamOptions = listOf(option),
+                    selectedStreamOption = option,
+                    hlsUrl = uidStudio.hlsUrl,
+                    providerId = PROVIDER_ID,
+                    headers = defaultHeaders
+                )
+            }
+        }
+
+        // 3. Try YtDlpResolver (yt-dlp has native Bigo extractor support)
         if (context != null) {
             try {
                 val ytRes = YtDlpResolver.extractStreamInfo(context, fullUrl)
@@ -462,9 +532,9 @@ object BigoProvider {
             }
         }
 
-        // 3. If requested room is offline/ended, find another currently live active room from Bigo
+        // 4. If requested room is offline/ended, find another currently live active room from Bigo
         val activeRooms = getOrFetchRooms()
-        for (room in activeRooms.take(5)) {
+        for (room in activeRooms.take(10)) {
             if (room.bigoId == bigoId) continue
             val altStudio = fetchStudioInfo(room.bigoId)
             if (altStudio != null && altStudio.hlsUrl.isNotBlank() && altStudio.hlsUrl.startsWith("http")) {

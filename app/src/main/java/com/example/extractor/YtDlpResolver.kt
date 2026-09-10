@@ -229,15 +229,38 @@ object YtDlpResolver {
             val isYouTube = targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be") || (targetUrl.length == 11 && !targetUrl.startsWith("http") && !targetUrl.contains(" "))
             val videoUrl = when {
                 targetUrl.startsWith("http://") || targetUrl.startsWith("https://") -> targetUrl
+                targetUrl.startsWith("4tube:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else if (id.startsWith("videos/")) "https://www.4tube.com/$id" else "https://www.4tube.com/videos/$id"
+                }
+                targetUrl.startsWith("spankbang:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else if (id.contains("/video/")) "https://spankbang.com/$id" else "https://spankbang.com/$id/video/"
+                }
+                targetUrl.startsWith("motherless:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://motherless.com/$id"
+                }
+                targetUrl.startsWith("playvid:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else if (id.startsWith("watch/")) "https://www.playvid.com/$id" else "https://www.playvid.com/watch/$id"
+                }
+                targetUrl.startsWith("txxx:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else if (id.startsWith("videos/")) "https://www.txxx.com/$id" else "https://www.txxx.com/videos/$id"
+                }
+                targetUrl.startsWith("tnaflix:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else if (id.startsWith("video") || id.startsWith("porn-video/")) "https://www.tnaflix.com/$id" else "https://www.tnaflix.com/video$id"
+                }
+                targetUrl.startsWith("thisvid:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else if (id.startsWith("videos/")) "https://thisvid.com/$id" else "https://thisvid.com/videos/$id"
+                }
                 targetUrl.startsWith("bigo:", ignoreCase = true) -> "https://www.bigo.tv/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("cam4:", ignoreCase = true) -> "https://www.cam4.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("chaturbate:", ignoreCase = true) -> "https://chaturbate.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("cammodels:", ignoreCase = true) -> "https://www.cammodels.com/${targetUrl.substringAfter(":")}"
-                targetUrl.startsWith("spankbang:", ignoreCase = true) -> "https://spankbang.com/${targetUrl.substringAfter(":")}"
-                targetUrl.startsWith("motherless:", ignoreCase = true) -> "https://motherless.com/${targetUrl.substringAfter(":")}"
-                targetUrl.startsWith("playvid:", ignoreCase = true) -> "https://www.playvid.com/${targetUrl.substringAfter(":")}"
-                targetUrl.startsWith("txxx:", ignoreCase = true) -> "https://www.txxx.com/${targetUrl.substringAfter(":")}"
-                targetUrl.startsWith("tnaflix:", ignoreCase = true) -> "https://www.tnaflix.com/video${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("crunchyroll:", ignoreCase = true) -> "https://www.crunchyroll.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("sonyliv:", ignoreCase = true) -> "https://www.sonyliv.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("hbo:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"

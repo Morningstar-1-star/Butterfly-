@@ -67,6 +67,15 @@ object CrunchyrollProvider {
     )
 
     suspend fun getHome(limit: Int = 24, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
+        // 0. If user is logged into their Crunchyroll Premium account, return their premium library & simulcasts!
+        if (com.example.auth.SourceAccountManager.isSourceLoggedIn(PROVIDER_ID)) {
+            val premiumItems = CrunchyrollApiClient.getPremiumFeed(limit)
+            if (premiumItems.isNotEmpty()) {
+                Log.i(TAG, "Loaded ${premiumItems.size} Crunchyroll premium account anime videos")
+                return@withContext premiumItems
+            }
+        }
+
         val safePage = if (page < 1) 1 else page
         YouTubeExtractorHelper.ensureNewPipeInitialized()
 
@@ -116,6 +125,15 @@ object CrunchyrollProvider {
     suspend fun search(query: String, limit: Int = 24, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val clean = query.replace(Regex("(?i)crunchyroll:"), "").trim()
         if (clean.isBlank()) return@withContext getHome(limit, page)
+
+        // If user is logged into their Crunchyroll Premium account, search the authenticated anime catalog
+        if (com.example.auth.SourceAccountManager.isSourceLoggedIn(PROVIDER_ID)) {
+            val premiumResults = CrunchyrollApiClient.searchPremium(clean, limit)
+            if (premiumResults.isNotEmpty()) {
+                Log.i(TAG, "Crunchyroll premium search '$clean' fetched ${premiumResults.size} items")
+                return@withContext premiumResults
+            }
+        }
 
         YouTubeExtractorHelper.ensureNewPipeInitialized()
         val searchQuery = if (clean.contains("crunchyroll", ignoreCase = true) || clean.contains("anime", ignoreCase = true)) {
@@ -268,6 +286,15 @@ object CrunchyrollProvider {
             .trim()
 
         val searchTerms = if (cleanName.isNotBlank()) cleanName else clean
+
+        // 2.5. If logged in or requested from Crunchyroll, resolve full 1080p anime episode streams with Sub/Dub
+        if (com.example.auth.SourceAccountManager.isSourceLoggedIn(PROVIDER_ID) || clean.startsWith("crunchyroll:", ignoreCase = true)) {
+            val fullEpisodeStream = CrunchyrollApiClient.resolveFullEpisodeStream(clean, searchTerms)
+            if (fullEpisodeStream != null && fullEpisodeStream.availableStreamOptions.isNotEmpty()) {
+                Log.i(TAG, "Resolved full 1080p episode stream via Crunchyroll engine for $searchTerms")
+                return@withContext fullEpisodeStream
+            }
+        }
 
         // 3. Multi-tier resolution via official Crunchyroll & Anime catalog
         try {

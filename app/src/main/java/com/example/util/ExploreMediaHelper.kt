@@ -33,6 +33,10 @@ object ExploreMediaHelper {
 
     private val cache = ConcurrentHashMap<String, List<ExploreMediaItem>>()
 
+    fun clearCache() {
+        cache.clear()
+    }
+
     suspend fun fetchExploreFeed(): List<ExploreSection> = withContext(Dispatchers.IO) {
         supervisorScope {
             val trendingMoviesDeferred = async { fetchTmdbTrendingMovies() }

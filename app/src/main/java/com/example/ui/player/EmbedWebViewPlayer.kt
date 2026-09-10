@@ -303,6 +303,12 @@ private fun createConfiguredWebView(
 
         setBackgroundColor(android.graphics.Color.BLACK)
 
+        val cookieManager = android.webkit.CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(this, true)
+        }
+
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -413,6 +419,7 @@ private fun createConfiguredWebView(
 
 private fun isAuthorizedEmbedDomain(host: String): Boolean {
     val allowedDomains = listOf(
+        "thisvid.com",
         "vidrock.net",
         "vidsrc.sbs",
         "vidlink.pro",

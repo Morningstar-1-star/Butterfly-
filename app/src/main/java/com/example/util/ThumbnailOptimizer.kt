@@ -118,7 +118,7 @@ object ThumbnailOptimizer {
             .crossfade(crossfadeMillis)
             .dispatcher(Dispatchers.IO)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
 
         // Domain-specific anti-hotlinking headers
         when {
@@ -192,6 +192,22 @@ object ThumbnailOptimizer {
                 builder.setHeader("Referer", "https://www.txxx.com/")
                 builder.setHeader("Cookie", "age_verified=1; platform=pc; country=US")
             }
+            lowerUrl.contains("4tube.com") || lowerUrl.contains("4tube") || lowerUrl.contains("fivetube.com") -> {
+                builder.setHeader("Referer", "https://www.4tube.com/")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc; country=US")
+            }
+            lowerUrl.contains("spankbang.com") || lowerUrl.contains("spankbang") || lowerUrl.contains("spankcdn") -> {
+                builder.setHeader("Referer", "https://spankbang.com/")
+                builder.setHeader("Cookie", "age_confirmed=1; country=US")
+            }
+            lowerUrl.contains("motherless.com") || lowerUrl.contains("motherlessmedia") -> {
+                builder.setHeader("Referer", "https://motherless.com/")
+                builder.setHeader("Cookie", "content_filter=0; member=1")
+            }
+            lowerUrl.contains("playvid.com") -> {
+                builder.setHeader("Referer", "https://www.playvid.com/")
+                builder.setHeader("Cookie", "age_confirmed=1")
+            }
             lowerUrl.contains("thisvid.com") -> {
                 builder.setHeader("Referer", "https://thisvid.com/")
                 builder.setHeader("Cookie", "age_verified=1; platform=pc")
@@ -213,7 +229,7 @@ object ThumbnailOptimizer {
             }
             lowerUrl.contains("media-amazon.com") || lowerUrl.contains("ssl-images-amazon.com") || lowerUrl.contains("images-eu.ssl-images-amazon.com") -> {
                 // AWS CloudFront for Amazon & IMDb media: Do NOT set foreign referer as CloudFront blocks cross-domain referers with 403
-                builder.setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                builder.setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
             }
             lowerUrl.contains("imdb.com") -> {
                 builder.setHeader("Referer", "https://www.imdb.com/")
@@ -304,7 +320,7 @@ object ThumbnailOptimizer {
             .allowRgb565(true)
             .crossfade(crossfadeMillis)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
             .build()
     }
 
@@ -327,7 +343,7 @@ object ThumbnailOptimizer {
             .allowRgb565(true)
             .crossfade(crossfadeMillis)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
             .build()
     }
 

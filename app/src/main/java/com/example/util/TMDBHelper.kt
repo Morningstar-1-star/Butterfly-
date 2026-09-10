@@ -29,6 +29,13 @@ object TMDBHelper {
         "youporn", "redtube", "4tube", "rule34video", "multisource"
     )
 
+    fun isTorrentOrVega(providerId: String?): Boolean {
+        if (providerId.isNullOrBlank()) return false
+        val clean = providerId.trim().lowercase()
+        return clean == "torrent" || clean == "torrents" || clean == "torrent_stream" ||
+                clean == "vega" || clean.startsWith("vega_") || clean.startsWith("vega")
+    }
+
     fun isWebOrAdultProvider(providerId: String?): Boolean {
         if (providerId.isNullOrBlank()) return false
         val clean = providerId.trim().lowercase()
@@ -44,21 +51,16 @@ object TMDBHelper {
         isTrailer: Boolean = false,
         isMovieOrSeries: Boolean = false
     ): Boolean {
-        if (isTrailer || isMovieOrSeries) return true
+        if (isTorrentOrVega(providerId)) return true
 
         if (!videoId.isNullOrBlank()) {
             val vId = videoId.lowercase()
-            if (vId.startsWith("movie_") || vId.startsWith("tv_") || vId.startsWith("tt") ||
-                vId.startsWith("tmdb_") || vId.startsWith("anilist_") || vId.startsWith("jikan_")) {
+            if (vId.startsWith("torrent_") || vId.startsWith("vega_")) {
                 return true
             }
         }
 
-        if (isWebOrAdultProvider(providerId)) {
-            return false
-        }
-
-        return true
+        return false
     }
 
     private val client = OkHttpClient.Builder()
@@ -918,6 +920,10 @@ object TMDBHelper {
         videoId: String? = null,
         providerId: String? = null
     ): List<com.example.model.VideoComment> = withContext(Dispatchers.IO) {
+        if (!isTorrentOrVega(providerId) && !(videoId != null && (videoId.startsWith("torrent_") || videoId.startsWith("vega_")))) {
+            return@withContext emptyList()
+        }
+
         val cleanTitle = cleanTitleForSearch(title)
         if (cleanTitle.isBlank() && videoId.isNullOrBlank()) return@withContext emptyList()
 

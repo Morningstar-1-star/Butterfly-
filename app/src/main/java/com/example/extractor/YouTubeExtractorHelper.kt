@@ -63,65 +63,87 @@ object YouTubeExtractorHelper {
         ensureNewPipeInitialized()
     }
 
-    suspend fun fetchYouTubeTrending(context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchYouTubeTrending(context: Context? = null, page: Int = 1, forceRefresh: Boolean = false): List<VideoItem> = withContext(Dispatchers.IO) {
         val combinedTrending = mutableListOf<VideoItem>()
 
-        // Step 1: NewPipe Trending Kiosk (Fast-Path)
-        try {
-            ensureNewPipeInitialized()
-            val kioskInfo = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(
-                    ServiceList.YouTube,
-                    "Trending"
-                )
-            }
-            val items = kioskInfo?.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
-                ?.mapNotNull { item ->
-                    val vId = when {
-                        item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
-                        item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
-                        item.url.length == 11 -> item.url
-                        else -> item.url.substringAfterLast("/").takeIf { it.length == 11 }
-                    }
-                    if (vId.isNullOrBlank()) return@mapNotNull null
-                    val rawThumb = item.thumbnails?.firstOrNull()?.url
-                    val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
-                    val uploaderAvatar = try {
-                        item.uploaderAvatars?.firstOrNull()?.url
-                    } catch (e: Exception) {
-                        null
-                    }
-                    val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
-                    VideoItem(
-                        id = vId,
-                        title = item.name ?: "YouTube Video",
-                        uploaderName = item.uploaderName ?: "YouTube",
-                        uploaderUrl = uploaderUrl,
-                        uploaderAvatarUrl = uploaderAvatar,
-                        viewCount = item.viewCount,
-                        durationSeconds = item.duration,
-                        thumbnailUrl = thumb,
-                        providerId = "youtube"
+        // Step 1: NewPipe Trending Kiosk (Fast-Path) on page 1 or initial load
+        if (page <= 1 && !forceRefresh) {
+            try {
+                ensureNewPipeInitialized()
+                val kioskInfo = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    org.schabi.newpipe.extractor.kiosk.KioskInfo.getInfo(
+                        ServiceList.YouTube,
+                        "Trending"
                     )
-                } ?: emptyList()
-            if (items.isNotEmpty()) {
-                Log.i(TAG, "Fetched ${items.size} trending videos via NewPipe Kiosk")
-                combinedTrending.addAll(items)
-                return@withContext combinedTrending.distinctBy { it.id }
+                }
+                val items = kioskInfo?.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                    ?.mapNotNull { item ->
+                        val vId = when {
+                            item.url.contains("v=") -> item.url.substringAfter("v=").substringBefore("&").substringBefore("?")
+                            item.url.contains("youtu.be/") -> item.url.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+                            item.url.length == 11 -> item.url
+                            else -> item.url.substringAfterLast("/").takeIf { it.length == 11 }
+                        }
+                        if (vId.isNullOrBlank()) return@mapNotNull null
+                        val rawThumb = item.thumbnails?.firstOrNull()?.url
+                        val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                        val uploaderAvatar = try {
+                            item.uploaderAvatars?.firstOrNull()?.url
+                        } catch (e: Exception) {
+                            null
+                        }
+                        val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
+                        VideoItem(
+                            id = vId,
+                            title = item.name ?: "YouTube Video",
+                            uploaderName = item.uploaderName ?: "YouTube",
+                            uploaderUrl = uploaderUrl,
+                            uploaderAvatarUrl = uploaderAvatar,
+                            viewCount = item.viewCount,
+                            durationSeconds = item.duration,
+                            thumbnailUrl = thumb,
+                            providerId = "youtube"
+                        )
+                    } ?: emptyList()
+                if (items.isNotEmpty()) {
+                    Log.i(TAG, "Fetched ${items.size} trending videos via NewPipe Kiosk")
+                    combinedTrending.addAll(items)
+                    return@withContext combinedTrending.distinctBy { it.id }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "NewPipe trending kiosk fetch note: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "NewPipe trending kiosk fetch note: ${e.message}")
         }
 
-        // Step 2: Single Fast Dynamic Fallback only if kiosk failed/timed out
+        // Step 2: Dynamic trending search rotation for refresh / multi-page discovery
+        val trendingQueries = listOf(
+            "trending music",
+            "trending gaming",
+            "trending entertainment",
+            "viral videos",
+            "latest technology",
+            "popular podcasts",
+            "trending sports highlights"
+        )
+        val query = trendingQueries[((page - 1).coerceAtLeast(0) + if (forceRefresh) (1..trendingQueries.size).random() else 0) % trendingQueries.size]
+
+        try {
+            val topicResults = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                searchYouTube(query, context).take(20)
+            } ?: emptyList()
+            combinedTrending.addAll(topicResults)
+        } catch (e: Exception) {
+            Log.w(TAG, "Dynamic trending search fallback note: ${e.message}")
+        }
+
         if (combinedTrending.isEmpty()) {
             try {
-                val topicResults = kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                    searchYouTube("trending videos 2026", context).take(12)
+                val fallbackResults = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    searchYouTube("trending", context).take(15)
                 } ?: emptyList()
-                combinedTrending.addAll(topicResults)
+                combinedTrending.addAll(fallbackResults)
             } catch (e: Exception) {
-                Log.w(TAG, "Dynamic trending search fallback note: ${e.message}")
+                Log.w(TAG, "Fallback search note: ${e.message}")
             }
         }
 
@@ -518,6 +540,18 @@ object YouTubeExtractorHelper {
             if (tvData != null) {
                 Log.i(TAG, "Resolved via ThisVidProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(tvData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing ThisVid to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.startsWith("videos/")) "https://thisvid.com/$id" else "https://thisvid.com/videos/$id"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = ThisVidProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
@@ -528,6 +562,18 @@ object YouTubeExtractorHelper {
             if (tnaData != null) {
                 Log.i(TAG, "Resolved via TnaFlixProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(tnaData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing TnaFlix to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.startsWith("video") || id.startsWith("porn-video/")) "https://www.tnaflix.com/$id" else "https://www.tnaflix.com/video$id"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = TnaFlixProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
@@ -538,6 +584,18 @@ object YouTubeExtractorHelper {
             if (sbData != null) {
                 Log.i(TAG, "Resolved via SpankBangProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(sbData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing SpankBang to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.contains("/video/")) "https://spankbang.com/$id" else "https://spankbang.com/$id/video/"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = SpankBangProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
@@ -548,6 +606,15 @@ object YouTubeExtractorHelper {
             if (mlData != null) {
                 Log.i(TAG, "Resolved via MotherlessProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(mlData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Motherless to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://motherless.com/${urlOrId.substringAfter(":")}"
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = MotherlessProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
@@ -558,16 +625,40 @@ object YouTubeExtractorHelper {
             if (pvData != null) {
                 Log.i(TAG, "Resolved via PlayvidProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(pvData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Playvid to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.startsWith("watch/")) "https://www.playvid.com/$id" else "https://www.playvid.com/watch/$id"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = PlayvidProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
-        val isTxxx = providerId == "txxx" || urlOrId.contains("txxx.com") ||
+        val isTxxx = providerId == "txxx" || urlOrId.contains("txxx.com") || urlOrId.contains("txxx.tube") ||
                 urlOrId.startsWith("txxx:", ignoreCase = true)
         if (isTxxx) {
             val txData = TxxxProvider.getStreamData(urlOrId, context)
             if (txData != null) {
                 Log.i(TAG, "Resolved via TxxxProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(txData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Txxx to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.startsWith("videos/")) "https://www.txxx.com/$id" else "https://www.txxx.com/videos/$id"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = TxxxProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
@@ -778,7 +869,7 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val is4Tube = providerId == "4tube" || urlOrId.contains("4tube.com")
+        val is4Tube = providerId == "4tube" || urlOrId.contains("4tube.com") || urlOrId.startsWith("4tube:", ignoreCase = true)
         if (is4Tube) {
             val ftData = FourTubeProvider.getStreamData(urlOrId, context)
             if (ftData != null) {
@@ -786,7 +877,8 @@ object YouTubeExtractorHelper {
                 return@withContext ExtractionResult.Success(ftData)
             } else if (context != null) {
                 Log.i(TAG, "Routing 4tube to YtDlpResolver for $urlOrId")
-                val full4tUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.4tube.com/videos/$urlOrId"
+                val clean4tId = urlOrId.substringAfter(":").trim('/')
+                val full4tUrl = if (urlOrId.startsWith("http")) urlOrId else if (clean4tId.startsWith("videos/")) "https://www.4tube.com/$clean4tId" else "https://www.4tube.com/videos/$clean4tId"
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, full4tUrl)
                 if (ytdlResult is ExtractionResult.Success) {
                     return@withContext ExtractionResult.Success(

@@ -81,12 +81,7 @@ data class SearchFilterState(
         // 1. Source / Provider Filter
         if (sourceProviderId != "ALL") {
             filtered = filtered.filter { item ->
-                val pId = (item.providerId ?: "").lowercase()
-                val targetId = sourceProviderId.lowercase()
-                pId == targetId ||
-                pId.contains(targetId) ||
-                targetId.contains(pId) ||
-                (targetId.startsWith("apijav") && pId.startsWith("apijav"))
+                com.example.util.SourceTagHelper.matchesProvider(item.providerId, sourceProviderId)
             }
         }
 

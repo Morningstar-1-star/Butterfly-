@@ -182,10 +182,6 @@ object UniversalTranslator {
         }
 
         val result = translateTitle(originalTitle, database)
-        val (descEN, _) = if (!item.description.isNullOrBlank()) {
-            translateDescription(item.description, database)
-        } else Pair(null, null)
-
         val translatedTitle = result.translatedEN.ifBlank { originalTitle }
 
         return item.copy(
@@ -194,7 +190,7 @@ object UniversalTranslator {
             translatedTitleEN = translatedTitle,
             translatedTitleHI = null,
             detectedLanguage = result.detectedLanguage,
-            translatedDescriptionEN = descEN ?: item.description
+            translatedDescriptionEN = null
         )
     }
 

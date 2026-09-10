@@ -37,8 +37,17 @@ object DailymotionProvider {
     )
 
     suspend fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
-        val url = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total,created_time&flags=featured&limit=$limit&page=$page"
-        parseDailymotionApi(url)
+        val sorts = listOf("visited-today", "recent", "visited-this-week", "visited-month")
+        val sort = sorts[((page - 1).coerceAtLeast(0)) % sorts.size]
+        val pageNum = (((page - 1).coerceAtLeast(0)) / sorts.size) + 1
+        val url = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total,created_time&sort=$sort&limit=$limit&page=$pageNum"
+        val items = parseDailymotionApi(url)
+        if (items.isEmpty()) {
+            val fallbackUrl = "https://api.dailymotion.com/videos?fields=id,title,owner.username,thumbnail_720_url,duration,views_total,created_time&sort=recent&limit=$limit&page=1"
+            parseDailymotionApi(fallbackUrl)
+        } else {
+            items
+        }
     }
 
     suspend fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
