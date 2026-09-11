@@ -43,6 +43,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
     ACCOUNTS_SOURCES("Accounts & Sources", "YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
     PROVIDERS("Content Sources", "Manage YouTube, Dailymotion, BitTorrent & more", Icons.Outlined.Source),
+    PROWLARR_INDEXERS("Prowlarr & Cardigann Indexers", "Manage Prowlarr V11 YAML indexers, test & sync", Icons.Outlined.Radar),
     SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
     BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
@@ -248,6 +249,7 @@ fun SettingsScreen(
                     SettingsCategory.PLAYBACK,
                     SettingsCategory.ACCOUNTS_SOURCES,
                     SettingsCategory.PROVIDERS,
+                    SettingsCategory.PROWLARR_INDEXERS,
                     SettingsCategory.SUBTITLE_PROVIDERS,
                     SettingsCategory.VEGA,
                     SettingsCategory.ADULT_18,
@@ -285,6 +287,12 @@ fun SettingsScreen(
             } else {
                 // SUB-SCREEN DETAIL PAGES
                 when (currentCategory) {
+                    SettingsCategory.PROWLARR_INDEXERS -> {
+                        TorrentIndexersScreen(
+                            onBackClick = { currentCategory = null }
+                        )
+                    }
+
                     SettingsCategory.SUBTITLE_PROVIDERS -> {
                         SubtitleProvidersSettingsScreen(
                             onBackClick = { currentCategory = null }
@@ -969,6 +977,72 @@ fun SettingsScreen(
                                             }
                                             Text(
                                                 text = "Log into YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF673AB7).copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF673AB7).copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                        .clickable { currentCategory = SettingsCategory.PROWLARR_INDEXERS }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF673AB7).copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Radar,
+                                                contentDescription = null,
+                                                tint = Color(0xFF9C27B0),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = "Prowlarr & Cardigann Indexers",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF9C27B0)
+                                                ) {
+                                                    Text(
+                                                        text = "V11 YAML Engine",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "Manage Prowlarr indexer definitions, test health & sync mirrors",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -2650,9 +2724,12 @@ fun SettingsScreen(
                     SettingsCategory.DIAGNOSTICS -> {
                         val repoList by com.example.util.AppEngineDiagnosticManager.repoList.collectAsState()
                         val isGlobalChecking by com.example.util.AppEngineDiagnosticManager.isGlobalChecking.collectAsState()
+                        val isGlobalUpdating by com.example.util.AppEngineDiagnosticManager.isGlobalUpdating.collectAsState()
                         val summaryText by com.example.util.AppEngineDiagnosticManager.overallDiagnosticSummary.collectAsState()
                         val componentTestResults by com.example.util.AppEngineDiagnosticManager.componentTestResults.collectAsState()
                         val isTestingComponents by com.example.util.AppEngineDiagnosticManager.isTestingComponents.collectAsState()
+                        val hasAvailableUpdates = repoList.any { it.status == com.example.util.RepoUpdateStatus.UPDATE_AVAILABLE }
+                        val availableUpdatesCount = repoList.count { it.status == com.example.util.RepoUpdateStatus.UPDATE_AVAILABLE }
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -2842,7 +2919,7 @@ fun SettingsScreen(
                                                 onClick = {
                                                     com.example.util.AppEngineDiagnosticManager.checkAllUpdates(context)
                                                 },
-                                                enabled = !isGlobalChecking,
+                                                enabled = !isGlobalChecking && !isGlobalUpdating,
                                                 modifier = Modifier.weight(1f)
                                             ) {
                                                 if (isGlobalChecking) {
@@ -2862,11 +2939,76 @@ fun SettingsScreen(
 
                                             OutlinedButton(
                                                 onClick = { showAddRepoDialog = true },
+                                                enabled = !isGlobalUpdating,
                                                 modifier = Modifier.weight(1f)
                                             ) {
                                                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Text("Add Custom Repo", fontSize = 13.sp)
+                                            }
+                                        }
+
+                                        // Single Button to Update All Sources At Once
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        if (hasAvailableUpdates || isGlobalUpdating) {
+                                            Button(
+                                                onClick = {
+                                                    com.example.util.AppEngineDiagnosticManager.updateAllRepos(context)
+                                                },
+                                                enabled = !isGlobalUpdating && !isGlobalChecking,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFFFFB300),
+                                                    contentColor = Color(0xFF1E1B16)
+                                                ),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                if (isGlobalUpdating) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(18.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = Color(0xFF1E1B16)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "Updating All Sources & Engines...",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Download,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = if (availableUpdatesCount > 0) "Update All Sources ($availableUpdatesCount Available)" else "Update All Sources",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    com.example.util.AppEngineDiagnosticManager.updateAllRepos(context)
+                                                },
+                                                enabled = !isGlobalUpdating && !isGlobalChecking,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Download,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "Update & Sync All Sources",
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 13.sp
+                                                )
                                             }
                                         }
                                     }

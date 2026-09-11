@@ -996,6 +996,9 @@ object YouTubeExtractorHelper {
         val isBilibili = providerId == "bilibili" ||
                 urlOrId.contains("bilibili.com") ||
                 urlOrId.contains("b23.tv") ||
+                urlOrId.contains("biliintl.com") ||
+                urlOrId.startsWith("bili:", ignoreCase = true) ||
+                urlOrId.startsWith("bilibili:", ignoreCase = true) ||
                 urlOrId.startsWith("BV", ignoreCase = true) ||
                 urlOrId.startsWith("av", ignoreCase = true) ||
                 urlOrId.startsWith("ep", ignoreCase = true) ||

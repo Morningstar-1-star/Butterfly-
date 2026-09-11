@@ -196,13 +196,15 @@ object ThumbnailOptimizer {
                 builder.setHeader("Referer", "https://www.4tube.com/")
                 builder.setHeader("Cookie", "age_verified=1; platform=pc; country=US")
             }
-            lowerUrl.contains("spankbang.com") || lowerUrl.contains("spankbang") || lowerUrl.contains("spankcdn") -> {
+            lowerUrl.contains("spankbang.com") || lowerUrl.contains("spankbang") || lowerUrl.contains("sb-cd.com") || lowerUrl.contains("spankcdn") -> {
                 builder.setHeader("Referer", "https://spankbang.com/")
-                builder.setHeader("Cookie", "age_confirmed=1; country=US")
+                builder.setHeader("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1")
+                builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            lowerUrl.contains("motherless.com") || lowerUrl.contains("motherlessmedia") -> {
+            lowerUrl.contains("motherless.com") || lowerUrl.contains("motherlessmedia") || lowerUrl.contains("motherless") || lowerUrl.contains("cdn.motherless") -> {
                 builder.setHeader("Referer", "https://motherless.com/")
-                builder.setHeader("Cookie", "content_filter=0; member=1")
+                builder.setHeader("Cookie", "content_filter=0; member=1; age_verified=1; country=US; consent=1")
+                builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
             lowerUrl.contains("playvid.com") -> {
                 builder.setHeader("Referer", "https://www.playvid.com/")

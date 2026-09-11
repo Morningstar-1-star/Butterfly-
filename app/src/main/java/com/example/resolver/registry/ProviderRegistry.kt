@@ -432,6 +432,34 @@ object ProviderRegistry {
         )
         register(
             ProviderDescriptor(
+                id = "spankbang",
+                displayName = "SpankBang (4K/HD)",
+                category = ProviderCategory.ADULT,
+                baseDomain = "https://spankbang.com",
+                mirrors = listOf("https://spankbang.com", "https://spankbang.party", "https://spankbang.porn", "https://m.spankbang.com", "https://la.spankbang.com"),
+                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP, ProviderCapability.CAPABILITY_4K),
+                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
+                supportsDirect = true,
+                supportedQualities = listOf("4K", "1080p", "720p", "480p", "240p"),
+                priority = 83
+            )
+        )
+        register(
+            ProviderDescriptor(
+                id = "motherless",
+                displayName = "Motherless (Direct HD)",
+                category = ProviderCategory.ADULT,
+                baseDomain = "https://motherless.com",
+                mirrors = listOf("https://motherless.com", "https://motherless.com/videos/recent", "https://motherless.com/videos/popular"),
+                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP),
+                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
+                supportsDirect = true,
+                supportedQualities = listOf("1080p", "720p", "480p"),
+                priority = 82
+            )
+        )
+        register(
+            ProviderDescriptor(
                 id = "rule34video",
                 displayName = "Rule34Video (Animation)",
                 category = ProviderCategory.ADULT,
@@ -439,7 +467,7 @@ object ProviderRegistry {
                 capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP),
                 supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
                 supportsDirect = true,
-                priority = 83
+                priority = 81
             )
         )
     }

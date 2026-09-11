@@ -3,6 +3,9 @@ package com.example.ui.player.lens
 import android.graphics.Bitmap
 import android.graphics.RectF
 import android.net.Uri
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -15,9 +18,14 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -37,19 +45,21 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.ui.player.core.PlayerFrameCaptureHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
-import kotlin.math.min
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerLensOverlay(
     onDismiss: () -> Unit,
@@ -57,8 +67,10 @@ fun PlayerLensOverlay(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     var frameBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var croppedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isCapturing by remember { mutableStateOf(true) }
     var isOcrLoading by remember { mutableStateOf(false) }
     var recognizedBlocks by remember { mutableStateOf<List<RecognizedTextBlock>>(emptyList()) }
@@ -69,7 +81,13 @@ fun PlayerLensOverlay(
     var activeSelectionNormRect by remember { mutableStateOf<RectF?>(null) }
     var selectedText by remember { mutableStateOf<String?>(null) }
     var activeCroppedUri by remember { mutableStateOf<Uri?>(null) }
-    var showAllTextDialog by remember { mutableStateOf(false) }
+
+    // Sliding Results Sheet state
+    var showResultsSheet by remember { mutableStateOf(false) }
+    var activeEngine by remember { mutableStateOf(VisualSearchEngine.AI_OVERVIEW) }
+    var searchQueryInput by remember { mutableStateOf("") }
+    var aiAnalysis by remember { mutableStateOf<VisualSearchAnalysis?>(null) }
+    var isAnalyzingAi by remember { mutableStateOf(false) }
 
     // Pulse animation for detected text highlights
     val infiniteTransition = rememberInfiniteTransition(label = "lens_glow")
@@ -96,35 +114,42 @@ fun PlayerLensOverlay(
                 recognizedBlocks = blocks
                 isOcrLoading = false
 
-                // Default URI for full frame
                 val fullUri = PlayerFrameCaptureHelper.saveBitmapToTempUri(context, bmp, "lens_full_${System.currentTimeMillis()}.jpg")
                 activeCroppedUri = fullUri
             }
         }
     }
 
-    // Update active crop URI whenever selection changes
-    fun updateSelectionCrop(normRect: RectF?) {
+    // Function to update selection crop and trigger AI analysis & bottom sheet
+    fun triggerSelectionSearch(normRect: RectF?, customQuery: String? = null) {
         activeSelectionNormRect = normRect
         val bmp = frameBitmap ?: return
         coroutineScope.launch(Dispatchers.Default) {
-            val croppedBmp = if (normRect != null) {
+            val cropped = if (normRect != null) {
                 PlayerFrameCaptureHelper.cropNormalized(bmp, normRect)
             } else {
                 bmp
             }
-            val uri = PlayerFrameCaptureHelper.saveBitmapToTempUri(context, croppedBmp)
+            croppedBitmap = cropped
+            val uri = PlayerFrameCaptureHelper.saveBitmapToTempUri(context, cropped)
             activeCroppedUri = uri
 
             // Extract text in this region
-            if (normRect != null) {
-                val matchedText = recognizedBlocks.filter { block ->
+            val matchedText = if (normRect != null) {
+                recognizedBlocks.filter { block ->
                     RectF.intersects(block.normalizedBoundingBox, normRect)
                 }.joinToString(" ") { it.text }
-                selectedText = matchedText.ifBlank { null }
             } else {
-                selectedText = null
+                ""
             }
+            selectedText = matchedText.ifBlank { null }
+
+            // Generate AI Overview
+            isAnalyzingAi = true
+            val analysis = VisualLensEngine.generateAiOverview(context, matchedText, customQuery ?: searchQueryInput)
+            aiAnalysis = analysis
+            isAnalyzingAi = false
+            showResultsSheet = true
         }
     }
 
@@ -135,7 +160,6 @@ fun PlayerLensOverlay(
     ) {
         val capturedBmp = frameBitmap
         if (capturedBmp != null) {
-            // Render the captured frozen frame in background for seamless alignment
             Image(
                 bitmap = capturedBmp.asImageBitmap(),
                 contentDescription = "Frozen Video Frame",
@@ -153,7 +177,6 @@ fun PlayerLensOverlay(
                             val normX = (tapOffset.x / size.width).coerceIn(0f, 1f)
                             val normY = (tapOffset.y / size.height).coerceIn(0f, 1f)
 
-                            // Check if tapped on any recognized text block
                             val tappedBlock = recognizedBlocks.firstOrNull { block ->
                                 block.normalizedBoundingBox.contains(normX, normY)
                             }
@@ -161,38 +184,26 @@ fun PlayerLensOverlay(
                             if (tappedBlock != null) {
                                 VisualLensEngine.copyToClipboard(context, tappedBlock.text)
                                 selectedText = tappedBlock.text
-                                updateSelectionCrop(tappedBlock.normalizedBoundingBox)
+                                triggerSelectionSearch(tappedBlock.normalizedBoundingBox)
                             } else {
-                                // Tap on open space resets selection
                                 touchPoints = emptyList()
-                                updateSelectionCrop(null)
+                                activeSelectionNormRect = null
+                                selectedText = null
                             }
                         },
                         onLongPress = { pressOffset ->
                             val normX = (pressOffset.x / size.width).coerceIn(0f, 1f)
                             val normY = (pressOffset.y / size.height).coerceIn(0f, 1f)
 
-                            // Expand a search area around the long press
-                            val radiusNormX = 0.12f
-                            val radiusNormY = 0.08f
+                            val radiusNormX = 0.14f
+                            val radiusNormY = 0.10f
                             val longPressRect = RectF(
                                 (normX - radiusNormX).coerceAtLeast(0f),
                                 (normY - radiusNormY).coerceAtLeast(0f),
                                 (normX + radiusNormX).coerceAtMost(1f),
                                 (normY + radiusNormY).coerceAtMost(1f)
                             )
-                            updateSelectionCrop(longPressRect)
-
-                            // Also copy text in this area if available
-                            val matchedText = recognizedBlocks.filter { block ->
-                                RectF.intersects(block.normalizedBoundingBox, longPressRect)
-                            }.joinToString(" ") { it.text }
-                            if (matchedText.isNotBlank()) {
-                                VisualLensEngine.copyToClipboard(context, matchedText)
-                                selectedText = matchedText
-                            } else {
-                                Toast.makeText(context, "Area selected for Visual Search", Toast.LENGTH_SHORT).show()
-                            }
+                            triggerSelectionSearch(longPressRect)
                         }
                     )
                 }
@@ -202,7 +213,7 @@ fun PlayerLensOverlay(
                             isDrawingCircle = true
                             touchPoints = listOf(startOffset)
                         },
-                        onDrag = { change, dragAmount ->
+                        onDrag = { change, _ ->
                             change.consume()
                             touchPoints = touchPoints + change.position
                         },
@@ -221,7 +232,7 @@ fun PlayerLensOverlay(
                                         maxX / size.width,
                                         maxY / size.height
                                     )
-                                    updateSelectionCrop(normRect)
+                                    triggerSelectionSearch(normRect)
                                 }
                             }
                         },
@@ -234,7 +245,6 @@ fun PlayerLensOverlay(
             val canvasWidth = constraints.maxWidth.toFloat()
             val canvasHeight = constraints.maxHeight.toFloat()
 
-            // Draw glowing OCR text bounding boxes and Circle-to-Search lasso trail
             Canvas(modifier = Modifier.fillMaxSize()) {
                 // 1. Draw glowing text highlights
                 for (block in recognizedBlocks) {
@@ -246,7 +256,6 @@ fun PlayerLensOverlay(
                     val w = max(right - left, 1f)
                     val h = max(bottom - top, 1f)
 
-                    // Draw translucent highlight box
                     drawRoundRect(
                         color = Color(0xFF4285F4).copy(alpha = pulseAlpha * 0.45f),
                         topLeft = Offset(left, top),
@@ -295,7 +304,6 @@ fun PlayerLensOverlay(
                         }
                     }
 
-                    // Outer glow
                     drawPath(
                         path = path,
                         brush = Brush.horizontalGradient(
@@ -308,7 +316,6 @@ fun PlayerLensOverlay(
                         ),
                         alpha = 0.5f
                     )
-                    // Inner bright beam
                     drawPath(
                         path = path,
                         color = Color.White,
@@ -348,7 +355,7 @@ fun PlayerLensOverlay(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isOcrLoading) "Detecting text..." else "Circle object or tap text to copy",
+                        text = if (isOcrLoading) "Detecting text..." else "Circle image object to search",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -398,209 +405,481 @@ fun PlayerLensOverlay(
             }
         }
 
-        // Bottom Action Bar & Visual Search Engines Pill
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Selected text preview pill if text was selected
-            AnimatedVisibility(
-                visible = !selectedText.isNullOrBlank(),
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
+        // Bottom Quick Action Bar when sheet is collapsed
+        if (!showResultsSheet) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF1E1E1E).copy(alpha = 0.95f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4285F4).copy(alpha = 0.5f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp)
+                    shape = RoundedCornerShape(28.dp),
+                    color = Color(0xFF141414).copy(alpha = 0.95f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                    shadowElevation = 8.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Selected Text",
-                                color = Color(0xFF90CAF9),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = selectedText ?: "",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                selectedText?.let { VisualLensEngine.copyToClipboard(context, it) }
-                            },
-                            modifier = Modifier.size(36.dp)
+                        // AI Overview Trigger
+                        Button(
+                            onClick = { triggerSelectionSearch(activeSelectionNormRect) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF4285F4),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            modifier = Modifier.height(40.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy Text",
-                                tint = Color(0xFF4285F4),
-                                modifier = Modifier.size(20.dp)
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Circle to Search", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Direct Engine Launchers opening the in-app slider
+                        VisualSearchEngine.values().filter { it != VisualSearchEngine.AI_OVERVIEW }.forEach { engine ->
+                            FilledTonalButton(
+                                onClick = {
+                                    activeEngine = engine
+                                    triggerSelectionSearch(activeSelectionNormRect)
+                                },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = Color(0xFF2C2C2C),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.height(40.dp)
+                            ) {
+                                Text(engine.displayName, fontSize = 13.sp)
+                            }
                         }
                     }
                 }
             }
+        }
 
-            // Engine Launchers Row (Google Lens, Lenso.ai, Bing, Yandex, Share)
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0xFF141414).copy(alpha = 0.95f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Google Lens Action (Primary)
-                    Button(
-                        onClick = {
-                            val uri = activeCroppedUri
-                            if (uri != null) {
-                                VisualLensEngine.launchGoogleLens(context, uri)
-                            } else {
-                                Toast.makeText(context, "Capturing frame...", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF4285F4),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                        modifier = Modifier.height(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Google Lens",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    // Lenso.ai
-                    FilledTonalButton(
-                        onClick = {
-                            val uri = activeCroppedUri
-                            if (uri != null) {
-                                VisualLensEngine.launchVisualSearch(context, uri, VisualSearchEngine.LENSO_AI)
-                            }
-                        },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFF2C2C2C),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier.height(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.TravelExplore,
-                            contentDescription = null,
-                            tint = Color(0xFF64B5F6),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Lenso.ai", fontSize = 13.sp)
-                    }
-
-                    // Bing Visual
-                    FilledTonalButton(
-                        onClick = {
-                            val uri = activeCroppedUri
-                            if (uri != null) {
-                                VisualLensEngine.launchVisualSearch(context, uri, VisualSearchEngine.BING_VISUAL)
-                            }
-                        },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFF2C2C2C),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier.height(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ImageSearch,
-                            contentDescription = null,
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Bing", fontSize = 13.sp)
-                    }
-
-                    // Yandex Images
-                    FilledTonalButton(
-                        onClick = {
-                            val uri = activeCroppedUri
-                            if (uri != null) {
-                                VisualLensEngine.launchVisualSearch(context, uri, VisualSearchEngine.YANDEX_IMAGES)
-                            }
-                        },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFF2C2C2C),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier.height(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Public,
-                            contentDescription = null,
-                            tint = Color(0xFFFF5252),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Yandex", fontSize = 13.sp)
-                    }
-
-                    // Share Frame / Selection
-                    IconButton(
-                        onClick = {
-                            val uri = activeCroppedUri
-                            if (uri != null) {
-                                VisualLensEngine.shareImage(context, uri)
-                            }
-                        },
+        // IN-APP CIRCLE TO SEARCH SLIDING BOTTOM SHEET DRAWER (Samsung Style)
+        if (showResultsSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showResultsSheet = false },
+                containerColor = Color(0xFF161618),
+                contentColor = Color.White,
+                scrimColor = Color.Black.copy(alpha = 0.4f),
+                dragHandle = {
+                    Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .background(Color(0xFF2C2C2C), CircleShape)
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share Image",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                        Box(
+                            modifier = Modifier
+                                .width(36.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.35f))
                         )
+                    }
+                }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.85f)
+                ) {
+                    // 1. Samsung "Ask anything..." Search Header Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Cropped Object Thumbnail Badge
+                        croppedBitmap?.let { bmp ->
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(1.5.dp, Color(0xFF4285F4), RoundedCornerShape(12.dp))
+                                    .background(Color.Black)
+                            ) {
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = "Cropped Object",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        // Search Input TextField
+                        OutlinedTextField(
+                            value = searchQueryInput,
+                            onValueChange = { searchQueryInput = it },
+                            placeholder = {
+                                Text(
+                                    text = "Ask anything about this image...",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = {
+                                        keyboardController?.hide()
+                                        triggerSelectionSearch(activeSelectionNormRect, searchQueryInput)
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search Query",
+                                        tint = Color(0xFF4285F4)
+                                    )
+                                }
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                keyboardController?.hide()
+                                triggerSelectionSearch(activeSelectionNormRect, searchQueryInput)
+                            }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFF242428),
+                                unfocusedContainerColor = Color(0xFF242428),
+                                focusedBorderColor = Color(0xFF4285F4),
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                        )
+                    }
+
+                    // 2. Engine Selector Tabs Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        VisualSearchEngine.values().forEach { engine ->
+                            val isSelected = activeEngine == engine
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { activeEngine = engine },
+                                label = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (engine == VisualSearchEngine.AI_OVERVIEW) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color.White else Color(0xFF4285F4),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Text(engine.displayName, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF4285F4),
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color(0xFF28282C),
+                                    labelColor = Color.LightGray
+                                ),
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                        }
+                    }
+
+                    Divider(color = Color.White.copy(alpha = 0.1f))
+
+                    // 3. Tab Content View Area
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        if (isAnalyzingAi) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = Color(0xFF4285F4))
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text("Analyzing circled visual area...", color = Color.Gray, fontSize = 13.sp)
+                                }
+                            }
+                        } else if (activeEngine == VisualSearchEngine.AI_OVERVIEW) {
+                            // AI Overview Card View
+                            val analysis = aiAnalysis
+                            if (analysis != null) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    // AI Header Card
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = Color(0xFF222226),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4285F4).copy(alpha = 0.4f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.AutoAwesome,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF4285F4),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Text(
+                                                        text = "AI Overview",
+                                                        color = Color(0xFF4285F4),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = Color(0xFF1E293B)
+                                                ) {
+                                                    Text(
+                                                        text = analysis.category,
+                                                        color = Color(0xFF90CAF9),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            Text(
+                                                text = analysis.title,
+                                                color = Color.White,
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            Text(
+                                                text = analysis.overview,
+                                                color = Color.LightGray,
+                                                fontSize = 13.sp,
+                                                lineHeight = 18.sp
+                                            )
+
+                                            if (!analysis.extractedText.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color(0xFF18181A)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(10.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Text(
+                                                            text = "Detected Text: \"${analysis.extractedText}\"",
+                                                            color = Color(0xFFFFD54F),
+                                                            fontSize = 12.sp,
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                        IconButton(
+                                                            onClick = {
+                                                                VisualLensEngine.copyToClipboard(context, analysis.extractedText)
+                                                            },
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.ContentCopy,
+                                                                contentDescription = "Copy",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Related Visual Matches Cards
+                                    Text(
+                                        text = "Multi-Engine Visual Results",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    analysis.visualMatches.forEach { match ->
+                                        Surface(
+                                            onClick = {
+                                                when (match.badge) {
+                                                    "Google Lens" -> activeEngine = VisualSearchEngine.GOOGLE_LENS
+                                                    "Lenso.ai" -> activeEngine = VisualSearchEngine.LENSO_AI
+                                                    "Bing Visual" -> activeEngine = VisualSearchEngine.BING_VISUAL
+                                                    "Yandex" -> activeEngine = VisualSearchEngine.YANDEX_IMAGES
+                                                    else -> VisualLensEngine.openInBrowser(context, match.url)
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = Color(0xFF222226),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = Color(0xFF333338)
+                                                        ) {
+                                                            Text(
+                                                                text = match.badge,
+                                                                color = Color(0xFF81D4FA),
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                        Text(
+                                                            text = match.sourceDomain,
+                                                            color = Color.Gray,
+                                                            fontSize = 11.sp
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    Text(
+                                                        text = match.title,
+                                                        color = Color.White,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                    Text(
+                                                        text = match.subtitle,
+                                                        color = Color.LightGray,
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
+                                                Icon(
+                                                    imageVector = Icons.Default.ChevronRight,
+                                                    contentDescription = "View",
+                                                    tint = Color.Gray,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Interactive In-App WebView Result Slider (Google Lens, Lenso, Bing, Yandex)
+                            val targetUrl = remember(activeEngine, aiAnalysis?.query, activeCroppedUri) {
+                                VisualLensEngine.buildSearchUrl(activeEngine, aiAnalysis?.query ?: searchQueryInput, activeCroppedUri)
+                            }
+
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF1E1E22))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Browsing ${activeEngine.displayName} results...",
+                                        color = Color.Gray,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(
+                                        onClick = { VisualLensEngine.openInBrowser(context, targetUrl) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.OpenInNew,
+                                            contentDescription = null,
+                                            tint = Color(0xFF4285F4),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("External Browser", fontSize = 11.sp, color = Color(0xFF4285F4))
+                                    }
+                                }
+
+                                AndroidView(
+                                    factory = { ctx ->
+                                        WebView(ctx).apply {
+                                            settings.javaScriptEnabled = true
+                                            settings.domStorageEnabled = true
+                                            settings.loadWithOverviewMode = true
+                                            settings.useWideViewPort = true
+                                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                            webViewClient = object : WebViewClient() {
+                                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                                    return false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    update = { webView ->
+                                        webView.loadUrl(targetUrl)
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+

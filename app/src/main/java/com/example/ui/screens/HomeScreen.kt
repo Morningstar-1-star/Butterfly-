@@ -699,6 +699,8 @@ fun HomeScreen(
                     listOf("All", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
                 } else if (activeProviderId == "bigo") {
                     listOf("All", "Music & Singing", "Gaming", "Dance", "Talk & Chat", "DJ", "Cosplay", "Entertainment", "Fitness", "Travel", "ASMR", "Food")
+                } else if (activeProviderId == "hanime1") {
+                    listOf("All", "New Releases", "OVA", "Uncensored", "Isekai", "Fantasy", "School", "Comedy", "Cosplay", "3D", "Subbed")
                 } else {
                     buildSmartTags(activeContextTitle, searchQuery, recentSearches, adultContentEnabled)
                 }

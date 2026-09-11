@@ -7,8 +7,10 @@ import com.example.model.PlayableStreamOption
 import com.example.model.ProviderType
 import com.example.model.StreamData
 import com.example.model.VideoItem
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.ConnectionPool
@@ -78,40 +80,41 @@ object BilibiliProvider {
         get() = com.example.util.NetworkManager.scraperClient
 
     @Volatile
-    private var cachedCookie: String = ""
-
-    fun getBilibiliCookie(): String {
-        if (cachedCookie.isNotBlank()) return cachedCookie
-        try {
-            // Attempt to get genuine buvid3 and buvid4 from Bilibili's official SPI endpoint
-            val req = Request.Builder()
-                .url("https://api.bilibili.com/x/frontend/finger/spi")
-                .header("User-Agent", USER_AGENT)
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string()
-                    if (!body.isNullOrBlank()) {
-                        val obj = JSONObject(body)
-                        val data = obj.optJSONObject("data")
-                        val b3 = data?.optString("b_3", "") ?: ""
-                        val b4 = data?.optString("b_4", "") ?: ""
-                        if (b3.isNotBlank()) {
-                            val bNut = System.currentTimeMillis() / 1000
-                            cachedCookie = "buvid3=$b3; buvid4=$b4; b_nut=$bNut; CURRENT_FNVAL=4048"
-                            return cachedCookie
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        // Fallback to high-entropy client-generated buvid
+    private var cachedCookie: String = run {
         val uuid = java.util.UUID.randomUUID().toString()
         val buvid3 = "${uuid.take(8)}-${uuid.substring(9, 13)}-${uuid.substring(14, 18)}-${uuid.substring(19, 23)}-${uuid.takeLast(12)}infoc"
         val bNut = System.currentTimeMillis() / 1000
-        cachedCookie = "buvid3=$buvid3; buvid4=$buvid3; b_nut=$bNut; CURRENT_FNVAL=4048; _uuid=$uuid"
+        "buvid3=$buvid3; buvid4=$buvid3; b_nut=$bNut; CURRENT_FNVAL=4048; _uuid=$uuid"
+    }
+
+    fun getBilibiliCookie(): String {
         return cachedCookie
+    }
+
+    fun refreshBilibiliCookieAsync() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val req = Request.Builder()
+                    .url("https://api.bilibili.com/x/frontend/finger/spi")
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string()
+                        if (!body.isNullOrBlank()) {
+                            val obj = JSONObject(body)
+                            val data = obj.optJSONObject("data")
+                            val b3 = data?.optString("b_3", "") ?: ""
+                            val b4 = data?.optString("b_4", "") ?: ""
+                            if (b3.isNotBlank()) {
+                                val bNut = System.currentTimeMillis() / 1000
+                                cachedCookie = "buvid3=$b3; buvid4=$b4; b_nut=$bNut; CURRENT_FNVAL=4048"
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     /**
@@ -754,27 +757,21 @@ object BilibiliProvider {
     // MULTI-STREAM PLAYURL RETRIEVAL (DASH & PROGRESSIVE MP4)
     // =========================================================================
 
-    private fun cleanBilibiliStreamUrl(rawUrl: String, backupArr: JSONArray?): String {
+    fun cleanBilibiliStreamUrl(rawUrl: String, backupArr: JSONArray? = null): String {
         var cleanUrl = rawUrl.trim()
         if (cleanUrl.isBlank()) return ""
 
-        val isRawProblematic = cleanUrl.contains("mcdn") || cleanUrl.contains(":4483") ||
-                cleanUrl.contains("p2p") || cleanUrl.matches(Regex(".*https?://\\d+\\.\\d+\\.\\d+\\.\\d+.*"))
-
-        if (isRawProblematic && backupArr != null && backupArr.length() > 0) {
-            var candidateFound = false
+        // 1. Check if backupArr has a super fast Akamai, Ali, or Tencent overseas mirror
+        if (backupArr != null && backupArr.length() > 0) {
             for (b in 0 until backupArr.length()) {
                 val cand = backupArr.optString(b, "").trim()
-                if (cand.isNotBlank() && (cand.contains("mirrorali") || cand.contains("mirrorakam") || cand.contains("akamaized") || cand.contains("mirrorcos") || cand.contains("mirrorhw") || cand.contains("mirrorbos") || cand.contains("mirror08c") || cand.contains("bcache") || cand.contains("bilivideo.com"))) {
-                    cleanUrl = cand
-                    candidateFound = true
-                    break
-                }
-            }
-            if (!candidateFound) {
-                for (b in 0 until backupArr.length()) {
-                    val cand = backupArr.optString(b, "").trim()
-                    if (cand.isNotBlank() && !cand.contains("mcdn") && !cand.contains(":4483") && !cand.contains("p2p")) {
+                if (cand.isNotBlank()) {
+                    val lower = cand.lowercase()
+                    if (lower.contains("mirrorakam") || lower.contains("akamaized") ||
+                        lower.contains("mirrorali") || lower.contains("mirrorcosov") ||
+                        lower.contains("mirror08c") || lower.contains("mirrorcos") ||
+                        lower.contains("mirrorhw")
+                    ) {
                         cleanUrl = cand
                         break
                     }
@@ -782,12 +779,25 @@ object BilibiliProvider {
             }
         }
 
-        if (cleanUrl.startsWith("http://")) {
-            val lower = cleanUrl.lowercase()
-            val isCustomPort = lower.contains(":4483") || lower.contains(":8080") || lower.contains(":8000") || lower.contains(":8443")
-            val isMcdnOrIp = lower.contains("mcdn") || lower.contains("p2p") || lower.matches(Regex(".*http://\\d+\\.\\d+\\.\\d+\\.\\d+.*"))
-            if (!isCustomPort && !isMcdnOrIp && (lower.contains("bilivideo") || lower.contains("bilibili") || lower.contains("hdslb") || lower.contains("akamaized"))) {
-                cleanUrl = "https://" + cleanUrl.removePrefix("http://")
+        val lower = cleanUrl.lowercase()
+        val isProblematic = lower.contains("mcdn") || lower.contains(":4483") || lower.contains(":8080") ||
+                lower.contains(":8000") || lower.contains(":8443") || lower.contains("p2p") ||
+                lower.contains("szbdyd.com") || lower.contains("ws.acgvideo.com") ||
+                lower.matches(Regex(".*https?://\\d+\\.\\d+\\.\\d+\\.\\d+.*"))
+
+        // If it is a UPOS path and either problematic or needs global acceleration, route via Akamai / Ali UPOS mirror
+        if (isProblematic || lower.contains("upgcxcode") || lower.contains("/upos/")) {
+            val uposMatch = Regex("https?://[^/]+/(upgcxcode/.*|upos/.*)", RegexOption.IGNORE_CASE).find(cleanUrl)
+            if (uposMatch != null) {
+                val pathAndQuery = uposMatch.groupValues[1]
+                cleanUrl = "https://upos-hz-mirrorakam.akamaized.net/$pathAndQuery"
+            }
+        }
+
+        if (cleanUrl.startsWith("http://", ignoreCase = true)) {
+            val l = cleanUrl.lowercase()
+            if (!l.contains(":4483") && !l.contains(":8080")) {
+                cleanUrl = "https://" + cleanUrl.substring(7)
             }
         }
 

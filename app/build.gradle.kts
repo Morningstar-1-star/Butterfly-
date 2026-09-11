@@ -130,6 +130,7 @@ dependencies {
 
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)
+  implementation(libs.snakeyaml)
 
   implementation(libs.yt.dlp.android)
   implementation(libs.yt.dlp.android.compat)

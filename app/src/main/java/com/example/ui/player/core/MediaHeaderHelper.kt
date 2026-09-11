@@ -46,7 +46,13 @@ object MediaHeaderHelper {
                 builder.removeHeader("Cookie")
                 builder.removeHeader("cookie")
             }
-            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") || urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") || urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos") || urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") || urlStr.contains("mirror08c") || urlStr.contains("bstar") -> {
+            urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") ||
+                    urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
+                    urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos") ||
+                    urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") ||
+                    urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") ||
+                    urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
+                    urlStr.contains("biliintl") -> {
                 builder.header("Referer", "https://www.bilibili.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.header("Accept", "*/*")
@@ -55,12 +61,34 @@ object MediaHeaderHelper {
                 builder.header("Sec-Fetch-Site", "cross-site")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
+                val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
+                if (cookie.isNotBlank() && request.header("Cookie") == null) {
+                    builder.header("Cookie", cookie)
+                }
             }
             urlStr.contains("eporner.com") || urlStr.contains("eporner") || urlStr.contains("static-cluster") || urlStr.contains("eporner-cdn") -> {
                 builder.header("Referer", "https://www.eporner.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
+            }
+            urlStr.contains("hqporner.com") || urlStr.contains("hqporner.tv") || urlStr.contains("hqporner") || urlStr.contains("hqplayer") || urlStr.contains("cdn.hqporner") -> {
+                builder.header("Referer", "https://hqporner.com/")
+                builder.header("Origin", "https://hqporner.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; country=US; consent=1")
+            }
+            urlStr.contains("spankbang.com") || urlStr.contains("sb-cd.com") || urlStr.contains("spankcdn") || urlStr.contains("spankbang.party") || urlStr.contains("spankbang") -> {
+                builder.header("Referer", "https://spankbang.com/")
+                builder.header("Origin", "https://spankbang.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1")
+            }
+            urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("motherless") || urlStr.contains("cdn.motherless") -> {
+                builder.header("Referer", "https://motherless.com/")
+                builder.header("Origin", "https://motherless.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Cookie") == null) builder.header("Cookie", "content_filter=0; member=1; age_verified=1; country=US; consent=1")
             }
             urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event") -> {
                 builder.header("Referer", "https://www.dailymotion.com/")

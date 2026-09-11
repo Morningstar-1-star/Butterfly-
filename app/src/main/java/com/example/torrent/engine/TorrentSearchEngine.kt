@@ -67,9 +67,14 @@ class TorrentSearchEngine(
 
     fun registerProvider(provider: TorrentProvider) {
         synchronized(customProviders) {
-            if (customProviders.none { it.id.equals(provider.id, ignoreCase = true) }) {
-                customProviders.add(provider)
-            }
+            customProviders.removeAll { it.id.equals(provider.id, ignoreCase = true) }
+            customProviders.add(provider)
+        }
+    }
+
+    fun unregisterProvider(id: String) {
+        synchronized(customProviders) {
+            customProviders.removeAll { it.id.equals(id, ignoreCase = true) }
         }
     }
 

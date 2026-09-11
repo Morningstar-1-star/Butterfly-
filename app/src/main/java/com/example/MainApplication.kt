@@ -62,6 +62,11 @@ class MainApplication : Application() {
             } catch (e: Exception) {
                 Log.w("MainApplication", "PlaybackResumeManager warmup note: ${e.message}")
             }
+            try {
+                com.example.torrent.cardigann.manager.CardigannManager.getInstance(this@MainApplication).initialize()
+            } catch (e: Exception) {
+                Log.w("MainApplication", "CardigannManager init note: ${e.message}")
+            }
         }
 
         // Configure YouTube Proof-of-Origin Token Provider for NewPipe extractor

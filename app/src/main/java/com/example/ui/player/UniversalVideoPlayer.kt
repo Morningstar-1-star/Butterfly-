@@ -83,6 +83,8 @@ fun UniversalVideoPlayer(
     onBackClick: (() -> Unit)? = null,
     onNextClick: (() -> Unit)? = null,
     onPreviousClick: (() -> Unit)? = null,
+    nextEpisodeData: NextEpisodeData? = null,
+    onPlayNextEpisode: (() -> Unit)? = null,
     onSwipeDownDrag: ((dragDeltaY: Float) -> Unit)? = null,
     onSwipeDownEnd: ((accumulatedDy: Float) -> Unit)? = null,
     onOpenRelatedVideos: (() -> Unit)? = null,
@@ -966,38 +968,7 @@ fun UniversalVideoPlayer(
                         }
                     }
 
-                    // Paused Quick Lens Button
-                    if (!isCurrentlyPlayingCenter) {
-                        Surface(
-                            onClick = {
-                                GlobalPlayerManager.pause()
-                                showLensOverlay = true
-                            },
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.75f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = null,
-                                    tint = Color(0xFF4285F4),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Circle to Search / Copy Text",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
+
                 }
             }
 
@@ -2400,6 +2371,31 @@ fun UniversalVideoPlayer(
                     }
                 }
             }
+        }
+
+        // Netflix-style Next Episode Autoplay Capsule with Fluid Progress Bar (Only for series/episodes)
+        if (nextEpisodeData != null) {
+            val curPosMsForNextEp by GlobalPlayerManager.currentPositionMs.collectAsState()
+            val totalDurMsForNextEp by GlobalPlayerManager.durationMs.collectAsState()
+            val isPlayingForNextEp by GlobalPlayerManager.isPlaying.collectAsState()
+
+            NextEpisodeOverlay(
+                nextEpisode = nextEpisodeData,
+                currentPositionMs = curPosMsForNextEp,
+                durationMs = totalDurMsForNextEp,
+                isPlaying = isPlayingForNextEp,
+                isLandscape = isLandscape,
+                onPlayNext = {
+                    onPlayNextEpisode?.invoke() ?: onNextClick?.invoke()
+                },
+                onDismiss = { /* user dismissed countdown */ },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = if (isLandscape) 24.dp else 12.dp,
+                        bottom = if (areControlsVisible) 76.dp else if (isLandscape) 24.dp else 16.dp
+                    )
+            )
         }
 
         // Smart Skip Notification Toast (e.g. 'Skipped: Sponsor / Intro / Recap')

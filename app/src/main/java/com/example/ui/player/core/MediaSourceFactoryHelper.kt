@@ -91,7 +91,8 @@ object MediaSourceFactoryHelper {
                 lowerTarget.contains("mcdn") || lowerTarget.contains("acgvideo") || lowerTarget.contains("upgcxcode") ||
                 lowerTarget.contains("upos") || lowerTarget.contains("akamaized") || lowerTarget.contains("bcache") ||
                 lowerTarget.contains("mirrorali") || lowerTarget.contains("mirrorcos") || lowerTarget.contains("mirrorhw") ||
-                lowerTarget.contains("mirrorbos") || lowerTarget.contains("mirror08c") || lowerTarget.contains("bstar") ||
+                lowerTarget.contains("mirrorbos") || lowerTarget.contains("mirror08c") || lowerTarget.contains("mirrorakam") ||
+                lowerTarget.contains("bstar") || lowerTarget.contains("biliintl") ||
                 streamData?.providerId == "bilibili"
 
         val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkvideo") ||
@@ -118,6 +119,10 @@ object MediaSourceFactoryHelper {
             reqHeaders["Sec-Fetch-Mode"] = "no-cors"
             reqHeaders["Sec-Fetch-Site"] = "cross-site"
             reqHeaders.remove("Origin")
+            val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
+            if (cookie.isNotBlank() && !reqHeaders.containsKey("Cookie")) {
+                reqHeaders["Cookie"] = cookie
+            }
         } else {
             val hasReferer = reqHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
             if (!hasReferer) {
@@ -137,6 +142,21 @@ object MediaSourceFactoryHelper {
                     lowerTarget.contains("eporner") || streamData?.providerId == "eporner" -> {
                         reqHeaders["Referer"] = "https://www.eporner.com/"
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://www.eporner.com"
+                    }
+                    lowerTarget.contains("hqporner") || lowerTarget.contains("hqplayer") || streamData?.providerId == "hqporner" || streamData?.providerId == "hqplayer" -> {
+                        reqHeaders["Referer"] = "https://hqporner.com/"
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://hqporner.com"
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_verified=1; country=US; consent=1"
+                    }
+                    lowerTarget.contains("spankbang") || lowerTarget.contains("sb-cd.com") || lowerTarget.contains("spankcdn") || streamData?.providerId == "spankbang" -> {
+                        reqHeaders["Referer"] = "https://spankbang.com/"
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://spankbang.com"
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1"
+                    }
+                    lowerTarget.contains("motherless") || lowerTarget.contains("motherlessmedia") || streamData?.providerId == "motherless" -> {
+                        reqHeaders["Referer"] = "https://motherless.com/"
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://motherless.com"
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "content_filter=0; member=1; age_verified=1; country=US; consent=1"
                     }
                     lowerTarget.contains("vimeo.com") || (streamData?.providerId == "vimeo" && !isBilibiliStream) -> {
                         reqHeaders["Referer"] = "https://vimeo.com/"

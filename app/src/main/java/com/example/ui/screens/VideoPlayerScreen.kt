@@ -53,6 +53,7 @@ import com.example.ui.ambient.rememberAmbientPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.model.EpisodeItem
+import com.example.ui.player.NextEpisodeData
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -281,11 +282,125 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(playbackEnded) {
-        if (playbackEnded) {
+    // High-precision resolution for NEXT EPISODE (Strictly for series / multi-episode content)
+    val nextEpisodeData = remember(tvSeasons, currentStreamData, selectedOption, activeVideoId, activeVideoItem, playbackQueue) {
+        // 1. Check TV Seasons & Episodes (TMDB / Archive / Crunchyroll / SonyLIV / Hotstar / Bilibili / Torrent)
+        if (tvSeasons.isNotEmpty()) {
+            val allEpisodes = tvSeasons.flatMap { it.episodes }
+            val curOptionUrl = selectedOption?.videoUrl ?: currentStreamData?.selectedStreamOption?.videoUrl ?: ""
+            val curTitle = currentStreamData?.title ?: activeVideoItem?.title ?: ""
+
+            var currentIdx = allEpisodes.indexOfFirst { ep ->
+                (activeVideoId != null && ep.id == activeVideoId) ||
+                (curOptionUrl.isNotBlank() && ep.id == curOptionUrl)
+            }
+
+            if (currentIdx == -1 && curTitle.isNotBlank()) {
+                val epRegex = Regex("(?i)(?:s(\\d{1,2})[._\\s-]*e(\\d{1,3}))|(?:(\\d{1,2})[xX](\\d{1,3}))|(?:episode[._\\s-]*(\\d{1,3}))|(?:ep[._\\s-]*(\\d{1,3}))")
+                val match = epRegex.find(curTitle)
+                if (match != null) {
+                    val sNum = match.groupValues[1].toIntOrNull() ?: match.groupValues[3].toIntOrNull() ?: selectedSeasonNumber
+                    val eNum = match.groupValues[2].toIntOrNull() ?: match.groupValues[4].toIntOrNull() ?: match.groupValues[5].toIntOrNull() ?: match.groupValues[6].toIntOrNull()
+                    if (eNum != null) {
+                        currentIdx = allEpisodes.indexOfFirst { it.seasonNumber == sNum && it.episodeNumber == eNum }
+                    }
+                }
+            }
+
+            if (currentIdx != -1 && currentIdx < allEpisodes.size - 1) {
+                val nextEp = allEpisodes[currentIdx + 1]
+                return@remember NextEpisodeData(
+                    episodeId = nextEp.id,
+                    title = nextEp.title.ifBlank { "Episode ${nextEp.episodeNumber}" },
+                    subtitle = "Season ${nextEp.seasonNumber} • Episode ${nextEp.episodeNumber}",
+                    thumbnailUrl = nextEp.thumbnailUrl ?: currentStreamData?.thumbnailUrl ?: activeVideoItem?.thumbnailUrl,
+                    durationText = nextEp.durationText,
+                    seasonNumber = nextEp.seasonNumber,
+                    episodeNumber = nextEp.episodeNumber,
+                    providerId = nextEp.providerId ?: providerId ?: currentStreamData?.providerId
+                )
+            }
+        }
+
+        // 2. Multi-episode stream options (Archive.org multi-part, Vega releases, etc.)
+        val streamOptions = currentStreamData?.availableStreamOptions ?: emptyList()
+        if (streamOptions.size > 1) {
+            val isEpisodeOptions = streamOptions.any { opt ->
+                val lbl = opt.qualityLabel.lowercase()
+                lbl.contains("ep") || lbl.contains("s0") || lbl.contains("episode") || lbl.contains("x")
+            }
+            if (isEpisodeOptions) {
+                val currentOptUrl = selectedOption?.videoUrl ?: currentStreamData?.selectedStreamOption?.videoUrl ?: ""
+                val currentOptIdx = streamOptions.indexOfFirst { it.videoUrl == currentOptUrl }
+                if (currentOptIdx != -1 && currentOptIdx < streamOptions.size - 1) {
+                    val nextOpt = streamOptions[currentOptIdx + 1]
+                    val nextOptId = nextOpt.videoUrl ?: nextOpt.videoStream?.url ?: ""
+                    if (nextOptId.isNotBlank()) {
+                        return@remember NextEpisodeData(
+                            episodeId = nextOptId,
+                            title = nextOpt.qualityLabel,
+                            subtitle = currentStreamData?.title,
+                            thumbnailUrl = currentStreamData?.thumbnailUrl ?: activeVideoItem?.thumbnailUrl,
+                            providerId = providerId ?: currentStreamData?.providerId
+                        )
+                    }
+                }
+            }
+        }
+
+        // 3. Playback Queue if next queued item is an episode of the current show
+        if (playbackQueue.isNotEmpty()) {
+            val nextItem = playbackQueue.first()
+            val isSeriesQueue = nextItem.uploaderName == activeVideoItem?.uploaderName ||
+                    nextItem.title.contains("episode", true) ||
+                    nextItem.title.contains("ep", true) ||
+                    (activeVideoItem?.title?.contains("episode", true) == true)
+            if (isSeriesQueue) {
+                return@remember NextEpisodeData(
+                    episodeId = nextItem.id,
+                    title = nextItem.title,
+                    subtitle = nextItem.uploaderName,
+                    thumbnailUrl = nextItem.thumbnailUrl,
+                    providerId = nextItem.providerId
+                )
+            }
+        }
+
+        null
+    }
+
+    val playNextEpisodeAction: () -> Unit = {
+        if (nextEpisodeData != null) {
+            val matchedEp = tvSeasons.flatMap { it.episodes }.firstOrNull { it.id == nextEpisodeData.episodeId }
+            if (matchedEp != null) {
+                viewModel.playEpisode(matchedEp, currentStreamData)
+            } else {
+                val matchingStreamOpt = currentStreamData?.availableStreamOptions?.firstOrNull { it.videoUrl == nextEpisodeData.episodeId }
+                if (matchingStreamOpt != null) {
+                    viewModel.selectStreamOption(matchingStreamOpt)
+                } else if (playbackQueue.isNotEmpty() && playbackQueue.first().id == nextEpisodeData.episodeId) {
+                    viewModel.playNextInQueue()
+                } else {
+                    viewModel.playVideo(nextEpisodeData.episodeId, nextEpisodeData.providerId ?: providerId ?: "torrent")
+                }
+            }
+        } else {
             val currentQueue = viewModel.playbackQueue.value
             if (currentQueue.isNotEmpty()) {
                 viewModel.playNextInQueue()
+            }
+        }
+    }
+
+    LaunchedEffect(playbackEnded) {
+        if (playbackEnded) {
+            if (nextEpisodeData != null) {
+                playNextEpisodeAction()
+            } else {
+                val currentQueue = viewModel.playbackQueue.value
+                if (currentQueue.isNotEmpty()) {
+                    viewModel.playNextInQueue()
+                }
             }
         }
     }
@@ -320,16 +435,22 @@ fun VideoPlayerScreen(
                     activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
                 },
                 onBackClick = onBackClick,
+                nextEpisodeData = nextEpisodeData,
+                onPlayNextEpisode = playNextEpisodeAction,
                 onNextClick = {
-                    val currentQueue = viewModel.playbackQueue.value
-                    if (currentQueue.isNotEmpty()) {
-                        viewModel.playNextInQueue()
-                    } else if (landscapeVideos.isNotEmpty()) {
-                        val nextVid = landscapeVideos.first()
-                        viewModel.playVideo(nextVid.id, nextVid.providerId)
+                    if (nextEpisodeData != null) {
+                        playNextEpisodeAction()
                     } else {
-                        val curMs = GlobalPlayerManager.currentPositionMs.value
-                        GlobalPlayerManager.seekTo(curMs + 10000L)
+                        val currentQueue = viewModel.playbackQueue.value
+                        if (currentQueue.isNotEmpty()) {
+                            viewModel.playNextInQueue()
+                        } else if (landscapeVideos.isNotEmpty()) {
+                            val nextVid = landscapeVideos.first()
+                            viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+                        } else {
+                            val curMs = GlobalPlayerManager.currentPositionMs.value
+                            GlobalPlayerManager.seekTo(curMs + 10000L)
+                        }
                     }
                 },
                 onPreviousClick = {
@@ -441,16 +562,22 @@ fun VideoPlayerScreen(
                                 }
                             },
                             onBackClick = minimizePlayerAction,
+                            nextEpisodeData = nextEpisodeData,
+                            onPlayNextEpisode = playNextEpisodeAction,
                             onNextClick = {
-                                val currentQueue = viewModel.playbackQueue.value
-                                if (currentQueue.isNotEmpty()) {
-                                    viewModel.playNextInQueue()
-                                } else if (landscapeVideos.isNotEmpty()) {
-                                    val nextVid = landscapeVideos.first()
-                                    viewModel.playVideo(nextVid.id, nextVid.providerId)
+                                if (nextEpisodeData != null) {
+                                    playNextEpisodeAction()
                                 } else {
-                                    val curMs = GlobalPlayerManager.currentPositionMs.value
-                                    GlobalPlayerManager.seekTo(curMs + 10000L)
+                                    val currentQueue = viewModel.playbackQueue.value
+                                    if (currentQueue.isNotEmpty()) {
+                                        viewModel.playNextInQueue()
+                                    } else if (landscapeVideos.isNotEmpty()) {
+                                        val nextVid = landscapeVideos.first()
+                                        viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+                                    } else {
+                                        val curMs = GlobalPlayerManager.currentPositionMs.value
+                                        GlobalPlayerManager.seekTo(curMs + 10000L)
+                                    }
                                 }
                             },
                             onPreviousClick = {

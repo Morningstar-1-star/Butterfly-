@@ -113,7 +113,15 @@ object YtDlpResolver {
             u.startsWith("ytsearch") ||
             u.startsWith(":ytrec") ||
             u.startsWith("youtubeytbe:") ||
-            u.startsWith("youtubelivestreamembed:")
+            u.startsWith("youtubelivestreamembed:") ||
+            u.startsWith("bilisearch") ||
+            u.startsWith("bili:") ||
+            u.startsWith("bilibili:") ||
+            u.startsWith("BV", ignoreCase = true) ||
+            u.startsWith("av", ignoreCase = true) ||
+            u.startsWith("ep", ignoreCase = true) ||
+            u.startsWith("ss", ignoreCase = true) ||
+            u.startsWith("md", ignoreCase = true)
         ) {
             return true
         }
@@ -121,7 +129,7 @@ object YtDlpResolver {
             "youtube.com", "youtu.be",
             "vimeo.com",
             "dailymotion.com", "dai.ly",
-            "bilibili.com",
+            "bilibili.com", "b23.tv", "biliintl.com",
             "pornhub.com", "phncdn.com",
             "xvideos.com",
             "4tube.com",
@@ -356,9 +364,16 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://archive.org/")
                     domainHeaders["Referer"] = "https://archive.org/"
                 }
-                lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") -> {
+                lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") ||
+                        lowerUrl.contains("biliintl") || lowerUrl.startsWith("BV", ignoreCase = true) ||
+                        lowerUrl.startsWith("av", ignoreCase = true) || lowerUrl.startsWith("ep", ignoreCase = true) ||
+                        lowerUrl.startsWith("ss", ignoreCase = true) || lowerUrl.startsWith("md", ignoreCase = true) -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
                     request.addOption("--add-header", "User-Agent: $DEFAULT_USER_AGENT")
+                    val biliCookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
+                    if (biliCookie.isNotBlank()) {
+                        request.addOption("--add-header", "Cookie: $biliCookie")
+                    }
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
@@ -617,16 +632,25 @@ object YtDlpResolver {
                             }
                         }
                     }
-                    if (lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch")) {
+                    var finalStreamUrl = streamUrl
+                    val isBili = lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") ||
+                            lowerUrl.contains("biliintl") || streamUrl.contains("bilivideo") || streamUrl.contains("bilibili") ||
+                            streamUrl.contains("upgcxcode") || streamUrl.contains("szbdyd") || streamUrl.contains("mcdn")
+                    if (isBili) {
                         fmtHeaders.remove("Origin")
                         fmtHeaders.remove("origin")
                         fmtHeaders["Referer"] = "https://www.bilibili.com/"
+                        val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
+                        if (cookie.isNotBlank() && !fmtHeaders.containsKey("Cookie")) {
+                            fmtHeaders["Cookie"] = cookie
+                        }
+                        finalStreamUrl = com.example.extractor.BilibiliProvider.cleanBilibiliStreamUrl(streamUrl, null)
                     }
 
                     parsedFormats.add(
                         ParsedFormat(
                             formatId = formatId,
-                            url = streamUrl,
+                            url = finalStreamUrl,
                             ext = ext,
                             resolution = res,
                             width = width,

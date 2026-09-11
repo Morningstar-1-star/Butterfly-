@@ -620,24 +620,33 @@ object TMDBHelper {
         val isTorrentOrVega = providerId == "torrent" || providerId == "vega" || providerId.startsWith("vega_")
         val isArchiveMulti = (providerId == "archive" || providerId == "archive_org" || providerId == "archive.org") && streamData.availableStreamOptions.size > 1
 
-        if (!isTorrentOrVega && !isArchiveMulti) {
-            return@withContext emptyList()
-        }
+        val titleLower = rawTitle.lowercase()
+        val isTvSeriesTitle = titleLower.contains("season") || titleLower.contains("s0") ||
+                titleLower.contains("s1") || titleLower.contains("s2") ||
+                titleLower.contains("episode") || titleLower.contains("ep0") || titleLower.contains("ep ") ||
+                titleLower.contains("ep.") || titleLower.contains(" complete ") ||
+                videoId.contains("tv_") || videoId.contains("_s") || videoId.contains("_e")
 
-        if (isArchiveMulti) {
-            val archiveSeasons = parseSeasonsFromStreamOptions(streamData)
-            return@withContext archiveSeasons
-        }
+        val isSeriesProvider = providerId == "crunchyroll" || providerId == "sonyliv" ||
+                providerId == "hotstar" || providerId == "bilibili" || providerId == "zee5" ||
+                providerId == "voot" || providerId == "mxplayer" || providerId == "amazonminitv" ||
+                providerId == "anime" || providerId == "hianime"
 
-        if (isTorrentOrVega) {
-            val titleLower = rawTitle.lowercase()
-            val isTvSeries = titleLower.contains("season") || titleLower.contains("s0") ||
-                    titleLower.contains("s1") || titleLower.contains("s2") ||
-                    titleLower.contains("episode") || titleLower.contains("ep0") ||
-                    titleLower.contains(" complete ") || videoId.contains("tv_")
-            if (!isTvSeries) {
-                return@withContext emptyList()
+        val hasMultiOptions = streamData.availableStreamOptions.size > 1 &&
+                streamData.availableStreamOptions.any {
+                    val lbl = it.qualityLabel.lowercase()
+                    lbl.contains("ep") || lbl.contains("s0") || lbl.contains("episode") || lbl.contains("x")
+                }
+
+        if (isArchiveMulti || hasMultiOptions) {
+            val directSeasons = parseSeasonsFromStreamOptions(streamData)
+            if (directSeasons.isNotEmpty() && directSeasons.sumOf { it.episodes.size } > 1) {
+                return@withContext directSeasons
             }
+        }
+
+        if (!isTorrentOrVega && !isSeriesProvider && !isTvSeriesTitle && !hasMultiOptions) {
+            return@withContext emptyList()
         }
 
         val cacheKey = "${cleanTitle.lowercase()}_$videoId"

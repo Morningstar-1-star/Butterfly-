@@ -4153,7 +4153,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("youporn.com", ignoreCase = true) -> "youporn"
                 cleanIdOrUrl.contains("4tube.com", ignoreCase = true) -> "4tube"
                 cleanIdOrUrl.contains("beeg.com", ignoreCase = true) -> "beeg"
-                cleanIdOrUrl.contains("bilibili.com", ignoreCase = true) -> "bilibili"
+                cleanIdOrUrl.contains("bilibili", ignoreCase = true) || cleanIdOrUrl.contains("b23.tv", ignoreCase = true) || cleanIdOrUrl.contains("biliintl", ignoreCase = true) || cleanIdOrUrl.startsWith("bili:", ignoreCase = true) || cleanIdOrUrl.startsWith("bilibili:", ignoreCase = true) || cleanIdOrUrl.startsWith("bilisearch", ignoreCase = true) || cleanIdOrUrl.startsWith("BV", ignoreCase = true) || cleanIdOrUrl.startsWith("av", ignoreCase = true) || cleanIdOrUrl.startsWith("ep", ignoreCase = true) || cleanIdOrUrl.startsWith("ss", ignoreCase = true) || cleanIdOrUrl.startsWith("md", ignoreCase = true) -> "bilibili"
                 cleanIdOrUrl.contains("vimeo.com", ignoreCase = true) -> "vimeo"
                 cleanIdOrUrl.contains("hotstar.com", ignoreCase = true) || cleanIdOrUrl.contains("jiohotstar.com", ignoreCase = true) -> "hotstar"
                 cleanIdOrUrl.contains("amazon.in/minitv", ignoreCase = true) || cleanIdOrUrl.contains("amazonminitv", ignoreCase = true) || cleanIdOrUrl.startsWith("minitv:", ignoreCase = true) -> "amazonminitv"
