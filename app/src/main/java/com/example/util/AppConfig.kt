@@ -33,6 +33,8 @@ object AppConfig {
     private const val KEY_MEDIAFLOW_SERVER_URL = "mediaflow_server_url"
     private const val KEY_MEDIAFLOW_API_PASSWORD = "mediaflow_api_password"
     private const val KEY_MEDIAFLOW_LIGHT_MODE = "mediaflow_light_mode"
+    private const val KEY_MEDIAFLOW_FALLBACK_TO_DIRECT = "mediaflow_fallback_to_direct"
+    private const val KEY_MEDIAFLOW_PROXY_ALL_STREAMS = "mediaflow_proxy_all_streams"
     private const val KEY_JAVAPI_ENABLED = "javapi_enabled"
     private const val KEY_JAVAPI_SERVER_URL = "javapi_server_url"
     private const val KEY_YARR_ENABLED = "yarr_enabled"
@@ -55,6 +57,8 @@ object AppConfig {
     const val DEFAULT_MEDIAFLOW_ENABLED = false
     const val DEFAULT_MEDIAFLOW_SERVER_URL = "http://localhost:8888"
     const val DEFAULT_MEDIAFLOW_LIGHT_MODE = true
+    const val DEFAULT_MEDIAFLOW_FALLBACK_TO_DIRECT = true
+    const val DEFAULT_MEDIAFLOW_PROXY_ALL_STREAMS = false
     const val DEFAULT_JAVAPI_ENABLED = true
     const val DEFAULT_JAVAPI_SERVER_URL = "https://javapi.vercel.app"
     const val DEFAULT_YARR_ENABLED = true
@@ -73,6 +77,12 @@ object AppConfig {
 
     @Volatile
     private var cachedMediaFlowLightMode: Boolean = DEFAULT_MEDIAFLOW_LIGHT_MODE
+
+    @Volatile
+    private var cachedMediaFlowFallbackToDirect: Boolean = DEFAULT_MEDIAFLOW_FALLBACK_TO_DIRECT
+
+    @Volatile
+    private var cachedMediaFlowProxyAllStreams: Boolean = DEFAULT_MEDIAFLOW_PROXY_ALL_STREAMS
 
     @Volatile
     private var cachedJavapiEnabled: Boolean = DEFAULT_JAVAPI_ENABLED
@@ -186,6 +196,8 @@ object AppConfig {
         cachedMediaFlowServerUrl = prefs.getString(KEY_MEDIAFLOW_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_MEDIAFLOW_SERVER_URL
         cachedMediaFlowApiPassword = prefs.getString(KEY_MEDIAFLOW_API_PASSWORD, null)?.ifBlank { null } ?: ""
         cachedMediaFlowLightMode = prefs.getBoolean(KEY_MEDIAFLOW_LIGHT_MODE, DEFAULT_MEDIAFLOW_LIGHT_MODE)
+        cachedMediaFlowFallbackToDirect = prefs.getBoolean(KEY_MEDIAFLOW_FALLBACK_TO_DIRECT, DEFAULT_MEDIAFLOW_FALLBACK_TO_DIRECT)
+        cachedMediaFlowProxyAllStreams = prefs.getBoolean(KEY_MEDIAFLOW_PROXY_ALL_STREAMS, DEFAULT_MEDIAFLOW_PROXY_ALL_STREAMS)
         cachedJavapiEnabled = prefs.getBoolean(KEY_JAVAPI_ENABLED, DEFAULT_JAVAPI_ENABLED)
         cachedJavapiServerUrl = prefs.getString(KEY_JAVAPI_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_JAVAPI_SERVER_URL
         cachedYarrEnabled = prefs.getBoolean(KEY_YARR_ENABLED, DEFAULT_YARR_ENABLED)
@@ -228,6 +240,24 @@ object AppConfig {
         cachedMediaFlowLightMode = light
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_MEDIAFLOW_LIGHT_MODE, light)
+            .apply()
+    }
+
+    fun isMediaFlowFallbackToDirect(): Boolean = cachedMediaFlowFallbackToDirect
+
+    fun setMediaFlowFallbackToDirect(context: Context, fallback: Boolean) {
+        cachedMediaFlowFallbackToDirect = fallback
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MEDIAFLOW_FALLBACK_TO_DIRECT, fallback)
+            .apply()
+    }
+
+    fun isMediaFlowProxyAllStreams(): Boolean = cachedMediaFlowProxyAllStreams
+
+    fun setMediaFlowProxyAllStreams(context: Context, proxyAll: Boolean) {
+        cachedMediaFlowProxyAllStreams = proxyAll
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MEDIAFLOW_PROXY_ALL_STREAMS, proxyAll)
             .apply()
     }
 

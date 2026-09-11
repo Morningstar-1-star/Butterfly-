@@ -440,19 +440,19 @@ fun LiquidGlassMiniPlayer(
                         .align(Alignment.TopCenter)
                 )
 
-                // 3. LEFT & RIGHT PROMINENT YOUTUBE BUTTONS WITH AUTO-FADING DARK PILL BACKGROUND
+                // 3. PROMINENT UPPER YOUTUBE BUTTONS (POSITIONED UP ON MINI PLAYER)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .align(Alignment.Center)
-                        .padding(horizontal = 8.dp),
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp, start = 8.dp, end = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // LEFT: PROMINENT PLAY / PAUSE BUTTON (YouTube size ~44dp circle, 26dp icon)
+                    // LEFT: PROMINENT PLAY / PAUSE BUTTON (YouTube size ~40dp circle, 24dp icon)
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.58f * buttonBgAlpha.value))
                             .clickable(
@@ -469,7 +469,7 @@ fun LiquidGlassMiniPlayer(
                             contentDescription = if (isPlaying) "Pause video" else "Play video",
                             tint = Color.White,
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(24.dp)
                                 .shadow(
                                     elevation = if (buttonBgAlpha.value < 0.2f) 4.dp else 0.dp,
                                     shape = CircleShape,
@@ -478,10 +478,10 @@ fun LiquidGlassMiniPlayer(
                         )
                     }
 
-                    // RIGHT: PROMINENT CLOSE ('X') BUTTON (YouTube size ~44dp circle, 26dp icon)
+                    // RIGHT: PROMINENT CLOSE ('X') BUTTON (YouTube size ~40dp circle, 22dp icon)
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.58f * buttonBgAlpha.value))
                             .clickable(
@@ -497,7 +497,7 @@ fun LiquidGlassMiniPlayer(
                             contentDescription = "Close mini player",
                             tint = Color.White,
                             modifier = Modifier
-                                .size(26.dp)
+                                .size(22.dp)
                                 .shadow(
                                     elevation = if (buttonBgAlpha.value < 0.2f) 4.dp else 0.dp,
                                     shape = CircleShape,

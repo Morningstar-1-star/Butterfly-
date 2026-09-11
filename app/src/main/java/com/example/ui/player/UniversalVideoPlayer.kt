@@ -2661,7 +2661,16 @@ fun UniversalVideoPlayer(
         // Google Lens, Circle-to-Search & On-Device OCR Text Recognition Layer
         if (showLensOverlay) {
             com.example.ui.player.lens.PlayerLensOverlay(
-                onDismiss = { showLensOverlay = false }
+                onDismiss = { showLensOverlay = false },
+                videoTitle = activeStreamData?.title ?: streamData?.title,
+                videoArtist = activeStreamData?.channelName ?: streamData?.channelName,
+                onPlayToggle = { play ->
+                    if (play) {
+                        exoPlayer?.play()
+                    } else {
+                        exoPlayer?.pause()
+                    }
+                }
             )
         }
     }

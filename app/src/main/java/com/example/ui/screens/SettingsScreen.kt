@@ -1579,6 +1579,11 @@ fun SettingsScreen(
                         var mediaFlowServerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getMediaFlowServerUrl()) }
                         var mediaFlowPasswordInput by remember { mutableStateOf(com.example.util.AppConfig.getMediaFlowApiPassword()) }
                         var mediaFlowLightMode by remember { mutableStateOf(com.example.util.AppConfig.isMediaFlowLightMode()) }
+                        var mediaFlowFallbackToDirect by remember { mutableStateOf(com.example.util.AppConfig.isMediaFlowFallbackToDirect()) }
+                        var mediaFlowProxyAllStreams by remember { mutableStateOf(com.example.util.AppConfig.isMediaFlowProxyAllStreams()) }
+                        var mediaFlowPasswordVisible by remember { mutableStateOf(false) }
+                        var isTestingMediaFlow by remember { mutableStateOf(false) }
+                        var mediaFlowHealthStatus by remember { mutableStateOf<com.example.remote.MediaFlowProxyHelper.HealthStatus?>(null) }
 
                         // JAVapi & Stream Indexers states
                         var javapiEnabled by remember { mutableStateOf(com.example.util.AppConfig.isJavapiEnabled()) }
@@ -2206,13 +2211,13 @@ fun SettingsScreen(
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
-                                                    text = "MEDIAFLOW PROXY (STREAM MIDDLEWARE)",
+                                                    text = "MEDIAFLOW-PROXY-LIGHT STREAM MIDDLEWARE",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.primary
                                                 )
                                                 Text(
-                                                    text = "Proxies extracted HLS/DASH/Direct video streams through MediaFlow Proxy (or Light mode) with dynamic headers, user agents, and CORS bypass.",
+                                                    text = "Proxies extracted HLS (.m3u8), DASH (.mpd), and direct video streams through MediaFlow Proxy (or Light mode) with dynamic Referer/Cookie header rewriting and CORS bypass.",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -2232,7 +2237,7 @@ fun SettingsScreen(
                                                 value = mediaFlowServerUrlInput,
                                                 onValueChange = { mediaFlowServerUrlInput = it },
                                                 label = { Text("MediaFlow Server URL") },
-                                                placeholder = { Text("http://localhost:8888 or https://mediaflow.proxy.domain") },
+                                                placeholder = { Text("http://192.168.1.50:8888 or https://mediaflow.domain.com") },
                                                 singleLine = true,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
@@ -2243,8 +2248,18 @@ fun SettingsScreen(
                                                 label = { Text("API Password / Token (Optional)") },
                                                 placeholder = { Text("Secret token") },
                                                 singleLine = true,
+                                                visualTransformation = if (mediaFlowPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                                trailingIcon = {
+                                                    IconButton(onClick = { mediaFlowPasswordVisible = !mediaFlowPasswordVisible }) {
+                                                        Icon(
+                                                            imageVector = if (mediaFlowPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                            contentDescription = if (mediaFlowPasswordVisible) "Hide password" else "Show password"
+                                                        )
+                                                    }
+                                                },
                                                 modifier = Modifier.fillMaxWidth()
                                             )
+
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
@@ -2253,12 +2268,12 @@ fun SettingsScreen(
                                             ) {
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
-                                                        text = "Light / Header Forwarding Mode",
+                                                        text = "MediaFlow-Light Mode",
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = FontWeight.SemiBold
                                                     )
                                                     Text(
-                                                        text = "Injects custom headers without transcoding or bandwidth bottleneck",
+                                                        text = "Direct header forwarding with low latency and zero unnecessary transcoding",
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -2271,23 +2286,151 @@ fun SettingsScreen(
                                                     }
                                                 )
                                             }
-                                        }
 
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.End
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    com.example.util.AppConfig.setMediaFlowEnabled(context, mediaFlowEnabled)
-                                                    com.example.util.AppConfig.setMediaFlowServerUrl(context, mediaFlowServerUrlInput)
-                                                    com.example.util.AppConfig.setMediaFlowApiPassword(context, mediaFlowPasswordInput)
-                                                    com.example.util.AppConfig.setMediaFlowLightMode(context, mediaFlowLightMode)
-                                                    Toast.makeText(context, "MediaFlow Proxy settings saved!", Toast.LENGTH_SHORT).show()
-                                                }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("Save MediaFlow")
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Fallback to Direct Playback",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = "Automatically attempts direct stream playback if the proxy is offline or encounters an error",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Switch(
+                                                    checked = mediaFlowFallbackToDirect,
+                                                    onCheckedChange = {
+                                                        mediaFlowFallbackToDirect = it
+                                                        com.example.util.AppConfig.setMediaFlowFallbackToDirect(context, it)
+                                                    }
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Proxy All Remote Streams",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = "When disabled, only streams requiring custom headers/CORS bypass are proxied",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Switch(
+                                                    checked = mediaFlowProxyAllStreams,
+                                                    onCheckedChange = {
+                                                        mediaFlowProxyAllStreams = it
+                                                        com.example.util.AppConfig.setMediaFlowProxyAllStreams(context, it)
+                                                    }
+                                                )
+                                            }
+
+                                            // Health check / Test connection status badge
+                                            mediaFlowHealthStatus?.let { status ->
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = when {
+                                                        status.isOnline -> MaterialTheme.colorScheme.primaryContainer
+                                                        status.isAuthError -> MaterialTheme.colorScheme.tertiaryContainer
+                                                        else -> MaterialTheme.colorScheme.errorContainer
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(10.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = when {
+                                                                status.isOnline -> Icons.Default.CheckCircle
+                                                                status.isAuthError -> Icons.Default.Lock
+                                                                else -> Icons.Default.Warning
+                                                            },
+                                                            contentDescription = null,
+                                                            tint = when {
+                                                                status.isOnline -> MaterialTheme.colorScheme.primary
+                                                                status.isAuthError -> MaterialTheme.colorScheme.tertiary
+                                                                else -> MaterialTheme.colorScheme.error
+                                                            },
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Column {
+                                                            Text(
+                                                                text = if (status.isOnline) "Status: Online (${status.serverVersion ?: "MediaFlow"})" else "Status: Error",
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                            Text(
+                                                                text = status.message,
+                                                                style = MaterialTheme.typography.bodySmall
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            isTestingMediaFlow = true
+                                                            mediaFlowHealthStatus = com.example.remote.MediaFlowProxyHelper.testHealth(
+                                                                customUrl = mediaFlowServerUrlInput,
+                                                                customPassword = mediaFlowPasswordInput
+                                                            )
+                                                            isTestingMediaFlow = false
+                                                        }
+                                                    },
+                                                    enabled = !isTestingMediaFlow && mediaFlowServerUrlInput.isNotBlank(),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    if (isTestingMediaFlow) {
+                                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text("Testing...")
+                                                    } else {
+                                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Test Connection")
+                                                    }
+                                                }
+
+                                                Button(
+                                                    onClick = {
+                                                        com.example.util.AppConfig.setMediaFlowEnabled(context, mediaFlowEnabled)
+                                                        com.example.util.AppConfig.setMediaFlowServerUrl(context, mediaFlowServerUrlInput)
+                                                        com.example.util.AppConfig.setMediaFlowApiPassword(context, mediaFlowPasswordInput)
+                                                        com.example.util.AppConfig.setMediaFlowLightMode(context, mediaFlowLightMode)
+                                                        com.example.util.AppConfig.setMediaFlowFallbackToDirect(context, mediaFlowFallbackToDirect)
+                                                        com.example.util.AppConfig.setMediaFlowProxyAllStreams(context, mediaFlowProxyAllStreams)
+                                                        Toast.makeText(context, "MediaFlow Proxy settings saved!", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text("Save MediaFlow")
+                                                }
                                             }
                                         }
                                     }

@@ -324,6 +324,31 @@ object UniversalTranslator {
     }
 
     /**
+     * General string translator for OCR text, video frame text, and search queries.
+     * Automatically detects source language and translates to target language (default "en" or "hi").
+     */
+    suspend fun translateGeneralText(text: String, targetLang: String = "en"): String {
+        if (text.isBlank()) return text
+        val clean = text.trim()
+        val detected = detectLanguage(clean)
+        if (detected.equals(targetLang, ignoreCase = true)) return clean
+
+        val cacheKey = "${clean}_$targetLang"
+        memoryCache[cacheKey]?.let { return it.translatedEN }
+
+        val translated = fetchTranslationApi(clean, sourceLang = detected, targetLang = targetLang)
+        val result = translated?.let { cleanTranslation(it, clean) } ?: clean
+        memoryCache[cacheKey] = TranslationResult(
+            originalText = clean,
+            translatedEN = result,
+            translatedHI = "",
+            detectedLanguage = detected,
+            confidence = 0.95f
+        )
+        return result
+    }
+
+    /**
      * Multi-tiered resilient translation fetcher.
      */
     private suspend fun fetchTranslationApi(

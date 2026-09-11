@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
+import com.example.remote.MediaFlowProxyHelper
 import com.example.resolver.health.FailureType
 import com.example.resolver.health.ProviderHealthManager
 import com.example.resolver.mirror.MirrorManager
@@ -12,6 +13,7 @@ import com.example.torrent.engine.TorrentEngine
 import com.example.torrent.model.TorrentRelease
 import com.example.torrent.server.TorrentHttpServer
 import com.example.ui.player.GlobalPlayerManager
+import com.example.util.AppConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -142,6 +144,45 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             true
         } catch (e: Exception) {
             Log.e(TAG, "Source switch failed: ${e.message}", e)
+
+            // Resilient Fallback: If MediaFlow proxying was active and failed, attempt direct playback
+            if (!candidate.isTorrent && candidate.type != SourceStreamType.EMBED_WEBVIEW &&
+                MediaFlowProxyHelper.shouldProxy(candidate) && AppConfig.isMediaFlowFallbackToDirect()
+            ) {
+                Log.w(TAG, "MediaFlow proxy stream encountered error, attempting direct playback fallback...")
+                onStatus("Proxy issue, falling back to direct stream...")
+                try {
+                    val directOption = PlayableStreamOption(
+                        qualityLabel = candidate.quality,
+                        format = candidate.format,
+                        isMuxed = true,
+                        videoUrl = candidate.urlOrMagnet,
+                        headers = candidate.headers
+                    )
+                    val directData = StreamData(
+                        videoId = candidate.id,
+                        title = candidate.title,
+                        channelName = candidate.serverName,
+                        availableStreamOptions = listOf(directOption),
+                        selectedStreamOption = directOption,
+                        providerId = candidate.providerId,
+                        headers = candidate.headers
+                    )
+                    GlobalPlayerManager.prepareAndPlay(
+                        context = context,
+                        streamData = directData,
+                        streamOption = directOption,
+                        hlsUrl = if (candidate.type == SourceStreamType.HLS) candidate.urlOrMagnet else null,
+                        captionOption = null,
+                        initialPos = currentPos
+                    )
+                    _isResolving.value = false
+                    return@withContext true
+                } catch (fallbackEx: Exception) {
+                    Log.e(TAG, "Direct stream fallback also failed: ${fallbackEx.message}", fallbackEx)
+                }
+            }
+
             MirrorManager.recordMirrorFailure(
                 providerId = candidate.providerId,
                 mirrorUrl = candidate.urlOrMagnet,
@@ -236,7 +277,31 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             return resolveTorrentCandidate(candidate, onStatus)
         }
 
-        // Direct / HLS / DASH stream
+        val isHls = candidate.type == SourceStreamType.HLS || candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true)
+        val isDash = candidate.type == SourceStreamType.DASH || candidate.urlOrMagnet.contains(".mpd", ignoreCase = true)
+
+        // Check if stream should route through MediaFlow-Proxy-Light
+        if (MediaFlowProxyHelper.shouldProxy(candidate)) {
+            onStatus("Routing stream via MediaFlow Proxy...")
+            val proxiedUrl = MediaFlowProxyHelper.buildProxiedUrl(
+                originalUrl = candidate.urlOrMagnet,
+                headers = candidate.headers,
+                isHls = isHls,
+                isDash = isDash
+            )
+
+            Log.i(TAG, "Proxied stream with MediaFlow: ${MediaFlowProxyHelper.sanitizeUrlForLogging(proxiedUrl)}")
+
+            return ResolvedPlayback(
+                candidate = candidate,
+                mediaUri = proxiedUrl,
+                headers = candidate.headers,
+                format = candidate.format,
+                isTorrentStream = false
+            )
+        }
+
+        // Direct stream (no proxy required)
         return ResolvedPlayback(
             candidate = candidate,
             mediaUri = candidate.urlOrMagnet,
