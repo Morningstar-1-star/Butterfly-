@@ -10,7 +10,7 @@ object SupabaseConfig {
     private const val KEY_ANON_KEY = "supabase_anon_key"
 
     // Default configuration for permanent Supabase project; user can override anytime in settings
-    private const val DEFAULT_URL = "https://wlyqppcnywrftvducgz.supabase.co"
+    private const val DEFAULT_URL = "https://wlyqppcnywrftvdducgz.supabase.co"
     private const val DEFAULT_ANON_KEY = "sb_publishable_gsEuLQOAZrxBWcG5qMMmxQ_h7aQjCX1"
 
     @Volatile
@@ -22,7 +22,7 @@ object SupabaseConfig {
         cachedUrl?.let { return it }
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val url = prefs.getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
-        val effectiveUrl = if (url.contains("aistudio-butterfly.supabase.co") || url.contains("placeholder")) DEFAULT_URL else url
+        val effectiveUrl = if (url.contains("aistudio-butterfly.supabase.co") || url.contains("placeholder") || url.contains("wlyqppcnywrftvducgz")) DEFAULT_URL else url
         cachedUrl = effectiveUrl
         return effectiveUrl
     }

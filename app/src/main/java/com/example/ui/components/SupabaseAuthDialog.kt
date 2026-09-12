@@ -41,6 +41,7 @@ fun SupabaseAuthDialog(
     var passwordInput by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+    var infoMessage by remember { mutableStateOf<String?>(null) }
 
     // Custom Server Config
     var showConfigSection by remember { mutableStateOf(false) }
@@ -164,12 +165,18 @@ fun SupabaseAuthDialog(
                     ) {
                         Tab(
                             selected = !isSignUpTab,
-                            onClick = { isSignUpTab = false },
+                            onClick = { 
+                                isSignUpTab = false 
+                                infoMessage = null
+                            },
                             text = { Text("Sign In") }
                         )
                         Tab(
                             selected = isSignUpTab,
-                            onClick = { isSignUpTab = true },
+                            onClick = { 
+                                isSignUpTab = true 
+                                infoMessage = null
+                            },
                             text = { Text("Create Account") }
                         )
                     }
@@ -182,7 +189,10 @@ fun SupabaseAuthDialog(
 
                     OutlinedTextField(
                         value = emailInput,
-                        onValueChange = { emailInput = it },
+                        onValueChange = { 
+                            emailInput = it
+                            infoMessage = null
+                        },
                         label = { Text("Email") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -190,7 +200,10 @@ fun SupabaseAuthDialog(
 
                     OutlinedTextField(
                         value = passwordInput,
-                        onValueChange = { passwordInput = it },
+                        onValueChange = { 
+                            passwordInput = it
+                            infoMessage = null
+                        },
                         label = { Text("Password") },
                         singleLine = true,
                         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
@@ -205,6 +218,15 @@ fun SupabaseAuthDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    infoMessage?.let { msg ->
+                        Text(
+                            text = msg,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
                     authError?.let { err ->
                         Text(
                             text = err,
@@ -217,9 +239,17 @@ fun SupabaseAuthDialog(
                         onClick = {
                             if (emailInput.isNotBlank() && passwordInput.isNotBlank()) {
                                 isLoading = true
+                                infoMessage = null
                                 coroutineScope.launch {
                                     if (isSignUpTab) {
-                                        SupabaseAuthManager.signUp(emailInput, passwordInput)
+                                        val res = SupabaseAuthManager.signUp(emailInput, passwordInput)
+                                        if (res.isSuccess) {
+                                            val sess = res.getOrNull()
+                                            if (sess != null && sess.accessToken.isBlank()) {
+                                                infoMessage = "Account created! Please check your email to confirm your account, then sign in."
+                                                isSignUpTab = false
+                                            }
+                                        }
                                     } else {
                                         SupabaseAuthManager.signIn(emailInput, passwordInput)
                                     }

@@ -58,19 +58,27 @@ class SupabaseClient(private val context: Context) {
             }
 
             val json = JSONObject(responseBody)
-            val accessToken = json.optString("access_token")
-            val refreshToken = json.optString("refresh_token")
-            val expiresIn = json.optLong("expires_in", 3600)
-            val userObj = json.optJSONObject("user")
+            val sessionObj = json.optJSONObject("session")
+            val accessToken = json.optString("access_token", sessionObj?.optString("access_token", "") ?: "")
+            val refreshToken = json.optString("refresh_token", sessionObj?.optString("refresh_token", "") ?: "")
+            val expiresIn = if (json.has("expires_in")) json.optLong("expires_in", 3600L) else sessionObj?.optLong("expires_in", 3600L) ?: 3600L
 
-            if (userObj == null) {
-                return@withContext Result.failure(IOException("User data missing in response"))
-            }
+            val userObj = json.optJSONObject("user")
+                ?: sessionObj?.optJSONObject("user")
+                ?: json.optJSONObject("data")?.optJSONObject("user")
+                ?: if (json.has("id") || json.has("email") || json.has("aud")) json else null
+
+            val userId = userObj?.optString("id", "")?.takeIf { it.isNotBlank() }
+                ?: json.optString("id", "")
+            val userEmail = userObj?.optString("email", email)?.takeIf { it.isNotBlank() }
+                ?: json.optString("email", email)
+            val createdAt = userObj?.optString("created_at")
+                ?: json.optString("created_at")
 
             val user = SupabaseUser(
-                id = userObj.optString("id"),
-                email = userObj.optString("email", email),
-                createdAt = userObj.optString("created_at")
+                id = userId,
+                email = userEmail,
+                createdAt = createdAt
             )
 
             // If email confirmation is required, access_token may be empty until confirmed
@@ -78,7 +86,7 @@ class SupabaseClient(private val context: Context) {
                 accessToken = accessToken,
                 refreshToken = refreshToken,
                 user = user,
-                expiresAt = System.currentTimeMillis() + (expiresIn * 1000)
+                expiresAt = if (expiresIn > 0) System.currentTimeMillis() + (expiresIn * 1000) else 0L
             )
 
             Result.success(session)
@@ -111,22 +119,23 @@ class SupabaseClient(private val context: Context) {
             }
 
             val json = JSONObject(responseBody)
-            val accessToken = json.getString("access_token")
-            val refreshToken = json.getString("refresh_token")
-            val expiresIn = json.optLong("expires_in", 3600)
-            val userObj = json.getJSONObject("user")
+            val sessionObj = json.optJSONObject("session")
+            val accessToken = json.optString("access_token", sessionObj?.optString("access_token", "") ?: "")
+            val refreshToken = json.optString("refresh_token", sessionObj?.optString("refresh_token", "") ?: "")
+            val expiresIn = if (json.has("expires_in")) json.optLong("expires_in", 3600L) else sessionObj?.optLong("expires_in", 3600L) ?: 3600L
+            val userObj = json.optJSONObject("user") ?: sessionObj?.optJSONObject("user") ?: if (json.has("id")) json else null
 
             val user = SupabaseUser(
-                id = userObj.getString("id"),
-                email = userObj.optString("email", email),
-                createdAt = userObj.optString("created_at")
+                id = userObj?.optString("id", "") ?: "",
+                email = userObj?.optString("email", email) ?: email,
+                createdAt = userObj?.optString("created_at")
             )
 
             val session = SupabaseSession(
                 accessToken = accessToken,
                 refreshToken = refreshToken,
                 user = user,
-                expiresAt = System.currentTimeMillis() + (expiresIn * 1000)
+                expiresAt = if (expiresIn > 0) System.currentTimeMillis() + (expiresIn * 1000) else 0L
             )
 
             Result.success(session)
@@ -274,7 +283,15 @@ class SupabaseClient(private val context: Context) {
     private fun extractErrorMessage(body: String, fallback: String): String {
         return try {
             val json = JSONObject(body)
-            json.optString("msg", json.optString("error_description", json.optString("message", fallback)))
+            val msg = json.optString("msg")
+            if (msg.isNotBlank()) return msg
+            val desc = json.optString("error_description")
+            if (desc.isNotBlank()) return desc
+            val message = json.optString("message")
+            if (message.isNotBlank()) return message
+            val error = json.optString("error")
+            if (error.isNotBlank()) return error
+            fallback
         } catch (_: Exception) {
             fallback
         }
