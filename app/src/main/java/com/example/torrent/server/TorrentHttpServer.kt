@@ -267,7 +267,14 @@ class TorrentHttpServer(
 
             while (currentOffset <= endByte && isRunning.get() && !socket.isClosed) {
                 val bytesToRead = minOf(BUFFER_SIZE.toLong(), (endByte - currentOffset + 1)).toInt()
-                val available = engine.awaitRangeAvailable(currentOffset, bytesToRead, timeoutMs = 15000L)
+                var available = engine.awaitRangeAvailable(currentOffset, bytesToRead, timeoutMs = 15000L)
+                var retryCount = 0
+                while (!available && retryCount < 3 && isRunning.get() && !socket.isClosed) {
+                    retryCount++
+                    Log.i("ButterflyTorrent", "Waiting for swarm piece data at offset $currentOffset (attempt ${retryCount + 1})...")
+                    available = engine.awaitRangeAvailable(currentOffset, bytesToRead, timeoutMs = 15000L)
+                }
+
                 if (!available) {
                     engine.updateHttpStatus("504 Buffer Timeout", rangeHeader ?: "")
                     Log.w("ButterflyTorrent", "HTTP streaming timed out waiting for pieces at offset $currentOffset")

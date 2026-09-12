@@ -88,6 +88,10 @@ fun UniversalVideoPlayer(
     onSwipeDownDrag: ((dragDeltaY: Float) -> Unit)? = null,
     onSwipeDownEnd: ((accumulatedDy: Float) -> Unit)? = null,
     onOpenRelatedVideos: (() -> Unit)? = null,
+    isPortraitExpanded: Boolean = false,
+    onTogglePortraitExpanded: (() -> Unit)? = null,
+    onPortraitCollapseDrag: ((dragDeltaY: Float) -> Unit)? = null,
+    onPortraitCollapseEnd: ((accumulatedDy: Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -300,14 +304,13 @@ fun UniversalVideoPlayer(
 
     val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
 
-    val playerContainerModifier = if (isLandscape) {
+    val playerContainerModifier = if (isLandscape || isPortraitExpanded) {
         Modifier
             .fillMaxSize()
             .background(Color.Black)
     } else {
         modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
             .background(Color.Black)
     }
 
@@ -316,7 +319,7 @@ fun UniversalVideoPlayer(
 
     Box(
         modifier = playerContainerModifier
-            .pointerInput(isLandscape, seekSecs) {
+            .pointerInput(isLandscape, isPortraitExpanded, seekSecs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val startPos = down.position
@@ -325,6 +328,7 @@ fun UniversalVideoPlayer(
                     var hasPassedSlop = false
                     var isSwipingDownToMinimize = false
                     var isSwipingUpForLandscapeRelated = false
+                    var isSwipingUpToCollapsePortrait = false
 
                     accumulatedDx = 0f
                     accumulatedDy = 0f
@@ -355,11 +359,21 @@ fun UniversalVideoPlayer(
                             val absDx = kotlin.math.abs(accumulatedDx)
                             val absDy = kotlin.math.abs(accumulatedDy)
 
-                            // Swipe down to minimize in portrait mode
-                            if (!isLandscape && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
+                            // Swipe down to minimize in portrait mode (only when NOT expanded)
+                            if (!isLandscape && !isPortraitExpanded && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
                                 if (isSwipingDownToMinimize || (accumulatedDy > 8f && accumulatedDy > absDx * 1.1f)) {
                                     isSwipingDownToMinimize = true
                                     onSwipeDownDrag?.invoke(dragAmountY)
+                                    continue
+                                }
+                            }
+
+                            // Swipe up in portrait expanded mode to collapse back to standard 16:9 view
+                            if (isPortraitExpanded && !isDraggingHorizontally) {
+                                val isSwipeUpIntent = accumulatedDy < -8f && absDy > absDx * 1.1f
+                                if (isSwipingUpToCollapsePortrait || isSwipeUpIntent) {
+                                    isSwipingUpToCollapsePortrait = true
+                                    onPortraitCollapseDrag?.invoke(dragAmountY)
                                     continue
                                 }
                             }
@@ -437,6 +451,14 @@ fun UniversalVideoPlayer(
                     } while (event.changes.any { it.pressed })
 
                     if (hasPassedSlop) {
+                        if (isSwipingUpToCollapsePortrait) {
+                            if (onPortraitCollapseEnd != null) {
+                                onPortraitCollapseEnd.invoke(accumulatedDy)
+                            } else if (accumulatedDy < -30f) {
+                                onTogglePortraitExpanded?.invoke() ?: onBackClick?.invoke()
+                            }
+                            isSwipingUpToCollapsePortrait = false
+                        }
                         if (isSwipingUpForLandscapeRelated) {
                             if (accumulatedDy < -30f) {
                                 onOpenRelatedVideos?.invoke()
@@ -1196,12 +1218,16 @@ fun UniversalVideoPlayer(
                             IconButton(
                                 onClick = {
                                     GlobalPlayerManager.showControls()
-                                    toggleFullscreen(currentPlayerContext)
+                                    if (isPortraitExpanded) {
+                                        onTogglePortraitExpanded?.invoke() ?: onBackClick?.invoke()
+                                    } else {
+                                        toggleFullscreen(currentPlayerContext)
+                                    }
                                 },
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    imageVector = if (isLandscape || isPortraitExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                                     contentDescription = "Toggle Fullscreen",
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)

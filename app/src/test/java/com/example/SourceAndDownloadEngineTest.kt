@@ -193,4 +193,53 @@ class SourceAndDownloadEngineTest {
         val deobfuscated = JsChallengeEvaluator.deobfuscateSignature(sig, listOf("reverse", "slice 2"))
         assertEquals("4321fedcba", deobfuscated)
     }
+
+    @Test
+    fun testSupJavParser_VideoItemAndArtPlayerRegex() {
+        val sampleHtml = """
+            <div id="video-list">
+                <div id="video-1710" class="video-item" itemscope itemtype="https://schema.org/VideoObject">
+                    <a href="https://supjav.mom/phim-test-1710.html" itemprop="url">
+                        <img data-src="https://supjav.mom/uploads/thumb.jpg" alt="SSIS-123 Test Video Title" />
+                    </a>
+                    <div class="video-name"><a href="https://supjav.mom/phim-test-1710.html">SSIS-123 Test Video Title</a></div>
+                </div>
+            </div>
+        """.trimIndent()
+        val items = com.example.extractor.supjav.SupJavParser.parseVideoCards(sampleHtml, "https://supjav.mom")
+        assertEquals(1, items.size)
+        assertEquals("SSIS-123 Test Video Title", items[0].title)
+        assertEquals("https://supjav.mom/uploads/thumb.jpg", items[0].thumbnailUrl)
+
+        val samplePlayerResponse = """{"success":true,"data":"var art = new Artplayer({ url: 'https:\/\/fqcdn.top\/videos\/388fa95aa970f2a2776ccd3ec6d32129\/index.m3u8' });"}"""
+        val m3u8Match = Regex("""url:\s*'([^']+\.m3u8[^']*)'""").find(samplePlayerResponse)
+        assertNotNull(m3u8Match)
+        val extractedUrl = m3u8Match?.groupValues?.get(1)?.replace("\\/", "/")
+        assertEquals("https://fqcdn.top/videos/388fa95aa970f2a2776ccd3ec6d32129/index.m3u8", extractedUrl)
+    }
+
+    @Test
+    fun testSupJavParser_CleanTitleAndOgImageDetails() {
+        val detailHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta property="og:title" content="MIDV-054 Beautiful Actress Scene - SupJav" />
+                <meta property="og:image" content="https://supjav.mom/images/midv-054-full.jpg" />
+                <title>MIDV-054 Beautiful Actress Scene - SupJav</title>
+            </head>
+            <body>
+                <h1 class="post-title">MIDV-054 Beautiful Actress Scene - SupJav</h1>
+                <div class="post-content">
+                    <img class="wp-post-image" src="https://supjav.mom/images/midv-054-full.jpg" />
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val details = com.example.extractor.supjav.SupJavParser.parseVideoDetails(detailHtml, "https://supjav.mom/midv-054.html")
+        assertEquals("MIDV-054 Beautiful Actress Scene", details.title)
+        assertEquals("MIDV-054", details.code)
+        assertEquals("https://supjav.mom/images/midv-054-full.jpg", details.thumbnailUrl)
+    }
 }

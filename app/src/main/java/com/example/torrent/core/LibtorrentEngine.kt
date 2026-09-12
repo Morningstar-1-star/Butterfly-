@@ -262,6 +262,9 @@ class LibtorrentEngine(private val context: Context) {
                             th.addTracker(org.libtorrent4j.AnnounceEntry(tr))
                         } catch (_: Exception) {}
                     }
+                    try {
+                        th.forceReannounce()
+                    } catch (_: Exception) {}
                     th.resume()
                 }
                 th

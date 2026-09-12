@@ -41,12 +41,16 @@ object MediaSourceFactoryHelper {
             .setFragmentedMp4ExtractorFlags(FragmentedMp4Extractor.FLAG_ENABLE_EMSG_TRACK)
     }
 
-    val errorHandlingPolicy: LoadErrorHandlingPolicy = object : DefaultLoadErrorHandlingPolicy(1) {
+    val errorHandlingPolicy: LoadErrorHandlingPolicy = object : DefaultLoadErrorHandlingPolicy(3) {
         override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
             val rootCause = loadErrorInfo.exception
             if (rootCause is HttpDataSource.InvalidResponseCodeException) {
-                if (rootCause.responseCode in 400..599) {
-                    return C.TIME_UNSET
+                val code = rootCause.responseCode
+                if (code == 401 || code == 403 || code == 404) {
+                    return C.TIME_UNSET // Permanent client side authorization errors
+                }
+                if (code in 500..599 || code == 429) {
+                    return 1000L // Retry transient server or rate limit errors
                 }
             }
             return super.getRetryDelayMsFor(loadErrorInfo)

@@ -56,6 +56,8 @@ class UnifiedSourceResolver(private val context: Context) {
     private val torrentAdapter = TorrentSourceAdapter()
     private val nuvioDirectProvider = NuvioDirectSourceProvider()
     private val jableMissAvProvider = JableMissAvSourceProvider()
+    private val supjavProvider = com.example.resolver.providers.SupJavSourceProvider()
+    private val sextbProvider = com.example.resolver.providers.SextbSourceProvider()
     private val av123Provider = Av123SourceProvider()
     private val javtifulProvider = JavtifulSourceProvider()
     private val hanime1Provider = Hanime1SourceProvider()
@@ -94,6 +96,8 @@ class UnifiedSourceResolver(private val context: Context) {
             telegramProvider,
             megaProvider,
             jableMissAvProvider,
+            supjavProvider,
+            sextbProvider,
             av123Provider,
             javtifulProvider,
             hanime1Provider,

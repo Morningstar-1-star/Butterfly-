@@ -272,7 +272,10 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         candidate: SourceCandidate,
         onStatus: (String) -> Unit
     ): ResolvedPlayback? {
-        if (candidate.isTorrent) {
+        val isDirectHttpUrl = candidate.urlOrMagnet.startsWith("http://", ignoreCase = true) ||
+                              candidate.urlOrMagnet.startsWith("https://", ignoreCase = true)
+
+        if (candidate.isTorrent && !isDirectHttpUrl) {
             onStatus("Initializing BitTorrent Swarm...")
             return resolveTorrentCandidate(candidate, onStatus)
         }

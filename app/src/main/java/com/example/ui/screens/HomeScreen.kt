@@ -117,18 +117,23 @@ fun HomeScreen(
     var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var scrollOffsetPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
 
+    var currentTabScreen by remember { mutableStateOf(AppScreen.HOME) }
+    LaunchedEffect(currentScreen) {
+        if (currentScreen != AppScreen.PLAYER) {
+            currentTabScreen = currentScreen
+        }
+    }
+
     val feedListState = rememberLazyListState()
 
     LaunchedEffect(activeProviderId, activeCategory) {
-        feedListState.scrollToItem(0)
+        if (feedListState.firstVisibleItemIndex > 0 || feedListState.firstVisibleItemScrollOffset > 0) {
+            try {
+                feedListState.scrollToItem(0)
+            } catch (_: Exception) {}
+        }
         scrollOffsetPx = 0f
         isBarsVisible = true
-    }
-
-    LaunchedEffect(trendingVideos) {
-        if (trendingVideos.isNotEmpty()) {
-            com.example.util.ThumbnailOptimizer.preloadThumbnails(context, trendingVideos, maxCount = 20)
-        }
     }
 
     LaunchedEffect(currentScreen, isSearchExpanded) {
@@ -146,7 +151,7 @@ fun HomeScreen(
             val layoutInfo = feedListState.layoutInfo
             val total = layoutInfo.totalItemsCount
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            total > 0 && lastVisible >= total - 3
+            total > 0 && lastVisible >= (total - 3).coerceAtLeast(0)
         }
         .distinctUntilChanged()
         .collect { isNearBottom ->
@@ -156,15 +161,14 @@ fun HomeScreen(
         }
     }
 
-    val maxScrollOffsetPx = fullHeaderHeightPx.coerceAtLeast(1f)
-
-    val nestedScrollConnection = remember(maxScrollOffsetPx, isSearchExpanded) {
+    val nestedScrollConnection = remember(isSearchExpanded) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (isSearchExpanded) return Offset.Zero
+                val maxOffset = fullHeaderHeightPx.coerceAtLeast(1f)
                 val delta = available.y
                 val previousOffset = scrollOffsetPx
-                val newOffset = (previousOffset + delta).coerceIn(-maxScrollOffsetPx, 0f)
+                val newOffset = (previousOffset + delta).coerceIn(-maxOffset, 0f)
                 scrollOffsetPx = newOffset
 
                 if (delta < -10f && isBarsVisible && feedListState.firstVisibleItemIndex > 0) {
@@ -266,7 +270,7 @@ fun HomeScreen(
     BackHandler(enabled = isNotDefaultHome) {
         when {
             currentScreen == AppScreen.PLAYER -> {
-                viewModel.navigateToScreen(AppScreen.HOME)
+                viewModel.navigateToScreen(currentTabScreen)
             }
             isSearchExpanded -> {
                 viewModel.clearSearch()
@@ -316,7 +320,7 @@ fun HomeScreen(
                 )
             } else {
                 AnimatedContent(
-                    targetState = currentScreen,
+                    targetState = currentTabScreen,
                     transitionSpec = {
                         (fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
                          scaleIn(initialScale = 0.98f, animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)))
@@ -432,19 +436,6 @@ fun HomeScreen(
                             val feedList = remember(rawFeed) { rawFeed }
                             val shortsFeedList = remember(rawFeed) { rawFeed }
 
-                            LaunchedEffect(feedListState) {
-                                snapshotFlow {
-                                    val layoutInfo = feedListState.layoutInfo
-                                    val totalItems = layoutInfo.totalItemsCount
-                                    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                                    lastVisible >= (totalItems - 4).coerceAtLeast(0) && totalItems > 0
-                                }.distinctUntilChanged().collect { shouldLoadMore ->
-                                    if (shouldLoadMore) {
-                                        viewModel.loadMoreContent()
-                                    }
-                                }
-                            }
-
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
                                     com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 6)
@@ -452,7 +443,7 @@ fun HomeScreen(
                             }
 
                             val pullRefreshState = rememberPullToRefreshState()
-                            val isRefreshingFeed = isFeedRefreshing || (isLoadingTrending && feedList.isNotEmpty())
+                            val isRefreshingFeed = isFeedRefreshing
 
                             PullToRefreshBox(
                                 isRefreshing = isRefreshingFeed,
@@ -1152,7 +1143,7 @@ fun HomeScreen(
         ) {
             VideoPlayerScreen(
                 viewModel = viewModel,
-                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
+                onBackClick = { viewModel.navigateToScreen(currentTabScreen) },
                 modifier = Modifier.fillMaxSize()
             )
         }

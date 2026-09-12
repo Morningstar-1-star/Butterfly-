@@ -44,13 +44,15 @@ object JavVideoExtractor {
     suspend fun getHome(providerId: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val pid = providerId.lowercase().trim()
         when (pid) {
+            "supjav" -> SupJavProvider.getHome(limit, page)
             "123av", "javplayer" -> get123AvHome(limit, page)
             "javtiful" -> getJavtifulHome(limit, page)
             "jav_all", "all_jav" -> getAllJavHome(limit, page)
             else -> {
-                val list123 = get123AvHome(limit / 2, page)
-                val listJavtiful = getJavtifulHome(limit / 2, page)
-                (list123 + listJavtiful).distinctBy { it.id }
+                val listSup = SupJavProvider.getHome(limit / 3, page)
+                val list123 = get123AvHome(limit / 3, page)
+                val listJavtiful = getJavtifulHome(limit / 3, page)
+                (listSup + list123 + listJavtiful).distinctBy { it.id }
             }
         }
     }
@@ -61,13 +63,15 @@ object JavVideoExtractor {
         val pid = providerId.lowercase().trim()
 
         when (pid) {
+            "supjav" -> SupJavProvider.search(cleanQuery, limit, page)
             "123av", "javplayer" -> search123Av(cleanQuery, limit, page)
             "javtiful" -> searchJavtiful(cleanQuery, limit, page)
             "jav_all", "all_jav" -> searchAllJav(cleanQuery, limit, page)
             else -> {
-                val res1 = search123Av(cleanQuery, limit, page)
-                val res2 = searchJavtiful(cleanQuery, limit, page)
-                (res1 + res2).distinctBy { it.id }
+                val resSup = SupJavProvider.search(cleanQuery, limit / 3, page)
+                val res1 = search123Av(cleanQuery, limit / 3, page)
+                val res2 = searchJavtiful(cleanQuery, limit / 3, page)
+                (resSup + res1 + res2).distinctBy { it.id }
             }
         }
     }
@@ -226,15 +230,18 @@ object JavVideoExtractor {
     // Aggregator (All JAV Sources)
     // ----------------------------------------------------
     private suspend fun getAllJavHome(limit: Int, page: Int): List<VideoItem> = coroutineScope {
+        val d0 = async { SupJavProvider.getHome(limit, page) }
         val d1 = async { get123AvHome(limit, page) }
         val d2 = async { getJavtifulHome(limit, page) }
 
+        val res0 = d0.await()
         val res1 = d1.await()
         val res2 = d2.await()
 
         val interleaved = mutableListOf<VideoItem>()
-        val maxLen = maxOf(res1.size, res2.size)
+        val maxLen = maxOf(res0.size, res1.size, res2.size)
         for (i in 0 until maxLen) {
+            if (i < res0.size) interleaved.add(res0[i])
             if (i < res1.size) interleaved.add(res1[i])
             if (i < res2.size) interleaved.add(res2[i])
         }
@@ -242,13 +249,15 @@ object JavVideoExtractor {
     }
 
     private suspend fun searchAllJav(query: String, limit: Int, page: Int): List<VideoItem> = coroutineScope {
+        val d0 = async { SupJavProvider.search(query, limit, page) }
         val d1 = async { search123Av(query, limit, page) }
         val d2 = async { searchJavtiful(query, limit, page) }
 
+        val res0 = d0.await()
         val res1 = d1.await()
         val res2 = d2.await()
 
-        (res1 + res2).distinctBy { it.id }.take(limit)
+        (res0 + res1 + res2).distinctBy { it.id }.take(limit)
     }
 
     private fun parseViewsCount(raw: String): Long {
@@ -266,11 +275,16 @@ object JavVideoExtractor {
     }
 
     /**
-     * Directly resolves stream URLs for 123AV and Javtiful videos.
+     * Directly resolves stream URLs for SupJav, 123AV and Javtiful videos.
      */
     suspend fun extractStream(videoIdOrUrl: String): com.example.model.StreamData? = withContext(Dispatchers.IO) {
         val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         val lower = videoIdOrUrl.lowercase()
+
+        // 0. SupJav Stream Extraction
+        if (lower.startsWith("supjav_") || lower.startsWith("supjav:") || lower.contains("supjav.com") || lower.contains("supjav.net") || lower.contains("tvlogy")) {
+            return@withContext SupJavProvider.getStreamData(videoIdOrUrl)
+        }
 
         // 1. 123AV Direct Stream Extraction
         if (lower.startsWith("123av_") || lower.contains("123av.com") || lower.contains("javplayer.cc")) {

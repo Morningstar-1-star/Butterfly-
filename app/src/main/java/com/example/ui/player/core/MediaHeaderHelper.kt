@@ -287,6 +287,13 @@ object MediaHeaderHelper {
                 builder.header("Referer", "https://javtiful.com/")
                 builder.header("Origin", "https://javtiful.com")
             }
+            urlStr.contains("supjav") || urlStr.contains("tvlogy") || urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                val ref = if (urlStr.contains("tvlogy")) "https://tvlogy.to/" else if (urlStr.contains("streamwish")) "https://streamwish.to/" else "https://supjav.com/"
+                if (request.header("Referer") == null) {
+                    builder.header("Referer", ref)
+                }
+            }
         }
 
         val response = chain.proceed(builder.build())

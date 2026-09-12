@@ -1,6 +1,8 @@
 {
-  "name": "Butterfly",
-  "description": "Advanced media player with NewPipe, BitTorrent streaming, Bazarr subtitle provider plugins, and native SEXТB streaming provider.",
+  "name": "Butterfly Video",
+  "description": "High-performance video player and media browser with multi-source streaming, smart recommendation engine, and advanced extractor capabilities.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

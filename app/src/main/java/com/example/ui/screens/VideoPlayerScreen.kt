@@ -27,6 +27,15 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.lerp
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -213,6 +222,14 @@ fun VideoPlayerScreen(
     val maxDockDistancePx = with(density) { 380.dp.toPx() }
     val minimizeThresholdPx = with(density) { 70.dp.toPx() }
 
+    val screenHeightDp = configuration.screenHeightDp.dp
+    val screenWidthDp = configuration.screenWidthDp.dp
+    val standardPlayerHeightDp = screenWidthDp * 9f / 16f
+    val maxExpandPx = with(density) { (screenHeightDp - standardPlayerHeightDp).toPx().coerceAtLeast(100f) }
+
+    val portraitExpandProgress = remember { Animatable(0f) }
+    var isPortraitExpanded by rememberSaveable { mutableStateOf(false) }
+
     val currentDragY = dragOffsetY.value.coerceAtLeast(0f)
     val dragFraction = (currentDragY / maxDockDistancePx).coerceIn(0f, 1f)
 
@@ -231,12 +248,67 @@ fun VideoPlayerScreen(
         onBackClick()
     }
 
+    val collapsePortraitAction: () -> Unit = {
+        coroutineScope.launch {
+            isPortraitExpanded = false
+            portraitExpandProgress.animateTo(
+                0f,
+                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+            )
+        }
+    }
+
+    BackHandler(enabled = isPortraitExpanded || portraitExpandProgress.value > 0.05f) {
+        collapsePortraitAction()
+    }
+
+    val expandProgress = portraitExpandProgress.value
+
+    val nestedScrollConnection = remember(maxExpandPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (portraitExpandProgress.value > 0.05f && available.y < 0f) {
+                    val deltaFraction = available.y / maxExpandPx
+                    coroutineScope.launch {
+                        portraitExpandProgress.snapTo(
+                            (portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f)
+                        )
+                    }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (portraitExpandProgress.value in 0.05f..0.95f) {
+                    if (portraitExpandProgress.value < 0.65f || available.y < -300f) {
+                        isPortraitExpanded = false
+                        portraitExpandProgress.animateTo(
+                            0f,
+                            spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                        )
+                    } else {
+                        isPortraitExpanded = true
+                        portraitExpandProgress.animateTo(
+                            1f,
+                            spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
+                        )
+                    }
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         dragOffsetY.snapTo(0f)
     }
 
     LaunchedEffect(activeVideoId) {
         dragOffsetY.snapTo(0f)
+        portraitExpandProgress.snapTo(0f)
+        isPortraitExpanded = false
     }
 
     val landscapeVideos = remember(relatedContent, activeVideoId) {
@@ -500,68 +572,125 @@ fun VideoPlayerScreen(
                 // YouTube-style Dynamic Ambient Mode Lighting Effect
                 AmbientPlayerGlow(
                     palette = ambientPalette,
-                    isEnabled = effectiveAmbient && detailsAlpha > 0.1f
+                    isEnabled = effectiveAmbient && detailsAlpha > 0.1f && !isPortraitExpanded
                 )
 
-                Column(
+                BoxWithConstraints(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // PORTRAIT VIDEO PLAYER VIEW (Isolated 16:9 player container scaling smoothly)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                            .graphicsLayer {
-                                translationY = playerTranslationY
-                                translationX = playerTranslationX
-                                scaleX = playerScale
-                                scaleY = playerScale
-                                transformOrigin = TransformOrigin(0.5f, 0.0f)
-                                shape = RoundedCornerShape(playerCornerDp)
-                                clip = true
-                                alpha = if (dragFraction > 0.95f) 1.0f - ((dragFraction - 0.95f) * 20f).coerceIn(0f, 1f) else 1.0f
-                            }
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
+                    val screenHeight = maxHeight
+                    val standardPlayerHeight = maxWidth * 9f / 16f
+                    val currentPlayerHeight = lerp(standardPlayerHeight, screenHeight, expandProgress)
+
+                    Column(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
-                            EmbedWebViewPlayer(
-                                candidate = activeSourceCandidate!!,
-                                onClose = minimizePlayerAction,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            UniversalVideoPlayer(
-                            streamOption = selectedOption,
-                            hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
-                            captionOption = selectedCaption,
-                            streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
-                            chapters = currentStreamData?.chapters ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters ?: emptyList(),
-                            providerId = providerId,
-                            isPlaying = isPlaying,
-                            videoId = activeVideoId,
-                            initialPositionMs = initialPositionMs,
-                            availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
-                            onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
-                            failedSourceLogs = failedSourceLogs,
-                            onProgressUpdate = { pos, dur ->
-                                activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                            },
-                            onSwipeDownDrag = { deltaY ->
-                                coroutineScope.launch {
-                                    dragOffsetY.snapTo((dragOffsetY.value + deltaY).coerceAtLeast(0f))
-                                }
-                            },
-                            onSwipeDownEnd = { accumulatedDy ->
-                                coroutineScope.launch {
-                                    if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 40f) {
-                                        minimizePlayerAction()
-                                    } else {
-                                        dragOffsetY.animateTo(0f, spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow))
+                        // PORTRAIT VIDEO PLAYER VIEW (Expands from 16:9 to Fullscreen Portrait)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(currentPlayerHeight)
+                                .graphicsLayer {
+                                    if (expandProgress < 0.05f) {
+                                        translationY = playerTranslationY
+                                        translationX = playerTranslationX
+                                        scaleX = playerScale
+                                        scaleY = playerScale
+                                        transformOrigin = TransformOrigin(0.5f, 0.0f)
+                                        shape = RoundedCornerShape(playerCornerDp)
+                                        clip = true
+                                        alpha = if (dragFraction > 0.95f) 1.0f - ((dragFraction - 0.95f) * 20f).coerceIn(0f, 1f) else 1.0f
                                     }
                                 }
-                            },
-                            onBackClick = minimizePlayerAction,
+                                .background(Color.Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
+                                EmbedWebViewPlayer(
+                                    candidate = activeSourceCandidate!!,
+                                    onClose = minimizePlayerAction,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                UniversalVideoPlayer(
+                                streamOption = selectedOption,
+                                hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
+                                captionOption = selectedCaption,
+                                streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
+                                chapters = currentStreamData?.chapters ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters ?: emptyList(),
+                                providerId = providerId,
+                                isPlaying = isPlaying,
+                                videoId = activeVideoId,
+                                initialPositionMs = initialPositionMs,
+                                availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
+                                onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
+                                failedSourceLogs = failedSourceLogs,
+                                onProgressUpdate = { pos, dur ->
+                                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
+                                },
+                                isPortraitExpanded = isPortraitExpanded || expandProgress > 0.05f,
+                                onTogglePortraitExpanded = {
+                                    coroutineScope.launch {
+                                        if (isPortraitExpanded || expandProgress > 0.5f) {
+                                            isPortraitExpanded = false
+                                            portraitExpandProgress.animateTo(0f, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
+                                        } else {
+                                            isPortraitExpanded = true
+                                            portraitExpandProgress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
+                                        }
+                                    }
+                                },
+                                onPortraitCollapseDrag = { deltaY ->
+                                    coroutineScope.launch {
+                                        val deltaFraction = deltaY / maxExpandPx
+                                        portraitExpandProgress.snapTo(
+                                            (portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f)
+                                        )
+                                    }
+                                },
+                                onPortraitCollapseEnd = { accumulatedDy ->
+                                    coroutineScope.launch {
+                                        val cur = portraitExpandProgress.value
+                                        if (cur < 0.65f || accumulatedDy < -80f) {
+                                            isPortraitExpanded = false
+                                            portraitExpandProgress.animateTo(
+                                                0f,
+                                                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                                            )
+                                        } else {
+                                            isPortraitExpanded = true
+                                            portraitExpandProgress.animateTo(
+                                                1f,
+                                                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
+                                            )
+                                        }
+                                    }
+                                },
+                                onSwipeDownDrag = { deltaY ->
+                                    if (!isPortraitExpanded && expandProgress < 0.05f) {
+                                        coroutineScope.launch {
+                                            dragOffsetY.snapTo((dragOffsetY.value + deltaY).coerceAtLeast(0f))
+                                        }
+                                    }
+                                },
+                                onSwipeDownEnd = { accumulatedDy ->
+                                    if (!isPortraitExpanded && expandProgress < 0.05f) {
+                                        coroutineScope.launch {
+                                            if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 40f) {
+                                                minimizePlayerAction()
+                                            } else {
+                                                dragOffsetY.animateTo(0f, spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow))
+                                            }
+                                        }
+                                    }
+                                },
+                                onBackClick = {
+                                    if (isPortraitExpanded || expandProgress > 0.05f) {
+                                        collapsePortraitAction()
+                                    } else {
+                                        minimizePlayerAction()
+                                    }
+                                },
                             nextEpisodeData = nextEpisodeData,
                             onPlayNextEpisode = playNextEpisodeAction,
                             onNextClick = {
@@ -592,16 +721,18 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS) - SLIDES DOWN & VANISHES INSTANTLY UPON SWIPING DOWN!
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .graphicsLayer {
-                                alpha = detailsAlpha
-                                translationY = detailsTranslationY
-                            }
-                    ) {
+                    // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS) - SLIDES DOWN & VANISHES INSTANTLY UPON SWIPING DOWN OR EXPANDING!
+                    if (expandProgress < 0.99f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .graphicsLayer {
+                                    alpha = (detailsAlpha * (1.0f - expandProgress * 2.0f)).coerceIn(0f, 1f)
+                                    translationY = detailsTranslationY
+                                }
+                                .nestedScroll(nestedScrollConnection)
+                        ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
@@ -686,6 +817,32 @@ fun VideoPlayerScreen(
                                 isDownloading = isDownloading,
                                 downloadProgress = 0f,
                                 onDownloadClick = { showDownloadQualitySheet = true },
+                                onTitleDrag = { deltaY ->
+                                    coroutineScope.launch {
+                                        val deltaFraction = deltaY / maxExpandPx
+                                        portraitExpandProgress.snapTo(
+                                            (portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f)
+                                        )
+                                    }
+                                },
+                                onTitleDragEnd = { totalDy ->
+                                    coroutineScope.launch {
+                                        val cur = portraitExpandProgress.value
+                                        if (cur > 0.38f || totalDy > 120f) {
+                                            isPortraitExpanded = true
+                                            portraitExpandProgress.animateTo(
+                                                1f,
+                                                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                                            )
+                                        } else {
+                                            isPortraitExpanded = false
+                                            portraitExpandProgress.animateTo(
+                                                0f,
+                                                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
+                                            )
+                                        }
+                                    }
+                                },
                                 onServersClick = {
                                     showServerSelectorSheet = true
                                     if (displayTitle.isNotBlank()) {
@@ -1249,6 +1406,8 @@ fun VideoPlayerScreen(
             }
         }
     }
+}
+}
 }
 
     // MODAL BOTTOM SHEET: DOWNLOAD QUALITY PICKER

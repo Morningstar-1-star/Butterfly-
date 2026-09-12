@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.model.*
 import com.example.ui.MainViewModel
@@ -588,7 +587,7 @@ private fun HeroSpotlightCarousel(
                     .clickable { onCardClick(item) }
             ) {
                 // High-res Backdrop / Poster
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = imageModel,
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
@@ -597,28 +596,7 @@ private fun HeroSpotlightCarousel(
                         .graphicsLayer {
                             val pageOffset = (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
                             alpha = 1f - kotlin.math.abs(pageOffset) * 0.35f
-                        },
-                    loading = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF14141E)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(28.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                            )
                         }
-                    },
-                    error = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF14141E))
-                        )
-                    }
                 )
 
                 // Cinematic seamless gradient overlay
@@ -904,63 +882,11 @@ fun ExplorePosterCard(
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFF1E1E2A))
         ) {
-            SubcomposeAsyncImage(
+            AsyncImage(
                 model = imageModel,
                 contentDescription = item.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF1A1A26)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                        )
-                    }
-                },
-                error = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xFF26263A), Color(0xFF14141E))
-                                )
-                            )
-                            .padding(8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = when (item.mediaType) {
-                                    ExploreMediaType.ANIME -> Icons.Default.Animation
-                                    ExploreMediaType.TV -> Icons.Default.Tv
-                                    else -> Icons.Default.Movie
-                                },
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.45f),
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = item.title,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White.copy(alpha = 0.85f),
-                                maxLines = 2,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
+                modifier = Modifier.fillMaxSize()
             )
 
             // Top rating badge
@@ -1084,36 +1010,11 @@ fun CinematicMovieDetailsView(
                 val backdropRequest = remember(item.backdropUrl, item.posterUrl) {
                     ThumbnailOptimizer.buildBackdropRequest(context, item.backdropUrl ?: item.posterUrl)
                 }
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = backdropRequest,
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    loading = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF14141E)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                            )
-                        }
-                    },
-                    error = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0xFF20202F), Color(0xFF0D0D11))
-                                    )
-                                )
-                        )
-                    }
+                    modifier = Modifier.fillMaxSize()
                 )
 
                 // Vertical gradient fading down into canvas
@@ -1460,25 +1361,11 @@ fun CinematicMovieDetailsView(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(Color(0xFF202028))
                             ) {
-                                SubcomposeAsyncImage(
+                                AsyncImage(
                                     model = clip.thumbnailUrl?.takeIf { it.isNotBlank() } ?: item.backdropUrl ?: item.posterUrl,
                                     contentDescription = clip.name,
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                    loading = {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(Color(0xFF202028))
-                                        )
-                                    },
-                                    error = {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(Color(0xFF202028))
-                                        )
-                                    }
+                                    modifier = Modifier.fillMaxSize()
                                 )
 
                                 // Red Play button in center

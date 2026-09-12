@@ -427,6 +427,26 @@ object YouTubeExtractorHelper {
             )
         }
 
+        val isSupJav = providerId == "supjav" || urlOrId.contains("supjav.com") || urlOrId.contains("supjav.net") ||
+                urlOrId.contains("supjav.org") || urlOrId.contains("supjav.cc") || urlOrId.contains("supjav.tv") ||
+                urlOrId.contains("tvlogy") || urlOrId.startsWith("supjav_", ignoreCase = true) || urlOrId.startsWith("supjav:", ignoreCase = true)
+        if (isSupJav) {
+            val supjavData = SupJavProvider.getStreamData(urlOrId, context)
+            if (supjavData != null) {
+                Log.i(TAG, "Resolved via SupJavProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(supjavData)
+            }
+            return@withContext ExtractionResult.Error(
+                ExtractorErrorDetails(
+                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                    message = "Unable to extract stream from SupJav",
+                    rawExceptionName = "SupJavExtractionException",
+                    fullStackTrace = "",
+                    urlOrId = urlOrId
+                )
+            )
+        }
+
         val isSextb = providerId == "sextb" || urlOrId.contains("sextb.net") || urlOrId.contains("sextb.date") ||
                 urlOrId.contains("sextb.cc") || urlOrId.contains("streamtb.me") || urlOrId.contains("streamtb.com") ||
                 urlOrId.contains("stbturbo") || urlOrId.startsWith("sextb:", ignoreCase = true)

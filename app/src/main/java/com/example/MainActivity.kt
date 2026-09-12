@@ -52,10 +52,10 @@ class MainActivity : ComponentActivity() {
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
-                // Safety watchdog: ensure opening animation is guaranteed to dismiss within 2.8s
+                // Safety watchdog: ensure opening animation is guaranteed to dismiss within 1.2s
                 LaunchedEffect(showOpeningAnimation, isOpeningAnimationEnabled) {
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        kotlinx.coroutines.delay(2800L)
+                        kotlinx.coroutines.delay(1200L)
                         viewModel.dismissOpeningAnimation()
                     }
                 }

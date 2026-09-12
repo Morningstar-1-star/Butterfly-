@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -72,6 +75,8 @@ fun VideoDetailsSection(
     downloadProgress: Float = 0f,
     onDownloadClick: () -> Unit = {},
     onServersClick: (() -> Unit)? = null,
+    onTitleDrag: ((deltaY: Float) -> Unit)? = null,
+    onTitleDragEnd: ((totalDy: Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isDescriptionExpanded by remember { mutableStateOf(false) }
@@ -189,9 +194,46 @@ fun VideoDetailsSection(
         }
     }
 
+    val titlePullDownModifier = if (onTitleDrag != null && onTitleDragEnd != null) {
+        Modifier.pointerInput(onTitleDrag, onTitleDragEnd) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                var totalDy = 0f
+                var totalDx = 0f
+                var lastY = down.position.y
+                var isDragging = false
+                val touchSlop = viewConfiguration.touchSlop
+
+                do {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    val currentY = change.position.y
+                    val deltaY = currentY - lastY
+                    lastY = currentY
+                    totalDy += deltaY
+                    totalDx += (change.position.x - change.previousPosition.x)
+
+                    if (!isDragging && totalDy > touchSlop && totalDy > kotlin.math.abs(totalDx) * 1.1f) {
+                        isDragging = true
+                    }
+
+                    if (isDragging) {
+                        change.consume()
+                        onTitleDrag(deltaY)
+                    }
+                } while (event.changes.any { it.pressed })
+
+                if (isDragging) {
+                    onTitleDragEnd(totalDy)
+                }
+            }
+        }
+    } else Modifier
+
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .then(titlePullDownModifier)
             .padding(16.dp)
     ) {
         // Video Title & Translation Toggle Row: only show for foreign languages (not English, not Hindi)

@@ -29,8 +29,27 @@
 }
 -keep class com.example.model.** { *; }
 -keep class com.example.db.** { *; }
+-keep class com.example.torrent.cardigann.model.** { *; }
 
 # yt-dlp
 -keep class dev.ffmpegkit_maintained.ytdlp.** { *; }
 -dontwarn dev.ffmpegkit_maintained.ytdlp.**
+
+# Whisper & Native C++ JNI bindings
+-keepclassmembers class * {
+    native <methods>;
+}
+
+# SnakeYAML
+-keep class org.yaml.snakeyaml.** { *; }
+-dontwarn org.yaml.snakeyaml.**
+
+# Coil Image Loader
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# Kotlin Coroutines
+-keepclassmembers class kotlinx.coroutines.** {
+    volatile <fields>;
+}
 

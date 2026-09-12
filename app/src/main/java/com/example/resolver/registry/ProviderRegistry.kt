@@ -243,6 +243,22 @@ object ProviderRegistry {
         // Adult & JAV Providers
         register(
             ProviderDescriptor(
+                id = "supjav",
+                displayName = "SupJav (HLS 1080p)",
+                category = ProviderCategory.ADULT,
+                baseDomain = "https://supjav.com",
+                mirrors = listOf("https://supjav.com", "https://supjav.net", "https://supjav.org", "https://supjav.cc", "https://supjav.tv"),
+                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.HLS, ProviderCapability.DIRECT_HTTP),
+                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO, MediaType.MOVIE, MediaType.UNKNOWN),
+                supportsDirect = true,
+                supportsHls = true,
+                priority = 95,
+                sourceProvider = com.example.resolver.providers.SupJavSourceProvider(),
+                fallbackProviderIds = listOf("sextb", "123av", "javtiful")
+            )
+        )
+        register(
+            ProviderDescriptor(
                 id = "sextb",
                 displayName = "SEXТB",
                 category = ProviderCategory.ADULT,

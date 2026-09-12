@@ -25,14 +25,19 @@ object MagnetParser {
 
     val DEFAULT_TRACKERS = listOf(
         "udp://tracker.opentrackr.org:1337/announce",
-        "udp://open.tracker.cl:1337/announce",
-        "udp://9.rarbg.to:2710/announce",
-        "udp://9.rarbg.me:2710/announce",
-        "udp://tracker.openbittorrent.com:6969/announce",
+        "udp://open.stealth.si:80/announce",
         "udp://tracker.torrent.eu.org:451/announce",
+        "udp://explodie.org:6969/announce",
+        "udp://tracker.cyberia.is:6969/announce",
+        "udp://open.demonii.com:1337/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.moeking.me:6969/announce",
+        "udp://opentracker.i2p.rocks:6969/announce",
+        "udp://tracker.openbittorrent.com:6969/announce",
         "udp://tracker.dler.org:6969/announce",
         "udp://p4p.arenabg.com:1337/announce",
         "udp://movies.zsw.ca:6969/announce",
+        "udp://open.tracker.cl:1337/announce",
         "http://tracker.opentrackr.org:1337/announce",
         "https://tracker.tamersunion.org:443/announce"
     )
