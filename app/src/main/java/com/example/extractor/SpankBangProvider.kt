@@ -160,7 +160,7 @@ object SpankBangProvider {
             return@withContext filteredFallback.take(limit)
         }
 
-        getAuthenticCatalog(safePage).take(limit)
+        emptyList()
     }
 
     private fun parseHtml(url: String, limit: Int): List<VideoItem> {
@@ -221,16 +221,37 @@ object SpankBangProvider {
 
                 val durationText = elem.selectFirst(".l, .duration, .time, .d, .thumb__duration, .badge, span.length")?.text()?.trim()
                 val durationSec = durationText?.let { parseDuration(it) } ?: -1L
-                val uploader = elem.selectFirst(".uploader, .user, .i a, .ch, .author, span.channel")?.text()?.trim() ?: "SpankBang HD"
+                val uploader = elem.selectFirst(".uploader, .user, .i a, .ch, .author, span.channel")?.text()?.trim() ?: "SpankBang Studio"
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                val uploaderAvatar = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=E53935&color=fff&size=256&bold=true"
+                val uploaderUrl = "spankbang_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                val previewList = mutableListOf<String>()
+                if (!thumb.isNullOrBlank()) {
+                    previewList.add(thumb)
+                    val sbFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(thumb)
+                    if (sbFrameMatch != null) {
+                        val base = thumb.substring(0, sbFrameMatch.range.first)
+                        val ext = sbFrameMatch.groupValues[2]
+                        previewList.addAll((1..16).map { idx -> "$base/$idx.$ext" })
+                    }
+                }
+
+                val desc = "Studio / Channel: $uploader\nQuality: 4K Ultra HD / 1080p Full HD • SpankBang Release"
 
                 val item = VideoItem(
                     id = "spankbang:$videoId",
                     title = title,
                     uploaderName = uploader,
+                    uploaderUrl = uploaderUrl,
+                    uploaderAvatarUrl = uploaderAvatar,
                     thumbnailUrl = thumb,
                     durationSeconds = durationSec,
                     providerId = PROVIDER_ID,
-                    description = "SpankBang HD Video • Quality: 1080p/4K available"
+                    previewThumbnails = previewList.distinct(),
+                    description = desc
                 )
                 if (list.none { it.id == item.id }) {
                     list.add(item)

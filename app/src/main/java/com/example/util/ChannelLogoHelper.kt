@@ -34,10 +34,16 @@ object ChannelLogoHelper {
             else -> uploaderName.trim()
         }
 
+        val effectiveAvatar = when {
+            rawAvatarUrl.isNullOrBlank() -> null
+            rawAvatarUrl.startsWith("//") -> "https:$rawAvatarUrl"
+            else -> rawAvatarUrl
+        }
+
         // If a real remote avatar URL is provided, respect it completely
-        if (!rawAvatarUrl.isNullOrEmpty() && (rawAvatarUrl.startsWith("http://") || rawAvatarUrl.startsWith("https://"))) {
+        if (!effectiveAvatar.isNullOrEmpty() && (effectiveAvatar.startsWith("http://") || effectiveAvatar.startsWith("https://"))) {
             return BrandLogoInfo(
-                logoUrls = listOf(rawAvatarUrl),
+                logoUrls = listOf(effectiveAvatar),
                 brandName = cleanName,
                 brandShortText = getInitials(cleanName),
                 backgroundColor = Color(0xFF1E212A),
@@ -51,6 +57,17 @@ object ChannelLogoHelper {
         val combined = "$name $title"
 
         return when {
+            combined.contains("bilibili") || combined.contains("哔哩哔哩") || combined.contains("bili") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+                    "https://www.bilibili.com/favicon.ico"
+                ),
+                brandName = cleanName.ifBlank { "哔哩哔哩" },
+                brandShortText = "BILI",
+                backgroundColor = Color(0xFF00AEEC),
+                textColor = Color.White,
+                subscriberCountText = "Bilibili Creator"
+            )
             // Major Movie / TV Studios
             combined.contains("new line") -> BrandLogoInfo(
                 logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/New_Line_Cinema_logo.svg/200px-New_Line_Cinema_logo.svg.png"),
@@ -379,58 +396,168 @@ object ChannelLogoHelper {
 
             // Adult Studios & Channels
             combined.contains("sislovesme") || combined.contains("sis loves me") -> BrandLogoInfo(
-                logoUrls = emptyList(),
+                logoUrls = listOf(
+                    "https://ci.phncdn.com/users/sislovesme/avatar.jpg",
+                    "https://ei.phncdn.com/channels/sislovesme/avatar.jpg"
+                ),
                 brandName = "SisLovesMe",
                 brandShortText = "SLM",
                 backgroundColor = Color(0xFFFF4081),
                 textColor = Color.White,
-                subscriberCountText = "Official Studio • Verified"
+                subscriberCountText = "Official Studio • 2.8M Subscribers"
             )
 
             combined.contains("brazzers") -> BrandLogoInfo(
-                logoUrls = emptyList(),
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Brazzers_logo.svg/320px-Brazzers_logo.svg.png",
+                    "https://ci.phncdn.com/users/brazzersofficial/avatar.jpg",
+                    "https://ei.phncdn.com/channels/brazzers/avatar.jpg"
+                ),
                 brandName = "Brazzers",
                 brandShortText = "ZZ",
                 backgroundColor = Color(0xFFFFB300),
                 textColor = Color.Black,
-                subscriberCountText = "Official Studio • Verified"
+                subscriberCountText = "Official Studio • 8.4M Subscribers"
             )
 
             combined.contains("reality kings") || combined.contains("realitykings") -> BrandLogoInfo(
-                logoUrls = emptyList(),
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Reality_Kings_logo.svg/320px-Reality_Kings_logo.svg.png",
+                    "https://ci.phncdn.com/users/realitykings/avatar.jpg",
+                    "https://ei.phncdn.com/channels/realitykings/avatar.jpg"
+                ),
                 brandName = "Reality Kings",
                 brandShortText = "RK",
                 backgroundColor = Color(0xFFE91E63),
                 textColor = Color.White,
-                subscriberCountText = "Official Studio • Verified"
+                subscriberCountText = "Official Studio • 4.9M Subscribers"
             )
 
             combined.contains("familystrokes") || combined.contains("family strokes") -> BrandLogoInfo(
-                logoUrls = emptyList(),
+                logoUrls = listOf(
+                    "https://ci.phncdn.com/users/familystrokes/avatar.jpg",
+                    "https://ei.phncdn.com/channels/familystrokes/avatar.jpg"
+                ),
                 brandName = "Family Strokes",
                 brandShortText = "FS",
                 backgroundColor = Color(0xFF9C27B0),
                 textColor = Color.White,
-                subscriberCountText = "Official Studio • Verified"
+                subscriberCountText = "Official Studio • 3.2M Subscribers"
             )
 
-            combined.contains("blacked") || combined.contains("vixen") || combined.contains("tushy") -> BrandLogoInfo(
-                logoUrls = emptyList(),
-                brandName = cleanName,
-                brandShortText = cleanName.take(3).uppercase(),
-                backgroundColor = Color(0xFF212121),
+            combined.contains("blacked") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Blacked_logo.svg/320px-Blacked_logo.svg.png",
+                    "https://ci.phncdn.com/users/blacked/avatar.jpg",
+                    "https://ei.phncdn.com/channels/blacked/avatar.jpg"
+                ),
+                brandName = "Blacked",
+                brandShortText = "BL",
+                backgroundColor = Color(0xFF111111),
                 textColor = Color.White,
-                subscriberCountText = "Official Channel • Verified"
+                subscriberCountText = "Vixen Media Group • Verified"
+            )
+
+            combined.contains("vixen") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Vixen_logo.svg/320px-Vixen_logo.svg.png",
+                    "https://ci.phncdn.com/users/vixen/avatar.jpg",
+                    "https://ei.phncdn.com/channels/vixen/avatar.jpg"
+                ),
+                brandName = "Vixen",
+                brandShortText = "VX",
+                backgroundColor = Color(0xFF1A1A1A),
+                textColor = Color.White,
+                subscriberCountText = "Vixen Media Group • Verified"
+            )
+
+            combined.contains("tushy") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Tushy_logo.svg/320px-Tushy_logo.svg.png",
+                    "https://ci.phncdn.com/users/tushy/avatar.jpg",
+                    "https://ei.phncdn.com/channels/tushy/avatar.jpg"
+                ),
+                brandName = "Tushy",
+                brandShortText = "TY",
+                backgroundColor = Color(0xFF0D0D0D),
+                textColor = Color.White,
+                subscriberCountText = "Vixen Media Group • Verified"
+            )
+
+            combined.contains("fakehub") || combined.contains("fake taxi") || combined.contains("faketaxi") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Fake_Taxi_logo.svg/320px-Fake_Taxi_logo.svg.png",
+                    "https://ci.phncdn.com/users/faketaxi/avatar.jpg"
+                ),
+                brandName = "Fake Taxi",
+                brandShortText = "FT",
+                backgroundColor = Color(0xFFFFCC00),
+                textColor = Color.Black,
+                subscriberCountText = "Official Channel • 3.5M Subscribers"
+            )
+
+            combined.contains("naughty america") || combined.contains("naughtyamerica") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Naughty_America_logo.svg/320px-Naughty_America_logo.svg.png",
+                    "https://ci.phncdn.com/users/naughtyamerica/avatar.jpg"
+                ),
+                brandName = "Naughty America",
+                brandShortText = "NA",
+                backgroundColor = Color(0xFFB71C1C),
+                textColor = Color.White,
+                subscriberCountText = "Official Studio • 5.1M Subscribers"
+            )
+
+            combined.contains("teamske") || combined.contains("team ske") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://ci.phncdn.com/users/teamske/avatar.jpg",
+                    "https://ei.phncdn.com/channels/teamske/avatar.jpg"
+                ),
+                brandName = "TeamSke",
+                brandShortText = "TS",
+                backgroundColor = Color(0xFF00ACC1),
+                textColor = Color.White,
+                subscriberCountText = "Official Studio • 2.6M Subscribers"
+            )
+
+            combined.contains("sinstv") || combined.contains("johnny sins") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://ci.phncdn.com/users/sinspov/avatar.jpg",
+                    "https://di.phncdn.com/pornstar/johnny-sins.jpg"
+                ),
+                brandName = "SinsTV",
+                brandShortText = "JS",
+                backgroundColor = Color(0xFF212121),
+                textColor = Color(0xFFFF9900),
+                subscriberCountText = "Johnny Sins Official • Verified"
             )
 
             combined.contains("pornhub") -> BrandLogoInfo(
-                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Pornhub-logo.svg/200px-Pornhub-logo.svg.png"),
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Pornhub-logo.svg/320px-Pornhub-logo.svg.png"),
                 brandName = cleanName,
                 brandShortText = "PH",
                 backgroundColor = Color(0xFF222222),
                 textColor = Color(0xFFFF9900),
                 subscriberCountText = "Verified Channel"
             )
+
+            com.example.util.AdultModelMatcher.findModel(cleanName) != null || com.example.util.AdultModelMatcher.isModelInText(cleanName) -> {
+                val matched = com.example.util.AdultModelMatcher.findModel(cleanName)
+                val modelName = matched?.primaryName ?: cleanName
+                val slug = modelName.lowercase().trim().replace(" ", "-").replace(Regex("[^a-z0-9-]"), "")
+                BrandLogoInfo(
+                    logoUrls = listOf(
+                        "https://di.phncdn.com/pornstar/$slug.jpg",
+                        "https://ci.phncdn.com/users/$slug/avatar.jpg",
+                        "https://ei.phncdn.com/channels/$slug/avatar.jpg"
+                    ),
+                    brandName = modelName,
+                    brandShortText = getInitials(modelName),
+                    backgroundColor = Color(0xFF880E4F),
+                    textColor = Color.White,
+                    subscriberCountText = "Verified Model • Pornhub Partner"
+                )
+            }
 
             combined.contains("eporner") -> BrandLogoInfo(
                 logoUrls = emptyList(),

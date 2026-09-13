@@ -30,7 +30,7 @@ data class SourceMetricsEntity(
     val lastUpdated: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "watch_history")
+@Entity(tableName = "watch_history", indices = [Index(value = ["timestamp"])])
 data class WatchHistoryEntity(
     @PrimaryKey val videoId: String,
     val title: String,
@@ -46,7 +46,7 @@ data class WatchHistoryEntity(
     val detectedLanguage: String? = null
 )
 
-@Entity(tableName = "watch_later_bookmarks")
+@Entity(tableName = "watch_later_bookmarks", indices = [Index(value = ["timestamp"])])
 data class BookmarkEntity(
     @PrimaryKey val videoId: String,
     val title: String,
@@ -61,7 +61,7 @@ data class BookmarkEntity(
     val detectedLanguage: String? = null
 )
 
-@Entity(tableName = "liked_videos")
+@Entity(tableName = "liked_videos", indices = [Index(value = ["timestamp"])])
 data class LikedVideoEntity(
     @PrimaryKey val videoId: String,
     val title: String,
@@ -76,7 +76,7 @@ data class LikedVideoEntity(
     val detectedLanguage: String? = null
 )
 
-@Entity(tableName = "user_playlists")
+@Entity(tableName = "user_playlists", indices = [Index(value = ["createdAt"])])
 data class UserPlaylistEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -84,7 +84,7 @@ data class UserPlaylistEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "offline_downloads")
+@Entity(tableName = "offline_downloads", indices = [Index(value = ["timestamp"])])
 data class OfflineDownloadEntity(
     @PrimaryKey val videoId: String,
     val title: String,
@@ -98,13 +98,13 @@ data class OfflineDownloadEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "search_history")
+@Entity(tableName = "search_history", indices = [Index(value = ["timestamp"])])
 data class SearchHistoryEntity(
     @PrimaryKey val query: String,
     val timestamp: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "cached_video_metadata")
+@Entity(tableName = "cached_video_metadata", indices = [Index(value = ["timestamp"])])
 data class VideoMetadataCacheEntity(
     @PrimaryKey val videoId: String,
     val title: String,

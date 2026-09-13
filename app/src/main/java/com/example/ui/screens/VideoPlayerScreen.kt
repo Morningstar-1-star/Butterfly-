@@ -61,6 +61,8 @@ import com.example.ui.ambient.AmbientPlayerGlow
 import com.example.ui.ambient.rememberAmbientPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import com.example.model.EpisodeItem
 import com.example.ui.player.NextEpisodeData
 
@@ -183,12 +185,19 @@ fun VideoPlayerScreen(
         thumbnailUrl = currentStreamData?.thumbnailUrl ?: currentVideoItem?.thumbnailUrl
     )
 
-    val relatedContent = remember(trendingVideos, playerRecommendations, activeVideoId, currentStreamData, hiddenVideoIds, notInterestedVideoIds, notInterestedChannels) {
+    var relatedContent by remember(activeVideoId) { mutableStateOf<List<com.example.model.VideoItem>>(emptyList()) }
+    LaunchedEffect(activeVideoId, currentStreamData, playerRecommendations.size, trendingVideos.size) {
         val streamRelated = currentStreamData?.relatedVideos?.filter { it.id != activeVideoId } ?: emptyList()
         val pool = (playerRecommendations + streamRelated + trendingVideos.filter { it.id != activeVideoId })
             .distinctBy { it.id }
             .filterNot { viewModel.isBlockedVideo(it) }
-        viewModel.rankFallbackRelated(pool, activeVideoId)
+        relatedContent = pool.take(15)
+        withContext(Dispatchers.Default) {
+            val ranked = viewModel.rankFallbackRelated(pool, activeVideoId)
+            withContext(Dispatchers.Main) {
+                relatedContent = ranked
+            }
+        }
     }
 
     val displayTitle = currentStreamData?.title ?: currentVideoItem?.title ?: ""

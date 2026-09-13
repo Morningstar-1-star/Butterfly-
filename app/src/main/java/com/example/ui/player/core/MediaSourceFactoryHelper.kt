@@ -120,8 +120,8 @@ object MediaSourceFactoryHelper {
             customUserAgent = NetworkManager.DEFAULT_USER_AGENT
             reqHeaders["Accept"] = "*/*"
             reqHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
-            reqHeaders["Sec-Fetch-Mode"] = "no-cors"
-            reqHeaders["Sec-Fetch-Site"] = "cross-site"
+            reqHeaders.remove("Sec-Fetch-Mode")
+            reqHeaders.remove("Sec-Fetch-Site")
             reqHeaders.remove("Origin")
             val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
             if (cookie.isNotBlank() && !reqHeaders.containsKey("Cookie")) {
@@ -170,7 +170,37 @@ object MediaSourceFactoryHelper {
                         reqHeaders["Referer"] = "https://www.hotstar.com/"
                         reqHeaders["Origin"] = "https://www.hotstar.com"
                     }
+                    lowerTarget.contains("supjav") || lowerTarget.contains("tvlogy") || lowerTarget.contains("supplayer") ||
+                    lowerTarget.contains("streamwish") || lowerTarget.contains("wishembed") || lowerTarget.contains("awish") ||
+                    lowerTarget.contains("dwish") || lowerTarget.contains("strwish") || lowerTarget.contains("cdnwish") ||
+                    lowerTarget.contains("embedwish") || lowerTarget.contains("sfastwish") || lowerTarget.contains("filelions") ||
+                    lowerTarget.contains("voe") || lowerTarget.contains("audaciousdefaulthouse") || lowerTarget.contains("dood") ||
+                    lowerTarget.contains("ds2play") || lowerTarget.contains("streamtape") || lowerTarget.contains("tapecontent") ||
+                    lowerTarget.contains("stbturbo") || lowerTarget.contains("streamtb") || streamData?.providerId == "supjav" -> {
+                        val ref = when {
+                            lowerTarget.contains("tvlogy") || lowerTarget.contains("supplayer") -> "https://tvlogy.to/"
+                            lowerTarget.contains("streamwish") || lowerTarget.contains("wishembed") || lowerTarget.contains("awish") || lowerTarget.contains("dwish") || lowerTarget.contains("strwish") || lowerTarget.contains("cdnwish") || lowerTarget.contains("embedwish") || lowerTarget.contains("sfastwish") || lowerTarget.contains("filelions") -> "https://streamwish.to/"
+                            lowerTarget.contains("voe") || lowerTarget.contains("audaciousdefaulthouse") -> "https://voe.sx/"
+                            lowerTarget.contains("dood") || lowerTarget.contains("ds2play") -> "https://dood.to/"
+                            lowerTarget.contains("streamtape") || lowerTarget.contains("tapecontent") -> "https://streamtape.com/"
+                            lowerTarget.contains("stbturbo") || lowerTarget.contains("streamtb") -> "https://stbturbo.xyz/"
+                            else -> "https://supjav.com/"
+                        }
+                        reqHeaders["Referer"] = ref
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) {
+                            reqHeaders["Origin"] = ref.trimEnd('/')
+                        }
+                    }
                 }
+            }
+        }
+
+        // Strictly preserve all explicit specificHeaders (e.g. Decryptor Referer, Origin, Host, tokens)
+        specificHeaders.forEach { (k, v) ->
+            if (k.equals("User-Agent", ignoreCase = true)) {
+                customUserAgent = v
+            } else if (v.isNotBlank()) {
+                reqHeaders[k] = v
             }
         }
 

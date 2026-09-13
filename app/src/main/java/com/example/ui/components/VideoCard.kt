@@ -118,11 +118,7 @@ fun VideoCard(
     var showBottomSheet by remember { mutableStateOf(false) }
     var localShowOriginal by remember(video.id) { mutableStateOf(false) }
     val context = LocalContext.current
-    val effectiveWatchProgress = if (watchProgressFraction > 0f) {
-        watchProgressFraction
-    } else {
-        remember(video.id) { com.example.util.PlaybackResumeManager.getSavedFraction(context, video.id) }
-    }
+    val effectiveWatchProgress = watchProgressFraction
 
     val sourceBadge = remember(video.providerId, video.id, video.uploaderName, video.thumbnailUrl) {
         com.example.util.SourceTagHelper.getSourceBadge(video)
@@ -188,10 +184,10 @@ fun VideoCard(
             !raw.isNullOrBlank() && !raw.contains("placeholder") && !raw.contains("blank.gif") && !raw.contains("loading.gif") && (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("//")) -> {
                 if (raw.startsWith("//")) "https:$raw" else raw
             }
-            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
+            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/mqdefault.jpg"
             (video.providerId == "youtube" || video.providerId == "all") && video.id.contains("v=") -> {
                 val vId = video.id.substringAfter("v=").substringBefore("&")
-                "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
+                "https://i.ytimg.com/vi/$vId/mqdefault.jpg"
             }
             video.providerId == "beeg" && video.id.isNotBlank() -> {
                 val fileId = Regex("""\d+""").find(video.id)?.value ?: ""
@@ -208,33 +204,44 @@ fun VideoCard(
         }
     }
 
-    // Teaser & preview frame scrubbing (fast check to prevent UI lock on non-scrubbable sources)
-    val hasScrubbingTeaser = remember(video) {
-        PreviewFrameResolver.supportsScrubbing(video)
-    }
-    val previewFrames = remember(video, hasScrubbingTeaser, effectiveThumbnailUrl) {
-        if (hasScrubbingTeaser) {
-            val list = PreviewFrameResolver.resolvePreviewFrames(video)
-            if (list.isEmpty() && effectiveThumbnailUrl != null) listOf(effectiveThumbnailUrl) else list
-        } else {
-            emptyList()
-        }
-    }
-    val isScrubbable = hasScrubbingTeaser && previewFrames.size > 1
-
     var isAutoPlaying by remember { mutableStateOf(false) }
     var isScrubbing by remember { mutableStateOf(false) }
+    var isPreloadingTeaser by remember { mutableStateOf(false) }
+    var loadedPreviewFrames by remember(video.id, video.thumbnailUrl) {
+        mutableStateOf<List<String>?>(PreviewFrameResolver.getCachedFrames(video))
+    }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
     var currentFrameIndex by remember { mutableIntStateOf(0) }
     var dragAccumulator by remember { mutableFloatStateOf(0f) }
     val view = LocalView.current
 
-    // Automatic Teaser Loop: cycles through preview frames ONLY when explicitly activated by left swipe
-    LaunchedEffect(isAutoPlaying, previewFrames) {
-        if (isAutoPlaying && isScrubbable) {
-            PreviewFrameResolver.prefetchFrames(context, previewFrames)
+    // Teaser capability check (lightweight check without regex parsing on idle scroll)
+    val hasScrubbingTeaser = remember(video.providerId, video.thumbnailUrl) {
+        PreviewFrameResolver.supportsScrubbing(video)
+    }
+
+    val isPreviewRequested = (isScrubbing || isAutoPlaying) && hasScrubbingTeaser
+
+    // Trigger frame preloading & validation as soon as teaser preview is requested
+    LaunchedEffect(isPreviewRequested, loadedPreviewFrames) {
+        if (isPreviewRequested && loadedPreviewFrames == null) {
+            isPreloadingTeaser = true
+            val valid = PreviewFrameResolver.preloadAndValidateFrames(context, video)
+            loadedPreviewFrames = valid
+            isPreloadingTeaser = false
+            currentFrameIndex = 0
+            scrubFraction = 0f
+        }
+    }
+
+    val previewFrames = loadedPreviewFrames ?: emptyList()
+    val isPreviewActive = isPreviewRequested && !isPreloadingTeaser && previewFrames.size > 1
+
+    // Fast Automatic Teaser Loop: cycles through fully pre-loaded frames at ~8.3 FPS (120ms)
+    LaunchedEffect(isAutoPlaying, isPreviewActive, previewFrames) {
+        if (isAutoPlaying && isPreviewActive && previewFrames.size > 1) {
             while (isAutoPlaying) {
-                kotlinx.coroutines.delay(250L) // 4 FPS lightweight teaser preview
+                kotlinx.coroutines.delay(120L) // 8.3 FPS smooth, fast video clip teaser preview
                 currentFrameIndex = (currentFrameIndex + 1) % previewFrames.size
                 scrubFraction = (currentFrameIndex + 1).toFloat() / previewFrames.size
             }
@@ -243,14 +250,13 @@ fun VideoCard(
 
     // Trigger subtle haptic tick feedback as user scrubs or when auto-play engages
     LaunchedEffect(currentFrameIndex, isScrubbing, isAutoPlaying) {
-        if ((isScrubbing || isAutoPlaying) && isScrubbable) {
+        if ((isScrubbing || isAutoPlaying) && previewFrames.size > 1) {
             try {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             } catch (_: Exception) {}
         }
     }
 
-    val isPreviewActive = (isScrubbing || isAutoPlaying) && isScrubbable
     val activeImageUrl = remember(isPreviewActive, currentFrameIndex, previewFrames, effectiveThumbnailUrl) {
         if (isPreviewActive && currentFrameIndex in previewFrames.indices) {
             previewFrames[currentFrameIndex]
@@ -268,73 +274,131 @@ fun VideoCard(
         )
     }
 
-    val scrubModifier = remember(isScrubbable, previewFrames, isAutoPlaying) {
-        if (isScrubbable) {
-            Modifier.pointerInput(previewFrames, isAutoPlaying) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        dragAccumulator = 0f
-                        if (isAutoPlaying) {
-                            isAutoPlaying = false
-                        }
-                        isScrubbing = true
-                        val width = size.width.toFloat().coerceAtLeast(1f)
-                        val frac = (offset.x / width).coerceIn(0f, 1f)
-                        scrubFraction = frac
-                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
-                    },
-                    onDragEnd = {
-                        isScrubbing = false
-                        isAutoPlaying = (dragAccumulator < -40f)
-                    },
-                    onDragCancel = {
-                        isScrubbing = false
+    // Horizontal Scrubbing Modifier: attached to cards supporting teaser scrubbing
+    val scrubModifier = if (hasScrubbingTeaser) {
+        Modifier.pointerInput(video.id, loadedPreviewFrames) {
+            detectHorizontalDragGestures(
+                onDragStart = { offset ->
+                    dragAccumulator = 0f
+                    if (isAutoPlaying) {
                         isAutoPlaying = false
-                    },
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        dragAccumulator += dragAmount
-                        val width = size.width.toFloat().coerceAtLeast(1f)
-                        val frac = (change.position.x / width).coerceIn(0f, 1f)
-                        scrubFraction = frac
-                        currentFrameIndex = (frac * (previewFrames.size - 1)).roundToInt().coerceIn(0, previewFrames.size - 1)
                     }
-                )
-            }
-        } else {
-            Modifier
+                    isScrubbing = true
+                    val width = size.width.toFloat().coerceAtLeast(1f)
+                    val frac = (offset.x / width).coerceIn(0f, 1f)
+                    scrubFraction = frac
+                    val fSize = loadedPreviewFrames?.size ?: 1
+                    if (fSize > 1) {
+                        currentFrameIndex = (frac * (fSize - 1)).roundToInt().coerceIn(0, fSize - 1)
+                    }
+                },
+                onDragEnd = {
+                    isScrubbing = false
+                    val fSize = loadedPreviewFrames?.size ?: 1
+                    if (dragAccumulator < -40f && fSize > 1) {
+                        isAutoPlaying = true
+                    }
+                },
+                onDragCancel = {
+                    isScrubbing = false
+                    isAutoPlaying = false
+                },
+                onHorizontalDrag = { change, dragAmount ->
+                    change.consume()
+                    dragAccumulator += dragAmount
+                    val width = size.width.toFloat().coerceAtLeast(1f)
+                    val frac = (change.position.x / width).coerceIn(0f, 1f)
+                    scrubFraction = frac
+                    val fSize = loadedPreviewFrames?.size ?: 1
+                    if (fSize > 1) {
+                        currentFrameIndex = (frac * (fSize - 1)).roundToInt().coerceIn(0, fSize - 1)
+                    }
+                }
+            )
         }
+    } else {
+        Modifier
     }
 
-    Card(
+    Column(
         modifier = modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
             .clickable {
                 if (!isScrubbing) onClick()
-            },
-        shape = RoundedCornerShape(0.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            }
     ) {
-        Column {
-            // Thumbnail container with Duration Badge and Horizontal Drag Scrubbing / Auto Teaser
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .then(scrubModifier)
-            ) {
+        // Thumbnail container with Duration Badge and Horizontal Drag Scrubbing / Auto Teaser
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .then(scrubModifier)
+        ) {
                 if (thumbnailImageRequest != null) {
-                    // Single ultra-fast high-performance artwork layer (standard YouTube 16:9 crop)
-                    AsyncImage(
-                        model = thumbnailImageRequest,
-                        contentDescription = video.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    val isKnownNon169Source = remember(video.providerId, video.id, video.tags, video.thumbnailUrl) {
+                        val pid = (video.providerId ?: "").lowercase()
+                        val idLower = video.id.lowercase()
+                        val thumbLower = (video.thumbnailUrl ?: "").lowercase()
+                        pid in listOf("sextb", "supjav", "jav", "javvideo", "123av", "javtiful", "vega", "vegacloud", "vidsrc", "vidrock", "tmdb", "anilist", "jikan", "torrent") ||
+                        idLower.contains("sextb") || idLower.contains("supjav") || idLower.contains("jav") || idLower.contains("movie_") || idLower.contains("tv_") || idLower.contains("torrent_") || idLower.contains("vega_") ||
+                        thumbLower.contains("sextb") || thumbLower.contains("supjav") || thumbLower.contains("jav") || thumbLower.contains("poster") || thumbLower.contains("cover") || thumbLower.contains("dmm.co.jp") || thumbLower.contains("r18") || thumbLower.contains("image.tmdb.org") ||
+                        video.tags.any { it.contains("JAV", ignoreCase = true) || it.contains("Poster", ignoreCase = true) }
+                    }
+
+                    var isNon169Ratio by remember(activeImageUrl, isKnownNon169Source) { mutableStateOf(isKnownNon169Source) }
+
+                    if (isNon169Ratio) {
+                        // 1. Blurred Backdrop for Non-16:9 / Vertical Poster Thumbnails
+                        AsyncImage(
+                            model = thumbnailImageRequest,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(22.dp)
+                                .graphicsLayer { alpha = 0.65f }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.38f))
+                        )
+                        // 2. Main Full Uncropped Thumbnail (ContentScale.Fit inside 16:9 box)
+                        AsyncImage(
+                            model = thumbnailImageRequest,
+                            contentDescription = video.title,
+                            contentScale = ContentScale.Fit,
+                            onSuccess = { state ->
+                                val w = state.result.drawable.intrinsicWidth
+                                val h = state.result.drawable.intrinsicHeight
+                                if (w > 0 && h > 0) {
+                                    val aspect = w.toFloat() / h.toFloat()
+                                    isNon169Ratio = aspect < 1.5f || aspect > 2.2f
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        // Standard 16:9 Landscape Artwork Layer
+                        AsyncImage(
+                            model = thumbnailImageRequest,
+                            contentDescription = video.title,
+                            contentScale = ContentScale.Crop,
+                            onSuccess = { state ->
+                                val w = state.result.drawable.intrinsicWidth
+                                val h = state.result.drawable.intrinsicHeight
+                                if (w > 0 && h > 0) {
+                                    val aspect = w.toFloat() / h.toFloat()
+                                    if (aspect < 1.5f || aspect > 2.2f) {
+                                        isNon169Ratio = true
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
                     // Subtle bottom gradient for badge legibility
                     Box(
@@ -365,7 +429,7 @@ fun VideoCard(
                 }
 
                 // Normal duration badge (hidden when actively playing teaser or scrubbing)
-                if (displayDurationText.isNotEmpty() && !isPreviewActive) {
+                if (displayDurationText.isNotEmpty() && !isPreviewActive && !isPreloadingTeaser) {
                     Text(
                         text = displayDurationText,
                         color = Color.White,
@@ -383,7 +447,7 @@ fun VideoCard(
                 }
 
                 // Series Season/Episode Pill badge on bottom-left of thumbnail
-                if (!seriesPillText.isNullOrEmpty() && !isPreviewActive) {
+                if (!seriesPillText.isNullOrEmpty() && !isPreviewActive && !isPreloadingTeaser) {
                     Text(
                         text = seriesPillText,
                         color = Color.White,
@@ -400,7 +464,7 @@ fun VideoCard(
                     )
                 }
 
-                if (showProviderBadge && sourceBadge.name.isNotBlank() && !isPreviewActive) {
+                if (showProviderBadge && sourceBadge.name.isNotBlank() && !isPreviewActive && !isPreloadingTeaser) {
                     Text(
                         text = sourceBadge.name,
                         color = sourceBadge.contentColor,
@@ -418,7 +482,7 @@ fun VideoCard(
                 }
 
                 // Subtle Teaser Badge indicator when idle (Tap to auto-play teaser frames)
-                if (hasScrubbingTeaser && !isPreviewActive) {
+                if (hasScrubbingTeaser && !isPreviewActive && !isPreloadingTeaser) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -446,6 +510,36 @@ fun VideoCard(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+
+                // TEASER PRELOADING INDICATOR OVERLAY: Sleek progress badge while fetching full frames
+                if (isPreloadingTeaser) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.88f),
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                color = Color(0xFFFF4081),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "Loading Teaser Frames...",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
@@ -741,7 +835,6 @@ fun VideoCard(
                 }
             }
         }
-    }
 
     if (showBottomSheet) {
         val sheetState = rememberModalBottomSheetState()

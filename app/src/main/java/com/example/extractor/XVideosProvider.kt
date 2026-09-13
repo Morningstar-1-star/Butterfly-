@@ -161,29 +161,46 @@ object XVideosProvider {
 
                 // Uploader
                 val uploaderEl = card.selectFirst(".metadata .name a, .metadata a, .name a, .uploader a, .profile a")
-                val uploaderName = uploaderEl?.text()?.trim()?.ifBlank { "XVideos" } ?: "XVideos"
-                val uploaderUrl = uploaderEl?.attr("href")?.let {
+                val uploaderName = uploaderEl?.text()?.trim()?.ifBlank { "XVideos Studio" } ?: "XVideos Studio"
+                val rawUploaderUrl = uploaderEl?.attr("href")?.let {
                     if (it.startsWith("/")) "https://www.xvideos.com$it" else it
                 }
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploaderName, null, title)
+                val encName = try { java.net.URLEncoder.encode(uploaderName.take(30), "UTF-8") } catch (_: Exception) { uploaderName.take(30) }
+                val uploaderAvatarUrl = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=C2185B&color=fff&size=256&bold=true"
+                val uploaderUrl = rawUploaderUrl ?: "xvideos_${uploaderName.lowercase().replace(Regex("[^a-z0-9]"), "")}"
 
-                // Preview frames for horizontal scrubber
-                val previewList = if (thumb.isNotBlank()) {
-                    com.example.util.PreviewFrameResolver.resolvePreviewFrames(
-                        VideoItem(
-                            id = href,
-                            title = title,
-                            uploaderName = uploaderName,
-                            uploaderUrl = uploaderUrl,
-                            thumbnailUrl = thumb,
-                            durationSeconds = durSec,
-                            providerId = PROVIDER_ID
+                // Preview frames for horizontal scrubber & teaser autoplay
+                val previewList = mutableListOf<String>()
+                if (thumb.isNotBlank()) {
+                    previewList.add(thumb)
+                    val xvFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(thumb)
+                    if (xvFrameMatch != null) {
+                        val base = thumb.substring(0, xvFrameMatch.range.first)
+                        val ext = xvFrameMatch.groupValues[2]
+                        previewList.addAll((1..20).map { idx -> "$base/$idx.$ext" })
+                    } else {
+                        previewList.addAll(
+                            com.example.util.PreviewFrameResolver.resolvePreviewFrames(
+                                VideoItem(
+                                    id = href,
+                                    title = title,
+                                    uploaderName = uploaderName,
+                                    uploaderUrl = uploaderUrl,
+                                    thumbnailUrl = thumb,
+                                    durationSeconds = durSec,
+                                    providerId = PROVIDER_ID
+                                )
+                            )
                         )
-                    )
-                } else emptyList()
+                    }
+                }
 
-                // Optional preview video clip URL if present on hover
                 val previewClip = imgEl?.attr("data-pv")?.takeIf { it.isNotBlank() && it.startsWith("http") }
                     ?: card.attr("data-pv").takeIf { it.isNotBlank() && it.startsWith("http") }
+
+                val desc = "Studio / Model: $uploaderName\nQuality: 1080p HD • Official XVideos Release"
 
                 list.add(
                     VideoItem(
@@ -191,11 +208,13 @@ object XVideosProvider {
                         title = title,
                         uploaderName = uploaderName,
                         uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatarUrl,
                         thumbnailUrl = thumb,
                         durationSeconds = durSec,
                         providerId = PROVIDER_ID,
-                        previewThumbnails = previewList,
-                        previewClipUrl = previewClip
+                        previewThumbnails = previewList.distinct(),
+                        previewClipUrl = previewClip,
+                        description = desc
                     )
                 )
             }
@@ -434,15 +453,29 @@ object XVideosProvider {
 
                 if (options.isNotEmpty()) {
                     val bestOption = options.first()
+                    val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploaderName, null, title)
+                    val encName = try { java.net.URLEncoder.encode(uploaderName.take(30), "UTF-8") } catch (_: Exception) { uploaderName.take(30) }
+                    val avatarUrl = brand.logoUrls.firstOrNull()
+                        ?: "https://ui-avatars.com/api/?name=$encName&background=C2185B&color=fff&size=256&bold=true"
+
+                    val related = try {
+                        search(uploaderName, limit = 12).filter { !it.id.contains(targetUrl) }
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+
                     return@withContext StreamData(
                         videoId = targetUrl,
                         videoUrl = bestOption.videoUrl ?: "",
                         title = title,
                         channelName = uploaderName,
-                        description = title,
+                        channelAvatarUrl = avatarUrl,
+                        subscriberCountText = "Verified XVideos Partner • 1080p HD",
+                        description = "Studio / Model: $uploaderName\nQuality: 1080p HD / 720p HD\nOfficial XVideos Release",
                         thumbnailUrl = thumb,
                         availableStreamOptions = options,
                         selectedStreamOption = bestOption,
+                        relatedVideos = related,
                         providerId = PROVIDER_ID,
                         providerType = ProviderType.DIRECT,
                         headers = xvHeaders

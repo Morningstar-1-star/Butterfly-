@@ -393,7 +393,7 @@ object RedTubeProvider {
                 }
 
                 // Uploader / Creator Name & Url
-                var uploader = "RedTube"
+                var uploader = "RedTube Studio"
                 var uploaderUrl: String? = null
                 val uploaderIdMatch = Pattern.compile("""data-uploader-name=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE).matcher(block)
                 if (uploaderIdMatch.find()) {
@@ -405,6 +405,11 @@ object RedTubeProvider {
                         uploader = authorLinkMatch.group(2)?.trim() ?: uploader
                     }
                 }
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                val uploaderAvatar = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=D32F2F&color=fff&size=256&bold=true"
+                val finalUploaderUrl = uploaderUrl ?: "redtube_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
 
                 // View Count
                 var viewCount = 0L
@@ -413,18 +418,22 @@ object RedTubeProvider {
                     viewCount = parseViewCount(viewsMatch.group(1) ?: "")
                 }
 
+                val desc = "Studio / Model: $uploader\nQuality: 1080p HD • Official RedTube Release"
+
                 list.add(
                     VideoItem(
                         id = fullUrl,
                         title = title,
                         uploaderName = uploader,
-                        uploaderUrl = uploaderUrl,
+                        uploaderUrl = finalUploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatar,
                         thumbnailUrl = thumb,
                         durationSeconds = duration,
                         viewCount = viewCount,
                         previewClipUrl = previewVideoUrl,
                         previewThumbnails = previewThumbnails,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        description = desc
                     )
                 )
             }

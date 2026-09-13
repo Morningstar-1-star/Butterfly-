@@ -358,12 +358,12 @@ object CrunchyrollApiClient {
         val animeProviders = listOf("hianime", "animepahe", "gogoanime", "anikoto")
         for (prov in animeProviders) {
             try {
-                val results = withTimeoutOrNull(4500L) {
+                val results = withTimeoutOrNull(12000L) {
                     VegaProviderClient.search(prov, searchTerms)
                 }
                 if (!results.isNullOrEmpty()) {
                     val topResult = results.first()
-                    val playbackRes = withTimeoutOrNull(6500L) {
+                    val playbackRes = withTimeoutOrNull(15000L) {
                         VegaProviderClient.resolveFullVegaPlayback(prov, topResult.link)
                     }
                     if (playbackRes != null && playbackRes.success && playbackRes.streams.isNotEmpty()) {
@@ -415,7 +415,7 @@ object CrunchyrollApiClient {
         val animeProviders = listOf("hianime", "gogoanime", "animepahe")
         for (prov in animeProviders) {
             try {
-                val results = withTimeoutOrNull(4000L) {
+                val results = withTimeoutOrNull(12000L) {
                     VegaProviderClient.search(prov, query)
                 }
                 if (!results.isNullOrEmpty()) {

@@ -158,6 +158,15 @@ object BilibiliProvider {
                 }
             }
 
+            // Bilibili Live Stream: live.bilibili.com/<room_id> or bilibili_live:<room_id>
+            if (targetUrl.contains("live.bilibili.com", ignoreCase = true) ||
+                targetUrl.startsWith("bilibili_live:", ignoreCase = true) ||
+                targetUrl.startsWith("bili_live:", ignoreCase = true)
+            ) {
+                val liveData = resolveLiveStream(targetUrl)
+                if (liveData != null) return@withContext liveData
+            }
+
             // 3, 4, 5. BiliBiliBangumi / BiliBiliBangumiMedia / BiliBiliBangumiSeason
             if (targetUrl.contains("/bangumi/", ignoreCase = true) ||
                 targetUrl.matches(Regex("(?i).*(ep|ss|md)\\d+.*"))
@@ -352,7 +361,8 @@ object BilibiliProvider {
         val desc = customDesc ?: dataObj?.optString("desc", "") ?: ""
         val ownerObj = dataObj?.optJSONObject("owner")
         val uploader = customUploader ?: ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-        val avatar = ownerObj?.optString("face", "")
+        var avatar = ownerObj?.optString("face", "")
+        if (avatar?.startsWith("//") == true) avatar = "https:$avatar"
         val statObj = dataObj?.optJSONObject("stat")
         val viewCount = statObj?.optLong("view", 0L) ?: 0L
         val likeCount = statObj?.optLong("like", 0L) ?: 0L
@@ -382,8 +392,28 @@ object BilibiliProvider {
             "Cookie" to biliCookie
         )
 
-        // Stream options
-        val streamOptions = fetchPlayurlStreams(resolvedBvid, cid, biliHeaders)
+        // Stream options logic: try Bangumi/PGC endpoints if redirect_url exists or UGC returns empty
+        val redirectUrl = dataObj?.optString("redirect_url", "") ?: ""
+        val epIdFromRedirect = if (redirectUrl.isNotBlank()) {
+            Regex("(?i)ep(\\d+)").find(redirectUrl)?.groupValues?.get(1) ?: ""
+        } else ""
+
+        val streamOptions = mutableListOf<PlayableStreamOption>()
+        if (epIdFromRedirect.isNotBlank() || redirectUrl.contains("bangumi")) {
+            val bangumiStreams = fetchBangumiPlayurlStreams(epIdFromRedirect, resolvedBvid, cid, biliHeaders)
+            streamOptions.addAll(bangumiStreams)
+        }
+
+        if (streamOptions.isEmpty()) {
+            val playurlStreams = fetchPlayurlStreams(resolvedBvid, cid, biliHeaders)
+            streamOptions.addAll(playurlStreams)
+        }
+
+        if (streamOptions.isEmpty()) {
+            val fallbackPgcStreams = fetchBangumiPlayurlStreams("", resolvedBvid, cid, biliHeaders)
+            streamOptions.addAll(fallbackPgcStreams)
+        }
+
         if (streamOptions.isEmpty()) {
             Log.w(TAG, "No playable streams extracted directly for Bilibili $resolvedBvid")
             return@withContext null
@@ -761,16 +791,18 @@ object BilibiliProvider {
         var cleanUrl = rawUrl.trim()
         if (cleanUrl.isBlank()) return ""
 
-        // 1. Check if backupArr has a super fast Akamai, Ali, or Tencent overseas mirror
+        // 1. Check if backupArr has a clean overseas/akamai/ali/tencent mirror
         if (backupArr != null && backupArr.length() > 0) {
             for (b in 0 until backupArr.length()) {
                 val cand = backupArr.optString(b, "").trim()
                 if (cand.isNotBlank()) {
                     val lower = cand.lowercase()
-                    if (lower.contains("mirrorakam") || lower.contains("akamaized") ||
+                    if ((lower.contains("mirrorakam") || lower.contains("akamaized") ||
                         lower.contains("mirrorali") || lower.contains("mirrorcosov") ||
                         lower.contains("mirror08c") || lower.contains("mirrorcos") ||
-                        lower.contains("mirrorhw")
+                        lower.contains("mirrorhw") || lower.contains("bilivideo.com") || lower.contains("hdslb.com")) &&
+                        !lower.contains("mcdn") && !lower.contains("p2p") && !lower.contains("szbdyd") &&
+                        !lower.contains(":4483") && !lower.contains(":8080") && !lower.contains(":8000") && !lower.contains(":8443")
                     ) {
                         cleanUrl = cand
                         break
@@ -781,25 +813,29 @@ object BilibiliProvider {
 
         val lower = cleanUrl.lowercase()
         val isProblematic = lower.contains("mcdn") || lower.contains(":4483") || lower.contains(":8080") ||
-                lower.contains(":8000") || lower.contains(":8443") || lower.contains("p2p") ||
+                lower.contains(":8000") || lower.contains(":8443") || lower.contains(":51056") || lower.contains("p2p") ||
                 lower.contains("szbdyd.com") || lower.contains("ws.acgvideo.com") ||
                 lower.matches(Regex(".*https?://\\d+\\.\\d+\\.\\d+\\.\\d+.*"))
 
-        // If it is a UPOS path and either problematic or needs global acceleration, route via Akamai / Ali UPOS mirror
-        if (isProblematic || lower.contains("upgcxcode") || lower.contains("/upos/")) {
+        // If it is a UPOS path and problematic or has P2P ports, route via Akamai mirror
+        if (isProblematic && (lower.contains("upgcxcode") || lower.contains("/upos/"))) {
             val uposMatch = Regex("https?://[^/]+/(upgcxcode/.*|upos/.*)", RegexOption.IGNORE_CASE).find(cleanUrl)
             if (uposMatch != null) {
                 val pathAndQuery = uposMatch.groupValues[1]
                 cleanUrl = "https://upos-hz-mirrorakam.akamaized.net/$pathAndQuery"
+            } else {
+                cleanUrl = cleanUrl.replace(Regex(":(4483|8080|8000|8443|51056)"), "")
             }
+        } else if (isProblematic) {
+            cleanUrl = cleanUrl.replace(Regex(":(4483|8080|8000|8443|51056)"), "")
         }
 
         if (cleanUrl.startsWith("http://", ignoreCase = true)) {
-            val l = cleanUrl.lowercase()
-            if (!l.contains(":4483") && !l.contains(":8080")) {
-                cleanUrl = "https://" + cleanUrl.substring(7)
-            }
+            cleanUrl = "https://" + cleanUrl.substring(7)
         }
+
+        // Clean any leftover host:port pattern
+        cleanUrl = cleanUrl.replace(Regex("(https?://[^/:]+):\\d+/"), "$1/")
 
         return cleanUrl
     }
@@ -811,11 +847,19 @@ object BilibiliProvider {
         biliHeaders: Map<String, String>
     ): List<PlayableStreamOption> = withContext(Dispatchers.IO) {
         val streamOptions = mutableListOf<PlayableStreamOption>()
-        val pgcUrls = listOf(
-            "https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1",
-            "https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1",
-            "https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=4048&fnver=0&fourk=1"
-        )
+        val pgcUrls = mutableListOf<String>()
+        if (epId.isNotBlank()) {
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=4048&fnver=0&fourk=1")
+        }
+        if (bvid.isNotBlank()) {
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=4048&fnver=0&fourk=1")
+        }
 
         for (apiUrl in pgcUrls) {
             try {
@@ -832,9 +876,10 @@ object BilibiliProvider {
 
                 val playJson = JSONObject(jsonStr)
                 val resultObj = playJson.optJSONObject("result") ?: playJson.optJSONObject("data") ?: continue
+                val vinfo = resultObj.optJSONObject("video_info") ?: resultObj
 
                 // Check progressive durl
-                val durlArr = resultObj.optJSONArray("durl")
+                val durlArr = vinfo.optJSONArray("durl") ?: resultObj.optJSONArray("durl")
                 if (durlArr != null && durlArr.length() > 0) {
                     for (i in 0 until durlArr.length()) {
                         val dItem = durlArr.optJSONObject(i) ?: continue
@@ -850,16 +895,18 @@ object BilibiliProvider {
                                 else -> "Progressive Stream (MP4 Direct)"
                             }
 
-                            streamOptions.add(
-                                PlayableStreamOption(
-                                    qualityLabel = qLabel,
-                                    format = "mp4",
-                                    isMuxed = true,
-                                    videoUrl = sUrl,
-                                    providerType = ProviderType.DIRECT,
-                                    headers = biliHeaders
+                            if (streamOptions.none { it.videoUrl == sUrl }) {
+                                streamOptions.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = qLabel,
+                                        format = "mp4",
+                                        isMuxed = true,
+                                        videoUrl = sUrl,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = biliHeaders
+                                    )
                                 )
-                            )
+                            }
                             break
                         }
                     }
@@ -914,18 +961,20 @@ object BilibiliProvider {
                             val codecLabel = if (codecs.contains("avc", ignoreCase = true) || codecs.contains("h264", ignoreCase = true)) "H.264" else if (codecs.contains("hev", ignoreCase = true) || codecs.contains("h265", ignoreCase = true)) "HEVC" else if (codecs.contains("av01", ignoreCase = true)) "AV1" else "MP4"
                             val label = "$heightLabel $fpsStr Adaptive ($codecLabel)".replace("  ", " ").trim()
 
-                            streamOptions.add(
-                                PlayableStreamOption(
-                                    qualityLabel = label,
-                                    format = "video_mp4",
-                                    isMuxed = bestAudioUrl.isBlank(),
-                                    videoUrl = vUrl,
-                                    audioUrl = if (bestAudioUrl.isNotBlank()) bestAudioUrl else null,
-                                    providerType = ProviderType.DIRECT,
-                                    headers = biliHeaders,
-                                    audioHeaders = biliHeaders
+                            if (streamOptions.none { it.videoUrl == vUrl }) {
+                                streamOptions.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = label,
+                                        format = "video_mp4",
+                                        isMuxed = bestAudioUrl.isBlank(),
+                                        videoUrl = vUrl,
+                                        audioUrl = if (bestAudioUrl.isNotBlank()) bestAudioUrl else null,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = biliHeaders,
+                                        audioHeaders = biliHeaders
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
@@ -1173,6 +1222,13 @@ object BilibiliProvider {
             }
         }
 
+        if (streamOptions.isEmpty() && resolvedBvid.isNotBlank() && cid > 0L) {
+            val pgcFallback = fetchBangumiPlayurlStreams("", resolvedBvid, cid, biliHeaders)
+            if (pgcFallback.isNotEmpty()) {
+                streamOptions.addAll(pgcFallback)
+            }
+        }
+
         streamOptions
     }
 
@@ -1256,6 +1312,8 @@ object BilibiliProvider {
     // =========================================================================
 
     val CATEGORY_SEARCH_MAP = mapOf(
+        "live" to "直播",
+        "livestream" to "直播",
         "anime" to "动画",
         "bangumi" to "番剧",
         "music" to "音乐",
@@ -1279,6 +1337,16 @@ object BilibiliProvider {
     suspend fun getHomeVideos(page: Int = 1, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<VideoItem>()
         val cookie = getBilibiliCookie()
+
+        // Include top live streams on page 1 for immediate live discovery
+        if (page == 1) {
+            try {
+                val liveList = fetchLiveStreams(page = 1, limit = 2)
+                list.addAll(liveList)
+            } catch (e: Exception) {
+                Log.w(TAG, "Note: live streams inclusion in home: ${e.message}")
+            }
+        }
 
         // 1. Primary: Popular (Trending) endpoint
         try {
@@ -1309,7 +1377,12 @@ object BilibiliProvider {
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
-                                val owner = item.optJSONObject("owner")?.optString("name", "Bilibili") ?: "Bilibili"
+                                val ownerObj = item.optJSONObject("owner")
+                                val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
+                                var face = ownerObj?.optString("face", "") ?: ""
+                                if (face.startsWith("//")) face = "https:$face"
+                                val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
                                 val viewCount = stat?.optLong("view", -1L) ?: -1L
@@ -1319,6 +1392,8 @@ object BilibiliProvider {
                                         id = "https://www.bilibili.com/video/$bvid",
                                         title = finalTitle,
                                         uploaderName = owner,
+                                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                                        uploaderUrl = uploaderUrl,
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = pic,
@@ -1366,7 +1441,12 @@ object BilibiliProvider {
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
-                                val owner = item.optJSONObject("owner")?.optString("name", "Bilibili") ?: "Bilibili"
+                                val ownerObj = item.optJSONObject("owner")
+                                val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
+                                var face = ownerObj?.optString("face", "") ?: ""
+                                if (face.startsWith("//")) face = "https:$face"
+                                val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
                                 val viewCount = stat?.optLong("view", -1L) ?: -1L
@@ -1376,6 +1456,8 @@ object BilibiliProvider {
                                         id = "https://www.bilibili.com/video/$bvid",
                                         title = finalTitle,
                                         uploaderName = owner,
+                                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                                        uploaderUrl = uploaderUrl,
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = pic,
@@ -1423,7 +1505,12 @@ object BilibiliProvider {
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
-                                val owner = item.optJSONObject("owner")?.optString("name", "Bilibili") ?: "Bilibili"
+                                val ownerObj = item.optJSONObject("owner")
+                                val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
+                                var face = ownerObj?.optString("face", "") ?: ""
+                                if (face.startsWith("//")) face = "https:$face"
+                                val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
                                 val viewCount = stat?.optLong("view", -1L) ?: -1L
@@ -1433,6 +1520,8 @@ object BilibiliProvider {
                                         id = "https://www.bilibili.com/video/$bvid",
                                         title = finalTitle,
                                         uploaderName = owner,
+                                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                                        uploaderUrl = uploaderUrl,
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = pic,
@@ -1462,8 +1551,15 @@ object BilibiliProvider {
             return@withContext getHomeVideos(page, limit)
         }
 
-        // Check if query is a recognized category tag
         val queryLower = cleanQuery.lowercase()
+        if (queryLower == "live" || queryLower == "livestream" || queryLower == "直播" ||
+            queryLower.startsWith("live ") || queryLower.endsWith(" live") ||
+            queryLower.contains("bilibili live") || queryLower.contains("live room")
+        ) {
+            return@withContext fetchLiveStreams(page, limit)
+        }
+
+        // Check if query is a recognized category tag
         val mappedKeyword = CATEGORY_SEARCH_MAP[queryLower] ?: cleanQuery
 
         val list = mutableListOf<VideoItem>()
@@ -1498,6 +1594,10 @@ object BilibiliProvider {
                 var pic = item.optString("pic", "")
                 if (pic.startsWith("//")) pic = "https:$pic"
                 val author = item.optString("author", "Bilibili")
+                val upic = item.optString("upic", item.optString("uface", ""))
+                var avatar = if (upic.startsWith("//")) "https:$upic" else upic
+                val mid = item.optLong("mid", 0L)
+                val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                 val play = item.optLong("play", -1L)
                 val durationRaw = item.optString("duration", "")
                 val durationSec = parseDurationString(durationRaw)
@@ -1507,6 +1607,8 @@ object BilibiliProvider {
                         id = "https://www.bilibili.com/video/$bvid",
                         title = finalTitle,
                         uploaderName = author,
+                        uploaderAvatarUrl = if (avatar.isNotBlank()) avatar else null,
+                        uploaderUrl = uploaderUrl,
                         durationSeconds = durationSec,
                         viewCount = play,
                         thumbnailUrl = pic,
@@ -1556,7 +1658,356 @@ object BilibiliProvider {
         if (catKey == "all" || catKey.isBlank()) {
             return@withContext getHomeVideos(page, limit)
         }
+        if (catKey == "live" || catKey == "livestream" || catKey == "直播") {
+            return@withContext fetchLiveStreams(page, limit)
+        }
         val searchTerm = CATEGORY_SEARCH_MAP[catKey] ?: category
         searchBilibili(searchTerm, page, limit)
+    }
+
+    // =========================================================================
+    // BILIBILI LIVE STREAM RESOLUTION & LIVE STREAMS LIST
+    // =========================================================================
+
+    suspend fun resolveLiveStream(targetUrl: String): StreamData? = withContext(Dispatchers.IO) {
+        val roomMatch = Regex("(?i)(?:live\\.bilibili\\.com/|live:)(\\d+)").find(targetUrl)
+        val roomId = roomMatch?.groupValues?.get(1) ?: return@withContext null
+
+        try {
+            // 1. Fetch Room Info
+            val roomInfoUrl = "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=$roomId"
+            val roomReq = Request.Builder()
+                .url(roomInfoUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://live.bilibili.com/")
+                .build()
+
+            val roomJsonStr = httpClient.newCall(roomReq).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return@withContext null
+
+            val roomJson = JSONObject(roomJsonStr)
+            val roomData = roomJson.optJSONObject("data") ?: return@withContext null
+
+            val title = roomData.optString("title", "Bilibili Live")
+            var cover = roomData.optString("user_cover", roomData.optString("cover", ""))
+            if (cover.startsWith("//")) cover = "https:$cover"
+            val desc = roomData.optString("description", "")
+            val online = roomData.optLong("online", 0L)
+
+            // 2. Fetch Streamer / Anchor Info (Real channel logo and name)
+            var uploader = "Bilibili Streamer"
+            var avatarUrl: String? = null
+            try {
+                val anchorUrl = "https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room?roomid=$roomId"
+                val anchorReq = Request.Builder()
+                    .url(anchorUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Referer", "https://live.bilibili.com/")
+                    .build()
+
+                httpClient.newCall(anchorReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val anchorJsonStr = resp.body?.string()
+                        if (!anchorJsonStr.isNullOrBlank()) {
+                            val anchorJson = JSONObject(anchorJsonStr)
+                            val info = anchorJson.optJSONObject("data")?.optJSONObject("info")
+                            if (info != null) {
+                                uploader = info.optString("uname", uploader)
+                                var face = info.optString("face", "")
+                                if (face.startsWith("//")) face = "https:$face"
+                                if (face.isNotBlank()) avatarUrl = face
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching live anchor info: ${e.message}")
+            }
+
+            // 3. Fetch Live PlayUrl using modern getRoomPlayInfo (v2)
+            val liveHeaders = mapOf(
+                "User-Agent" to USER_AGENT,
+                "Referer" to "https://live.bilibili.com/"
+            )
+            val liveOptions = mutableListOf<PlayableStreamOption>()
+            var primaryLiveUrl = ""
+
+            try {
+                val playInfoUrl = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=$roomId&protocol=0,1&format=0,1,2&codec=0,1&qn=10000&platform=web&ptype=16"
+                val playReq = Request.Builder()
+                    .url(playInfoUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Referer", "https://live.bilibili.com/")
+                    .build()
+
+                httpClient.newCall(playReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val playJsonStr = resp.body?.string()
+                        if (!playJsonStr.isNullOrBlank()) {
+                            val playJson = JSONObject(playJsonStr)
+                            val data = playJson.optJSONObject("data")
+                            val streamArr = data?.optJSONObject("playurl_info")?.optJSONObject("playurl")?.optJSONArray("stream")
+                            if (streamArr != null) {
+                                for (s in 0 until streamArr.length()) {
+                                    val streamObj = streamArr.optJSONObject(s) ?: continue
+                                    val protoName = streamObj.optString("protocol_name")
+                                    val isHls = protoName.contains("hls")
+                                    val formatArr = streamObj.optJSONArray("format") ?: continue
+
+                                    for (f in 0 until formatArr.length()) {
+                                        val fmtObj = formatArr.optJSONObject(f) ?: continue
+                                        val fmtName = fmtObj.optString("format_name")
+                                        val codecArr = fmtObj.optJSONArray("codec") ?: continue
+
+                                        for (c in 0 until codecArr.length()) {
+                                            val codecObj = codecArr.optJSONObject(c) ?: continue
+                                            val baseUrl = codecObj.optString("base_url")
+                                            val urlInfoArr = codecObj.optJSONArray("url_info") ?: continue
+
+                                            for (u in 0 until urlInfoArr.length()) {
+                                                val urlInfo = urlInfoArr.optJSONObject(u) ?: continue
+                                                val host = urlInfo.optString("host")
+                                                val extra = urlInfo.optString("extra")
+
+                                                if (host.isNotBlank() && baseUrl.isNotBlank()) {
+                                                    val finalUrl = "$host$baseUrl$extra"
+                                                    val label = if (isHls) "Live HLS (${fmtName.uppercase()})" else "Live FLV"
+                                                    val opt = PlayableStreamOption(
+                                                        qualityLabel = label,
+                                                        format = if (isHls) "m3u8" else "flv",
+                                                        isMuxed = true,
+                                                        videoUrl = finalUrl,
+                                                        providerType = ProviderType.DIRECT,
+                                                        headers = liveHeaders
+                                                    )
+                                                    if (isHls) {
+                                                        liveOptions.add(0, opt)
+                                                    } else {
+                                                        liveOptions.add(opt)
+                                                    }
+                                                    if (primaryLiveUrl.isBlank() && isHls) {
+                                                        primaryLiveUrl = finalUrl
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching Bilibili live play info v2: ${e.message}")
+            }
+
+            // Fallback to legacy room/v1/Room/playUrl if v2 returned empty
+            if (liveOptions.isEmpty()) {
+                try {
+                    val legacyPlayUrl = "https://api.live.bilibili.com/room/v1/Room/playUrl?cid=$roomId&platform=h5&quality=4"
+                    val legReq = Request.Builder()
+                        .url(legacyPlayUrl)
+                        .header("User-Agent", USER_AGENT)
+                        .header("Referer", "https://live.bilibili.com/")
+                        .build()
+
+                    httpClient.newCall(legReq).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val playJsonStr = resp.body?.string()
+                            if (!playJsonStr.isNullOrBlank()) {
+                                val playJson = JSONObject(playJsonStr)
+                                val durls = playJson.optJSONObject("data")?.optJSONArray("durl")
+                                if (durls != null && durls.length() > 0) {
+                                    val streamUrl = durls.optJSONObject(0)?.optString("url", "") ?: ""
+                                    if (streamUrl.isNotBlank()) {
+                                        val legOpt = PlayableStreamOption(
+                                            qualityLabel = "Live Stream",
+                                            format = "hls",
+                                            isMuxed = true,
+                                            videoUrl = streamUrl,
+                                            providerType = ProviderType.DIRECT,
+                                            headers = liveHeaders
+                                        )
+                                        liveOptions.add(legOpt)
+                                        primaryLiveUrl = streamUrl
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Legacy Bilibili live playUrl fallback failed: ${e.message}")
+                }
+            }
+
+            if (liveOptions.isEmpty()) {
+                Log.w(TAG, "Could not obtain live playUrl for room $roomId")
+                return@withContext null
+            }
+
+            val selectedOpt = liveOptions.firstOrNull { it.format == "m3u8" } ?: liveOptions.first()
+            val effectiveUrl = primaryLiveUrl.ifBlank { selectedOpt.videoUrl ?: "" }
+
+            StreamData(
+                videoId = "https://live.bilibili.com/$roomId",
+                videoUrl = effectiveUrl,
+                hlsUrl = effectiveUrl,
+                title = title,
+                channelName = uploader,
+                channelAvatarUrl = avatarUrl,
+                description = desc,
+                thumbnailUrl = cover,
+                viewCount = online,
+                likeCount = 0L,
+                captionOptions = emptyList(),
+                availableStreamOptions = liveOptions,
+                selectedStreamOption = selectedOpt,
+                providerId = PROVIDER_ID,
+                providerType = ProviderType.DIRECT,
+                headers = liveHeaders
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Error resolving live stream for room $roomId: ${e.message}")
+            null
+        }
+    }
+
+    suspend fun fetchLiveStreams(page: Int = 1, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<VideoItem>()
+        try {
+            val url = "https://api.live.bilibili.com/room/v3/area/getRoomList?platform=web&parent_area_id=0&cate_id=0&area_id=0&sort_type=online&page=$page&page_size=$limit"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://live.bilibili.com/")
+                .build()
+
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            } ?: return@withContext emptyList()
+
+            val json = JSONObject(jsonStr)
+            val rooms = json.optJSONObject("data")?.optJSONArray("list") ?: return@withContext emptyList()
+
+            for (i in 0 until rooms.length()) {
+                val r = rooms.optJSONObject(i) ?: continue
+                val roomid = r.optLong("roomid", 0L)
+                if (roomid == 0L) continue
+
+                val title = r.optString("title", "Live Stream")
+                val uname = r.optString("uname", "Bilibili Streamer")
+                var face = r.optString("face", "")
+                if (face.startsWith("//")) face = "https:$face"
+                var cover = r.optString("user_cover", r.optString("cover", ""))
+                if (cover.startsWith("//")) cover = "https:$cover"
+                val online = r.optLong("online", 0L)
+                val areaName = r.optString("area_name", "Live")
+
+                list.add(
+                    VideoItem(
+                        id = "https://live.bilibili.com/$roomid",
+                        title = title,
+                        uploaderName = uname,
+                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                        uploaderUrl = "https://live.bilibili.com/$roomid",
+                        durationSeconds = 0L,
+                        viewCount = online,
+                        thumbnailUrl = cover,
+                        tags = listOf("LIVE", "Bilibili Live", areaName),
+                        providerId = PROVIDER_ID
+                    )
+                )
+                if (list.size >= limit) break
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching Bilibili live streams: ${e.message}")
+        }
+        list
+    }
+
+    // =========================================================================
+    // BILIBILI CHANNEL DETAILS WITH REAL AVATAR & STATS
+    // =========================================================================
+
+    suspend fun fetchChannelDetails(channelNameOrUrl: String, fallbackAvatar: String? = null): com.example.model.ChannelDetails = withContext(Dispatchers.IO) {
+        val trimmed = channelNameOrUrl.trim()
+        val uidMatch = Regex("(?i)space\\.bilibili\\.com/(\\d+)").find(trimmed)
+        val targetUid = uidMatch?.groupValues?.get(1)
+        val cleanName = if (targetUid != null) "Bilibili Creator" else trimmed.replace(Regex("(?i)^@"), "").trim()
+
+        var resolvedName = cleanName
+        var resolvedAvatar = fallbackAvatar
+        var subscriberCountText = "Verified Creator"
+        var videoCountText = "Videos"
+        var descriptionText = "Official channel on Bilibili."
+
+        try {
+            val queryParam = targetUid ?: cleanName
+            val encoded = URLEncoder.encode(queryParam, "UTF-8")
+            val searchUserUrl = "https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword=$encoded&page=1"
+            val req = Request.Builder()
+                .url(searchUserUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", REFERER)
+                .header("Cookie", getBilibiliCookie())
+                .build()
+
+            val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+            if (!jsonStr.isNullOrBlank()) {
+                val jsonObj = JSONObject(jsonStr)
+                val results = jsonObj.optJSONObject("data")?.optJSONArray("result")
+                if (results != null && results.length() > 0) {
+                    val userObj = results.optJSONObject(0)
+                    if (userObj != null) {
+                        resolvedName = userObj.optString("uname", resolvedName)
+                        var upic = userObj.optString("upic", "")
+                        if (upic.startsWith("//")) upic = "https:$upic"
+                        if (upic.isNotBlank()) resolvedAvatar = upic
+
+                        val fans = userObj.optLong("fans", 0L)
+                        if (fans > 0) {
+                            subscriberCountText = if (fans >= 10_000_000) {
+                                String.format("%.1fM subscribers", fans / 1_000_000.0)
+                            } else if (fans >= 10_000) {
+                                String.format("%.1fK subscribers", fans / 1_000.0)
+                            } else {
+                                "$fans subscribers"
+                            }
+                        }
+
+                        val videosCount = userObj.optInt("videos", 0)
+                        if (videosCount > 0) {
+                            videoCountText = "$videosCount videos"
+                        }
+
+                        val usign = userObj.optString("usign", "")
+                        if (usign.isNotBlank()) {
+                            descriptionText = usign
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching Bilibili channel info: ${e.message}")
+        }
+
+        // Fetch channel videos
+        val channelVideos = searchBilibili(resolvedName, page = 1, limit = 30)
+
+        com.example.model.ChannelDetails(
+            channelId = resolvedName.lowercase().replace("[^a-z0-9]".toRegex(), "_").take(30),
+            name = resolvedName,
+            handle = "@${resolvedName.replace(" ", "").lowercase()}",
+            avatarUrl = resolvedAvatar,
+            bannerUrl = "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1200&auto=format&fit=crop&q=80",
+            subscriberCount = subscriberCountText,
+            videoCount = if (channelVideos.isNotEmpty()) "${channelVideos.size} videos" else videoCountText,
+            description = descriptionText,
+            isSubscribed = false,
+            videos = channelVideos
+        )
     }
 }

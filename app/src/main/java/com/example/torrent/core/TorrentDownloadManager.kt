@@ -142,6 +142,7 @@ class TorrentDownloadManager(
         val task = tasksMap[taskId] ?: return
         engine.pause(task.infoHash)
         updateTaskState(taskId, TorrentEngineState.PAUSED)
+        engine.stopIfIdle()
     }
 
     fun resumeDownload(taskId: String) {
@@ -157,6 +158,7 @@ class TorrentDownloadManager(
         tasksMap.remove(taskId)
         _tasks.value = tasksMap.values.sortedByDescending { it.dateAdded }
         saveTasksToStorage()
+        engine.stopIfIdle()
     }
 
     fun deleteDownload(taskId: String, deleteFiles: Boolean = true) {
@@ -170,6 +172,7 @@ class TorrentDownloadManager(
         tasksMap.remove(taskId)
         _tasks.value = tasksMap.values.sortedByDescending { it.dateAdded }
         saveTasksToStorage()
+        engine.stopIfIdle()
     }
 
     fun retryDownload(taskId: String) {
@@ -204,6 +207,12 @@ class TorrentDownloadManager(
         monitorJob?.cancel()
         monitorJob = scope.launch {
             while (isActive) {
+                // If engine is not running, avoid polling SessionManager or CPU cycles
+                if (!engine.isRunning()) {
+                    delay(2000)
+                    continue
+                }
+
                 var changed = false
                 for ((id, task) in tasksMap) {
                     if (task.state == TorrentEngineState.PAUSED || task.state == TorrentEngineState.ERROR) {

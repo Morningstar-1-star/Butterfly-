@@ -888,6 +888,23 @@ fun UniversalVideoPlayer(
                             )
                         }
 
+                        // Headphones Audio Mode & Dynamic Island
+                        IconButton(
+                            onClick = {
+                                GlobalPlayerManager.showControls()
+                                com.example.ui.player.dynamicisland.AudioModeManager.enterAudioMode(context)
+                                onBackClick?.invoke()
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Headphones,
+                                contentDescription = "Switch to Audio Mode & Dynamic Island",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(23.dp)
+                            )
+                        }
+
                         // Settings Gear Icon
                         IconButton(
                             onClick = {

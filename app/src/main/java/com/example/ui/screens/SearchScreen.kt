@@ -111,9 +111,18 @@ fun SearchScreen(
     }
 
     if (showFilterDialog) {
+        val filteredAvailableProviders = remember(availableProviders, adultContentEnabled) {
+            availableProviders.filter {
+                if (adultContentEnabled) {
+                    viewModel.isAdultProviderId(it.id) && !viewModel.isNormalProvider(it.id)
+                } else {
+                    !viewModel.isAdultProviderId(it.id)
+                }
+            }
+        }
         SearchFilterDialog(
             currentFilter = searchFilter,
-            availableProviders = availableProviders,
+            availableProviders = filteredAvailableProviders,
             onDismiss = { showFilterDialog = false },
             onApply = { newFilter ->
                 viewModel.updateSearchFilter(newFilter)
@@ -125,21 +134,38 @@ fun SearchScreen(
     }
 
     // Default trending topic fallbacks when offline or loading
-    val trendingFallbacks = remember {
-        listOf(
-            "Toy Story 5",
-            "Mutiny",
-            "Spider-Man: Brand New Day",
-            "Lanterns",
-            "Reacher",
-            "Silo",
-            "Deadpool & Wolverine",
-            "Dune: Part Two",
-            "Stranger Things",
-            "Arcane",
-            "Solo Leveling",
-            "House of the Dragon"
-        )
+    val trendingFallbacks = remember(adultContentEnabled) {
+        if (adultContentEnabled) {
+            listOf(
+                "Yua Mikami",
+                "Eimi Fukada",
+                "Karen Kaede",
+                "SSIS",
+                "IPX",
+                "MIDE",
+                "SNIS",
+                "Cosplay",
+                "Japanese",
+                "Uncensored",
+                "Amateur",
+                "4K Ultra HD"
+            )
+        } else {
+            listOf(
+                "Toy Story 5",
+                "Mutiny",
+                "Spider-Man: Brand New Day",
+                "Lanterns",
+                "Reacher",
+                "Silo",
+                "Deadpool & Wolverine",
+                "Dune: Part Two",
+                "Stranger Things",
+                "Arcane",
+                "Solo Leveling",
+                "House of the Dragon"
+            )
+        }
     }
 
     // Map recent search strings to matching watch history thumbnail if available
@@ -173,7 +199,13 @@ fun SearchScreen(
         // 2. Map available enabled providers
         availableProviders
             .filter { it.id.lowercase() != "all" && it.isEnabled }
-            .filter { adultContentEnabled || !viewModel.isAdultProviderId(it.id) }
+            .filter {
+                if (adultContentEnabled) {
+                    viewModel.isAdultProviderId(it.id) && !viewModel.isNormalProvider(it.id)
+                } else {
+                    !viewModel.isAdultProviderId(it.id)
+                }
+            }
             .forEach { provider ->
                 val pId = provider.id.lowercase()
                 if (!processedIds.contains(pId)) {
@@ -183,19 +215,21 @@ fun SearchScreen(
                 }
             }
 
-        // 3. Ensure popular default providers exist
-        val defaults = listOf(
-            ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
-            ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
-            ProviderSourceItemData("jikan_anime", "Anime", Icons.Default.Star, Color(0xFF7B1FA2)),
-            ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
-            ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F)),
-            ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1))
-        )
-        defaults.forEach { item ->
-            if (!processedIds.contains(item.id.lowercase())) {
-                processedIds.add(item.id.lowercase())
-                list.add(item)
+        // 3. Ensure popular default providers exist in normal mode
+        if (!adultContentEnabled) {
+            val defaults = listOf(
+                ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
+                ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
+                ProviderSourceItemData("jikan_anime", "Anime", Icons.Default.Star, Color(0xFF7B1FA2)),
+                ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
+                ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F)),
+                ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1))
+            )
+            defaults.forEach { item ->
+                if (!processedIds.contains(item.id.lowercase())) {
+                    processedIds.add(item.id.lowercase())
+                    list.add(item)
+                }
             }
         }
 
@@ -651,7 +685,13 @@ fun SearchScreen(
             }
             val context = androidx.compose.ui.platform.LocalContext.current
             val baseResults = searchResults
-                .filter { adultContentEnabled || !viewModel.isAdultVideoItem(it) }
+                .filter {
+                    if (adultContentEnabled) {
+                        (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId)
+                    } else {
+                        !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId)
+                    }
+                }
                 .filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
                 .distinctBy { "${it.providerId}_${it.id}" }
             val filteredResults = remember(baseResults, searchFilter, watchedVideoIds) {
@@ -1421,6 +1461,8 @@ private fun getProviderChipInfo(id: String, defaultName: String): Triple<String,
         "imdb" -> Triple("IMDb", Icons.Default.Movie, Color(0xFFE4BB24))
         "mxplayer" -> Triple("MX Player", Icons.Default.PlayArrow, Color(0xFF1565C0))
         "popcorntv", "popcorn" -> Triple("PopcornTV", Icons.Default.Movie, Color(0xFFD32F2F))
+        "decryptor" -> Triple("Decryptor", Icons.Default.Cloud, Color(0xFF00E5FF))
+        "vidsrc" -> Triple("VidSrc", Icons.Default.PlayArrow, Color(0xFFFF9100))
         "jikan_anime", "anime" -> Triple("Anime", Icons.Default.Star, Color(0xFF7B1FA2))
         "archive_org", "internet_archive" -> Triple("Archive.org", Icons.Default.Folder, Color(0xFF5D4037))
         "mega" -> Triple("Mega", Icons.Default.Cloud, Color(0xFFD32F2F))

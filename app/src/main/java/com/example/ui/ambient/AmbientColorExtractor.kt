@@ -23,6 +23,16 @@ data class AmbientPalette(
 object AmbientColorExtractor {
 
     private val cache = mutableMapOf<String, AmbientPalette>()
+    @Volatile
+    private var softwareImageLoader: ImageLoader? = null
+
+    private fun getSoftwareImageLoader(context: Context): ImageLoader {
+        return softwareImageLoader ?: synchronized(this) {
+            softwareImageLoader ?: ImageLoader.Builder(context.applicationContext)
+                .allowHardware(false)
+                .build().also { softwareImageLoader = it }
+        }
+    }
 
     suspend fun extractColors(
         context: Context,
@@ -38,9 +48,7 @@ object AmbientColorExtractor {
 
         return withContext(Dispatchers.IO) {
             try {
-                val imageLoader = ImageLoader.Builder(context)
-                    .allowHardware(false) // Must be software bitmap to read pixels
-                    .build()
+                val imageLoader = getSoftwareImageLoader(context)
 
                 val request = ImageRequest.Builder(context)
                     .data(thumbnailUrl)

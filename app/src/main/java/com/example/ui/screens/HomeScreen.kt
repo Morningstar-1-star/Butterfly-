@@ -126,6 +126,21 @@ fun HomeScreen(
 
     val feedListState = rememberLazyListState()
 
+    val currentFeedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+
+    var isSourceSwitching by remember(activeProviderId, activeCategory) { mutableStateOf(true) }
+
+    LaunchedEffect(activeProviderId, activeCategory, currentFeedList, isLoadingTrending, isSearching, isFeedRefreshing) {
+        if (currentFeedList.isNotEmpty()) {
+            isSourceSwitching = false
+        } else if (!isLoadingTrending && !isSearching && !isFeedRefreshing) {
+            kotlinx.coroutines.delay(400L)
+            if (currentFeedList.isEmpty() && !isLoadingTrending && !isSearching && !isFeedRefreshing) {
+                isSourceSwitching = false
+            }
+        }
+    }
+
     LaunchedEffect(activeProviderId, activeCategory) {
         if (feedListState.firstVisibleItemIndex > 0 || feedListState.firstVisibleItemScrollOffset > 0) {
             try {
@@ -138,12 +153,6 @@ fun HomeScreen(
 
     LaunchedEffect(currentScreen, isSearchExpanded) {
         isBarsVisible = true
-    }
-
-    LaunchedEffect(feedListState.firstVisibleItemIndex) {
-        if (feedListState.firstVisibleItemIndex == 0) {
-            isBarsVisible = true
-        }
     }
 
     LaunchedEffect(feedListState) {
@@ -171,9 +180,9 @@ fun HomeScreen(
                 val newOffset = (previousOffset + delta).coerceIn(-maxOffset, 0f)
                 scrollOffsetPx = newOffset
 
-                if (delta < -10f && isBarsVisible && feedListState.firstVisibleItemIndex > 0) {
+                if (delta < -35f && isBarsVisible) {
                     isBarsVisible = false
-                } else if (delta > 10f && !isBarsVisible) {
+                } else if (delta > 35f && !isBarsVisible) {
                     isBarsVisible = true
                 }
                 return Offset.Zero
@@ -181,10 +190,16 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(feedListState.firstVisibleItemIndex, feedListState.firstVisibleItemScrollOffset) {
-        if (feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset == 0) {
-            scrollOffsetPx = 0f
-            isBarsVisible = true
+    LaunchedEffect(feedListState) {
+        androidx.compose.runtime.snapshotFlow {
+            feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset == 0
+        }
+        .distinctUntilChanged()
+        .collect { atTop ->
+            if (atTop) {
+                scrollOffsetPx = 0f
+                isBarsVisible = true
+            }
         }
     }
 
@@ -193,9 +208,9 @@ fun HomeScreen(
         isBarsVisible = true
     }
 
-    val animatedBottomBarOffsetPx by animateFloatAsState(
+    val bottomBarOffsetState = animateFloatAsState(
         targetValue = if (isBarsVisible || isSearchExpanded) 0f else bottomBarHeightPx.coerceAtLeast(1f),
-        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "bottom_bar_translation"
     )
 
@@ -508,7 +523,7 @@ fun HomeScreen(
                                                 }
                                             )
                                         }
-                                    } else if ((isLoadingTrending || isSearching) && feedList.isEmpty()) {
+                                    } else if ((isLoadingTrending || isSearching || isFeedRefreshing || isSourceSwitching) && feedList.isEmpty()) {
                                         item {
                                             FeedSkeletonLoading(
                                                 itemCount = 5,
@@ -687,7 +702,7 @@ fun HomeScreen(
 
             val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches, activeProviderId, adultContentEnabled) {
                 if (activeProviderId == "bilibili") {
-                    listOf("All", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
+                    listOf("All", "Live", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
                 } else if (activeProviderId == "bigo") {
                     listOf("All", "Music & Singing", "Gaming", "Dance", "Talk & Chat", "DJ", "Cosplay", "Entertainment", "Fitness", "Travel", "ASMR", "Food")
                 } else if (activeProviderId == "hanime1") {
@@ -855,11 +870,30 @@ fun HomeScreen(
                                                             tint = Color(0xFFE91E63),
                                                             modifier = Modifier.size(16.dp)
                                                         )
+                                                    } else if (provider.id == "decryptor") {
+                                                        Icon(
+                                                            imageVector = Icons.Default.CloudQueue,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF00E5FF),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    } else if (provider.id == "vidsrc") {
+                                                        Icon(
+                                                            imageVector = Icons.Default.PlayCircleOutline,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFFF9100),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
                                                     }
                                                     Text(
                                                         text = provider.name,
                                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (provider.id == "sextb") Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else when (provider.id) {
+                                                            "sextb" -> Color(0xFFE91E63)
+                                                            "decryptor" -> Color(0xFF00E5FF)
+                                                            "vidsrc" -> Color(0xFFFF9100)
+                                                            else -> MaterialTheme.colorScheme.onSurface
+                                                        }
                                                     )
                                                 }
                                             },
@@ -1058,6 +1092,9 @@ fun HomeScreen(
                         viewModel.closeVideo()
                     },
                     onNext = { viewModel.playNextInQueue() },
+                    onAudioMode = {
+                        com.example.ui.player.dynamicisland.AudioModeManager.enterAudioMode(context)
+                    },
                     bottomBarPaddingDp = if (isSearchExpanded) 16.dp else bottomBarPaddingDp,
                     statusBarPaddingDp = statusBarTopPadding
                 )
@@ -1072,7 +1109,7 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .onSizeChanged { bottomBarHeightPx = it.height.toFloat() }
                     .graphicsLayer {
-                        translationY = animatedBottomBarOffsetPx
+                        translationY = bottomBarOffsetState.value
                     }
             ) {
                 LiquidGlassNavBar(

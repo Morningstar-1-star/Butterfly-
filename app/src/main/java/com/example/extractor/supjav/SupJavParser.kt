@@ -92,19 +92,40 @@ object SupJavParser {
                     val viewsText = viewsEl?.text()?.trim() ?: ""
                     val viewCount = parseViewCount(viewsText)
 
+                    val brand = com.example.util.ChannelLogoHelper.getBrandInfo("SupJav", null, title)
+                    val encName = try { java.net.URLEncoder.encode(code.ifBlank { "SupJav" }.take(30), "UTF-8") } catch (_: Exception) { "SupJav" }
+                    val uploaderAvatar = brand.logoUrls.firstOrNull()
+                        ?: "https://ui-avatars.com/api/?name=$encName&background=3F51B5&color=fff&size=256&bold=true"
+                    val uploaderUrl = "supjav_${code.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                    val previewList = mutableListOf<String>()
+                    if (!thumb.isNullOrBlank()) {
+                        previewList.add(thumb)
+                        val sjFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(thumb)
+                        if (sjFrameMatch != null) {
+                            val base = thumb.substring(0, sjFrameMatch.range.first)
+                            val ext = sjFrameMatch.groupValues[2]
+                            previewList.addAll((1..16).map { idx -> "$base/$idx.$ext" })
+                        }
+                    }
+
+                    val desc = buildString {
+                        if (code.isNotBlank()) append("JAV Code: $code • ")
+                        append("SupJav Official Asian & Japanese Release\nQuality: 1080p HD Uncensored Stream")
+                    }
+
                     val item = VideoItem(
                         id = "supjav_$slug",
                         title = title,
-                        uploaderName = "SupJav • ${code.ifBlank { "JAV" }}",
-                        uploaderUrl = pageUrl,
+                        uploaderName = if (code.isNotBlank()) "SupJav • $code" else "SupJav Studio",
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatar,
                         thumbnailUrl = thumb,
                         durationSeconds = durationSec,
                         viewCount = viewCount,
                         providerId = "supjav",
-                        description = buildString {
-                            if (code.isNotBlank()) append("Code: $code • ")
-                            append("SupJav Asian & Japanese adult video catalog")
-                        }
+                        previewThumbnails = previewList.distinct(),
+                        description = desc
                     )
                     items.add(item)
                 } catch (e: Exception) {

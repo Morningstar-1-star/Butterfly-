@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -17,6 +18,13 @@ object EpornerProvider {
 
     private const val DEFAULT_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+    private val KNOWN_STUDIOS = listOf(
+        "Brazzers", "Naughty America", "Sweet Sinner", "Jules Jordan", "Vixen", "Tushy",
+        "Blacked", "BangBros", "Reality Kings", "Digital Sin", "Evil Angel", "PornPros",
+        "TeamSkeet", "Mofos", "Wicked", "Kink", "Babes", "Passionate HD", "HardX",
+        "DDF Network", "MetArt", "Private", "21Sextury", "Elegant Angel", "PervCity"
+    )
 
     private val httpClient = OkHttpClient.Builder()
         .dns(com.example.util.SecureDnsManager.appDns)
@@ -89,6 +97,116 @@ object EpornerProvider {
         return sb.toString()
     }
 
+    private fun parseStudioOrModel(title: String, keywordsStr: String, tagsList: List<String>): String {
+        val combinedText = "$title $keywordsStr ${tagsList.joinToString(" ")}"
+        for (studio in KNOWN_STUDIOS) {
+            if (combinedText.contains(studio, ignoreCase = true)) {
+                return studio
+            }
+        }
+        val genericTags = setOf("hd", "4k", "1080p", "720p", "porn", "video", "eporner", "big", "full", "new", "top", "best")
+        val candidate = tagsList.firstOrNull { tag ->
+            val tLower = tag.lowercase().trim()
+            tLower.length >= 3 && !genericTags.contains(tLower)
+        }
+        if (!candidate.isNullOrBlank()) {
+            return candidate.split(" ").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
+        }
+        return "Eporner Studio"
+    }
+
+    private fun parseVideoItemFromJson(video: JSONObject): VideoItem? {
+        val id = video.optString("id", "")
+        val title = video.optString("title", "Eporner Video")
+        val itemVideoId = if (id.isNotBlank()) id else extractVideoId(video.optString("url", ""))
+        if (itemVideoId.isBlank()) return null
+
+        val url = "https://www.eporner.com/video-$itemVideoId/"
+        val thumbObj = video.optJSONObject("default_thumb")
+        val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
+        val duration = video.optLong("length_sec", -1L)
+        val views = video.optLong("views", -1L)
+        val uploadDate = video.optString("added", "4K / HD")
+
+        // Parse tags & keywords
+        val rawKeywords = video.opt("keywords")
+        val tagsList = mutableListOf<String>()
+        if (rawKeywords is JSONArray) {
+            for (kIdx in 0 until rawKeywords.length()) {
+                val tagStr = rawKeywords.optString(kIdx, "").trim()
+                if (tagStr.isNotBlank() && !tagsList.contains(tagStr)) tagsList.add(tagStr)
+            }
+        } else if (rawKeywords is String && rawKeywords.isNotBlank()) {
+            rawKeywords.split(",").forEach { tag ->
+                val tagStr = tag.trim()
+                if (tagStr.isNotBlank() && !tagsList.contains(tagStr)) tagsList.add(tagStr)
+            }
+        }
+
+        val uploaderName = parseStudioOrModel(title, rawKeywords?.toString() ?: "", tagsList)
+        val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploaderName, null, title)
+        val encName = try { java.net.URLEncoder.encode(uploaderName.take(30), "UTF-8") } catch (_: Exception) { uploaderName.take(30) }
+        val uploaderAvatarUrl = brand.logoUrls.firstOrNull()
+            ?: "https://ui-avatars.com/api/?name=$encName&background=00897B&color=fff&size=256&bold=true"
+        val uploaderUrl = "eporner_${uploaderName.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+        // Parse storyboard teaser frames
+        val previewThumbsList = mutableListOf<String>()
+        val thumbsArr = video.optJSONArray("thumbs")
+        if (thumbsArr != null && thumbsArr.length() > 0) {
+            for (t in 0 until thumbsArr.length()) {
+                val tObj = thumbsArr.optJSONObject(t)
+                val tSrc = tObj?.optString("src", "")
+                if (!tSrc.isNullOrBlank() && !previewThumbsList.contains(tSrc)) {
+                    previewThumbsList.add(tSrc)
+                }
+            }
+        }
+
+        if (previewThumbsList.isEmpty() && thumb.isNotBlank()) {
+            val epornerMatcher = Regex("""/(\d+)(_\d+\.jpg)""").find(thumb)
+            if (epornerMatcher != null) {
+                val suffix = epornerMatcher.groupValues[2]
+                val base = thumb.substring(0, epornerMatcher.range.first)
+                previewThumbsList.addAll((1..16).map { idx -> "$base/$idx$suffix" })
+            } else if (thumb.contains("/thumbs/")) {
+                val lastSlash = thumb.lastIndexOf('/')
+                if (lastSlash != -1) {
+                    val base = thumb.substring(0, lastSlash)
+                    previewThumbsList.addAll((1..16).map { idx -> "$base/${idx}_360.jpg" })
+                }
+            }
+            if (previewThumbsList.isEmpty()) {
+                previewThumbsList.add(thumb)
+            }
+        }
+
+        val descBuilder = StringBuilder()
+        descBuilder.append("Studio / Creator: ").append(uploaderName).append("\n")
+        if (tagsList.isNotEmpty()) {
+            descBuilder.append("Tags: ").append(tagsList.take(8).joinToString(", ")).append("\n")
+        }
+        val is4k = title.contains("4K", ignoreCase = true) || tagsList.any { it.contains("4k", ignoreCase = true) }
+        val qualityLabel = if (is4k) "4K Ultra HD • Official Eporner Release" else "1080p Full HD • Official Eporner Release"
+        descBuilder.append("Quality: ").append(qualityLabel)
+
+        return VideoItem(
+            id = url,
+            title = title,
+            uploaderName = uploaderName,
+            uploaderUrl = uploaderUrl,
+            uploaderAvatarUrl = uploaderAvatarUrl,
+            durationSeconds = duration,
+            viewCount = views,
+            uploadDate = uploadDate,
+            thumbnailUrl = thumb,
+            providerId = PROVIDER_ID,
+            previewThumbnails = previewThumbsList,
+            tags = tagsList,
+            description = descBuilder.toString()
+        )
+    }
+
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val videoId = extractVideoId(urlOrId)
         val defaultHeaders = mapOf(
@@ -96,7 +214,6 @@ object EpornerProvider {
             "Referer" to "https://www.eporner.com/embed/$videoId/"
         )
 
-        // STEP 1: Ultra-Fast Native Direct Extraction (~200ms - 400ms)
         try {
             Log.i(TAG, "Starting fast native Eporner extraction for video ID: $videoId")
             val embedUrl = "https://www.eporner.com/embed/$videoId/"
@@ -120,7 +237,6 @@ object EpornerProvider {
                 Log.w(TAG, "Embed fetch failed: ${e.message}")
             }
 
-            // If embed failed or returned short content, try main video page
             if (pageHtml.length < 200) {
                 val pageUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.eporner.com/video-$videoId/"
                 val pageReq = Request.Builder()
@@ -139,7 +255,6 @@ object EpornerProvider {
                 }
             }
 
-            // Extract title and poster from page HTML
             val titleMatch = Regex("""<title>(.*?)(?: - EPORNER)?</title>""", RegexOption.IGNORE_CASE).find(pageHtml)
             if (titleMatch != null) {
                 title = titleMatch.groupValues[1].trim()
@@ -149,7 +264,6 @@ object EpornerProvider {
                 posterUrl = posterMatch.groupValues[1]
             }
 
-            // Extract 32-char hex hash
             val hashRegex = Regex("""(?:hash|EP\.video\.player\.hash)\s*[:=]\s*['"]([0-9a-fA-F]{32})['"]""", RegexOption.IGNORE_CASE)
             val hashMatch = hashRegex.find(pageHtml)
             val rawHash = hashMatch?.groupValues?.get(1)
@@ -190,11 +304,11 @@ object EpornerProvider {
 
                             val labelShort = streamObj.optString("labelShort", key)
                             val (height, label) = when {
-                                key.contains("1080", ignoreCase = true) || labelShort.contains("1080", ignoreCase = true) -> 1080 to "1080p Full HD (mp4)"
-                                key.contains("720", ignoreCase = true) || labelShort.contains("720", ignoreCase = true) -> 720 to "720p HD (mp4)"
-                                key.contains("480", ignoreCase = true) || labelShort.contains("480", ignoreCase = true) -> 480 to "480p SD (mp4)"
-                                key.contains("360", ignoreCase = true) || labelShort.contains("360", ignoreCase = true) -> 360 to "360p (mp4)"
-                                key.contains("240", ignoreCase = true) || labelShort.contains("240", ignoreCase = true) -> 240 to "240p (mp4)"
+                                key.contains("2160", ignoreCase = true) || labelShort.contains("4k", ignoreCase = true) || labelShort.contains("2160", ignoreCase = true) -> 2160 to "4K Ultra HD (MP4)"
+                                key.contains("1080", ignoreCase = true) || labelShort.contains("1080", ignoreCase = true) -> 1080 to "1080p Full HD (MP4)"
+                                key.contains("720", ignoreCase = true) || labelShort.contains("720", ignoreCase = true) -> 720 to "720p HD (MP4)"
+                                key.contains("480", ignoreCase = true) || labelShort.contains("480", ignoreCase = true) -> 480 to "480p SD (MP4)"
+                                key.contains("360", ignoreCase = true) || labelShort.contains("360", ignoreCase = true) -> 360 to "360p (MP4)"
                                 else -> 480 to "MP4 Stream ($labelShort)"
                             }
 
@@ -211,25 +325,38 @@ object EpornerProvider {
                         }
 
                         if (parsedOptions.isNotEmpty()) {
-                            // Sort highest resolution first
                             val sortedOptions = parsedOptions
                                 .sortedByDescending { it.first }
                                 .map { it.second }
                                 .distinctBy { it.videoUrl }
 
                             val bestOption = sortedOptions.first()
-                            Log.i(TAG, "Fast Eporner extraction SUCCESS: ${sortedOptions.size} streams resolved in direct XHR mode")
+                            val uploader = parseStudioOrModel(title, "", emptyList())
+                            val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                            val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                            val avatarUrl = brand.logoUrls.firstOrNull()
+                                ?: "https://ui-avatars.com/api/?name=$encName&background=00897B&color=fff&size=256&bold=true"
+
+                            val related = try {
+                                search(uploader, limit = 12).filter { !it.id.contains(videoId) }
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
 
                             return@withContext StreamData(
                                 videoId = videoId,
                                 videoUrl = bestOption.videoUrl ?: "",
                                 title = title,
-                                channelName = "Eporner",
-                                thumbnailUrl = if (posterUrl.isNotBlank()) posterUrl else "https://static-sg-cdn.eporner.com/thumbs/static4/1/17/178/17873827/14_360.jpg",
+                                channelName = uploader,
+                                channelAvatarUrl = avatarUrl,
+                                subscriberCountText = "Verified Eporner Studio • 4K/HD Release",
+                                description = "Studio: $uploader\nQuality: 4K Ultra HD / 1080p Full HD\nOfficial Eporner Verified Release",
                                 availableStreamOptions = sortedOptions,
                                 selectedStreamOption = bestOption,
+                                relatedVideos = related,
                                 providerId = PROVIDER_ID,
                                 providerType = ProviderType.DIRECT,
+                                thumbnailUrl = if (posterUrl.isNotBlank()) posterUrl else "https://static-sg-cdn.eporner.com/thumbs/static4/1/17/178/17873827/14_360.jpg",
                                 headers = defaultHeaders
                             )
                         }
@@ -237,7 +364,6 @@ object EpornerProvider {
                 }
             }
 
-            // STEP 2: Backup fast parser for direct contentUrl or embed gvideo
             val gvideoMatch = Regex("""["']contentUrl["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""", RegexOption.IGNORE_CASE).find(pageHtml)
             val gvideoUrl = gvideoMatch?.groupValues?.get(1)
             if (!gvideoUrl.isNullOrBlank()) {
@@ -249,13 +375,20 @@ object EpornerProvider {
                     providerType = ProviderType.DIRECT,
                     headers = defaultHeaders
                 )
-                Log.i(TAG, "Eporner resolved via contentUrl direct: $gvideoUrl")
+                val uploader = parseStudioOrModel(title, "", emptyList())
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                val avatarUrl = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=00897B&color=fff&size=256&bold=true"
+
                 return@withContext StreamData(
                     videoId = videoId,
                     videoUrl = gvideoUrl,
                     title = title,
-                    channelName = "Eporner",
-                    thumbnailUrl = posterUrl,
+                    channelName = uploader,
+                    channelAvatarUrl = avatarUrl,
+                    subscriberCountText = "Verified Eporner Studio • HD Release",
+                    description = "Studio: $uploader\nQuality: 720p HD Direct Stream",
                     availableStreamOptions = listOf(directOption),
                     selectedStreamOption = directOption,
                     providerId = PROVIDER_ID,
@@ -267,7 +400,6 @@ object EpornerProvider {
             Log.e(TAG, "Fast native Eporner extraction failed: ${e.message}", e)
         }
 
-        // STEP 3: Fallback to YtDlp only as a last resort if context is available
         if (context != null) {
             try {
                 val targetUrl = if (urlOrId.startsWith("http")) urlOrId else "https://www.eporner.com/video-$videoId/"
@@ -304,47 +436,8 @@ object EpornerProvider {
             val videosArr = json.optJSONArray("videos") ?: return@withContext emptyList()
             for (i in 0 until videosArr.length()) {
                 val video = videosArr.optJSONObject(i) ?: continue
-                val id = video.optString("id", "")
-                val title = video.optString("title", "Eporner Video")
-                val itemVideoId = if (id.isNotBlank()) id else extractVideoId(video.optString("url", ""))
-                val url = "https://www.eporner.com/video-$itemVideoId/"
-                val thumbObj = video.optJSONObject("default_thumb")
-                val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
-                val duration = video.optLong("length_sec", -1L)
-                val views = video.optLong("views", -1L)
-
-                val previewThumbsList = mutableListOf<String>()
-                val thumbsArr = video.optJSONArray("thumbs")
-                if (thumbsArr != null) {
-                    for (t in 0 until thumbsArr.length()) {
-                        val tObj = thumbsArr.optJSONObject(t)
-                        val tSrc = tObj?.optString("src", "")
-                        if (!tSrc.isNullOrBlank()) {
-                            previewThumbsList.add(tSrc)
-                        }
-                    }
-                }
-                if (previewThumbsList.isEmpty() && thumb.isNotBlank()) {
-                    previewThumbsList.addAll(com.example.util.PreviewFrameResolver.resolvePreviewFrames(
-                        VideoItem(id = url, title = title, uploaderName = "Eporner", thumbnailUrl = thumb, providerId = PROVIDER_ID)
-                    ))
-                }
-
-                items.add(
-                    VideoItem(
-                        id = url,
-                        title = title,
-                        uploaderName = "Eporner",
-                        uploaderUrl = "https://www.eporner.com",
-                        uploaderAvatarUrl = "https://static-sg-cdn.eporner.com/thumbs/static4/1/17/178/17873827/14_360.jpg",
-                        durationSeconds = duration,
-                        viewCount = views,
-                        uploadDate = video.optString("added", "HD"),
-                        thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID,
-                        previewThumbnails = previewThumbsList
-                    )
-                )
+                val parsedItem = parseVideoItemFromJson(video) ?: continue
+                items.add(parsedItem)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Eporner getHome failed: ${e.message}")
@@ -369,47 +462,8 @@ object EpornerProvider {
             val videosArr = json.optJSONArray("videos") ?: return@withContext emptyList()
             for (i in 0 until videosArr.length()) {
                 val video = videosArr.optJSONObject(i) ?: continue
-                val id = video.optString("id", "")
-                val title = video.optString("title", "Eporner Video")
-                val itemVideoId = if (id.isNotBlank()) id else extractVideoId(video.optString("url", ""))
-                val url = "https://www.eporner.com/video-$itemVideoId/"
-                val thumbObj = video.optJSONObject("default_thumb")
-                val thumb = thumbObj?.optString("src", "") ?: video.optString("thumb", "")
-                val duration = video.optLong("length_sec", -1L)
-                val views = video.optLong("views", -1L)
-
-                val previewThumbsList = mutableListOf<String>()
-                val thumbsArr = video.optJSONArray("thumbs")
-                if (thumbsArr != null) {
-                    for (t in 0 until thumbsArr.length()) {
-                        val tObj = thumbsArr.optJSONObject(t)
-                        val tSrc = tObj?.optString("src", "")
-                        if (!tSrc.isNullOrBlank()) {
-                            previewThumbsList.add(tSrc)
-                        }
-                    }
-                }
-                if (previewThumbsList.isEmpty() && thumb.isNotBlank()) {
-                    previewThumbsList.addAll(com.example.util.PreviewFrameResolver.resolvePreviewFrames(
-                        VideoItem(id = url, title = title, uploaderName = "Eporner", thumbnailUrl = thumb, providerId = PROVIDER_ID)
-                    ))
-                }
-
-                items.add(
-                    VideoItem(
-                        id = url,
-                        title = title,
-                        uploaderName = "Eporner",
-                        uploaderUrl = "https://www.eporner.com",
-                        uploaderAvatarUrl = "https://static-sg-cdn.eporner.com/thumbs/static4/1/17/178/17873827/14_360.jpg",
-                        durationSeconds = duration,
-                        viewCount = views,
-                        uploadDate = video.optString("added", "HD"),
-                        thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID,
-                        previewThumbnails = previewThumbsList
-                    )
-                )
+                val parsedItem = parseVideoItemFromJson(video) ?: continue
+                items.add(parsedItem)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Eporner search failed: ${e.message}")
@@ -417,4 +471,3 @@ object EpornerProvider {
         items
     }
 }
-

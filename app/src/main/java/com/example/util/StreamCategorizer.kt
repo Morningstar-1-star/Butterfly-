@@ -9,6 +9,7 @@ object StreamCategorizer {
         if (option.sourceName.isNotBlank()) return option.sourceName
         val label = option.qualityLabel.lowercase()
         return when {
+            option.providerType == ProviderType.DECRYPTOR || label.contains("decryptor") -> "Decryptor"
             option.providerType == ProviderType.VEGA || label.contains("vega") -> "Vega"
             label.contains("vidrock") -> "VidRock"
             label.contains("vidsrc") -> "VidSrc"

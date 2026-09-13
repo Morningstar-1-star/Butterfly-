@@ -113,7 +113,7 @@ object ThumbnailOptimizer {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .allowHardware(false)
+            .allowHardware(true)
             .allowRgb565(true)
             .crossfade(crossfadeMillis)
             .dispatcher(Dispatchers.IO)
@@ -318,7 +318,7 @@ object ThumbnailOptimizer {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .allowHardware(false)
+            .allowHardware(true)
             .allowRgb565(true)
             .crossfade(crossfadeMillis)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -341,7 +341,7 @@ object ThumbnailOptimizer {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .allowHardware(false)
+            .allowHardware(true)
             .allowRgb565(true)
             .crossfade(crossfadeMillis)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -386,6 +386,7 @@ object ThumbnailOptimizer {
                         imageLoader.enqueue(request)
                     }
                 }
+                PreviewFrameResolver.prefetchTeasersForFeed(context, videos.take(4))
             } catch (ignored: Exception) {
                 // Ignore background prefetch errors gracefully
             }

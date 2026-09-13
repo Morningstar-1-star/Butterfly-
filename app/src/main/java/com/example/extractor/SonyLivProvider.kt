@@ -312,12 +312,12 @@ object SonyLivProvider {
         try {
             val providers = listOf("vidsrc", "autoembed", "superstream")
             for (prov in providers) {
-                val searchResults = withTimeoutOrNull(4000L) {
+                val searchResults = withTimeoutOrNull(12000L) {
                     VegaProviderClient.search(prov, searchTerms)
                 }
                 if (!searchResults.isNullOrEmpty()) {
                     val topResult = searchResults.first()
-                    val playbackRes = withTimeoutOrNull(6000L) {
+                    val playbackRes = withTimeoutOrNull(15000L) {
                         VegaProviderClient.resolveFullVegaPlayback(prov, topResult.link)
                     }
                     if (playbackRes != null && playbackRes.success && playbackRes.streams.isNotEmpty()) {

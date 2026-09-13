@@ -141,7 +141,9 @@ data class PlayableStreamOption(
     val isDolbyVision: Boolean = false,
     val isHdr: Boolean = false,
     val codec: String = "",
-    val releaseTitle: String = ""
+    val releaseTitle: String = "",
+    val subtitles: List<CaptionOption> = emptyList(),
+    val serverStatus: String = "Online"
 ) {
     val detectedSourceName: String
         get() = com.example.util.StreamCategorizer.detectSourceName(this)
@@ -200,6 +202,7 @@ data class StreamData(
     val providerType: ProviderType = ProviderType.OTHER,
     val headers: Map<String, String> = emptyMap(),
     val tags: List<String> = emptyList(),
+    val cast: List<com.example.model.CastMember> = emptyList(),
     val category: String? = null,
     val originalTitle: String? = null,
     val translatedTitleEN: String? = null,

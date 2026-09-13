@@ -606,6 +606,7 @@ class TorrentSessionManager(
         playbackByteOffset.set(0L)
 
         _stats.value = TorrentEngineStats(state = TorrentEngineState.IDLE)
+        engine.stopIfIdle()
     }
 
     private fun isVideoFile(path: String): Boolean {

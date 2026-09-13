@@ -11,6 +11,11 @@ import org.json.JSONObject
 class VegaProviderRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private val _isVegaMasterEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, false)
+    )
+    val isVegaMasterEnabled: StateFlow<Boolean> = _isVegaMasterEnabled.asStateFlow()
+
     private val _installedProviders = MutableStateFlow<List<InstalledVegaProvider>>(emptyList())
     val installedProviders: StateFlow<List<InstalledVegaProvider>> = _installedProviders.asStateFlow()
 
@@ -22,7 +27,17 @@ class VegaProviderRepository(private val context: Context) {
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
     init {
+        // Sync global flag on startup
+        VegaProviderClient.isVegaGloballyEnabled = _isVegaMasterEnabled.value
         loadInstalledProviders()
+    }
+
+    fun isVegaMasterEnabled(): Boolean = _isVegaMasterEnabled.value
+
+    fun setVegaMasterEnabled(enabled: Boolean) {
+        _isVegaMasterEnabled.value = enabled
+        VegaProviderClient.isVegaGloballyEnabled = enabled
+        prefs.edit().putBoolean(KEY_VEGA_MASTER_ENABLED, enabled).apply()
     }
 
     fun getServerUrl(): String {
@@ -38,6 +53,20 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     private fun loadInstalledProviders() {
+        val migrationDone = prefs.getBoolean(KEY_MIGRATION_V3, false)
+        if (!migrationDone) {
+            // User requested all Vega sources uninstalled and disabled by default
+            prefs.edit()
+                .putString(KEY_INSTALLED_PROVIDERS, "[]")
+                .putBoolean(KEY_VEGA_MASTER_ENABLED, false)
+                .putBoolean(KEY_MIGRATION_V3, true)
+                .apply()
+            _isVegaMasterEnabled.value = false
+            VegaProviderClient.isVegaGloballyEnabled = false
+            _installedProviders.value = emptyList()
+            return
+        }
+
         val jsonStr = prefs.getString(KEY_INSTALLED_PROVIDERS, null)
         val list = mutableListOf<InstalledVegaProvider>()
 
@@ -46,7 +75,7 @@ class VegaProviderRepository(private val context: Context) {
                 val array = JSONArray(jsonStr)
                 for (i in 0 until array.length()) {
                     val obj = array.optJSONObject(i) ?: continue
-                    val id = obj.optString("id")
+                    val id = obj.optString("id").trim().lowercase()
                     if (id.isNotBlank()) {
                         val name = obj.optString("name").ifBlank { VegaProviderClient.formatProviderDisplayName(id) }
                         val isEnabled = obj.optBoolean("isEnabled", true)
@@ -64,18 +93,6 @@ class VegaProviderRepository(private val context: Context) {
             } catch (e: Exception) {
                 // Ignore parse errors
             }
-        } else {
-            // Seed all default working & available providers
-            val defaultSeeds = listOf(
-                "hdhub4u", "4khdhub", "vega", "topmovies", "world4u", "uhd", 
-                "showbox", "ridoMovies", "eonMovies", "movieBoxWeb", "mod", 
-                "ringz", "kissKh", "torrentio", "autoEmbed", "drive", 
-                "guardahd", "zeefliz", "anikoto", "movies4u"
-            )
-            defaultSeeds.forEach { id ->
-                list.add(InstalledVegaProvider(id = id, name = VegaProviderClient.formatProviderDisplayName(id), isEnabled = true))
-            }
-            saveInstalledProviders(list)
         }
 
         _installedProviders.value = list
@@ -87,7 +104,7 @@ class VegaProviderRepository(private val context: Context) {
             val array = JSONArray()
             list.forEach { provider ->
                 val obj = JSONObject().apply {
-                    put("id", provider.id)
+                    put("id", provider.id.trim().lowercase())
                     put("name", provider.name)
                     put("isEnabled", provider.isEnabled)
                     put("installedAtMs", provider.installedAtMs)
@@ -105,18 +122,19 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     fun installProvider(id: String, name: String = VegaProviderClient.formatProviderDisplayName(id)) {
+        val cleanId = id.trim().lowercase()
         val current = _installedProviders.value.toMutableList()
-        val index = current.indexOfFirst { it.id.equals(id, ignoreCase = true) }
+        val index = current.indexOfFirst { it.id.equals(cleanId, ignoreCase = true) }
         if (index >= 0) {
             current[index] = current[index].copy(name = name, isEnabled = true)
         } else {
-            current.add(InstalledVegaProvider(id = id.trim().lowercase(), name = name, isEnabled = true))
+            current.add(InstalledVegaProvider(id = cleanId, name = name, isEnabled = true))
         }
         saveInstalledProviders(current)
     }
 
     fun installAllProviders(providerIds: List<String>) {
-        val currentMap = _installedProviders.value.associateBy { it.id.lowercase() }.toMutableMap()
+        val currentMap = _installedProviders.value.associateBy { it.id.trim().lowercase() }.toMutableMap()
         providerIds.forEach { rawId ->
             val cleanId = rawId.trim().lowercase()
             if (cleanId.isNotBlank()) {
@@ -133,13 +151,19 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     fun uninstallProvider(id: String) {
-        val current = _installedProviders.value.filterNot { it.id.equals(id, ignoreCase = true) }
+        val cleanId = id.trim().lowercase()
+        val current = _installedProviders.value.filterNot { it.id.equals(cleanId, ignoreCase = true) }
         saveInstalledProviders(current)
     }
 
+    fun uninstallAllProviders() {
+        saveInstalledProviders(emptyList())
+    }
+
     fun setProviderEnabled(id: String, isEnabled: Boolean) {
+        val cleanId = id.trim().lowercase()
         val current = _installedProviders.value.map {
-            if (it.id.equals(id, ignoreCase = true)) {
+            if (it.id.equals(cleanId, ignoreCase = true)) {
                 it.copy(isEnabled = isEnabled)
             } else {
                 it
@@ -149,16 +173,20 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     fun isProviderInstalled(id: String): Boolean {
-        return _installedProviders.value.any { it.id.equals(id, ignoreCase = true) }
+        val cleanId = id.trim().lowercase()
+        return _installedProviders.value.any { it.id.equals(cleanId, ignoreCase = true) }
     }
 
     fun isProviderEnabled(id: String): Boolean {
-        return _installedProviders.value.firstOrNull { it.id.equals(id, ignoreCase = true) }?.isEnabled ?: false
+        val cleanId = id.trim().lowercase()
+        return _installedProviders.value.firstOrNull { it.id.equals(cleanId, ignoreCase = true) }?.isEnabled ?: false
     }
 
     companion object {
         private const val PREFS_NAME = "butterfly_vega_providers_prefs"
         private const val KEY_INSTALLED_PROVIDERS = "installed_vega_providers_json"
         private const val KEY_SERVER_URL = "vega_server_host_url"
+        private const val KEY_VEGA_MASTER_ENABLED = "vega_master_enabled"
+        private const val KEY_MIGRATION_V3 = "vega_seeds_uninstalled_v3"
     }
 }

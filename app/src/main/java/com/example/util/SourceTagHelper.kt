@@ -63,6 +63,8 @@ object SourceTagHelper {
             pid == "imdb" -> "IMDb"
             pid == "mxplayer" -> "MX Player"
             pid == "popcorntv" || pid == "popcorn" -> "PopcornTV"
+            pid == "decryptor" -> "Decryptor"
+            pid == "vidsrc" -> "VidSrc"
 
             // Cloud Social (Bunkr, Telegram, MEGA)
             pid == "bunkr" -> "Bunkr"
@@ -234,6 +236,8 @@ object SourceTagHelper {
             s.contains("imdb") -> Pair(Color(0xFFF5C518), Color.Black)
             s.contains("mx player") -> Pair(Color(0xFF1565C0), Color.White)
             s.contains("popcorntv") -> Pair(Color(0xFFD32F2F), Color.White)
+            s.contains("decryptor") -> Pair(Color(0xFF00E5FF), Color.Black)
+            s.contains("vidsrc") -> Pair(Color(0xFFFF9100), Color.White)
             s.contains("telegram") -> Pair(Color(0xFF2AABEE), Color.White)
             s.contains("mega") -> Pair(Color(0xFFD9272E), Color.White)
             s.contains("bunkr") -> Pair(Color(0xFF880E4F), Color.White)

@@ -35,12 +35,17 @@ class SupabaseClient(private val context: Context) {
     // AUTH METHODS (GoTrue API)
     // =========================================================================
 
-    suspend fun signUp(email: String, password: String): Result<SupabaseSession> = withContext(Dispatchers.IO) {
+    suspend fun signUp(email: String, password: String, redirectTo: String = "butterfly://auth/callback"): Result<SupabaseSession> = withContext(Dispatchers.IO) {
         try {
-            val url = "$baseUrl/auth/v1/signup"
+            val encodedRedirect = java.net.URLEncoder.encode(redirectTo, "UTF-8")
+            val url = "$baseUrl/auth/v1/signup?redirect_to=$encodedRedirect"
             val bodyObj = JSONObject().apply {
                 put("email", email)
                 put("password", password)
+                put("email_redirect_to", redirectTo)
+                put("options", JSONObject().apply {
+                    put("emailRedirectTo", redirectTo)
+                })
             }
             val request = Request.Builder()
                 .url(url)
@@ -92,6 +97,132 @@ class SupabaseClient(private val context: Context) {
             Result.success(session)
         } catch (e: Exception) {
             Log.e(tag, "signUp error", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getUser(accessToken: String): Result<SupabaseUser> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/auth/v1/user"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", anonKey)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val error = extractErrorMessage(body, "Failed to get user profile (${response.code})")
+                return@withContext Result.failure(IOException(error))
+            }
+
+            val json = JSONObject(body)
+            val user = SupabaseUser(
+                id = json.optString("id", ""),
+                email = json.optString("email", ""),
+                createdAt = json.optString("created_at")
+            )
+            Result.success(user)
+        } catch (e: Exception) {
+            Log.e(tag, "getUser error", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun verifyOtp(tokenHash: String, type: String = "signup"): Result<SupabaseSession> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/auth/v1/verify"
+            val bodyObj = JSONObject().apply {
+                put("type", type)
+                put("token_hash", tokenHash)
+            }
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", anonKey)
+                .addHeader("Content-Type", "application/json")
+                .post(bodyObj.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val error = extractErrorMessage(body, "Email verification failed (${response.code})")
+                return@withContext Result.failure(IOException(error))
+            }
+
+            val json = JSONObject(body)
+            val sessionObj = json.optJSONObject("session")
+            val accessToken = json.optString("access_token", sessionObj?.optString("access_token", "") ?: "")
+            val refreshToken = json.optString("refresh_token", sessionObj?.optString("refresh_token", "") ?: "")
+            val expiresIn = if (json.has("expires_in")) json.optLong("expires_in", 3600L) else sessionObj?.optLong("expires_in", 3600L) ?: 3600L
+            val userObj = json.optJSONObject("user") ?: sessionObj?.optJSONObject("user") ?: if (json.has("id")) json else null
+
+            val user = SupabaseUser(
+                id = userObj?.optString("id", "") ?: "",
+                email = userObj?.optString("email", "") ?: "",
+                createdAt = userObj?.optString("created_at")
+            )
+
+            val session = SupabaseSession(
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                user = user,
+                expiresAt = if (expiresIn > 0) System.currentTimeMillis() + (expiresIn * 1000) else 0L
+            )
+            Result.success(session)
+        } catch (e: Exception) {
+            Log.e(tag, "verifyOtp error", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun exchangeCodeForSession(authCode: String): Result<SupabaseSession> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/auth/v1/token?grant_type=pkce"
+            val bodyObj = JSONObject().apply {
+                put("auth_code", authCode)
+            }
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", anonKey)
+                .addHeader("Content-Type", "application/json")
+                .post(bodyObj.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val error = extractErrorMessage(body, "Code exchange failed (${response.code})")
+                return@withContext Result.failure(IOException(error))
+            }
+
+            val json = JSONObject(body)
+            val sessionObj = json.optJSONObject("session")
+            val accessToken = json.optString("access_token", sessionObj?.optString("access_token", "") ?: "")
+            val refreshToken = json.optString("refresh_token", sessionObj?.optString("refresh_token", "") ?: "")
+            val expiresIn = if (json.has("expires_in")) json.optLong("expires_in", 3600L) else sessionObj?.optLong("expires_in", 3600L) ?: 3600L
+            val userObj = json.optJSONObject("user") ?: sessionObj?.optJSONObject("user") ?: if (json.has("id")) json else null
+
+            val user = SupabaseUser(
+                id = userObj?.optString("id", "") ?: "",
+                email = userObj?.optString("email", "") ?: "",
+                createdAt = userObj?.optString("created_at")
+            )
+
+            val session = SupabaseSession(
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                user = user,
+                expiresAt = if (expiresIn > 0) System.currentTimeMillis() + (expiresIn * 1000) else 0L
+            )
+            Result.success(session)
+        } catch (e: Exception) {
+            Log.e(tag, "exchangeCodeForSession error", e)
             Result.failure(e)
         }
     }

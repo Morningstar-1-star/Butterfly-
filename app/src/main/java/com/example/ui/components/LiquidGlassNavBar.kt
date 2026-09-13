@@ -3,7 +3,6 @@ package com.example.ui.components
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,8 +11,14 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Subscriptions
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Subscriptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -34,9 +38,9 @@ import com.example.model.AppScreen
 import com.example.model.UserProfile
 
 /**
- * YouTube-style clean and minimalist bottom navigation bar.
- * Dynamically displays the user's selected 3D avatar or uploaded gallery logo on the "You" tab,
- * with YouTube-style active selection border ring and spring touch animations.
+ * YouTube-style ultra-minimalist bottom navigation bar.
+ * Clean, pure-white rounded icons without text labels, featuring smooth rounded
+ * corners and dynamic 3D avatar / profile support on the "You" tab.
  */
 @Composable
 fun LiquidGlassNavBar(
@@ -56,7 +60,7 @@ fun LiquidGlassNavBar(
                 .navigationBarsPadding()
         ) {
             HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f),
+                color = Color.White.copy(alpha = 0.12f),
                 thickness = 0.5.dp
             )
             Row(
@@ -68,7 +72,7 @@ fun LiquidGlassNavBar(
             ) {
                 NavItem(
                     label = "Home",
-                    selectedIcon = Icons.Filled.Home,
+                    selectedIcon = Icons.Rounded.Home,
                     unselectedIcon = Icons.Outlined.Home,
                     isSelected = (currentScreen == AppScreen.HOME),
                     modifier = Modifier.weight(1f),
@@ -77,7 +81,7 @@ fun LiquidGlassNavBar(
 
                 NavItem(
                     label = "Explore",
-                    selectedIcon = Icons.Filled.Explore,
+                    selectedIcon = Icons.Rounded.Explore,
                     unselectedIcon = Icons.Outlined.Explore,
                     isSelected = (currentScreen == AppScreen.EXPLORE),
                     modifier = Modifier.weight(1f),
@@ -86,7 +90,7 @@ fun LiquidGlassNavBar(
 
                 NavItem(
                     label = "Subscriptions",
-                    selectedIcon = Icons.Filled.Subscriptions,
+                    selectedIcon = Icons.Rounded.Subscriptions,
                     unselectedIcon = Icons.Outlined.Subscriptions,
                     isSelected = (currentScreen == AppScreen.SUBSCRIPTIONS || currentScreen == AppScreen.LIBRARY),
                     modifier = Modifier.weight(1f),
@@ -117,7 +121,7 @@ private fun NavItem(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.85f else 1.0f,
+        targetValue = if (isPressed) 0.86f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
@@ -125,8 +129,8 @@ private fun NavItem(
         label = "nav_item_scale"
     )
 
-    val activeColor = MaterialTheme.colorScheme.onBackground
-    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    // Pure white icons matching the YouTube app UI
+    val iconColor = Color.White
 
     Box(
         modifier = modifier
@@ -137,36 +141,22 @@ private fun NavItem(
             ) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-        ) {
-            Icon(
-                imageVector = if (isSelected) selectedIcon else unselectedIcon,
-                contentDescription = label,
-                tint = if (isSelected) activeColor else inactiveColor,
-                modifier = Modifier.size(24.dp)
-            )
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Text(
-                text = label,
-                fontSize = 10.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isSelected) activeColor else inactiveColor,
-                maxLines = 1
-            )
-        }
+        Icon(
+            imageVector = if (isSelected) selectedIcon else unselectedIcon,
+            contentDescription = label,
+            tint = iconColor,
+            modifier = Modifier
+                .size(25.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+        )
     }
 }
 
 /**
- * YouTube-style "You" tab item that reflects the user's customized 3D avatar / uploaded logo
+ * YouTube-style "You" tab item with pure white styling and rounded profile avatar
  */
 @Composable
 private fun YouNavItem(
@@ -179,7 +169,7 @@ private fun YouNavItem(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.85f else 1.0f,
+        targetValue = if (isPressed) 0.86f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
@@ -187,8 +177,8 @@ private fun YouNavItem(
         label = "you_nav_item_scale"
     )
 
-    val activeColor = MaterialTheme.colorScheme.onBackground
-    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    val activeColor = Color.White
+    val inactiveColor = Color.White
 
     val avatarUrl = userProfile?.avatarUrl
     val presetId = userProfile?.avatarPreset
@@ -206,23 +196,22 @@ private fun YouNavItem(
             ) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+        Box(
             modifier = Modifier.graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            }
+            },
+            contentAlignment = Alignment.Center
         ) {
             if (!effectiveAvatarUrl.isNullOrBlank()) {
-                // YouTube-style circular profile image with active selection border ring
+                // YouTube-style circular profile image with active white selection border ring
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(26.dp)
                         .then(
                             if (isSelected) {
                                 Modifier.border(
-                                    width = 1.8.dp,
+                                    width = 2.dp,
                                     color = activeColor,
                                     shape = CircleShape
                                 )
@@ -230,7 +219,7 @@ private fun YouNavItem(
                                 Modifier
                             }
                         )
-                        .padding(if (isSelected) 1.5.dp else 0.dp)
+                        .padding(if (isSelected) 2.dp else 0.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1E1E2C)),
                     contentAlignment = Alignment.Center
@@ -246,11 +235,11 @@ private fun YouNavItem(
                 // Gradient emoji fallback
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(26.dp)
                         .then(
                             if (isSelected) {
                                 Modifier.border(
-                                    width = 1.8.dp,
+                                    width = 2.dp,
                                     color = activeColor,
                                     shape = CircleShape
                                 )
@@ -258,33 +247,22 @@ private fun YouNavItem(
                                 Modifier
                             }
                         )
-                        .padding(if (isSelected) 1.5.dp else 0.dp)
+                        .padding(if (isSelected) 2.dp else 0.dp)
                         .clip(CircleShape)
                         .background(Brush.linearGradient(matchedPreset.gradientColors)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = matchedPreset.emoji, fontSize = 12.sp)
+                    Text(text = matchedPreset.emoji, fontSize = 13.sp)
                 }
             } else {
-                // Generic AccountCircle icon
+                // Pure white rounded AccountCircle icon
                 Icon(
-                    imageVector = if (isSelected) Icons.Filled.AccountCircle else Icons.Outlined.AccountCircle,
+                    imageVector = if (isSelected) Icons.Rounded.AccountCircle else Icons.Outlined.AccountCircle,
                     contentDescription = "You",
                     tint = if (isSelected) activeColor else inactiveColor,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(25.dp)
                 )
             }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Text(
-                text = "You",
-                fontSize = 10.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isSelected) activeColor else inactiveColor,
-                maxLines = 1
-            )
         }
     }
 }
-

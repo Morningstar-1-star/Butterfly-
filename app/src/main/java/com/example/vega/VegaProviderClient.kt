@@ -19,12 +19,22 @@ object VegaProviderClient {
     private const val TAG = "VegaProviderClient"
     const val DEFAULT_SERVER_URL = "https://butterfly-mediaserver-1.onrender.com"
 
+    @Volatile
+    var isVegaGloballyEnabled: Boolean = false
+
+    val BACKUP_SERVER_URLS = listOf(
+        "https://butterfly-mediaserver-1.onrender.com",
+        "https://butterfly-mediaserver.onrender.com",
+        "https://butterfly-server.onrender.com",
+        "https://butterfly-mediaserver-2.onrender.com"
+    )
+
     // Stage-specific timeout configuration
-    private const val SEARCH_TIMEOUT_MS = 15_000L
-    private const val META_TIMEOUT_MS = 15_000L
-    private const val EPISODES_TIMEOUT_MS = 15_000L
-    private const val STREAM_TIMEOUT_MS = 20_000L
-    private const val PROBE_TIMEOUT_MS = 6_000L
+    private const val SEARCH_TIMEOUT_MS = 20_000L
+    private const val META_TIMEOUT_MS = 20_000L
+    private const val EPISODES_TIMEOUT_MS = 20_000L
+    private const val STREAM_TIMEOUT_MS = 25_000L
+    private const val PROBE_TIMEOUT_MS = 8_000L
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
@@ -33,6 +43,27 @@ object VegaProviderClient {
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+
+    private suspend fun <T> executeWithServerFallbacks(
+        initialBaseUrl: String,
+        block: suspend (baseUrl: String) -> T?,
+        isValidResult: (T?) -> Boolean
+    ): T? {
+        val firstAttempt = try { block(initialBaseUrl) } catch (_: Exception) { null }
+        if (isValidResult(firstAttempt)) return firstAttempt
+
+        for (backupUrl in BACKUP_SERVER_URLS) {
+            if (backupUrl.equals(initialBaseUrl, ignoreCase = true)) continue
+            try {
+                val res = block(backupUrl)
+                if (isValidResult(res)) {
+                    Log.i(TAG, "Vega server fallback succeeded with mirror: $backupUrl")
+                    return res
+                }
+            } catch (_: Exception) {}
+        }
+        return firstAttempt
+    }
 
     fun formatProviderDisplayName(providerId: String): String {
         val trimmed = providerId.trim().lowercase()
@@ -84,6 +115,12 @@ object VegaProviderClient {
     }
 
     suspend fun getAvailableProviders(baseUrl: String = DEFAULT_SERVER_URL): List<String> = withContext(Dispatchers.IO) {
+        executeWithServerFallbacks(baseUrl, { currentUrl ->
+            fetchAvailableProvidersInternal(currentUrl)
+        }, { res -> !res.isNullOrEmpty() }) ?: emptyList()
+    }
+
+    private suspend fun fetchAvailableProvidersInternal(baseUrl: String): List<String> = withContext(Dispatchers.IO) {
         val list = mutableListOf<String>()
         try {
             val cleanBase = baseUrl.trimEnd('/')
@@ -152,6 +189,7 @@ object VegaProviderClient {
         providerId: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
+        if (!isVegaGloballyEnabled || providerId.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
         val allResults = mutableListOf<VegaSearchResult>()
 
@@ -186,26 +224,28 @@ object VegaProviderClient {
         query: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
-        if (providerId.isBlank()) return@withContext emptyList()
+        if (!isVegaGloballyEnabled || providerId.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
         val cleanQuery = query.trim()
 
-        withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
-            var results = searchSingleQuery(cleanProv, cleanQuery.ifBlank { "2024" }, baseUrl)
-            if (results.isNotEmpty()) return@withTimeoutOrNull results
+        executeWithServerFallbacks(baseUrl, { currentUrl ->
+            withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
+                var results = searchSingleQuery(cleanProv, cleanQuery.ifBlank { "2024" }, currentUrl)
+                if (results.isNotEmpty()) return@withTimeoutOrNull results
 
-            val fallbackTerms = listOf("a", "movie")
-                .filterNot { it.equals(cleanQuery, ignoreCase = true) }
+                val fallbackTerms = listOf("a", "movie")
+                    .filterNot { it.equals(cleanQuery, ignoreCase = true) }
 
-            for (term in fallbackTerms) {
-                results = searchSingleQuery(cleanProv, term, baseUrl)
-                if (results.isNotEmpty()) {
-                    Log.d(TAG, "Search for '$cleanProv' succeeded with fallback term '$term' (${results.size} items)")
-                    return@withTimeoutOrNull results
+                for (term in fallbackTerms) {
+                    results = searchSingleQuery(cleanProv, term, currentUrl)
+                    if (results.isNotEmpty()) {
+                        Log.d(TAG, "Search for '$cleanProv' succeeded with fallback term '$term' (${results.size} items)")
+                        return@withTimeoutOrNull results
+                    }
                 }
+                results
             }
-            results
-        } ?: emptyList()
+        }, { res -> !res.isNullOrEmpty() }) ?: emptyList()
     }
 
     private suspend fun searchSingleQuery(
@@ -220,8 +260,15 @@ object VegaProviderClient {
 
         val endpointsToTest = listOf(
             "$cleanBase/search/$encodedProvider?q=$encodedQuery",
+            "$cleanBase/search?provider=$encodedProvider&q=$encodedQuery",
+            "$cleanBase/providers/$encodedProvider/search?q=$encodedQuery",
             "$cleanBase/posts/$encodedProvider?page=1",
-            "$cleanBase/catalog/$encodedProvider?page=1"
+            "$cleanBase/posts/$encodedProvider?s=$encodedQuery",
+            "$cleanBase/catalog/$encodedProvider?page=1",
+            "$cleanBase/catalog/$encodedProvider?q=$encodedQuery",
+            "$cleanBase/api/search/$encodedProvider?q=$encodedQuery",
+            "$cleanBase/$encodedProvider/search?q=$encodedQuery",
+            "$cleanBase/$encodedProvider?s=$encodedQuery"
         )
 
         val queryClient = httpClient.newBuilder()
@@ -308,164 +355,183 @@ object VegaProviderClient {
         link: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): VegaMetaResult? = withContext(Dispatchers.IO) {
-        if (providerId.isBlank() || link.isBlank()) return@withContext null
+        if (!isVegaGloballyEnabled || providerId.isBlank() || link.isBlank()) return@withContext null
 
+        executeWithServerFallbacks(baseUrl, { currentUrl ->
+            fetchMetaInternal(providerId, link, currentUrl)
+        }, { res -> res != null && (res.linkList.isNotEmpty() || !res.title.equals("Untitled", ignoreCase = true)) })
+    }
+
+    private suspend fun fetchMetaInternal(
+        providerId: String,
+        link: String,
+        baseUrl: String
+    ): VegaMetaResult? = withContext(Dispatchers.IO) {
         withTimeoutOrNull(META_TIMEOUT_MS) {
             try {
                 val cleanBase = baseUrl.trimEnd('/')
                 val encodedLink = URLEncoder.encode(link, StandardCharsets.UTF_8.toString())
                 val encodedProvider = URLEncoder.encode(providerId, StandardCharsets.UTF_8.toString())
-                val url = "$cleanBase/meta/$encodedProvider?link=$encodedLink"
 
-                val request = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Butterfly/1.0 (Android)")
-                    .header("Accept", "application/json")
-                    .build()
+                val metaEndpoints = listOf(
+                    "$cleanBase/meta/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/meta/$encodedProvider?url=$encodedLink",
+                    "$cleanBase/info/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/details/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/providers/$encodedProvider/meta?link=$encodedLink"
+                )
 
                 val metaClient = httpClient.newBuilder()
                     .connectTimeout(12, TimeUnit.SECONDS)
                     .readTimeout(15, TimeUnit.SECONDS)
                     .build()
 
-                metaClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w(TAG, "Meta fetch failed for $providerId (code: ${response.code})")
-                        return@withTimeoutOrNull null
-                    }
+                for (url in metaEndpoints) {
+                    try {
+                        val request = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "Butterfly/1.0 (Android)")
+                            .header("Accept", "application/json")
+                            .build()
 
-                    val bodyStr = response.body?.string() ?: return@withTimeoutOrNull null
-                    val trimmed = bodyStr.trim()
-                    if (!trimmed.startsWith("{")) return@withTimeoutOrNull null
+                        metaClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) return@use
 
-                    val json = JSONObject(trimmed)
-                    val requiresWebView = json.optBoolean("requiresWebView", false) ||
-                            json.optString("error").contains("WEBVIEW", ignoreCase = true) ||
-                            json.optString("message").contains("WEBVIEW", ignoreCase = true)
+                            val bodyStr = response.body?.string() ?: return@use
+                            val trimmed = bodyStr.trim()
+                            if (!trimmed.startsWith("{")) return@use
 
-                    val metaObj = json.optJSONObject("result")
-                        ?: json.optJSONObject("data")
-                        ?: json.optJSONObject("meta")
-                        ?: json
+                            val json = JSONObject(trimmed)
+                            val requiresWebView = json.optBoolean("requiresWebView", false) ||
+                                    json.optString("error").contains("WEBVIEW", ignoreCase = true) ||
+                                    json.optString("message").contains("WEBVIEW", ignoreCase = true)
 
-                    val title = metaObj.optString("title").ifBlank { "Untitled" }
-                    val synopsis = metaObj.optString("synopsis").ifBlank { metaObj.optString("description") }.ifBlank { null }
-                    val image = metaObj.optString("image").ifBlank { null }
-                    val poster = metaObj.optString("poster").ifBlank { null }
-                    val type = metaObj.optString("type").ifBlank { "movie" }
-                    val imdbId = metaObj.optString("imdbId").ifBlank { null }
-                    val tmdbId = metaObj.optString("tmdbId").ifBlank { null }
-                    val rating = metaObj.optString("rating").ifBlank { null }
-                    val webUrl = metaObj.optString("webUrl").ifBlank { null }
+                            val metaObj = json.optJSONObject("result")
+                                ?: json.optJSONObject("data")
+                                ?: json.optJSONObject("meta")
+                                ?: json
 
-                    val tagsList = mutableListOf<String>()
-                    metaObj.optJSONArray("tags")?.let { arr ->
-                        for (i in 0 until arr.length()) {
-                            val t = arr.optString(i)
-                            if (t.isNotBlank()) tagsList.add(t)
-                        }
-                    }
+                            val title = metaObj.optString("title").ifBlank { "Untitled" }
+                            val synopsis = metaObj.optString("synopsis").ifBlank { metaObj.optString("description") }.ifBlank { null }
+                            val image = metaObj.optString("image").ifBlank { null }
+                            val poster = metaObj.optString("poster").ifBlank { null }
+                            val type = metaObj.optString("type").ifBlank { "movie" }
+                            val imdbId = metaObj.optString("imdbId").ifBlank { null }
+                            val tmdbId = metaObj.optString("tmdbId").ifBlank { null }
+                            val rating = metaObj.optString("rating").ifBlank { null }
+                            val webUrl = metaObj.optString("webUrl").ifBlank { null }
 
-                    val castList = mutableListOf<String>()
-                    metaObj.optJSONArray("cast")?.let { arr ->
-                        for (i in 0 until arr.length()) {
-                            val c = arr.optString(i)
-                            if (c.isNotBlank()) castList.add(c)
-                        }
-                    }
+                            val tagsList = mutableListOf<String>()
+                            metaObj.optJSONArray("tags")?.let { arr ->
+                                for (i in 0 until arr.length()) {
+                                    val t = arr.optString(i)
+                                    if (t.isNotBlank()) tagsList.add(t)
+                                }
+                            }
 
-                    val linkList = mutableListOf<VegaLinkList>()
-                    val linkListArr = metaObj.optJSONArray("linkList")
-                        ?: metaObj.optJSONArray("links")
-                        ?: metaObj.optJSONArray("episodes")
+                            val castList = mutableListOf<String>()
+                            metaObj.optJSONArray("cast")?.let { arr ->
+                                for (i in 0 until arr.length()) {
+                                    val c = arr.optString(i)
+                                    if (c.isNotBlank()) castList.add(c)
+                                }
+                            }
 
-                    if (linkListArr != null) {
-                        for (i in 0 until linkListArr.length()) {
-                            val itemObj = linkListArr.optJSONObject(i) ?: continue
-                            val itemTitle = itemObj.optString("title").ifBlank { "Stream Option ${i + 1}" }
-                            val quality = itemObj.optString("quality").ifBlank { "Auto" }
-                            val epLink = itemObj.optString("episodesLink")
-                                .ifBlank { itemObj.optString("episodeLink") }
-                                .ifBlank { itemObj.optString("episodesUrl") }
-                                .ifBlank { null }
+                            val linkList = mutableListOf<VegaLinkList>()
+                            val linkListArr = metaObj.optJSONArray("linkList")
+                                ?: metaObj.optJSONArray("links")
+                                ?: metaObj.optJSONArray("episodes")
 
-                            val directLinksList = mutableListOf<VegaDirectLink>()
-                            val directArr = itemObj.optJSONArray("directLinks")
-                                ?: itemObj.optJSONArray("links")
+                            if (linkListArr != null) {
+                                for (i in 0 until linkListArr.length()) {
+                                    val itemObj = linkListArr.optJSONObject(i) ?: continue
+                                    val itemTitle = itemObj.optString("title").ifBlank { "Stream Option ${i + 1}" }
+                                    val quality = itemObj.optString("quality").ifBlank { "Auto" }
+                                    val epLink = itemObj.optString("episodesLink")
+                                        .ifBlank { itemObj.optString("episodeLink") }
+                                        .ifBlank { itemObj.optString("episodesUrl") }
+                                        .ifBlank { null }
 
-                            if (directArr != null) {
-                                for (j in 0 until directArr.length()) {
-                                    val dObj = directArr.optJSONObject(j)
-                                    if (dObj != null) {
-                                        val dLink = dObj.optString("link").ifBlank { dObj.optString("url") }
-                                        val dTitle = dObj.optString("title").ifBlank { "Direct Link ${j + 1}" }
-                                        val dType = dObj.optString("type").ifBlank { "movie" }
-                                        val dDesc = dObj.optString("description").ifBlank { null }
-                                        val dImg = dObj.optString("image").ifBlank { null }
-                                        if (dLink.isNotBlank()) {
-                                            directLinksList.add(
-                                                VegaDirectLink(
-                                                    title = dTitle,
-                                                    link = dLink,
-                                                    type = dType,
-                                                    description = dDesc,
-                                                    image = dImg
-                                                )
-                                            )
+                                    val directLinksList = mutableListOf<VegaDirectLink>()
+                                    val directArr = itemObj.optJSONArray("directLinks")
+                                        ?: itemObj.optJSONArray("links")
+
+                                    if (directArr != null) {
+                                        for (j in 0 until directArr.length()) {
+                                            val dObj = directArr.optJSONObject(j)
+                                            if (dObj != null) {
+                                                val dLink = dObj.optString("link").ifBlank { dObj.optString("url") }
+                                                val dTitle = dObj.optString("title").ifBlank { "Direct Link ${j + 1}" }
+                                                val dType = dObj.optString("type").ifBlank { "movie" }
+                                                val dDesc = dObj.optString("description").ifBlank { null }
+                                                val dImg = dObj.optString("image").ifBlank { null }
+                                                if (dLink.isNotBlank()) {
+                                                    directLinksList.add(
+                                                        VegaDirectLink(
+                                                            title = dTitle,
+                                                            link = dLink,
+                                                            type = dType,
+                                                            description = dDesc,
+                                                            image = dImg
+                                                        )
+                                                    )
+                                                }
+                                            } else {
+                                                val dLink = directArr.optString(j)
+                                                if (dLink.isNotBlank()) {
+                                                    directLinksList.add(
+                                                        VegaDirectLink(
+                                                            title = "Link ${j + 1}",
+                                                            link = dLink
+                                                        )
+                                                    )
+                                                }
+                                            }
                                         }
                                     } else {
-                                        val dLink = directArr.optString(j)
-                                        if (dLink.isNotBlank()) {
+                                        val singleLink = itemObj.optString("link").ifBlank { itemObj.optString("url") }
+                                        if (singleLink.isNotBlank()) {
                                             directLinksList.add(
                                                 VegaDirectLink(
-                                                    title = "Link ${j + 1}",
-                                                    link = dLink
+                                                    title = itemTitle,
+                                                    link = singleLink
                                                 )
                                             )
                                         }
                                     }
-                                }
-                            } else {
-                                val singleLink = itemObj.optString("link").ifBlank { itemObj.optString("url") }
-                                if (singleLink.isNotBlank()) {
-                                    directLinksList.add(
-                                        VegaDirectLink(
-                                            title = itemTitle,
-                                            link = singleLink
+
+                                    if (directLinksList.isNotEmpty() || !epLink.isNullOrBlank()) {
+                                        linkList.add(
+                                            VegaLinkList(
+                                                title = itemTitle,
+                                                quality = quality,
+                                                directLinks = directLinksList,
+                                                episodesLink = epLink
+                                            )
                                         )
-                                    )
+                                    }
                                 }
                             }
 
-                            if (directLinksList.isNotEmpty() || !epLink.isNullOrBlank()) {
-                                linkList.add(
-                                    VegaLinkList(
-                                        title = itemTitle,
-                                        quality = quality,
-                                        directLinks = directLinksList,
-                                        episodesLink = epLink
-                                    )
-                                )
-                            }
+                            return@withTimeoutOrNull VegaMetaResult(
+                                title = title,
+                                synopsis = synopsis,
+                                image = image,
+                                poster = poster,
+                                type = type,
+                                imdbId = imdbId,
+                                tmdbId = tmdbId,
+                                rating = rating,
+                                tags = tagsList,
+                                cast = castList,
+                                linkList = linkList,
+                                webUrl = webUrl,
+                                requiresWebView = requiresWebView
+                            )
                         }
-                    }
-
-                    VegaMetaResult(
-                        title = title,
-                        synopsis = synopsis,
-                        image = image,
-                        poster = poster,
-                        type = type,
-                        imdbId = imdbId,
-                        tmdbId = tmdbId,
-                        rating = rating,
-                        tags = tagsList,
-                        cast = castList,
-                        linkList = linkList,
-                        webUrl = webUrl,
-                        requiresWebView = requiresWebView
-                    )
+                    } catch (_: Exception) {}
                 }
+                null
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting meta for $providerId: ${e.message}")
                 null
@@ -483,81 +549,99 @@ object VegaProviderClient {
         episodesLink: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaEpisode> = withContext(Dispatchers.IO) {
-        val episodes = mutableListOf<VegaEpisode>()
-        if (providerId.isBlank() || episodesLink.isBlank()) return@withContext episodes
+        if (!isVegaGloballyEnabled || providerId.isBlank() || episodesLink.isBlank()) return@withContext emptyList()
 
+        executeWithServerFallbacks(baseUrl, { currentUrl ->
+            fetchEpisodesInternal(providerId, episodesLink, currentUrl)
+        }, { res -> !res.isNullOrEmpty() }) ?: emptyList()
+    }
+
+    private suspend fun fetchEpisodesInternal(
+        providerId: String,
+        episodesLink: String,
+        baseUrl: String
+    ): List<VegaEpisode> = withContext(Dispatchers.IO) {
+        val episodes = mutableListOf<VegaEpisode>()
         withTimeoutOrNull(EPISODES_TIMEOUT_MS) {
             try {
                 val cleanBase = baseUrl.trimEnd('/')
                 val encodedLink = URLEncoder.encode(episodesLink, StandardCharsets.UTF_8.toString())
                 val encodedProvider = URLEncoder.encode(providerId, StandardCharsets.UTF_8.toString())
-                val url = "$cleanBase/episodes/$encodedProvider?link=$encodedLink"
 
-                val request = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Butterfly/1.0 (Android)")
-                    .header("Accept", "application/json")
-                    .build()
+                val episodeEndpoints = listOf(
+                    "$cleanBase/episodes/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/episodes/$encodedProvider?url=$encodedLink",
+                    "$cleanBase/season/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/providers/$encodedProvider/episodes?link=$encodedLink"
+                )
 
                 val epClient = httpClient.newBuilder()
                     .connectTimeout(12, TimeUnit.SECONDS)
                     .readTimeout(15, TimeUnit.SECONDS)
                     .build()
 
-                epClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w(TAG, "Episodes fetch failed for $providerId, code: ${response.code}")
-                        return@withTimeoutOrNull episodes
-                    }
+                for (url in episodeEndpoints) {
+                    try {
+                        val request = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "Butterfly/1.0 (Android)")
+                            .header("Accept", "application/json")
+                            .build()
 
-                    val bodyStr = response.body?.string() ?: return@withTimeoutOrNull episodes
-                    val trimmed = bodyStr.trim()
+                        epClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) return@use
 
-                    val jsonArray = when {
-                        trimmed.startsWith("[") -> JSONArray(trimmed)
-                        trimmed.startsWith("{") -> {
-                            val json = JSONObject(trimmed)
-                            json.optJSONArray("episodes")
-                                ?: json.optJSONArray("data")
-                                ?: json.optJSONArray("results")
-                                ?: json.optJSONArray("episodeList")
-                                ?: JSONArray()
-                        }
-                        else -> JSONArray()
-                    }
+                            val bodyStr = response.body?.string() ?: return@use
+                            val trimmed = bodyStr.trim()
 
-                    for (i in 0 until jsonArray.length()) {
-                        val item = jsonArray.opt(i)
-                        if (item is JSONObject) {
-                            val title = item.optString("title").ifBlank { "Episode ${i + 1}" }
-                            val link = item.optString("link").ifBlank { item.optString("url") }
-                            val epNum = item.optInt("episodeNumber", item.optInt("episode", i + 1))
-                            val sNum = item.optInt("seasonNumber", item.optInt("season", 1))
-                            val desc = item.optString("description").ifBlank { null }
-                            val img = item.optString("image").ifBlank { item.optString("poster") }.ifBlank { null }
-
-                            if (link.isNotBlank()) {
-                                episodes.add(
-                                    VegaEpisode(
-                                        title = title,
-                                        link = link,
-                                        episodeNumber = epNum,
-                                        seasonNumber = sNum,
-                                        description = desc,
-                                        image = img
-                                    )
-                                )
+                            val jsonArray = when {
+                                trimmed.startsWith("[") -> JSONArray(trimmed)
+                                trimmed.startsWith("{") -> {
+                                    val json = JSONObject(trimmed)
+                                    json.optJSONArray("episodes")
+                                        ?: json.optJSONArray("data")
+                                        ?: json.optJSONArray("results")
+                                        ?: json.optJSONArray("episodeList")
+                                        ?: JSONArray()
+                                }
+                                else -> JSONArray()
                             }
-                        } else if (item is String && item.isNotBlank()) {
-                            episodes.add(
-                                VegaEpisode(
-                                    title = "Episode ${i + 1}",
-                                    link = item,
-                                    episodeNumber = i + 1
-                                )
-                            )
+
+                            for (i in 0 until jsonArray.length()) {
+                                val item = jsonArray.opt(i)
+                                if (item is JSONObject) {
+                                    val title = item.optString("title").ifBlank { "Episode ${i + 1}" }
+                                    val link = item.optString("link").ifBlank { item.optString("url") }
+                                    val epNum = item.optInt("episodeNumber", item.optInt("episode", i + 1))
+                                    val sNum = item.optInt("seasonNumber", item.optInt("season", 1))
+                                    val desc = item.optString("description").ifBlank { null }
+                                    val img = item.optString("image").ifBlank { item.optString("poster") }.ifBlank { null }
+
+                                    if (link.isNotBlank()) {
+                                        episodes.add(
+                                            VegaEpisode(
+                                                title = title,
+                                                link = link,
+                                                episodeNumber = epNum,
+                                                seasonNumber = sNum,
+                                                description = desc,
+                                                image = img
+                                            )
+                                        )
+                                    }
+                                } else if (item is String && item.isNotBlank()) {
+                                    episodes.add(
+                                        VegaEpisode(
+                                            title = "Episode ${i + 1}",
+                                            link = item,
+                                            episodeNumber = i + 1
+                                        )
+                                    )
+                                }
+                            }
                         }
-                    }
+                        if (episodes.isNotEmpty()) break
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting episodes for $providerId: ${e.message}")
@@ -576,63 +660,87 @@ object VegaProviderClient {
         directLink: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
-        val streams = mutableListOf<VegaStreamResult>()
-        if (providerId.isBlank() || directLink.isBlank()) return@withContext streams
+        if (!isVegaGloballyEnabled || providerId.isBlank() || directLink.isBlank()) return@withContext emptyList()
 
+        val serverStreams = executeWithServerFallbacks(baseUrl, { currentUrl ->
+            fetchStreamInternal(providerId, directLink, currentUrl)
+        }, { res -> !res.isNullOrEmpty() }) ?: emptyList()
+
+        if (serverStreams.isNotEmpty()) return@withContext serverStreams
+
+        // Local direct link resolver fallback
+        return@withContext resolveLocalDirectFallback(directLink)
+    }
+
+    private suspend fun fetchStreamInternal(
+        providerId: String,
+        directLink: String,
+        baseUrl: String
+    ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
+        val streams = mutableListOf<VegaStreamResult>()
         withTimeoutOrNull(STREAM_TIMEOUT_MS) {
             try {
                 val cleanBase = baseUrl.trimEnd('/')
                 val encodedLink = URLEncoder.encode(directLink, StandardCharsets.UTF_8.toString())
                 val encodedProvider = URLEncoder.encode(providerId, StandardCharsets.UTF_8.toString())
-                val url = "$cleanBase/stream/$encodedProvider?link=$encodedLink"
 
-                val request = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Butterfly/1.0 (Android)")
-                    .header("Accept", "application/json")
-                    .build()
+                val streamEndpoints = listOf(
+                    "$cleanBase/stream/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/stream/$encodedProvider?url=$encodedLink",
+                    "$cleanBase/extract/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/resolve/$encodedProvider?link=$encodedLink",
+                    "$cleanBase/providers/$encodedProvider/stream?link=$encodedLink"
+                )
 
                 val streamClient = httpClient.newBuilder()
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(18, TimeUnit.SECONDS)
                     .build()
 
-                streamClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w(TAG, "Stream extraction failed for $providerId, code: ${response.code}")
-                        return@withTimeoutOrNull streams
-                    }
+                for (url in streamEndpoints) {
+                    try {
+                        val request = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "Butterfly/1.0 (Android)")
+                            .header("Accept", "application/json")
+                            .build()
 
-                    val bodyStr = response.body?.string() ?: return@withTimeoutOrNull streams
-                    val trimmed = bodyStr.trim()
+                        streamClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) return@use
 
-                    if (trimmed.startsWith("[")) {
-                        val array = JSONArray(trimmed)
-                        for (i in 0 until array.length()) {
-                            val item = array.opt(i)
-                            if (item is JSONObject) {
-                                parseStreamObject(item)?.let { streams.add(it) }
-                            } else if (item is String && item.startsWith("http")) {
-                                streams.add(VegaStreamResult(url = item))
-                            }
-                        }
-                    } else if (trimmed.startsWith("{")) {
-                        val json = JSONObject(trimmed)
-                        val streamsArray = json.optJSONArray("streams")
-                            ?: json.optJSONArray("data")
-                            ?: json.optJSONArray("results")
+                            val bodyStr = response.body?.string() ?: return@use
+                            val trimmed = bodyStr.trim()
 
-                        if (streamsArray != null) {
-                            for (i in 0 until streamsArray.length()) {
-                                val item = streamsArray.optJSONObject(i)
-                                if (item != null) {
-                                    parseStreamObject(item)?.let { streams.add(it) }
+                            if (trimmed.startsWith("[")) {
+                                val array = JSONArray(trimmed)
+                                for (i in 0 until array.length()) {
+                                    val item = array.opt(i)
+                                    if (item is JSONObject) {
+                                        parseStreamObject(item)?.let { streams.add(it) }
+                                    } else if (item is String && item.startsWith("http")) {
+                                        streams.add(VegaStreamResult(url = item))
+                                    }
+                                }
+                            } else if (trimmed.startsWith("{")) {
+                                val json = JSONObject(trimmed)
+                                val streamsArray = json.optJSONArray("streams")
+                                    ?: json.optJSONArray("data")
+                                    ?: json.optJSONArray("results")
+
+                                if (streamsArray != null) {
+                                    for (i in 0 until streamsArray.length()) {
+                                        val item = streamsArray.optJSONObject(i)
+                                        if (item != null) {
+                                            parseStreamObject(item)?.let { streams.add(it) }
+                                        }
+                                    }
+                                } else {
+                                    parseStreamObject(json)?.let { streams.add(it) }
                                 }
                             }
-                        } else {
-                            parseStreamObject(json)?.let { streams.add(it) }
                         }
-                    }
+                        if (streams.isNotEmpty()) break
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting stream for $providerId: ${e.message}")
@@ -650,6 +758,13 @@ object VegaProviderClient {
         postOrDirectLink: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): VegaPlaybackResolution = withContext(Dispatchers.IO) {
+        if (!isVegaGloballyEnabled) {
+            return@withContext VegaPlaybackResolution(
+                success = false,
+                streams = emptyList(),
+                errorMessage = "Vega extensions are currently disabled"
+            )
+        }
         val cleanProv = providerId.trim().lowercase()
 
         // Check if the link is already a direct link
@@ -1070,23 +1185,51 @@ object VegaProviderClient {
                 if (fileId.isNotBlank()) {
                     list.add(
                         VegaStreamResult(
-                            server = "PixelDrain Direct",
+                            server = "PixelDrain High Speed Direct",
                             url = "https://pixeldrain.com/api/file/$fileId",
-                            quality = "1080p",
+                            quality = "1080p HD",
                             format = "mp4"
                         )
                     )
                 }
-            }
-            if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.contains(".m3u8")) {
+            } else if (lower.contains("drive.google.com") || lower.contains("docs.google.com")) {
+                val fileId = if (directLink.contains("/d/")) {
+                    directLink.substringAfter("/d/").substringBefore("/").substringBefore("?")
+                } else if (directLink.contains("id=")) {
+                    directLink.substringAfter("id=").substringBefore("&")
+                } else ""
+                if (fileId.isNotBlank()) {
+                    list.add(
+                        VegaStreamResult(
+                            server = "Google Drive Direct",
+                            url = "https://drive.google.com/uc?export=download&id=$fileId",
+                            quality = "1080p HD",
+                            format = "mp4"
+                        )
+                    )
+                }
+            } else if (lower.contains("hubcloud") || lower.contains("hubdrive") || lower.contains("gdflix") || lower.contains("katdrive") || lower.contains("fastdrive")) {
                 list.add(
                     VegaStreamResult(
-                        server = "Direct Stream",
+                        server = "Cloud Direct CDN",
                         url = directLink,
-                        quality = "HD",
-                        format = if (lower.contains(".m3u8")) "hls" else if (lower.endsWith(".mkv")) "mkv" else "mp4"
+                        quality = "1080p HD",
+                        format = "mkv"
                     )
                 )
+            }
+
+            if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.contains(".m3u8") || lower.endsWith(".avi") || lower.contains("video-downloads.googleusercontent.com")) {
+                if (list.none { it.url == directLink }) {
+                    list.add(
+                        VegaStreamResult(
+                            server = "Direct Media Stream",
+                            url = directLink,
+                            quality = "1080p HD",
+                            format = if (lower.contains(".m3u8")) "hls" else if (lower.endsWith(".mkv")) "mkv" else "mp4"
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Local fallback failed: ${e.message}")

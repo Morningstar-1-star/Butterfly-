@@ -69,24 +69,21 @@ import kotlinx.coroutines.launch
 @Composable
 fun Modifier.bouncyClickable(
     enabled: Boolean = true,
-    scaleDownTo: Float = 0.93f,
+    scaleDownTo: Float = 0.96f,
     onClick: () -> Unit
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
+    val scaleState = animateFloatAsState(
         targetValue = if (isPressed) scaleDownTo else 1f,
-        animationSpec = spring(
-            dampingRatio = 0.55f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
+        animationSpec = tween(durationMillis = 100, easing = FastOutSlowInEasing),
         label = "bouncy_scale"
     )
 
     return this
         .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
+            scaleX = scaleState.value
+            scaleY = scaleState.value
         }
         .clickable(
             interactionSource = interactionSource,

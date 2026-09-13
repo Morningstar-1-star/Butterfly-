@@ -345,12 +345,12 @@ object CrunchyrollProvider {
         try {
             val animeProviders = listOf("hianime", "gogoanime", "animepahe")
             for (prov in animeProviders) {
-                val searchResults = withTimeoutOrNull(4000L) {
+                val searchResults = withTimeoutOrNull(12000L) {
                     VegaProviderClient.search(prov, searchTerms)
                 }
                 if (!searchResults.isNullOrEmpty()) {
                     val topResult = searchResults.first()
-                    val playbackRes = withTimeoutOrNull(6000L) {
+                    val playbackRes = withTimeoutOrNull(15000L) {
                         VegaProviderClient.resolveFullVegaPlayback(prov, topResult.link)
                     }
                     if (playbackRes != null && playbackRes.success && playbackRes.streams.isNotEmpty()) {

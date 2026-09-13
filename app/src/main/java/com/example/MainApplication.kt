@@ -183,7 +183,7 @@ class MainApplication : Application() {
             .okHttpClient(imageOkHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.20) // 20% RAM cache for smooth scrolling without memory pressure
+                    .maxSizePercent(0.25) // 25% RAM cache for ultra-smooth scrolling without memory pressure
                     .strongReferencesEnabled(true)
                     .build()
             }
@@ -194,7 +194,7 @@ class MainApplication : Application() {
                     .build()
             }
             .respectCacheHeaders(false)
-            .allowHardware(false)
+            .allowHardware(true)
             .allowRgb565(true)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)

@@ -847,6 +847,18 @@ fun SettingsScreen(
                                     onCheckedChange = { coroutineScope.launch { playbackPrefs.setDisableSpeedForMusic(it) } }
                                 )
                             }
+                            item {
+                                val hasOverlayPerm = com.example.ui.player.dynamicisland.AudioModeManager.canDrawOverlays(context)
+                                YouTubeDetailRow(
+                                    title = "Dynamic Island Notch Player",
+                                    subtitle = if (hasOverlayPerm) "Active • Floating island appears around camera punch-hole" else "Requires 'Appear on top' permission • Tap to enable",
+                                    onClick = {
+                                        (context as? android.app.Activity)?.let { act ->
+                                            com.example.ui.player.dynamicisland.AudioModeManager.requestOverlayPermission(act)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
 
@@ -1123,6 +1135,115 @@ fun SettingsScreen(
                                 }
                             }
 
+                            // Decryptor Multi-Server Provider Card
+                            item {
+                                var decryptorEnabled by remember { mutableStateOf(com.example.util.AppConfig.isDecryptorEnabled()) }
+                                var decryptorUrl by remember { mutableStateOf(com.example.util.AppConfig.getDecryptorBaseUrl()) }
+                                var isEditingUrl by remember { mutableStateOf(false) }
+
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF00E5FF).copy(alpha = 0.12f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF00E5FF).copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Dns,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF00E5FF),
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "Decryptor (Nxsha Multi-Server)",
+                                                        fontWeight = FontWeight.Bold,
+                                                        style = MaterialTheme.typography.titleSmall
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = Color(0xFF00E5FF)
+                                                    ) {
+                                                        Text(
+                                                            text = "HLS ENGINE",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color.Black,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "Extracts TMDB movies & TV shows into multi-server streams (Vidhide, Turbo, Nxsha Fast) for Media3 ExoPlayer",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Switch(
+                                                checked = decryptorEnabled,
+                                                onCheckedChange = {
+                                                    decryptorEnabled = it
+                                                    com.example.util.AppConfig.setDecryptorEnabled(context, it)
+                                                }
+                                            )
+                                        }
+
+                                        if (decryptorEnabled) {
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "Endpoint: $decryptorUrl",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color.LightGray,
+                                                    maxLines = 1,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                TextButton(
+                                                    onClick = { isEditingUrl = !isEditingUrl }
+                                                ) {
+                                                    Text(if (isEditingUrl) "Close" else "Edit URL", fontSize = 12.sp, color = Color(0xFF00E5FF))
+                                                }
+                                            }
+
+                                            if (isEditingUrl) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                OutlinedTextField(
+                                                    value = decryptorUrl,
+                                                    onValueChange = {
+                                                        decryptorUrl = it
+                                                        com.example.util.AppConfig.setDecryptorBaseUrl(context, it)
+                                                    },
+                                                    label = { Text("Decryptor Backend URL") },
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             val normalProviders = listOf(
                                 "youtube" to "YouTube",
                                 "crunchyroll" to "Crunchyroll Anime",
@@ -1144,7 +1265,9 @@ fun SettingsScreen(
                                 "googledrive" to "Google Drive",
                                 "imdb" to "IMDb (Top Movies & Trailers)",
                                 "mxplayer" to "MX Player",
-                                "popcorntv" to "PopcornTV"
+                                "popcorntv" to "PopcornTV",
+                                "decryptor" to "Decryptor (Multi-Server HLS)",
+                                "vidsrc" to "VidSrc (Cloud Stream)"
                             )
                             items(normalProviders) { (id, name) ->
                                 val isEnabled = enabledProviderIds.contains(id)
@@ -1165,6 +1288,8 @@ fun SettingsScreen(
                                             "imdb" -> "IMDb Top 250 releases, movie charts & HD trailers"
                                             "mxplayer" -> "MX Player OTT web series, short films & movies"
                                             "popcorntv" -> "PopcornTV blockbusters, open movies & 4K cinema releases"
+                                            "decryptor" -> "Nxsha multi-server HLS engine: Vidhide, Turbo & Fast CDNs"
+                                            "vidsrc" -> "VidSrc high-speed cloud streams, auto-mirrors & HD movies"
                                             else -> "Streams from $name platform"
                                         },
                                         checked = isEnabled,
@@ -1385,6 +1510,7 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.VEGA -> {
+                        val isVegaMasterEnabled by viewModel.isVegaMasterEnabled.collectAsState()
                         val installedVega by viewModel.installedVegaProviders.collectAsState()
                         val availableVega by viewModel.availableVegaProviders.collectAsState()
                         val isFetching by viewModel.isFetchingVegaProviders.collectAsState()
@@ -1398,6 +1524,44 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(vertical = 8.dp)
                         ) {
+                            // Master Vega Toggle Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isVegaMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.setVegaMasterEnabled(!isVegaMasterEnabled) }
+                                            .padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                            Text(
+                                                text = "Enable Vega Extensions",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (isVegaMasterEnabled) "Vega extensions are active. Providers will resolve catalog titles and media links." else "Vega is completely disabled by default. All background processing and server calls are stopped.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isVegaMasterEnabled,
+                                            onCheckedChange = { viewModel.setVegaMasterEnabled(it) }
+                                        )
+                                    }
+                                }
+                            }
+
                             // 1. Server Settings Card
                             item {
                                 Card(
@@ -1454,16 +1618,26 @@ fun SettingsScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
-                                    TextButton(
-                                        onClick = { viewModel.testVegaProvidersHealth() },
-                                        enabled = !isTestingHealth
-                                    ) {
-                                        if (isTestingHealth) {
-                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Testing...")
-                                        } else {
-                                            Text("Test Source Health")
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (installedVega.isNotEmpty()) {
+                                            TextButton(
+                                                onClick = { viewModel.uninstallAllVegaProviders() }
+                                            ) {
+                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.testVegaProvidersHealth() },
+                                            enabled = !isTestingHealth
+                                        ) {
+                                            if (isTestingHealth) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Testing...")
+                                            } else {
+                                                Text("Test Health")
+                                            }
                                         }
                                     }
                                 }
@@ -1487,12 +1661,47 @@ fun SettingsScreen(
                                         "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
                                     }
 
-                                    YouTubeSwitchRow(
-                                        title = vp.name,
-                                        subtitle = subtitleText,
-                                        checked = vp.isEnabled,
-                                        onCheckedChange = { viewModel.toggleVegaProvider(vp.id, it) }
-                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { viewModel.toggleVegaProvider(vp.id, !vp.isEnabled) }
+                                                .padding(end = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = vp.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = subtitleText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Switch(
+                                                checked = vp.isEnabled,
+                                                onCheckedChange = { viewModel.toggleVegaProvider(vp.id, it) }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            IconButton(
+                                                onClick = { viewModel.uninstallVegaProvider(vp.id) }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = "Uninstall ${vp.name}",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
 

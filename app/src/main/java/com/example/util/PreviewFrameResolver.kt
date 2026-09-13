@@ -5,15 +5,20 @@ import android.util.Log
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.example.model.VideoItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import java.util.regex.Pattern
+import java.util.concurrent.ConcurrentHashMap
 
 object PreviewFrameResolver {
     private const val TAG = "PreviewFrameResolver"
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val validatedCache = ConcurrentHashMap<String, List<String>>()
 
     /**
      * Checks if this video supports horizontal scrub teaser frames.
@@ -31,7 +36,68 @@ object PreviewFrameResolver {
                provider.contains("redtube") || thumbLower.contains("redtube") || thumbLower.contains("rdtcdn.com") ||
                provider.contains("4tube") || thumbLower.contains("4tube") || thumbLower.contains("ttcache.com") ||
                provider.contains("youporn") || thumbLower.contains("youporn") ||
-               provider.contains("rule34") || thumbLower.contains("rule34video")
+               provider.contains("rule34") || thumbLower.contains("rule34video") ||
+               provider.contains("motherless") || thumbLower.contains("motherless")
+    }
+
+    /**
+     * Gets previously validated frame list from memory cache if available.
+     */
+    fun getCachedFrames(video: VideoItem): List<String>? {
+        val key = video.id.ifBlank { video.thumbnailUrl ?: "" }
+        return validatedCache[key]
+    }
+
+    /**
+     * Preloads and validates all candidate teaser frames for a video in parallel.
+     * Filters out broken/404 URLs, caches the validated result in memory,
+     * and returns the list of ready-to-display frame URLs.
+     */
+    suspend fun preloadAndValidateFrames(context: Context, video: VideoItem): List<String> {
+        val key = video.id.ifBlank { video.thumbnailUrl ?: "" }
+        validatedCache[key]?.let { cached ->
+            if (cached.isNotEmpty()) return cached
+        }
+
+        val candidateFrames = resolvePreviewFrames(video)
+        if (candidateFrames.size <= 1) {
+            val fallback = if (candidateFrames.isNotEmpty()) candidateFrames else listOfNotNull(video.thumbnailUrl)
+            validatedCache[key] = fallback
+            return fallback
+        }
+
+        val rawThumb = video.thumbnailUrl?.trim()
+        val imageLoader = context.imageLoader
+
+        val validFrames = coroutineScope {
+            candidateFrames.map { frameUrl ->
+                async(Dispatchers.IO) {
+                    try {
+                        val req = ThumbnailOptimizer.buildThumbnailRequest(context, frameUrl, preferCompact = true)
+                        if (req != null) {
+                            val result = imageLoader.execute(req)
+                            if (result is SuccessResult) {
+                                return@async frameUrl
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Frame preload error for $frameUrl: ${e.message}")
+                    }
+                    null
+                }
+            }.awaitAll().filterNotNull()
+        }
+
+        val finalFrames = if (validFrames.size >= 2) {
+            validFrames
+        } else if (rawThumb != null) {
+            listOf(rawThumb)
+        } else {
+            candidateFrames
+        }
+
+        validatedCache[key] = finalFrames
+        return finalFrames
     }
 
     /**
@@ -182,6 +248,17 @@ object PreviewFrameResolver {
             }
         }
 
+        // 8. MOTHERLESS
+        if (provider.contains("motherless") || thumbLower.contains("motherless")) {
+            val mlMatch = Regex("""/([a-zA-Z0-9]+)(?:_\d+)?\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (mlMatch != null) {
+                val fileId = mlMatch.groupValues[1]
+                val ext = mlMatch.groupValues[2]
+                val base = rawThumb.substring(0, mlMatch.range.first)
+                return (1..15).map { idx -> "$base/${fileId}_$idx.$ext" }
+            }
+        }
+
         // Fallback: Default to single thumbnail
         return listOf(rawThumb)
     }
@@ -211,6 +288,20 @@ object PreviewFrameResolver {
                 } catch (e: Exception) {
                     // Ignore prefetch network hiccups
                 }
+            }
+        }
+    }
+
+    /**
+     * Proactively preloads teasers for a list of feed items in background.
+     */
+    fun prefetchTeasersForFeed(context: Context, videos: List<VideoItem>, maxItems: Int = 8) {
+        scope.launch {
+            val targets = videos.filter { supportsScrubbing(it) }.take(maxItems)
+            for (v in targets) {
+                try {
+                    preloadAndValidateFrames(context, v)
+                } catch (_: Exception) {}
             }
         }
     }

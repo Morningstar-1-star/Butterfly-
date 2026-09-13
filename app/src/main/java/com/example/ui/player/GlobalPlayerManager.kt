@@ -234,4 +234,8 @@ object GlobalPlayerManager {
     fun stopAndClear() {
         sessionInstance?.stopAndClear()
     }
+
+    fun releasePlayer() {
+        sessionInstance?.releasePlayer()
+    }
 }

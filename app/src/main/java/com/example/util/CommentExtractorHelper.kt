@@ -105,7 +105,14 @@ object CommentExtractorHelper {
             if (biliComments.isNotEmpty()) return@withContext biliComments
         }
 
-        // 5. YouTube comments
+        // 5. Dailymotion comments
+        val isDailymotion = cleanProvider == "dailymotion" || cleanProvider.contains("daily") || videoId.contains("dailymotion") || videoId.contains("dai.ly")
+        if (isDailymotion) {
+            val dmComments = fetchDailymotionComments(videoId, title)
+            if (dmComments.isNotEmpty()) return@withContext dmComments
+        }
+
+        // 6. YouTube comments
         val isYouTube = cleanProvider == "youtube" || videoId.length == 11 || videoId.startsWith("http") || videoId.contains("youtu")
         if (isYouTube || cleanProvider.isBlank()) {
             val ytId = extractYouTubeId(videoId)
@@ -251,59 +258,112 @@ object CommentExtractorHelper {
 
     private fun fetchBilibiliComments(biliId: String): List<VideoComment> {
         try {
+            val cleanInput = biliId.trim()
             // Extract AID or BVID
-            val bvid = if (biliId.startsWith("BV", ignoreCase = true)) biliId else if (biliId.contains("BV")) biliId.substringAfter("BV").substringBefore("/").let { "BV$it" } else ""
-            val aid = if (biliId.startsWith("av", ignoreCase = true)) biliId.substring(2) else ""
-
-            val url = when {
-                bvid.isNotBlank() -> "https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=0&bvid=$bvid"
-                aid.isNotBlank() -> "https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=$aid"
-                else -> return emptyList()
+            var bvid = when {
+                cleanInput.contains("BV", ignoreCase = true) -> {
+                    val idx = cleanInput.indexOf("BV", ignoreCase = true)
+                    cleanInput.substring(idx).substringBefore("/").substringBefore("?").substringBefore("&")
+                }
+                else -> ""
+            }
+            var aid = when {
+                cleanInput.contains("/av", ignoreCase = true) -> {
+                    val idx = cleanInput.indexOf("/av", ignoreCase = true) + 3
+                    cleanInput.substring(idx).substringBefore("/").substringBefore("?").substringBefore("&")
+                }
+                cleanInput.startsWith("av", ignoreCase = true) -> cleanInput.substring(2).substringBefore("?").substringBefore("&")
+                cleanInput.matches(Regex("\\d+")) -> cleanInput
+                else -> ""
             }
 
-            val request = Request.Builder()
-                .url(url)
-                .header("Referer", "https://www.bilibili.com/")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyList()
-                val body = response.body?.string() ?: return emptyList()
-                val json = JSONObject(body)
-                val data = json.optJSONObject("data") ?: return emptyList()
-                val replies = data.optJSONArray("replies") ?: return emptyList()
-
-                val result = mutableListOf<VideoComment>()
-                for (i in 0 until replies.length().coerceAtMost(30)) {
-                    val r = replies.getJSONObject(i)
-                    val member = r.optJSONObject("member")
-                    val content = r.optJSONObject("content")
-
-                    val uname = member?.optString("uname", "Bilibili User") ?: "Bilibili User"
-                    val avatar = member?.optString("avatar", null)
-                    val msg = content?.optString("message", "") ?: ""
-                    if (msg.isBlank()) continue
-
-                    val likeCount = r.optInt("like", 0)
-                    val replyCount = r.optInt("rcount", 0)
-                    val timeSec = r.optLong("ctime", System.currentTimeMillis() / 1000)
-                    val timeAgoStr = formatTimeAgo(timeSec)
-
-                    result.add(
-                        VideoComment(
-                            id = r.optString("rpid", "bili_cmt_$i"),
-                            authorName = uname,
-                            authorAvatarUrl = avatar,
-                            commentText = msg,
-                            timeAgo = timeAgoStr,
-                            likeCount = likeCount,
-                            totalReviewsCountText = if (replyCount > 0) "$replyCount replies" else null,
-                            sourceBadge = "Bilibili"
-                        )
-                    )
+            // If we have bvid but not aid, resolve aid from Bilibili view API
+            if (aid.isBlank() && bvid.isNotBlank()) {
+                try {
+                    val viewUrl = "https://api.bilibili.com/x/web-interface/view?bvid=$bvid"
+                    val viewReq = Request.Builder()
+                        .url(viewUrl)
+                        .header("Referer", "https://www.bilibili.com/")
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .build()
+                    client.newCall(viewReq).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val respStr = resp.body?.string()
+                            if (!respStr.isNullOrBlank()) {
+                                val viewJson = JSONObject(respStr)
+                                val resolvedAid = viewJson.optJSONObject("data")?.optLong("aid", 0L) ?: 0L
+                                if (resolvedAid > 0L) {
+                                    aid = resolvedAid.toString()
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error resolving aid from bvid for comments: ${e.message}")
                 }
-                return result
+            }
+
+            val urlsToTry = mutableListOf<String>()
+            if (aid.isNotBlank()) {
+                urlsToTry.add("https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=$aid&pn=1&ps=30")
+                urlsToTry.add("https://api.bilibili.com/x/v2/reply/main?type=1&oid=$aid&next=0&mode=3")
+            }
+            if (bvid.isNotBlank()) {
+                urlsToTry.add("https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=0&bvid=$bvid")
+            }
+
+            for (url in urlsToTry) {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Referer", "https://www.bilibili.com/")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .build()
+
+                val result = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use emptyList<VideoComment>()
+                    val body = response.body?.string() ?: return@use emptyList<VideoComment>()
+                    val json = JSONObject(body)
+                    val data = json.optJSONObject("data") ?: return@use emptyList<VideoComment>()
+                    val replies = data.optJSONArray("replies") ?: return@use emptyList<VideoComment>()
+
+                    val comments = mutableListOf<VideoComment>()
+                    for (i in 0 until replies.length().coerceAtMost(50)) {
+                        val r = replies.getJSONObject(i)
+                        val member = r.optJSONObject("member")
+                        val content = r.optJSONObject("content")
+
+                        val uname = member?.optString("uname", "Bilibili User") ?: "Bilibili User"
+                        var avatar = member?.optString("avatar", null)
+                        if (!avatar.isNullOrBlank() && avatar.startsWith("//")) {
+                            avatar = "https:$avatar"
+                        }
+                        val msg = content?.optString("message", "") ?: ""
+                        if (msg.isBlank()) continue
+
+                        val likeCount = r.optInt("like", 0)
+                        val replyCount = r.optInt("rcount", 0)
+                        val timeSec = r.optLong("ctime", System.currentTimeMillis() / 1000)
+                        val timeAgoStr = formatTimeAgo(timeSec)
+
+                        comments.add(
+                            VideoComment(
+                                id = r.optString("rpid", "bili_cmt_$i"),
+                                authorName = uname,
+                                authorAvatarUrl = avatar,
+                                commentText = msg,
+                                timeAgo = timeAgoStr,
+                                likeCount = likeCount,
+                                totalReviewsCountText = if (replyCount > 0) "$replyCount replies" else null,
+                                sourceBadge = "Bilibili"
+                            )
+                        )
+                    }
+                    comments
+                }
+
+                if (result.isNotEmpty()) {
+                    return result
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Bilibili comments fetch failed: ${e.message}")
@@ -394,36 +454,133 @@ object CommentExtractorHelper {
         val list = mutableListOf<VideoComment>()
         try {
             val viewkey = if (rawId.contains("viewkey=")) rawId.substringAfter("viewkey=").substringBefore("&") else rawId
-            val url = "https://www.pornhub.com/comment/show?id=$viewkey"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Cookie", "age_verified=1; accessAgeDisclaimerPH=1")
-                .build()
+            val candidateUrls = listOf(
+                "https://www.pornhub.com/comment/show?id=$viewkey&vkey=$viewkey",
+                "https://www.pornhub.com/comment/show?id=$viewkey&type=video",
+                "https://www.pornhub.com/comment/show?id=$viewkey"
+            )
 
-            client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    if (body.startsWith("{") || body.startsWith("[")) {
-                        val json = JSONObject(body)
-                        val commentsArr = json.optJSONArray("comments") ?: json.optJSONArray("items")
-                        if (commentsArr != null) {
-                            for (i in 0 until commentsArr.length().coerceAtMost(25)) {
-                                val cObj = commentsArr.optJSONObject(i) ?: continue
-                                val author = cObj.optString("username", cObj.optString("author", "PH Member"))
-                                val message = cObj.optString("message", cObj.optString("comment", ""))
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Cookie" to "age_verified=1; platform=pc; accessAgeDisclaimerPH=1; ip_country=US; has_consent=1",
+                "Referer" to "https://www.pornhub.com/view_video.php?viewkey=$viewkey",
+                "X-Requested-With" to "XMLHttpRequest"
+            )
+
+            for (url in candidateUrls) {
+                if (list.isNotEmpty()) break
+                val reqBuilder = Request.Builder().url(url)
+                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+
+                try {
+                    client.newCall(reqBuilder.build()).execute().use { resp ->
+                        if (!resp.isSuccessful) return@use
+                        val body = resp.body?.string() ?: ""
+                        if (body.isBlank()) return@use
+
+                        var htmlContent = ""
+
+                        if (body.startsWith("{") || body.startsWith("[")) {
+                            try {
+                                val json = JSONObject(body)
+                                val commentsArr = json.optJSONArray("comments") ?: json.optJSONArray("items")
+                                if (commentsArr != null) {
+                                    for (i in 0 until commentsArr.length().coerceAtMost(30)) {
+                                        val cObj = commentsArr.optJSONObject(i) ?: continue
+                                        val author = cObj.optString("username", cObj.optString("author", "PH Member"))
+                                        val message = cObj.optString("message", cObj.optString("comment", ""))
+                                        if (message.isBlank()) continue
+
+                                        val avatar = cObj.optString("avatar", cObj.optString("avatar_url", null))
+                                        val likes = cObj.optInt("voteTotal", cObj.optInt("likes", 0))
+
+                                        list.add(
+                                            VideoComment(
+                                                id = "ph_cmt_$i",
+                                                authorName = author,
+                                                authorAvatarUrl = if (avatar.isNullOrBlank()) null else if (avatar.startsWith("//")) "https:$avatar" else avatar,
+                                                commentText = message,
+                                                timeAgo = cObj.optString("date", "${(2..24).random()} hours ago"),
+                                                likeCount = likes,
+                                                sourceBadge = "Pornhub"
+                                            )
+                                        )
+                                    }
+                                }
+                                if (list.isEmpty()) {
+                                    htmlContent = json.optString("html", json.optString("content", ""))
+                                }
+                            } catch (_: Exception) {}
+                        } else {
+                            htmlContent = body
+                        }
+
+                        if (list.isEmpty() && htmlContent.isNotBlank()) {
+                            val doc = org.jsoup.Jsoup.parse(htmlContent)
+                            val commentBlocks = doc.select(".commentBlock, .cmtMessageBlock, .comment-item, .commentContainer, li[id^='comment_'], div[id^='comment_']")
+                            for ((idx, block) in commentBlocks.withIndex()) {
+                                if (list.size >= 30) break
+                                val author = block.select(".usernameLink, .username, .commentAuthor, a.bold").text().trim().ifBlank { "PH Member" }
+                                val message = block.select(".commentMessage, .commentText, .message, .comment_message").text().trim()
                                 if (message.isBlank()) continue
 
-                                val avatar = cObj.optString("avatar", cObj.optString("avatar_url", null))
-                                val likes = cObj.optInt("voteTotal", cObj.optInt("likes", 0))
+                                var avatar = block.select(".userAvatar img, .commentUserImg img, img.avatar").attr("data-src").ifBlank {
+                                    block.select(".userAvatar img, .commentUserImg img, img.avatar").attr("src")
+                                }
+                                if (avatar.startsWith("//")) avatar = "https:$avatar"
+
+                                val timeAgo = block.select(".date, .timestamp, .time").text().trim().ifBlank { "Recently" }
+                                val likes = block.select(".voteTotal, .likesCount, .vote").text().trim().toIntOrNull() ?: 0
 
                                 list.add(
                                     VideoComment(
-                                        id = "ph_cmt_$i",
+                                        id = "ph_cmt_html_$idx",
                                         authorName = author,
-                                        authorAvatarUrl = if (avatar.isNullOrBlank()) null else if (avatar.startsWith("//")) "https:$avatar" else avatar,
+                                        authorAvatarUrl = if (avatar.isBlank()) null else avatar,
                                         commentText = message,
-                                        timeAgo = cObj.optString("date", "${(2..24).random()} hours ago"),
+                                        timeAgo = timeAgo,
+                                        likeCount = likes,
+                                        sourceBadge = "Pornhub"
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // Fallback: fetch directly from video page if comments are still empty
+            if (list.isEmpty()) {
+                val pageUrl = "https://www.pornhub.com/view_video.php?viewkey=$viewkey"
+                val reqBuilder = Request.Builder().url(pageUrl)
+                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+                client.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val html = resp.body?.string() ?: ""
+                        if (html.isNotBlank()) {
+                            val doc = org.jsoup.Jsoup.parse(html)
+                            val commentBlocks = doc.select("#cmtContent .commentBlock, .commentBlock, .cmtMessageBlock, .comment-item")
+                            for ((idx, block) in commentBlocks.withIndex()) {
+                                if (list.size >= 30) break
+                                val author = block.select(".usernameLink, .username, .commentAuthor, a.bold").text().trim().ifBlank { "PH Member" }
+                                val message = block.select(".commentMessage, .commentText, .message, .comment_message").text().trim()
+                                if (message.isBlank()) continue
+
+                                var avatar = block.select(".userAvatar img, .commentUserImg img, img.avatar").attr("data-src").ifBlank {
+                                    block.select(".userAvatar img, .commentUserImg img, img.avatar").attr("src")
+                                }
+                                if (avatar.startsWith("//")) avatar = "https:$avatar"
+
+                                val timeAgo = block.select(".date, .timestamp, .time").text().trim().ifBlank { "Recently" }
+                                val likes = block.select(".voteTotal, .likesCount, .vote").text().trim().toIntOrNull() ?: 0
+
+                                list.add(
+                                    VideoComment(
+                                        id = "ph_cmt_page_$idx",
+                                        authorName = author,
+                                        authorAvatarUrl = if (avatar.isBlank()) null else avatar,
+                                        commentText = message,
+                                        timeAgo = timeAgo,
                                         likeCount = likes,
                                         sourceBadge = "Pornhub"
                                     )
@@ -718,5 +875,123 @@ object CommentExtractorHelper {
             Log.w(TAG, "fetchAniListReviews error: ${e.message}")
         }
         return list
+    }
+
+    private fun fetchDailymotionComments(rawId: String, title: String): List<VideoComment> {
+        val dmId = when {
+            rawId.contains("/video/") -> rawId.substringAfter("/video/").substringBefore("?").substringBefore("_")
+            rawId.contains("dai.ly/") -> rawId.substringAfter("dai.ly/").substringBefore("?").substringBefore("_")
+            rawId.startsWith("dailymotion:") -> rawId.substringAfter("dailymotion:").substringBefore("_")
+            rawId.startsWith("http") -> rawId.substringAfterLast("/").substringBefore("?").substringBefore("_")
+            else -> rawId.trim()
+        }
+
+        val resultList = mutableListOf<VideoComment>()
+
+        // 1. Direct Dailymotion comment API
+        if (dmId.isNotBlank()) {
+            try {
+                val dmCommentsUrl = "https://api.dailymotion.com/video/$dmId/comments?fields=id,message,owner.screenname,owner.username,owner.avatar_120_url,created_time,likes_total&limit=30"
+                val req = Request.Builder()
+                    .url(dmCommentsUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Referer", "https://www.dailymotion.com/")
+                    .build()
+
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string()
+                        if (!body.isNullOrBlank()) {
+                            val json = JSONObject(body)
+                            val list = json.optJSONArray("list")
+                            if (list != null && list.length() > 0) {
+                                for (i in 0 until list.length()) {
+                                    val item = list.optJSONObject(i) ?: continue
+                                    val message = item.optString("message", "")
+                                    if (message.isBlank()) continue
+                                    val author = item.optString("owner.screenname").takeIf { it.isNotBlank() }
+                                        ?: item.optString("owner.username").takeIf { it.isNotBlank() }
+                                        ?: "Dailymotion Viewer"
+                                    var avatar = item.optString("owner.avatar_120_url", null)
+                                    if (avatar != null && avatar.startsWith("//")) avatar = "https:$avatar"
+                                    val likes = item.optInt("likes_total", 0)
+                                    val time = item.optLong("created_time", 0L)
+                                    val timeStr = if (time > 0) formatDailymotionTime(time) else "Dailymotion"
+
+                                    resultList.add(
+                                        VideoComment(
+                                            id = "dm_${item.optString("id", i.toString())}",
+                                            authorName = author,
+                                            authorAvatarUrl = avatar,
+                                            commentText = message,
+                                            timeAgo = timeStr,
+                                            likeCount = likes,
+                                            sourceBadge = "Dailymotion"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Dailymotion comments direct API check: ${e.message}")
+            }
+        }
+
+        if (resultList.isNotEmpty()) {
+            return resultList
+        }
+
+        // 2. Fetch real community discussion for this video by searching for related video comments
+        if (title.isNotBlank()) {
+            try {
+                val cleanTitle = title.replace(Regex("(?i)\\|.*$"), "").replace(Regex("(?i)\\b(dailymotion|full video|hd|720p|1080p)\\b"), "").trim()
+                if (cleanTitle.length >= 4) {
+                    val encoded = java.net.URLEncoder.encode(cleanTitle.take(60), "UTF-8")
+                    for (base in YOUTUBE_COMMENT_APIS.take(3)) {
+                        try {
+                            val searchUrl = "${base}../search?q=$encoded"
+                            val req = Request.Builder()
+                                .url(searchUrl)
+                                .header("User-Agent", "Mozilla/5.0")
+                                .build()
+                            client.newCall(req).execute().use { resp ->
+                                if (resp.isSuccessful) {
+                                    val body = resp.body?.string()
+                                    if (!body.isNullOrBlank()) {
+                                        val arr = JSONArray(body)
+                                        if (arr.length() > 0) {
+                                            val ytId = arr.optJSONObject(0)?.optString("videoId")
+                                            if (!ytId.isNullOrBlank()) {
+                                                val ytComments = fetchYouTubeCommentsViaApi(ytId)
+                                                if (ytComments.isNotEmpty()) {
+                                                    return ytComments.map { it.copy(sourceBadge = "Community Discussion") }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Dailymotion community comments fallback: ${e.message}")
+            }
+        }
+
+        return resultList
+    }
+
+    private fun formatDailymotionTime(epochSeconds: Long): String {
+        val diff = (System.currentTimeMillis() / 1000) - epochSeconds
+        return when {
+            diff < 3600 -> "${(diff / 60).coerceAtLeast(1)}m ago"
+            diff < 86400 -> "${diff / 3600}h ago"
+            diff < 2592000 -> "${diff / 86400}d ago"
+            diff < 31536000 -> "${diff / 2592000}mo ago"
+            else -> "${diff / 31536000}y ago"
+        }
     }
 }

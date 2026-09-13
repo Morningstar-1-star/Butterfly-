@@ -38,7 +38,7 @@ object MediaHeaderHelper {
                 builder.removeHeader("Cookie")
                 builder.removeHeader("cookie")
             }
-            urlStr.contains("vk.com") || urlStr.contains("vkvideo") || urlStr.contains("vkuser") || urlStr.contains("mycdn") || urlStr.contains("vk-cdn") || urlStr.contains("userapi") || urlStr.contains("ok.ru") || urlStr.contains("odnoklassniki") -> {
+            urlStr.contains("vk.com") || urlStr.contains("vkvideo") || urlStr.contains("vkuser") || urlStr.contains("mycdn") || urlStr.contains("vk-cdn") || urlStr.contains("userapi") || urlStr.contains("vkuservideo") || urlStr.contains("vk.me") || urlStr.contains("mvk.com") || urlStr.contains("ok.ru") || urlStr.contains("odnoklassniki") -> {
                 builder.header("Referer", "https://vk.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.removeHeader("Origin")
@@ -53,12 +53,13 @@ object MediaHeaderHelper {
                     urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") ||
                     urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
                     urlStr.contains("biliintl") -> {
-                builder.header("Referer", "https://www.bilibili.com/")
+                val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
+                builder.header("Referer", biliReferer)
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.header("Accept", "*/*")
                 builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
-                builder.header("Sec-Fetch-Mode", "no-cors")
-                builder.header("Sec-Fetch-Site", "cross-site")
+                builder.removeHeader("Sec-Fetch-Mode")
+                builder.removeHeader("Sec-Fetch-Site")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
                 val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
@@ -93,6 +94,19 @@ object MediaHeaderHelper {
             urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event") -> {
                 builder.header("Referer", "https://www.dailymotion.com/")
                 builder.header("Origin", "https://www.dailymotion.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.header("Accept", "*/*")
+                if (request.method.equals("HEAD", ignoreCase = true)) {
+                    val getReq = builder.get().build()
+                    val resp = chain.proceed(getReq)
+                    val cType = resp.body?.contentType()
+                    val cLen = resp.body?.contentLength() ?: -1L
+                    try { resp.body?.string() } catch (_: Throwable) {}
+                    val emptyBody = "".toResponseBody(cType)
+                    val newResp = resp.newBuilder().body(emptyBody)
+                    if (cLen > 0) newResp.header("Content-Length", cLen.toString())
+                    return@Interceptor newResp.build()
+                }
             }
             urlStr.contains("archive.org") || urlStr.contains("us.archive.org") || urlStr.contains("ia60") || urlStr.contains("ia80") || urlStr.contains("ia90") -> {
                 if (request.header("Referer") == null) {
@@ -149,9 +163,9 @@ object MediaHeaderHelper {
                 builder.header("Origin", "https://www.bigo.tv")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            urlStr.contains("cammodels.com") || urlStr.contains("stripchat.com") || urlStr.contains("doppiocdn.com") || urlStr.contains("strpst.com") -> {
-                builder.header("Referer", "https://stripchat.com/")
-                builder.header("Origin", "https://stripchat.com")
+            urlStr.contains("cammodels.com") || urlStr.contains("stripchat.com") || urlStr.contains("doppiocdn.com") || urlStr.contains("strpst.com") || urlStr.contains("bongacams.com") || urlStr.contains("bngp.net") -> {
+                builder.header("Referer", "https://cammodels.com/")
+                builder.header("Origin", "https://cammodels.com")
             }
             urlStr.contains("chaturbate.com") || urlStr.contains("highwebmedia.com") -> {
                 builder.header("Referer", "https://chaturbate.com/")
@@ -196,7 +210,7 @@ object MediaHeaderHelper {
                 builder.header("Referer", "https://noodlemagazine.com/")
                 builder.header("Origin", "https://noodlemagazine.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; ft_mature=1; consent=1")
+                if (request.header("Cookie") == null) builder.header("Cookie", "lang=en; hl=en; language=en; remixlang=3; age_verified=1; platform=pc; ft_mature=1; consent=1")
             }
             urlStr.contains("vk.com") || urlStr.contains("vkvideo.ru") || urlStr.contains("vkuser") || urlStr.contains("mycdn.me") || urlStr.contains("userapi.com") || urlStr.contains("ok.ru") || urlStr.contains("odnoklassniki.ru") -> {
                 builder.header("Referer", "https://vk.com/")
@@ -287,11 +301,22 @@ object MediaHeaderHelper {
                 builder.header("Referer", "https://javtiful.com/")
                 builder.header("Origin", "https://javtiful.com")
             }
-            urlStr.contains("supjav") || urlStr.contains("tvlogy") || urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") -> {
+            urlStr.contains("supjav") || urlStr.contains("tvlogy") || urlStr.contains("supplayer") || urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") || urlStr.contains("strwish") || urlStr.contains("cdnwish") || urlStr.contains("embedwish") || urlStr.contains("sfastwish") || urlStr.contains("filelions") || urlStr.contains("voe") || urlStr.contains("audaciousdefaulthouse") || urlStr.contains("dood") || urlStr.contains("ds2play") || urlStr.contains("streamtape") || urlStr.contains("tapecontent") || urlStr.contains("stbturbo") || urlStr.contains("streamtb") -> {
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
-                val ref = if (urlStr.contains("tvlogy")) "https://tvlogy.to/" else if (urlStr.contains("streamwish")) "https://streamwish.to/" else "https://supjav.com/"
+                val (ref, orig) = when {
+                    urlStr.contains("tvlogy") || urlStr.contains("supplayer") -> "https://tvlogy.to/" to "https://tvlogy.to"
+                    urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") || urlStr.contains("strwish") || urlStr.contains("cdnwish") || urlStr.contains("embedwish") || urlStr.contains("sfastwish") || urlStr.contains("filelions") -> "https://streamwish.to/" to "https://streamwish.to"
+                    urlStr.contains("voe") || urlStr.contains("audaciousdefaulthouse") -> "https://voe.sx/" to "https://voe.sx"
+                    urlStr.contains("dood") || urlStr.contains("ds2play") -> "https://dood.to/" to "https://dood.to"
+                    urlStr.contains("streamtape") || urlStr.contains("tapecontent") -> "https://streamtape.com/" to "https://streamtape.com"
+                    urlStr.contains("stbturbo") || urlStr.contains("streamtb") -> "https://stbturbo.xyz/" to "https://stbturbo.xyz"
+                    else -> "https://supjav.com/" to "https://supjav.com"
+                }
                 if (request.header("Referer") == null) {
                     builder.header("Referer", ref)
+                }
+                if (request.header("Origin") == null) {
+                    builder.header("Origin", orig)
                 }
             }
         }

@@ -13,6 +13,7 @@ import org.libtorrent4j.alerts.*
 import org.libtorrent4j.swig.*
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Low-level engine bridging libtorrent4j SessionManager and native C++ BitTorrent subsystem.
@@ -40,6 +41,7 @@ class LibtorrentEngine(private val context: Context) {
 
     private val sessionManager = SessionManager()
     private val isRunning = AtomicBoolean(false)
+    private val activeTorrentCount = AtomicInteger(0)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val cacheDir: File = File(context.cacheDir, "libtorrent_cache").apply { mkdirs() }
@@ -222,6 +224,7 @@ class LibtorrentEngine(private val context: Context) {
                     it.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
                 }
                 it.resume()
+                activeTorrentCount.incrementAndGet()
             }
             th
         } catch (e: Exception) {
@@ -346,6 +349,9 @@ class LibtorrentEngine(private val context: Context) {
             } else {
                 sessionManager.remove(th)
             }
+            if (activeTorrentCount.get() > 0) {
+                activeTorrentCount.decrementAndGet()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Error removing torrent $infoHashHex: ${e.message}")
         }
@@ -449,10 +455,23 @@ class LibtorrentEngine(private val context: Context) {
         }
     }
 
+    fun hasActiveOperations(): Boolean {
+        if (!isRunning()) return false
+        return activeTorrentCount.get() > 0
+    }
+
+    fun stopIfIdle() {
+        if (isRunning() && !hasActiveOperations()) {
+            Log.i(TAG, "No active torrent streams or downloads remaining. Releasing libtorrent engine resources.")
+            stop()
+        }
+    }
+
     fun stop() {
         if (!isRunning.getAndSet(false)) return
         Log.i(TAG, "Stopping libtorrent session...")
         try {
+            activeTorrentCount.set(0)
             sessionManager.removeListener(alertListener)
             sessionManager.stop()
         } catch (e: Exception) {

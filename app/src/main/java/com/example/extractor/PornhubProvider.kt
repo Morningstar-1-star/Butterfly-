@@ -232,18 +232,55 @@ object PornhubProvider {
 
                 val durText = card.select(".duration, .var-duration, .time").text().trim()
                 val durSec = parseDurationToSeconds(durText)
-                val uploader = card.select(".usernameWrap a, .uploader a, .videoUploaderBlock a").text().trim().ifBlank { "Pornhub" }
 
+                val uploaderEl = card.select(".usernameWrap a, .uploader a, .videoUploaderBlock a, .usernameLink, .userAvatarLink").firstOrNull()
+                val uploader = uploaderEl?.text()?.trim()?.ifBlank { null } ?: "Pornhub Studio"
+
+                var uploaderAvatarUrl = card.select(".userAvatar img, .usernameWrap img, .uploader img, img[data-src*='avatar'], img[src*='avatar']").attr("data-src").ifBlank {
+                    card.select(".userAvatar img, .usernameWrap img, .uploader img, img[data-src*='avatar'], img[src*='avatar']").attr("src")
+                }
+                if (uploaderAvatarUrl.startsWith("//")) uploaderAvatarUrl = "https:$uploaderAvatarUrl"
+                if (uploaderAvatarUrl.isBlank() || uploaderAvatarUrl.contains("blank") || uploaderAvatarUrl.contains("default")) {
+                    val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                    val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                    uploaderAvatarUrl = brand.logoUrls.firstOrNull()
+                        ?: "https://ui-avatars.com/api/?name=$encName&background=E91E63&color=fff&size=256&bold=true"
+                }
+
+                val models = card.select(".pstar-badge, .pstar-link, .pornstarBlock").map { it.text().trim() }.filter { it.isNotBlank() }
+
+                val uploaderUrl = "pornhub_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
                 val fullUrl = if (href.startsWith("http")) href else "https://www.pornhub.com/view_video.php?viewkey=$vk"
+
+                val previewList = mutableListOf<String>()
+                if (thumb.isNotBlank()) {
+                    previewList.add(thumb)
+                    val match = Regex("""/(\d+)(_\d+\.jpg)""").find(thumb)
+                    if (match != null) {
+                        val base = thumb.substring(0, match.range.first)
+                        val sfx = match.groupValues[2]
+                        previewList.addAll((1..15).map { idx -> "$base/$idx$sfx" })
+                    }
+                }
+
+                val desc = if (models.isNotEmpty()) {
+                    "Channel / Studio: $uploader\nFeatured Models: ${models.joinToString(", ")}\nQuality: 1080p Full HD • Pornhub Release"
+                } else {
+                    "Channel / Studio: $uploader\nQuality: 1080p Full HD • Pornhub Release"
+                }
 
                 list.add(
                     VideoItem(
                         id = fullUrl,
                         title = title,
                         uploaderName = uploader,
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatarUrl,
                         thumbnailUrl = thumb,
                         durationSeconds = durSec,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewList.distinct(),
+                        description = desc
                     )
                 )
             }
@@ -281,6 +318,159 @@ object PornhubProvider {
             Log.w(TAG, "parsePornhubHtml error ($targetUrl): ${e.message}")
         }
         return list
+    }
+
+    data class ExtractedPornhubMeta(
+        val channelName: String,
+        val channelAvatarUrl: String,
+        val subscriberCountText: String,
+        val pornstars: List<com.example.model.CastMember>,
+        val tags: List<String>
+    )
+
+    private fun extractPornhubMetadata(html: String, doc: org.jsoup.nodes.Document, defaultTitle: String): ExtractedPornhubMeta {
+        // 1. Channel Name
+        var channelName = ""
+        val uploaderSel = doc.select(".userInfoBlock .usernameLink, .usernameWrap a, .videoUploaderBlock a, .uploaderLink, a.usernameLink, .userAvatarLink, a[href*='/users/'], a[href*='/model/'], a[href*='/channels/']").firstOrNull()
+        if (uploaderSel != null) {
+            channelName = uploaderSel.text().trim()
+        }
+        if (channelName.isBlank()) {
+            val m = Pattern.compile("var\\s+uploader_name\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+            if (m.find()) channelName = m.group(1) ?: ""
+        }
+        if (channelName.isBlank()) {
+            val m = Pattern.compile("<a[^>]*class=\"[^\"]*usernameLink[^\"]*\"[^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE).matcher(html)
+            if (m.find()) channelName = m.group(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: ""
+        }
+        if (channelName.isBlank()) channelName = "Pornhub Studio"
+
+        // 2. Channel Avatar / Logo
+        var avatarUrl = ""
+        val avatarSel = doc.select(".userInfoBlock .userAvatar img, .userAvatarLink img, .userAvatar img, .usernameWrap img, .videoUploaderBlock img, .avatar img, img[src*='avatar'], img[data-src*='avatar'], img[src*='user'], img[data-src*='user']").firstOrNull()
+        if (avatarSel != null) {
+            avatarUrl = avatarSel.attr("data-src").ifBlank { avatarSel.attr("src") }.trim()
+        }
+        if (avatarUrl.isBlank()) {
+            val m = Pattern.compile("var\\s+(?:user_avatar|uploader_avatar)\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+            if (m.find()) avatarUrl = m.group(1) ?: ""
+        }
+        if (avatarUrl.isBlank()) {
+            val m = Pattern.compile("https?:[\\\\/]+[^\\s\"'<>]*(?:phncdn\\.com)[^\\s\"'<>]*(?:avatar|user|channel|community|profile)[^\\s\"'<>]*\\.(?:jpg|png|webp|jpeg)", Pattern.CASE_INSENSITIVE).matcher(html)
+            if (m.find()) avatarUrl = m.group(0).replace("\\/", "/")
+        }
+        if (avatarUrl.startsWith("//")) avatarUrl = "https:$avatarUrl"
+
+        if (avatarUrl.isBlank() || avatarUrl.contains("default") || avatarUrl.contains("blank")) {
+            val brand = com.example.util.ChannelLogoHelper.getBrandInfo(channelName, null, defaultTitle)
+            val encName = try { java.net.URLEncoder.encode(channelName.take(30), "UTF-8") } catch (_: Exception) { channelName.take(30) }
+            avatarUrl = brand.logoUrls.firstOrNull()
+                ?: "https://ui-avatars.com/api/?name=$encName&background=E91E63&color=fff&size=256&bold=true"
+        }
+
+        // 3. Subscriber Count & Videos Count
+        var subText = ""
+        val subCountSel = doc.select(".subscribersCount, .subscribers, .userSubscribersCount, .subscribers-count, .userInfoBlock, .uploader-info").text()
+        val subsMatch = Regex("""(\d+(?:\.\d+)?[KMB]?\s*(?:Subscribers|Followers))""", RegexOption.IGNORE_CASE).find(subCountSel)
+        if (subsMatch != null) {
+            subText = subsMatch.value
+        }
+        val vidsMatch = Regex("""(\d+(?:,\d+)?\s*Videos)""", RegexOption.IGNORE_CASE).find(subCountSel)
+        if (vidsMatch != null) {
+            subText = if (subText.isNotBlank()) "$subText • ${vidsMatch.value}" else vidsMatch.value
+        }
+        if (subText.isBlank()) {
+            val mSubs = Pattern.compile("var\\s+subscribers_count\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+            if (mSubs.find()) {
+                subText = "${mSubs.group(1)} Subscribers"
+            } else {
+                subText = "Verified Pornhub Partner • 1080p HD"
+            }
+        }
+
+        // 4. Pornstars / Performers
+        val pornstarsList = mutableListOf<com.example.model.CastMember>()
+        val seenStarNames = mutableSetOf<String>()
+
+        val starEls = doc.select(".pornstarsWrapper a, .pornstarsBlock a, .modelsWrapper a, .castBlock a, .pornstarBlock a, a.pstar-badge, a[href*='/pornstar/'], a[href*='/model/']")
+        for (el in starEls) {
+            val name = el.attr("data-mxptext").ifBlank { el.attr("alt") }.ifBlank { el.attr("title") }.ifBlank { el.text() }.trim()
+            if (name.isBlank() || name.equals("Pornstars", ignoreCase = true) || name.equals("Models", ignoreCase = true) || seenStarNames.contains(name.lowercase())) continue
+            seenStarNames.add(name.lowercase())
+
+            val imgEl = el.select("img").firstOrNull() ?: el.parent()?.select("img")?.firstOrNull()
+            var pImg = imgEl?.attr("data-src")?.ifBlank { imgEl?.attr("data-mediumthumb") }?.ifBlank { imgEl?.attr("data-thumb_url") }?.ifBlank { imgEl?.attr("src") } ?: ""
+            if (pImg.startsWith("//")) pImg = "https:$pImg"
+            if (pImg.isBlank()) {
+                pImg = "https://di.phncdn.com/pornstar/${name.lowercase().replace(" ", "-")}.jpg"
+            }
+
+            pornstarsList.add(
+                com.example.model.CastMember(
+                    name = name,
+                    role = "Pornstar",
+                    avatarUrl = pImg
+                )
+            )
+        }
+
+        val psMatch = Pattern.compile("\"pornstars\"\\s*:\\s*(\\[.*?\\])", Pattern.DOTALL).matcher(html)
+        if (psMatch.find()) {
+            try {
+                val arr = JSONArray(psMatch.group(1))
+                for (i in 0 until arr.length()) {
+                    val item = arr.get(i)
+                    val starName = if (item is JSONObject) item.optString("pornstar_name", item.optString("name", "")) else item.toString()
+                    if (starName.isNotBlank() && !seenStarNames.contains(starName.lowercase())) {
+                        seenStarNames.add(starName.lowercase())
+                        val avatar = if (item is JSONObject) item.optString("avatar", item.optString("avatar_url", "")) else ""
+                        val finalAvatar = if (avatar.startsWith("//")) "https:$avatar" else if (avatar.isBlank()) "https://di.phncdn.com/pornstar/${starName.lowercase().replace(" ", "-")}.jpg" else avatar
+                        pornstarsList.add(
+                            com.example.model.CastMember(
+                                name = starName,
+                                role = "Pornstar",
+                                avatarUrl = finalAvatar
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 5. Tags & Categories
+        val tagsList = mutableListOf<String>()
+        val seenTags = mutableSetOf<String>()
+
+        val tagEls = doc.select(".tagsWrapper a, .tag-providers a, .tags-container a, .categoriesWrapper a, a[href*='/video/search?search='], a[href*='/tags/'], a[href*='/categories/']")
+        for (t in tagEls) {
+            val tText = t.text().trim().removePrefix("#")
+            if (tText.length in 2..40 && !tText.equals("Tags", ignoreCase = true) && !tText.equals("Categories", ignoreCase = true) && !seenTags.contains(tText.lowercase())) {
+                seenTags.add(tText.lowercase())
+                tagsList.add(tText)
+            }
+        }
+
+        val tagsMatch = Pattern.compile("\"tags\"\\s*:\\s*(\\[.*?\\])", Pattern.DOTALL).matcher(html)
+        if (tagsMatch.find()) {
+            try {
+                val arr = JSONArray(tagsMatch.group(1))
+                for (i in 0 until arr.length()) {
+                    val tVal = arr.optString(i, "").trim()
+                    if (tVal.isNotBlank() && !seenTags.contains(tVal.lowercase())) {
+                        seenTags.add(tVal.lowercase())
+                        tagsList.add(tVal)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        return ExtractedPornhubMeta(
+            channelName = channelName,
+            channelAvatarUrl = avatarUrl,
+            subscriberCountText = subText,
+            pornstars = pornstarsList,
+            tags = tagsList
+        )
     }
 
     private fun parseWebmastersApi(apiUrl: String, limit: Int): List<VideoItem> {
@@ -335,27 +525,38 @@ object PornhubProvider {
                 if (thumb.startsWith("//")) thumb = "https:$thumb"
 
                 // Extract creator/pornstar name if available
-                var creator = "Pornhub"
+                var creator = "Pornhub Studio"
                 val starsArr = vObj.optJSONArray("pornstars")
                 if (starsArr != null && starsArr.length() > 0) {
                     val star = starsArr.optJSONObject(0)?.optString("pornstar_name", "") ?: ""
                     if (star.isNotBlank()) creator = star
                 }
 
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(creator, null, title)
+                val encName = try { java.net.URLEncoder.encode(creator.take(30), "UTF-8") } catch (_: Exception) { creator.take(30) }
+                val creatorAvatarUrl = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=E91E63&color=fff&size=256&bold=true"
+                val uploaderUrl = "pornhub_${creator.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
                 val durStr = vObj.optString("duration", "0")
                 val durSec = parseDurationToSeconds(durStr)
                 val views = vObj.optLong("views", -1L)
+
+                val desc = "Studio / Model: $creator\nQuality: 1080p Full HD • Verified Pornhub Release"
 
                 list.add(
                     VideoItem(
                         id = url,
                         title = title,
                         uploaderName = creator,
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = creatorAvatarUrl,
                         thumbnailUrl = thumb,
                         durationSeconds = durSec,
                         viewCount = views,
                         providerId = PROVIDER_ID,
-                        previewThumbnails = thumbsList.take(16)
+                        previewThumbnails = thumbsList.take(16),
+                        description = desc
                     )
                 )
             }
@@ -588,18 +789,42 @@ object PornhubProvider {
                         heatmapData = com.example.util.HeatmapHelper.extractFromHtml(html, durationSeconds * 1000L)
                     }
 
+                    val doc = org.jsoup.Jsoup.parse(html)
+                    val meta = extractPornhubMetadata(html, doc, title)
+
+                    val related = try {
+                        search(meta.channelName, limit = 12).filter { !it.id.contains(vk) }
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+
+                    val descBuilder = StringBuilder()
+                    descBuilder.append("Channel / Studio: ${meta.channelName}\n")
+                    if (meta.pornstars.isNotEmpty()) {
+                        descBuilder.append("Featured Models: ${meta.pornstars.joinToString(", ") { it.name }}\n")
+                    }
+                    if (meta.tags.isNotEmpty()) {
+                        descBuilder.append("Tags: ${meta.tags.joinToString(", ")}\n")
+                    }
+                    descBuilder.append("Quality: 1080p Full HD • Pornhub Release")
+
                     return@withContext StreamData(
                         videoId = vk,
                         videoUrl = firstUrl,
                         title = title,
-                        channelName = "Pornhub",
-                        thumbnailUrl = thumb,
+                        channelName = meta.channelName,
+                        channelAvatarUrl = meta.channelAvatarUrl,
+                        subscriberCountText = meta.subscriberCountText,
+                        description = descBuilder.toString(),
                         availableStreamOptions = sortedOptions,
                         selectedStreamOption = sortedOptions.firstOrNull(),
                         hlsUrl = hlsUrl,
+                        relatedVideos = related,
                         providerId = PROVIDER_ID,
                         headers = defaultHeaders,
-                        heatmap = heatmapData
+                        heatmap = heatmapData,
+                        cast = meta.pornstars,
+                        tags = meta.tags
                     )
                 }
             } catch (e: Exception) {

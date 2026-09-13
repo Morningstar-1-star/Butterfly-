@@ -40,6 +40,8 @@ object AppConfig {
     private const val KEY_YARR_ENABLED = "yarr_enabled"
     private const val KEY_YARR_SERVER_URL = "yarr_server_url"
     private const val KEY_MAGNETIO_ENABLED = "magnetio_enabled"
+    private const val KEY_DECRYPTOR_BASE_URL = "decryptor_base_url"
+    private const val KEY_DECRYPTOR_ENABLED = "decryptor_enabled"
 
     // Default working keys & mirrors
     const val DEFAULT_TMDB_API_KEY = "3155fdb497f7575a144f26adebcbf980"
@@ -64,7 +66,15 @@ object AppConfig {
     const val DEFAULT_YARR_ENABLED = true
     const val DEFAULT_YARR_SERVER_URL = "https://yarr.fly.dev"
     const val DEFAULT_MAGNETIO_ENABLED = true
+    const val DEFAULT_DECRYPTOR_BASE_URL = "https://decryptor-nxsha.onrender.com"
+    const val DEFAULT_DECRYPTOR_ENABLED = true
     val DEFAULT_PO_TOKEN_SERVER_URL: String get() = com.example.BuildConfig.PO_TOKEN_SERVER_URL
+
+    @Volatile
+    private var cachedDecryptorEnabled: Boolean = DEFAULT_DECRYPTOR_ENABLED
+
+    @Volatile
+    private var cachedDecryptorBaseUrl: String? = null
 
     @Volatile
     private var cachedMediaFlowEnabled: Boolean = DEFAULT_MEDIAFLOW_ENABLED
@@ -203,6 +213,27 @@ object AppConfig {
         cachedYarrEnabled = prefs.getBoolean(KEY_YARR_ENABLED, DEFAULT_YARR_ENABLED)
         cachedYarrServerUrl = prefs.getString(KEY_YARR_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_YARR_SERVER_URL
         cachedMagnetioEnabled = prefs.getBoolean(KEY_MAGNETIO_ENABLED, DEFAULT_MAGNETIO_ENABLED)
+        cachedDecryptorEnabled = prefs.getBoolean(KEY_DECRYPTOR_ENABLED, DEFAULT_DECRYPTOR_ENABLED)
+        cachedDecryptorBaseUrl = prefs.getString(KEY_DECRYPTOR_BASE_URL, null)?.ifBlank { null } ?: DEFAULT_DECRYPTOR_BASE_URL
+    }
+
+    fun isDecryptorEnabled(): Boolean = cachedDecryptorEnabled
+
+    fun setDecryptorEnabled(context: Context, enabled: Boolean) {
+        cachedDecryptorEnabled = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_DECRYPTOR_ENABLED, enabled)
+            .apply()
+    }
+
+    fun getDecryptorBaseUrl(): String = cachedDecryptorBaseUrl ?: DEFAULT_DECRYPTOR_BASE_URL
+
+    fun setDecryptorBaseUrl(context: Context, url: String) {
+        val clean = url.trim().trimEnd('/')
+        cachedDecryptorBaseUrl = clean.ifBlank { DEFAULT_DECRYPTOR_BASE_URL }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_DECRYPTOR_BASE_URL, cachedDecryptorBaseUrl)
+            .apply()
     }
 
     fun isMediaFlowEnabled(): Boolean = cachedMediaFlowEnabled

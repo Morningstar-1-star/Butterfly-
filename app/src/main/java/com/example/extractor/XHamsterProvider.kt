@@ -233,25 +233,43 @@ object XHamsterProvider {
                         }
 
                         val landing = v.optJSONObject("landing")
-                        val uploaderName = landing?.optString("name")?.takeIf { it.isNotBlank() } ?: "xHamster"
+                        val rawUploaderName = landing?.optString("name")?.takeIf { it.isNotBlank() } ?: "xHamster Studio"
+                        val brand = com.example.util.ChannelLogoHelper.getBrandInfo(rawUploaderName, null, title)
+                        val encName = try { java.net.URLEncoder.encode(rawUploaderName.take(30), "UTF-8") } catch (_: Exception) { rawUploaderName.take(30) }
                         val uploaderAvatar = landing?.optString("logo")?.takeIf { it.isNotBlank() }
-                        val uploaderUrl = landing?.optString("link")?.takeIf { it.isNotBlank() }
+                            ?: brand.logoUrls.firstOrNull()
+                            ?: "https://ui-avatars.com/api/?name=$encName&background=8E24AA&color=fff&size=256&bold=true"
 
-                        val previewList = if (thumb.isNotBlank()) listOf(thumb) else emptyList()
+                        val rawUploaderUrl = landing?.optString("link")?.takeIf { it.isNotBlank() }
+                        val uploaderUrl = rawUploaderUrl ?: "xhamster_${rawUploaderName.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                        val previewList = mutableListOf<String>()
+                        if (thumb.isNotBlank()) {
+                            previewList.add(thumb)
+                            val xhFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(thumb)
+                            if (xhFrameMatch != null) {
+                                val base = thumb.substring(0, xhFrameMatch.range.first)
+                                val ext = xhFrameMatch.groupValues[2]
+                                previewList.addAll((1..16).map { idx -> "$base/$idx.$ext" })
+                            }
+                        }
+
+                        val desc = "Studio / Creator: $rawUploaderName\nQuality: 4K / 1080p Ultra HD • Verified xHamster Release"
 
                         list.add(
                             VideoItem(
                                 id = pageUrl,
                                 title = title,
-                                uploaderName = uploaderName,
+                                uploaderName = rawUploaderName,
                                 uploaderUrl = uploaderUrl,
                                 uploaderAvatarUrl = uploaderAvatar,
                                 viewCount = views,
                                 durationSeconds = duration,
                                 thumbnailUrl = thumb,
                                 providerId = PROVIDER_ID,
-                                previewThumbnails = previewList,
-                                previewClipUrl = trailerUrl.takeIf { it.isNotBlank() }
+                                previewThumbnails = previewList.distinct(),
+                                previewClipUrl = trailerUrl.takeIf { it.isNotBlank() },
+                                description = desc
                             )
                         )
                     }

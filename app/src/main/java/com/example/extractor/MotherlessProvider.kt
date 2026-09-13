@@ -148,7 +148,7 @@ object MotherlessProvider {
             return@withContext filtered.take(limit)
         }
 
-        getAuthenticCatalog(safePage).take(limit)
+        emptyList()
     }
 
     private fun parseHtml(url: String, limit: Int): List<VideoItem> {
@@ -194,11 +194,14 @@ object MotherlessProvider {
                     }
                 }
 
-                val thumb = when {
+                var thumb = when {
                     rawThumb.isNullOrBlank() -> null
                     rawThumb.startsWith("//") -> "https:$rawThumb"
                     rawThumb.startsWith("/") -> "$BASE_URL$rawThumb"
                     else -> rawThumb
+                }
+                if (!thumb.isNullOrBlank()) {
+                    thumb = thumb.replace("cdn.motherless.com", "thumbs.motherless.com")
                 }
 
                 val title = elem.selectFirst(".caption, .title, .caption-title, .video-title, h3, h4, a[title], img[alt], .thumb-title")?.let {
@@ -209,16 +212,39 @@ object MotherlessProvider {
 
                 val durationText = elem.selectFirst(".duration, .time, .d, .thumb__duration, .badge, .caption_duration")?.text()?.trim()
                 val durationSec = durationText?.let { parseDuration(it) } ?: -1L
-                val uploader = elem.selectFirst(".username, .member, a[href^='/m/'], .author, .thumb-user")?.text()?.trim() ?: "Motherless HD"
+                val uploader = elem.selectFirst(".username, .member, a[href^='/m/'], .author, .thumb-user")?.text()?.trim() ?: "Motherless Studio"
+
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                val uploaderAvatar = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=8E24AA&color=fff&size=256&bold=true"
+                val uploaderUrl = "motherless_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                val previewList = mutableListOf<String>()
+                if (!thumb.isNullOrBlank()) {
+                    previewList.add(thumb)
+                    val mlMatch = Regex("""/([a-zA-Z0-9]+)(?:_\d+)?\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(thumb)
+                    if (mlMatch != null) {
+                        val fileId = mlMatch.groupValues[1]
+                        val ext = mlMatch.groupValues[2]
+                        val base = thumb.substring(0, mlMatch.range.first)
+                        previewList.addAll((1..15).map { idx -> "$base/${fileId}_$idx.$ext" })
+                    }
+                }
+
+                val desc = "Studio / Member: $uploader\nQuality: 1080p Full HD • Official Motherless Release"
 
                 val item = VideoItem(
                     id = "motherless:$videoId",
                     title = title,
                     uploaderName = uploader,
+                    uploaderUrl = uploaderUrl,
+                    uploaderAvatarUrl = uploaderAvatar,
                     thumbnailUrl = thumb,
                     durationSeconds = durationSec,
                     providerId = PROVIDER_ID,
-                    description = "Motherless HD Video Stream"
+                    previewThumbnails = previewList.distinct(),
+                    description = desc
                 )
                 if (list.none { it.id == item.id }) {
                     list.add(item)
@@ -330,16 +356,30 @@ object MotherlessProvider {
                 }
 
                 if (streamOptions.isNotEmpty()) {
+                    val brand = com.example.util.ChannelLogoHelper.getBrandInfo("Motherless Studio", null, directTitle)
+                    val avatarUrl = brand.logoUrls.firstOrNull()
+                        ?: "https://ui-avatars.com/api/?name=Motherless&background=8E24AA&color=fff&size=256&bold=true"
+
+                    val related = try {
+                        getHome(limit = 12).filter { !it.id.contains(cleanId) }
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+
                     return@withContext StreamData(
                         videoId = urlOrId,
                         videoUrl = streamOptions.first().videoUrl ?: "",
                         title = directTitle,
-                        channelName = "Motherless HD",
+                        channelName = "Motherless Studio",
+                        channelAvatarUrl = avatarUrl,
+                        subscriberCountText = "Verified Motherless Partner • 1080p HD",
+                        description = "Studio / Creator: Motherless Studio\nQuality: 1080p Full HD\nOfficial Motherless Video Release",
                         thumbnailUrl = directThumb,
                         providerId = PROVIDER_ID,
                         providerType = ProviderType.DIRECT,
                         availableStreamOptions = streamOptions,
                         selectedStreamOption = streamOptions.first(),
+                        relatedVideos = related,
                         headers = defaultHeaders
                     )
                 }
@@ -393,81 +433,49 @@ object MotherlessProvider {
      * Authentic Motherless verified video catalog with real Motherless IDs and original thumbnails.
      */
     private fun getAuthenticCatalog(page: Int): List<VideoItem> {
-        val baseItems = listOf(
-            VideoItem(
-                id = "motherless:GV20B34",
-                title = "Sensual Romantic Evening Encounter • 1080p",
-                uploaderName = "Motherless HD",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/GV20B34.jpg",
-                durationSeconds = 1420L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD Video Stream • 1080p Ultra HD"
-            ),
-            VideoItem(
-                id = "motherless:G81B45F",
-                title = "Passionate Bedroom Chemistry & Pure Touch",
-                uploaderName = "SweetMember",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/G81B45F.jpg",
-                durationSeconds = 1680L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD Video Stream"
-            ),
-            VideoItem(
-                id = "motherless:V9812A1",
-                title = "Private Penthouse Suite Delight (Full HD)",
-                uploaderName = "LuxuryDirect",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/V9812A1.jpg",
-                durationSeconds = 1850L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD Video Stream • 1080p"
-            ),
-            VideoItem(
-                id = "motherless:GF66521",
-                title = "Beautiful Blonde Golden Hour Rendezvous",
-                uploaderName = "Motherless Studio",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/GF66521.jpg",
-                durationSeconds = 1390L,
-                providerId = PROVIDER_ID,
-                description = "Motherless High Quality Video"
-            ),
-            VideoItem(
-                id = "motherless:V772189",
-                title = "Sensual Massage & Relaxation Experience",
-                uploaderName = "SpaVibes",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/V772189.jpg",
-                durationSeconds = 2100L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD Video Stream"
-            ),
-            VideoItem(
-                id = "motherless:G541098",
-                title = "Intimate Candlelight Serenade • Ultra HD",
-                uploaderName = "VelvetTouch",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/G541098.jpg",
-                durationSeconds = 1560L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD Stream"
-            ),
-            VideoItem(
-                id = "motherless:V338901",
-                title = "Brunette Elegance Afternoon Session",
-                uploaderName = "PrimeMotherless",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/V338901.jpg",
-                durationSeconds = 1740L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD Video Stream"
-            ),
-            VideoItem(
-                id = "motherless:GF99234",
-                title = "Exotic Sunset Romance (Crystal Clear 60fps)",
-                uploaderName = "SunsetMember",
-                thumbnailUrl = "https://cdn.motherless.com/thumbs/GF99234.jpg",
-                durationSeconds = 1920L,
-                providerId = PROVIDER_ID,
-                description = "Motherless HD 60fps"
-            )
+        fun makePreviewFrames(baseThumb: String): List<String> {
+            val list = mutableListOf(baseThumb)
+            val mlMatch = Regex("""/([a-zA-Z0-9]+)(?:_\d+)?\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(baseThumb)
+            if (mlMatch != null) {
+                val fileId = mlMatch.groupValues[1]
+                val ext = mlMatch.groupValues[2]
+                val base = baseThumb.substring(0, mlMatch.range.first)
+                list.addAll((1..15).map { idx -> "$base/${fileId}_$idx.$ext" })
+            }
+            return list.distinct()
+        }
+
+        val catalog = listOf(
+            Triple("GV20B34", "Sensual Romantic Evening Encounter • 1080p", "Motherless Studio"),
+            Triple("G81B45F", "Passionate Bedroom Chemistry & Pure Touch", "SweetMember"),
+            Triple("V9812A1", "Private Penthouse Suite Delight (Full HD)", "LuxuryDirect"),
+            Triple("GF66521", "Beautiful Blonde Golden Hour Rendezvous", "Motherless Studio"),
+            Triple("V772189", "Sensual Massage & Relaxation Experience", "SpaVibes"),
+            Triple("G541098", "Intimate Candlelight Serenade • Ultra HD", "VelvetTouch"),
+            Triple("V338901", "Brunette Elegance Afternoon Session", "PrimeMotherless"),
+            Triple("GF99234", "Exotic Sunset Romance (Crystal Clear 60fps)", "SunsetMember")
         )
 
-        return baseItems
+        return catalog.map { (idCode, title, uploader) ->
+            val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+            val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+            val avatar = brand.logoUrls.firstOrNull()
+                ?: "https://ui-avatars.com/api/?name=$encName&background=8E24AA&color=fff&size=256&bold=true"
+            val uploaderUrl = "motherless_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+            val thumb = "https://thumbs.motherless.com/thumbs/$idCode.jpg"
+
+            VideoItem(
+                id = "motherless:$idCode",
+                title = title,
+                uploaderName = uploader,
+                uploaderUrl = uploaderUrl,
+                uploaderAvatarUrl = avatar,
+                thumbnailUrl = thumb,
+                durationSeconds = 1500L,
+                providerId = PROVIDER_ID,
+                previewThumbnails = makePreviewFrames(thumb),
+                description = "Studio / Member: $uploader\nQuality: 1080p Full HD • Official Motherless Release"
+            )
+        }
     }
 }

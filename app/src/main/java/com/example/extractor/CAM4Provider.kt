@@ -199,7 +199,7 @@ object CAM4Provider {
         val filtered = allCams.filter {
             q.isBlank() || it.title.contains(q, ignoreCase = true) || it.uploaderName.contains(q, ignoreCase = true)
         }
-        if (filtered.isNotEmpty()) filtered.take(limit) else allCams.take(limit)
+        filtered.take(limit)
     }
 
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {

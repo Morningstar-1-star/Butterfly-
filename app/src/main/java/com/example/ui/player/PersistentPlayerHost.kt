@@ -74,10 +74,9 @@ fun PersistentPlayerHost(
         },
         onRelease = { playerView ->
             com.example.ui.player.core.PlayerFrameCaptureHelper.unregisterPlayerView(playerView)
-            // Detach this playerView from the player without resetting ExoPlayer's active rendering surface
-            // if ExoPlayer is still playing or managed globally.
             playerView.setControllerVisibilityListener(null as? PlayerView.ControllerVisibilityListener)
             playerView.setFullscreenButtonClickListener(null)
+            playerView.player = null
         },
         modifier = modifier
     )

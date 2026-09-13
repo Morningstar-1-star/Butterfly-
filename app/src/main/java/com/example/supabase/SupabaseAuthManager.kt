@@ -109,6 +109,112 @@ object SupabaseAuthManager {
         }
     }
 
+    suspend fun handleAuthCallback(uri: android.net.Uri): Result<SupabaseSession> {
+        _authError.value = null
+        try {
+            Log.d(TAG, "Handling auth callback URI: $uri")
+            val rawUri = uri.toString()
+            
+            // Extract fragment params (e.g. #access_token=... or #error=...)
+            val fragmentStr = uri.fragment ?: if (rawUri.contains("#")) rawUri.substringAfter("#") else ""
+            val fragmentParams = parseParamMap(fragmentStr)
+
+            // Check for errors in fragment or query
+            val error = fragmentParams["error"] ?: uri.getQueryParameter("error")
+            val errorDesc = fragmentParams["error_description"] ?: uri.getQueryParameter("error_description")
+            if (!error.isNullOrBlank() || !errorDesc.isNullOrBlank()) {
+                val cleanError = errorDesc?.replace("+", " ") ?: error ?: "Authentication failed"
+                _authError.value = cleanError
+                Log.w(TAG, "Auth callback returned error: $cleanError")
+                return Result.failure(java.io.IOException(cleanError))
+            }
+
+            // Check if fragment contains access_token
+            val accessToken = fragmentParams["access_token"]
+            val refreshToken = fragmentParams["refresh_token"] ?: ""
+            val expiresIn = fragmentParams["expires_in"]?.toLongOrNull() ?: 3600L
+
+            if (!accessToken.isNullOrBlank()) {
+                // Fetch user info with access token
+                val userRes = getClient().getUser(accessToken)
+                val user = userRes.getOrNull() ?: SupabaseUser(id = "", email = fragmentParams["email"] ?: "")
+                val expiresAt = System.currentTimeMillis() + (expiresIn * 1000)
+
+                val session = SupabaseSession(
+                    accessToken = accessToken,
+                    refreshToken = refreshToken,
+                    user = user,
+                    expiresAt = expiresAt
+                )
+
+                _session.value = session
+                _currentUser.value = user
+                _isLoggedIn.value = true
+                persistSession(session)
+                Log.i(TAG, "Successfully authenticated via callback for ${user.email}")
+                return Result.success(session)
+            }
+
+            // Check query params for code or token_hash
+            val code = uri.getQueryParameter("code")
+            if (!code.isNullOrBlank()) {
+                val res = getClient().exchangeCodeForSession(code)
+                if (res.isSuccess) {
+                    val sess = res.getOrThrow()
+                    _session.value = sess
+                    _currentUser.value = sess.user
+                    _isLoggedIn.value = true
+                    persistSession(sess)
+                    return Result.success(sess)
+                } else {
+                    val err = res.exceptionOrNull()?.message ?: "Code exchange failed"
+                    _authError.value = err
+                    return Result.failure(res.exceptionOrNull() ?: java.io.IOException(err))
+                }
+            }
+
+            val tokenHash = uri.getQueryParameter("token_hash")
+            val type = uri.getQueryParameter("type") ?: "signup"
+            if (!tokenHash.isNullOrBlank()) {
+                val res = getClient().verifyOtp(tokenHash, type)
+                if (res.isSuccess) {
+                    val sess = res.getOrThrow()
+                    _session.value = sess
+                    _currentUser.value = sess.user
+                    _isLoggedIn.value = true
+                    persistSession(sess)
+                    return Result.success(sess)
+                } else {
+                    val err = res.exceptionOrNull()?.message ?: "OTP verification failed"
+                    _authError.value = err
+                    return Result.failure(res.exceptionOrNull() ?: java.io.IOException(err))
+                }
+            }
+
+            val errStr = "Invalid callback link or missing tokens"
+            _authError.value = errStr
+            return Result.failure(java.io.IOException(errStr))
+        } catch (e: Exception) {
+            Log.e(TAG, "handleAuthCallback error", e)
+            _authError.value = e.message ?: "Authentication callback error"
+            return Result.failure(e)
+        }
+    }
+
+    private fun parseParamMap(paramString: String?): Map<String, String> {
+        if (paramString.isNullOrBlank()) return emptyMap()
+        val map = mutableMapOf<String, String>()
+        paramString.split("&").forEach { param ->
+            val parts = param.split("=", limit = 2)
+            if (parts.size == 2) {
+                val key = try { java.net.URLDecoder.decode(parts[0], "UTF-8") } catch (_: Exception) { parts[0] }
+                val value = try { java.net.URLDecoder.decode(parts[1], "UTF-8") } catch (_: Exception) { parts[1] }
+                map[key] = value
+            }
+        }
+        return map
+    }
+
     suspend fun signUp(email: String, password: String): Result<SupabaseSession> {
         _authError.value = null
         val res = getClient().signUp(email.trim(), password)

@@ -819,6 +819,24 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isDecryptor = providerId == "decryptor" || urlOrId.startsWith("decryptor:") || urlOrId.contains("decryptor")
+        if (isDecryptor) {
+            val decryptorData = DecryptorProvider.getStreamData(urlOrId, context)
+            if (decryptorData != null) {
+                Log.i(TAG, "Resolved via DecryptorProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(decryptorData)
+            }
+        }
+
+        val isVidSrc = providerId == "vidsrc" || urlOrId.startsWith("vidsrc:") || urlOrId.contains("vidsrc")
+        if (isVidSrc) {
+            val vidsrcData = VidSrcProvider.getStreamData(urlOrId, context)
+            if (vidsrcData != null) {
+                Log.i(TAG, "Resolved via VidSrcProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(vidsrcData)
+            }
+        }
+
         val isXHamster = providerId == "xhamster" || urlOrId.contains("xhamster.com") || urlOrId.contains("xhcdn.com")
         if (isXHamster) {
             val xhData = XHamsterProvider.getStreamData(urlOrId, context)
@@ -1017,6 +1035,9 @@ object YouTubeExtractorHelper {
                 urlOrId.contains("bilibili.com") ||
                 urlOrId.contains("b23.tv") ||
                 urlOrId.contains("biliintl.com") ||
+                urlOrId.contains("live.bilibili.com") ||
+                urlOrId.startsWith("bili_live:", ignoreCase = true) ||
+                urlOrId.startsWith("bilibili_live:", ignoreCase = true) ||
                 urlOrId.startsWith("bili:", ignoreCase = true) ||
                 urlOrId.startsWith("bilibili:", ignoreCase = true) ||
                 urlOrId.startsWith("BV", ignoreCase = true) ||

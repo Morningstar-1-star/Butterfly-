@@ -151,7 +151,19 @@ object ThisVidProvider {
         }
 
         getCuratedThisVidList(limit, safePage).filter { it.title.contains(q, ignoreCase = true) }
-            .ifEmpty { getCuratedThisVidList(limit, safePage) }
+    }
+
+    fun cleanThisVidTitle(raw: String): String {
+        if (raw.isBlank()) return "ThisVid Video"
+        var clean = raw.trim()
+        clean = clean
+            .replace(Regex("""(?i)^\s*(?:HD|4K|SD|720p|1080p|\d+:\d+(?::\d+)?|\d+%\s*|\d+\s*(?:views?|likes?|hours?|days?|mins?|ago)|LIKES)+\s*"""), "")
+            .replace(Regex("""(?i)\s*(?:HD|4K|SD|720p|1080p|\d+:\d+(?::\d+)?|\d+%\s*|\d+\s*(?:views?|likes?|hours?|days?|mins?|ago)|LIKES)+\s*${'$'}"""), "")
+            .replace(Regex("""(?i)^[-_\s|:]+"""), "")
+            .replace(Regex("""(?i)\s*-\s*ThisVid.*${'$'}"""), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        return if (clean.isNotBlank()) clean else "ThisVid Video"
     }
 
     private fun parseHtml(url: String, limit: Int): List<VideoItem> {
@@ -187,11 +199,13 @@ object ThisVidProvider {
                 if (seen.contains(href)) continue
                 seen.add(href)
 
-                val title = card.select(".title, .item-title, a[title], h4, h3, .thumb-title, .video-title").text().trim().ifBlank {
-                    linkEl.attr("title").ifBlank {
-                        card.select("img").attr("alt").ifBlank { "ThisVid Video" }
-                    }
-                }
+                val rawTitle = linkEl.attr("title").ifBlank {
+                    card.select(".title a, a.title, .item-title, .video-title, h3, h4").firstOrNull()?.text() ?: ""
+                }.ifBlank {
+                    card.select("img").attr("alt")
+                }.ifBlank { "ThisVid Video" }
+
+                val title = cleanThisVidTitle(rawTitle)
 
                 var thumb = card.select("img").attr("data-src").ifBlank {
                     card.select("img").attr("data-original")
@@ -284,8 +298,9 @@ object ThisVidProvider {
         var resolvedThumbnail = ""
         var resolvedChannel = "ThisVid"
         var numericId = ""
+        var fetchedHtml = ""
 
-        // 1. Direct HTML metadata extraction
+        // 1. Direct HTML metadata and stream extraction
         try {
             val req = Request.Builder()
                 .url(targetUrl)
@@ -297,12 +312,13 @@ object ThisVidProvider {
             }
 
             if (!html.isNullOrBlank()) {
+                fetchedHtml = html
                 val doc = org.jsoup.Jsoup.parse(html)
                 val ogTitle = doc.select("meta[property=og:title]").attr("content").trim()
-                if (ogTitle.isNotBlank()) resolvedTitle = ogTitle.replace(Regex("(?i) - ThisVid.*"), "").trim()
+                if (ogTitle.isNotBlank()) resolvedTitle = cleanThisVidTitle(ogTitle)
                 else {
                     val pageTitle = doc.select("title, h1, .video-title").firstOrNull()?.text()?.trim() ?: ""
-                    if (pageTitle.isNotBlank()) resolvedTitle = pageTitle.replace(Regex("(?i) - ThisVid.*"), "").trim()
+                    if (pageTitle.isNotBlank()) resolvedTitle = cleanThisVidTitle(pageTitle)
                 }
 
                 val thumb = doc.select("meta[property=og:image]").attr("content")
@@ -352,8 +368,30 @@ object ThisVidProvider {
 
         val videoSources = mutableListOf<PlayableStreamOption>()
 
+        // 1b. Direct HTML stream extraction from target and embed pages
+        val directFromTarget = extractDirectStreamsFromHtml(fetchedHtml)
+        videoSources.addAll(directFromTarget)
+
+        if (videoSources.isEmpty() && embedUrl != targetUrl) {
+            try {
+                val embedReq = Request.Builder()
+                    .url(embedUrl)
+                    .headers(okhttp3.Headers.Builder().apply { defaultHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                    .build()
+                val embedHtml = httpClient.newCall(embedReq).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+                if (!embedHtml.isNullOrBlank()) {
+                    val directFromEmbed = extractDirectStreamsFromHtml(embedHtml)
+                    videoSources.addAll(directFromEmbed)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "ThisVid embed HTML extraction: ${e.message}")
+            }
+        }
+
         // 2. High-speed headless WebView stream sniffer (intercepts decrypted kt_player media)
-        if (context != null) {
+        if (videoSources.isEmpty() && context != null) {
             try {
                 val capturedOption = com.example.extractor.thisvid.ThisVidWebViewFallback.resolveStream(context, targetUrl, embedUrl)
                 if (capturedOption != null && !capturedOption.videoUrl.isNullOrBlank()) {
@@ -435,6 +473,69 @@ object ThisVidProvider {
             providerType = primarySource.providerType,
             headers = primarySource.headers
         )
+    }
+
+    private fun extractDirectStreamsFromHtml(html: String): List<PlayableStreamOption> {
+        val results = mutableListOf<PlayableStreamOption>()
+        if (html.isBlank()) return results
+
+        val streamHeaders = mapOf(
+            "User-Agent" to DEFAULT_UA,
+            "Referer" to "$BASE_URL/",
+            "Origin" to BASE_URL,
+            "Cookie" to "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1"
+        )
+
+        val patterns = listOf(
+            Regex("""video_url\s*:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE),
+            Regex("""video_alt_url\d*\s*:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE),
+            Regex("""file\s*:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE),
+            Regex("""<source[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
+            Regex("""<video[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
+            Regex("""(https?://[^\s"'<>]+\/get_file\/[^\s"'<>]+)""", RegexOption.IGNORE_CASE),
+            Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)(?:\?[^\s"'<>]*)?)""", RegexOption.IGNORE_CASE)
+        )
+
+        val seenUrls = mutableSetOf<String>()
+
+        for (pattern in patterns) {
+            pattern.findAll(html).forEach { match ->
+                var raw = match.groupValues[1]
+                raw = unescapeUrl(raw)
+                if (raw.startsWith("function/0/")) {
+                    raw = raw.removePrefix("function/0/")
+                }
+                if (raw.startsWith("//")) raw = "https:$raw"
+
+                if (raw.startsWith("http://") || raw.startsWith("https://")) {
+                    val lower = raw.lowercase()
+                    if (!lower.contains(".jpg") && !lower.contains(".png") && !lower.contains(".gif") &&
+                        !lower.contains(".css") && !lower.contains(".js") && !lower.contains("preview") &&
+                        !lower.contains("poster") && !lower.contains("thumb") && !lower.contains("tracking") &&
+                        (lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("/get_file/"))
+                    ) {
+                        if (!seenUrls.contains(raw)) {
+                            seenUrls.add(raw)
+                            val isHls = lower.contains(".m3u8")
+                            val is1080 = lower.contains("1080p") || lower.contains("hd")
+                            results.add(
+                                PlayableStreamOption(
+                                    qualityLabel = if (isHls) "1080p HLS" else if (is1080) "1080p Full HD" else "720p HD",
+                                    format = if (isHls) "m3u8" else "mp4",
+                                    isMuxed = true,
+                                    videoUrl = raw,
+                                    providerType = ProviderType.DIRECT,
+                                    headers = streamHeaders,
+                                    sourceName = "ThisVid Direct"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        return results
     }
 
     private fun getStreamHeadersForUrl(url: String): Map<String, String> {

@@ -181,7 +181,7 @@ object ChaturbateProvider {
         val allRooms = getHome(limit * 2, 1)
         allRooms.filter {
             it.title.contains(q, ignoreCase = true) || it.uploaderName.contains(q, ignoreCase = true)
-        }.take(limit).ifEmpty { allRooms.take(limit) }
+        }.take(limit)
     }
 
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {

@@ -209,6 +209,7 @@ fun StreamSourcePickerBottomSheet(
                         else allOptions.count { it.detectedSourceName.equals(src, ignoreCase = true) }
 
                         val sourceColor = when {
+                            src.contains("Decryptor", ignoreCase = true) -> Color(0xFF00E5FF) // Cyber cyan
                             src.contains("Vega", ignoreCase = true) -> Color(0xFF00E676)
                             src.contains("Torrentio", ignoreCase = true) -> Color(0xFF448AFF)
                             src.contains("VidSrc", ignoreCase = true) -> Color(0xFFFF9100)
@@ -227,7 +228,14 @@ fun StreamSourcePickerBottomSheet(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    if (src.contains("Vega", ignoreCase = true)) {
+                                    if (src.contains("Decryptor", ignoreCase = true)) {
+                                        Icon(
+                                            imageVector = Icons.Default.Dns,
+                                            contentDescription = null,
+                                            tint = if (isSelected) Color.Black else sourceColor,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    } else if (src.contains("Vega", ignoreCase = true)) {
                                         Icon(
                                             imageVector = Icons.Default.Bolt,
                                             contentDescription = null,
@@ -456,6 +464,7 @@ fun StreamOptionCard(
 
     // Dynamic coloring based on source and quality
     val sourceColor = when {
+        src.contains("Decryptor", ignoreCase = true) -> Color(0xFF00E5FF) // Cyber cyan
         src.contains("Vega", ignoreCase = true) -> Color(0xFF00E676) // Emerald green
         src.contains("Torrentio", ignoreCase = true) -> Color(0xFF448AFF) // Neon blue
         src.contains("VidSrc", ignoreCase = true) -> Color(0xFFFF9100) // Vibrant orange
@@ -516,7 +525,14 @@ fun StreamOptionCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            if (src.contains("Vega", ignoreCase = true)) {
+                            if (src.contains("Decryptor", ignoreCase = true)) {
+                                Icon(
+                                    imageVector = Icons.Default.Dns,
+                                    contentDescription = null,
+                                    tint = sourceColor,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            } else if (src.contains("Vega", ignoreCase = true)) {
                                 Icon(
                                     imageVector = Icons.Default.Bolt,
                                     contentDescription = null,
@@ -588,6 +604,51 @@ fun StreamOptionCard(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF00E676)
+                                )
+                            }
+                        }
+                    } else if (src.contains("Decryptor", ignoreCase = true) || option.providerType == ProviderType.DECRYPTOR) {
+                        // Server Status Pill
+                        val status = option.serverStatus ?: "Online"
+                        val isOnline = status.equals("Online", ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isOnline) Color(0xFF00E676).copy(alpha = 0.15f) else Color(0xFFFF5252).copy(alpha = 0.15f))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isOnline) Color(0xFF00E676) else Color(0xFFFF5252))
+                                )
+                                Text(
+                                    text = status,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isOnline) Color(0xFF00E676) else Color(0xFFFF5252)
+                                )
+                            }
+                        }
+
+                        // Subtitle Pill
+                        if (option.subtitles.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFE040FB).copy(alpha = 0.15f))
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "CC (${option.subtitles.size})",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFEA80FC)
                                 )
                             }
                         }

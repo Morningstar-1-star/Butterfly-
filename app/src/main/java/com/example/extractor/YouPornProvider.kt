@@ -290,7 +290,7 @@ object YouPornProvider {
                 }
 
                 // 4. Author / Channel Extraction
-                var author = "YouPorn"
+                var author = "YouPorn Studio"
                 val endPos = aMatcher.end()
                 val nextChunk = html.substring(endPos, minOf(endPos + 500, html.length))
                 val authorMatch = Pattern.compile("""class="[^"]*(?:author|uploader|by-user|channel)[^"]*"[^>]*>(?:<[^>]*>)*\s*([^<]+)""", Pattern.CASE_INSENSITIVE).matcher(nextChunk)
@@ -298,6 +298,24 @@ object YouPornProvider {
                     val a = authorMatch.group(1)?.trim() ?: ""
                     if (a.isNotBlank()) author = a
                 }
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(author, null, title)
+                val encName = try { java.net.URLEncoder.encode(author.take(30), "UTF-8") } catch (_: Exception) { author.take(30) }
+                val uploaderAvatar = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=E91E63&color=fff&size=256&bold=true"
+                val uploaderUrl = "youporn_${author.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                val previewList = mutableListOf<String>()
+                if (thumb.isNotBlank()) {
+                    previewList.add(thumb)
+                    val ypFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(thumb)
+                    if (ypFrameMatch != null) {
+                        val base = thumb.substring(0, ypFrameMatch.range.first)
+                        val ext = ypFrameMatch.groupValues[2]
+                        previewList.addAll((1..16).map { idx -> "$base/$idx.$ext" })
+                    }
+                }
+
+                val desc = "Studio / Creator: $author\nQuality: 1080p Full HD • Official YouPorn Release"
 
                 val fullUrl = if (path.startsWith("http")) path else "https://www.youporn.com$path"
                 list.add(
@@ -305,9 +323,13 @@ object YouPornProvider {
                         id = fullUrl,
                         title = title,
                         uploaderName = author,
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatar,
                         thumbnailUrl = thumb,
                         durationSeconds = durSec,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewList.distinct(),
+                        description = desc
                     )
                 )
             }

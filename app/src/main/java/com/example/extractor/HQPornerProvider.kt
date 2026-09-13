@@ -274,7 +274,6 @@ object HQPornerProvider {
         }
 
         getCurated4KList(limit, safePage).filter { it.title.contains(q, ignoreCase = true) }
-            .ifEmpty { getCurated4KList(limit, safePage) }
     }
 
     private fun parseQualityScore(quality: String): Int {
@@ -615,19 +614,40 @@ object HQPornerProvider {
 
                 val duration = card.select(".duration, .time, .dur, .video-duration").text().trim()
                 val durationSec = parseDurationToSeconds(duration)
-                val uploader = card.select(".actors, .actress, .channel, .models").text().trim().ifBlank { "HQPorner 4K" }
+                val uploader = card.select(".actors, .actress, .channel, .models").text().trim().ifBlank { "HQPorner Studio" }
+                val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                val uploaderAvatar = brand.logoUrls.firstOrNull()
+                    ?: "https://ui-avatars.com/api/?name=$encName&background=009688&color=fff&size=256&bold=true"
+                val uploaderUrl = "hqporner_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                val previewList = mutableListOf<String>()
+                if (thumb.isNotBlank()) {
+                    previewList.add(thumb)
+                    val hqFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(thumb)
+                    if (hqFrameMatch != null) {
+                        val base = thumb.substring(0, hqFrameMatch.range.first)
+                        val ext = hqFrameMatch.groupValues[2]
+                        previewList.addAll((1..16).map { idx -> "$base/$idx.$ext" })
+                    }
+                }
+
+                val desc = "Studio / Model: $uploader\nQuality: 4K 2160p Ultra HD / 1080p Full HD • HQPorner Master"
 
                 items.add(
                     VideoItem(
                         id = videoId,
                         title = title,
                         uploaderName = uploader,
-                        uploaderAvatarUrl = null,
+                        uploaderUrl = uploaderUrl,
+                        uploaderAvatarUrl = uploaderAvatar,
                         viewCount = 480_000L,
                         uploadDate = "Ultra HD 4K",
                         durationSeconds = if (durationSec > 0) durationSec else 1200L,
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID
+                        providerId = PROVIDER_ID,
+                        previewThumbnails = previewList.distinct(),
+                        description = desc
                     )
                 )
             }

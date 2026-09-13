@@ -43,9 +43,10 @@ object SupJavEmbedResolvers {
                     sources.addAll(resolveTvlogy(embedUrl, parentPageUrl))
                 }
 
-                // 2. StreamWish / Wishembed / Awish / Dwish
+                // 2. StreamWish / Wishembed / Awish / Dwish / Strwish / Cdnwish
                 lower.contains("streamwish") || lower.contains("wishembed") || lower.contains("awish") ||
-                        lower.contains("dwish") || lower.contains("embedwish") -> {
+                        lower.contains("dwish") || lower.contains("embedwish") || lower.contains("strwish") ||
+                        lower.contains("cdnwish") || lower.contains("sfastwish") || lower.contains("filelions") -> {
                     sources.addAll(resolveStreamwish(embedUrl, parentPageUrl))
                 }
 
@@ -123,13 +124,11 @@ object SupJavEmbedResolvers {
 
             val html = resp.body?.string() ?: return@withContext emptyList()
             var processed = html
-
             if (JsUnpacker.isPacked(html)) {
                 processed = JsUnpacker.unpack(html)
             }
+            processed = processed.replace("\\/", "/")
 
-            // Match m3u8
-            val m3u8Matcher = M3U8_REGEX.matcher(processed)
             val host = extractHost(embedUrl)
             val headers = mapOf(
                 "User-Agent" to SupJavNetwork.DEFAULT_USER_AGENT,
@@ -137,18 +136,39 @@ object SupJavEmbedResolvers {
                 "Origin" to "https://$host"
             )
 
-            while (m3u8Matcher.find()) {
-                val streamUrl = m3u8Matcher.group()
+            // 1. Check sources:[{file:"..."}] or file:"..."
+            val fileMatcher = SOURCES_FILE_REGEX.matcher(processed)
+            while (fileMatcher.find()) {
+                val streamUrl = fileMatcher.group(1)
+                val isHls = streamUrl.contains(".m3u8")
                 sources.add(
                     SupJavSource(
                         url = streamUrl,
-                        mimeType = "application/x-mpegURL",
-                        quality = "1080p FHD • TVLogy HLS",
-                        isHls = true,
+                        mimeType = if (isHls) "application/x-mpegURL" else "video/mp4",
+                        quality = if (isHls) "1080p FHD • TVLogy HLS" else "720p HD • TVLogy MP4",
+                        isHls = isHls,
                         headers = headers,
-                        sourceName = "TVLogy (SupJav Master HLS)"
+                        sourceName = "TVLogy (SupJav Server)"
                     )
                 )
+            }
+
+            // 2. Match m3u8 regex
+            if (sources.isEmpty()) {
+                val m3u8Matcher = M3U8_REGEX.matcher(processed)
+                while (m3u8Matcher.find()) {
+                    val streamUrl = m3u8Matcher.group()
+                    sources.add(
+                        SupJavSource(
+                            url = streamUrl,
+                            mimeType = "application/x-mpegURL",
+                            quality = "1080p FHD • TVLogy HLS",
+                            isHls = true,
+                            headers = headers,
+                            sourceName = "TVLogy (SupJav Master HLS)"
+                        )
+                    )
+                }
             }
 
             // Fallback match MP4
@@ -200,6 +220,7 @@ object SupJavEmbedResolvers {
                     processed += "\n$unpacked"
                 }
             }
+            processed = processed.replace("\\/", "/")
 
             val host = extractHost(embedUrl)
             val headers = mapOf(
@@ -414,6 +435,7 @@ object SupJavEmbedResolvers {
             if (JsUnpacker.isPacked(html)) {
                 processed = JsUnpacker.unpack(html)
             }
+            processed = processed.replace("\\/", "/")
 
             val host = extractHost(embedUrl)
             val headers = mapOf(

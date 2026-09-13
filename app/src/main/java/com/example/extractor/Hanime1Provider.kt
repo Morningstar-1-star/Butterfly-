@@ -320,7 +320,7 @@ object Hanime1Provider {
 
         val matchedCurated = getCuratedAnimeList(limit, safePage).filter {
             it.title.contains(q, ignoreCase = true) || it.uploaderName.contains(q, ignoreCase = true)
-        }.ifEmpty { getCuratedAnimeList(limit, safePage) }
+        }
 
         feedCache[cacheKey] = Pair(System.currentTimeMillis(), matchedCurated)
         matchedCurated
@@ -808,15 +808,40 @@ object Hanime1Provider {
                     val dur = if (durMatcher.find()) durMatcher.group(1)?.trim() ?: "" else ""
                     val durationSec = parseDurationToSeconds(dur)
 
+                    val uploader = "Hanime Studio"
+                    val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
+                    val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                    val uploaderAvatar = brand.logoUrls.firstOrNull()
+                        ?: "https://ui-avatars.com/api/?name=$encName&background=E91E63&color=fff&size=256&bold=true"
+                    val uploaderUrl = "hanime1_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+
+                    val previewList = mutableListOf<String>()
+                    if (thumb.isNotBlank()) {
+                        previewList.add(thumb)
+                        val hFrameMatch = Regex("""/(\d+)l?\.(jpg|webp|jpeg)""").find(thumb)
+                        if (hFrameMatch != null) {
+                            val base = thumb.substring(0, hFrameMatch.range.first)
+                            val num = hFrameMatch.groupValues[1]
+                            val ext = hFrameMatch.groupValues[2]
+                            previewList.addAll((1..16).map { idx -> "$base/$num-$idx.$ext" })
+                        }
+                    }
+
+                    val desc = "Animation Studio: $uploader\nQuality: 1080p Full HD Uncut Anime OVA"
+
                     seenIds.add(vidId)
                     items.add(
                         VideoItem(
                             id = vidId,
                             title = title,
-                            uploaderName = "Hanime Animation",
+                            uploaderName = uploader,
+                            uploaderUrl = uploaderUrl,
+                            uploaderAvatarUrl = uploaderAvatar,
                             thumbnailUrl = thumb,
                             durationSeconds = if (durationSec > 0) durationSec else 1440L,
-                            providerId = PROVIDER_ID
+                            providerId = PROVIDER_ID,
+                            previewThumbnails = previewList.distinct(),
+                            description = desc
                         )
                     )
                 }

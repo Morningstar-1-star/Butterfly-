@@ -64,7 +64,7 @@ interface SourceMetricsDao {
         com.example.cloudsocial.db.CloudSocialMediaEntity::class,
         com.example.db.SyncQueueEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -355,6 +355,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_watch_history_timestamp` ON `watch_history` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_watch_later_bookmarks_timestamp` ON `watch_later_bookmarks` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_liked_videos_timestamp` ON `liked_videos` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_user_playlists_createdAt` ON `user_playlists` (`createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_offline_downloads_timestamp` ON `offline_downloads` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_search_history_timestamp` ON `search_history` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_video_metadata_timestamp` ON `cached_video_metadata` (`timestamp`)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -362,7 +374,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

@@ -486,6 +486,28 @@ object ProviderRegistry {
                 priority = 81
             )
         )
+
+        // Decryptor Multi-Server HLS Extractor
+        register(
+            ProviderDescriptor(
+                id = "decryptor",
+                displayName = "Decryptor (Nxsha Multi-Server)",
+                category = ProviderCategory.DIRECT_STREAM,
+                baseDomain = "https://decryptor-nxsha.onrender.com",
+                capabilities = setOf(
+                    ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP,
+                    ProviderCapability.HLS, ProviderCapability.SUBTITLE,
+                    ProviderCapability.CAPABILITY_4K
+                ),
+                supportedMediaTypes = setOf(MediaType.MOVIE, MediaType.TV, MediaType.ANIME),
+                supportsDirect = true,
+                supportsHls = true,
+                supportsSubtitles = true,
+                supportedQualities = listOf("4K", "1080p", "720p", "480p"),
+                priority = 98,
+                fallbackProviderIds = listOf("vidsrc_me", "nuvio_direct", "vega")
+            )
+        )
     }
 
     fun register(descriptor: ProviderDescriptor) {

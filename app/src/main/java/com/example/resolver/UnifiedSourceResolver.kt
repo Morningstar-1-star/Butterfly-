@@ -54,6 +54,7 @@ class UnifiedSourceResolver(private val context: Context) {
 
     private val vegaAdapter = VegaSourceAdapter(context)
     private val torrentAdapter = TorrentSourceAdapter()
+    private val decryptorProvider = com.example.resolver.providers.DecryptorSourceProvider()
     private val nuvioDirectProvider = NuvioDirectSourceProvider()
     private val jableMissAvProvider = JableMissAvSourceProvider()
     private val supjavProvider = com.example.resolver.providers.SupJavSourceProvider()
@@ -87,6 +88,7 @@ class UnifiedSourceResolver(private val context: Context) {
             vidsrcToProvider,
             twoEmbedProvider,
             vidsrcMeProvider,
+            decryptorProvider,
             nuvioDirectProvider,
             mediaFusionProvider,
             cometProvider,

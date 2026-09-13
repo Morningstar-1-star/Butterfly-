@@ -190,6 +190,44 @@ class PlaybackSession(private val appContext: Context) {
         override fun onPlayerError(error: PlaybackException) {
             val activeProvider = _activeStreamData.value?.providerId
             val (diagnostics, httpStatus) = recoveryManager.diagnoseError(error, activeProvider)
+
+            val activeData = _activeStreamData.value
+            val currentOption = activeData?.selectedStreamOption
+            val availableOptions = activeData?.availableStreamOptions.orEmpty()
+
+            val failedUrl = currentOption?.videoUrl ?: playerCore?.player?.currentMediaItem?.localConfiguration?.uri?.toString()
+            recoveryManager.markStreamFailed(failedUrl)
+            if (currentOption?.providerType == com.example.model.ProviderType.DECRYPTOR || currentOption?.sourceName.equals("Decryptor", ignoreCase = true)) {
+                com.example.decryptor.DecryptorProviderClient.markServerFailed(failedUrl)
+            }
+
+            // Priority: if a Decryptor server fails, try next available Decryptor server first
+            val isCurrentDecryptor = currentOption?.providerType == com.example.model.ProviderType.DECRYPTOR ||
+                    currentOption?.sourceName.equals("Decryptor", ignoreCase = true)
+
+            val nextOption = if (isCurrentDecryptor) {
+                availableOptions.firstOrNull { opt ->
+                    (opt.providerType == com.example.model.ProviderType.DECRYPTOR || opt.sourceName.equals("Decryptor", ignoreCase = true)) &&
+                            !opt.videoUrl.isNullOrBlank() &&
+                            !recoveryManager.isStreamFailed(opt.videoUrl) &&
+                            !com.example.decryptor.DecryptorProviderClient.isServerFailed(opt.videoUrl)
+                } ?: availableOptions.firstOrNull { opt ->
+                    !opt.videoUrl.isNullOrBlank() && !recoveryManager.isStreamFailed(opt.videoUrl)
+                }
+            } else {
+                availableOptions.firstOrNull { opt ->
+                    !opt.videoUrl.isNullOrBlank() && !recoveryManager.isStreamFailed(opt.videoUrl)
+                }
+            }
+
+            if (activeData != null && nextOption != null) {
+                Log.i("PlaybackSession", "Playback error $httpStatus; falling back to option: ${nextOption.qualityLabel}")
+                _playerError.value = null
+                val updatedData = activeData.copy(selectedStreamOption = nextOption)
+                prepareAndPlay(appContext, updatedData, nextOption)
+                return
+            }
+
             _playerError.value = diagnostics
             _isPlaying.value = false
         }
@@ -321,6 +359,17 @@ class PlaybackSession(private val appContext: Context) {
             return
         }
 
+        val isEmbedWebUrl = streamOption?.format.equals("embed", true) ||
+                (rawUrl.contains("/embed/", ignoreCase = true) && !rawUrl.contains(".mp4") && !rawUrl.contains(".m3u8"))
+
+        if (isEmbedWebUrl) {
+            player.playWhenReady = false
+            player.stop()
+            player.clearMediaItems()
+            _playerError.value = null
+            return
+        }
+
         val effectivePlayableUrl = rawUrl
         val mediaKey = "${effectivePlayableUrl}_${captionOption?.languageCode}"
         if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
@@ -437,6 +486,24 @@ class PlaybackSession(private val appContext: Context) {
                     }
                 }
 
+                // Subtitles provided by Decryptor or other multi-stream providers
+                if (streamOption.subtitles.isNotEmpty()) {
+                    streamOption.subtitles.forEach { sub ->
+                        val cleanSubUrl = sanitizeMediaUrl(sub.url)
+                        if (cleanSubUrl != null) {
+                            val isVtt = sub.format.equals("vtt", ignoreCase = true) || cleanSubUrl.contains(".vtt", ignoreCase = true)
+                            val mimeType = if (isVtt) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP
+                            val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanSubUrl))
+                                .setMimeType(mimeType)
+                                .setLanguage(sub.languageCode)
+                                .setLabel(sub.languageName)
+                                .setSelectionFlags(if (sub.languageCode.startsWith("en", ignoreCase = true)) C.SELECTION_FLAG_DEFAULT else 0)
+                                .build()
+                            subtitleConfigs.add(config)
+                        }
+                    }
+                }
+
                 if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
                     val mediaSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(vUrl, streamData, streamOption.headers)
                     val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
@@ -455,9 +522,15 @@ class PlaybackSession(private val appContext: Context) {
                     if (videoItem != null && audioItem != null) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         val audioSource = audioSourceFactory.createMediaSource(audioItem)
-                        val mergedSource = MergingMediaSource(false, false, videoSource, audioSource)
-                        player.setMediaSource(mergedSource)
-                        mediaSourceSet = true
+                        try {
+                            val mergedSource = MergingMediaSource(true, true, videoSource, audioSource)
+                            player.setMediaSource(mergedSource)
+                            mediaSourceSet = true
+                        } catch (e: Exception) {
+                            Log.w("PlaybackSession", "MergingMediaSource failed, falling back to videoSource: ${e.message}")
+                            player.setMediaSource(videoSource)
+                            mediaSourceSet = true
+                        }
                     } else if (videoItem != null) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         player.setMediaSource(videoSource)
@@ -760,6 +833,14 @@ class PlaybackSession(private val appContext: Context) {
         _firstFrameRendered.value = false
         _playerError.value = null
         com.example.smartskip.SmartSkipPlayerEngine.reset()
+        playerCore?.resetPlayback()
+    }
+
+    fun releasePlayer() {
+        autoHideControlsJob?.cancel()
+        currentLoadedMediaKey = null
+        _activeStreamData.value = null
+        _isPlaying.value = false
         playerCore?.release()
         playerCore = null
     }

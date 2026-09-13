@@ -839,9 +839,19 @@ fun VideoDetailsSection(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Top Cast (Always visible directly in description without needing to click Show More)
-                val castList = mediaDetails?.cast ?: emptyList()
+                // Top Cast / Featured Performers (Always visible directly in description)
+                val castList = remember(mediaDetails, streamData) {
+                    if (streamData?.cast?.isNotEmpty() == true) {
+                        streamData.cast
+                    } else {
+                        mediaDetails?.cast ?: emptyList()
+                    }
+                }
                 if (castList.isNotEmpty()) {
+                    val isAdultOrModel = currentProviderId == "pornhub" || castList.any { it.role?.contains("Pornstar", ignoreCase = true) == true || it.role?.contains("Model", ignoreCase = true) == true }
+                    val sectionTitle = if (isAdultOrModel) "Featured Performers & Models" else "Top Cast"
+                    val unitLabel = if (isAdultOrModel) "performers" else "actors"
+
                     Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -855,14 +865,14 @@ fun VideoDetailsSection(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Top Cast",
+                            text = sectionTitle,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.weight(1f))
                         Text(
-                            text = "${castList.size} actors",
+                            text = "${castList.size} $unitLabel",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -879,7 +889,13 @@ fun VideoDetailsSection(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .width(96.dp)
-                                    .clickable { selectedCastMemberForFilmography = member },
+                                    .clickable {
+                                        if (isAdultOrModel) {
+                                            onTagClick?.invoke(member.name)
+                                        } else {
+                                            selectedCastMemberForFilmography = member
+                                        }
+                                    },
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 )
@@ -937,6 +953,57 @@ fun VideoDetailsSection(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Tags & Categories Section
+                val tagsList = remember(mediaDetails, streamData) {
+                    if (streamData?.tags?.isNotEmpty() == true) {
+                        streamData.tags
+                    } else {
+                        mediaDetails?.genres ?: emptyList()
+                    }
+                }
+
+                if (tagsList.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Tags & Categories",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(tagsList, key = { it }) { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                modifier = Modifier.clickable { onTagClick?.invoke(tag) }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "#",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFFC107)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = tag,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
                             }
                         }

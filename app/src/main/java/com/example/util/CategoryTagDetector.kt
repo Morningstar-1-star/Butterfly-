@@ -107,13 +107,32 @@ object CategoryTagDetector {
         val tags = mutableListOf<String>()
         var isAdult = false
 
+        // JAV code check
+        val javCode = com.example.metadata.JavIdParser.parse(trimmed)
+        if (javCode != null) {
+            tags.add("18+ Adult")
+            tags.add("JAV")
+            isAdult = true
+        }
+
+        // Adult performer/model check
+        val detectedModel = AdultModelMatcher.findModel(trimmed)
+        if (detectedModel != null) {
+            tags.add("18+ Adult")
+            if (detectedModel.isJav) tags.add("JAV")
+            tags.add("Model")
+            isAdult = true
+        }
+
         // Adult keyword check
-        for (kw in ADULT_KEYWORDS) {
-            if (lower.contains(kw)) {
-                tags.add("18+ Adult")
-                if (kw == "hentai" || kw == "ecchi") tags.add("Anime")
-                isAdult = true
-                break
+        if (!isAdult) {
+            for (kw in ADULT_KEYWORDS) {
+                if (lower.contains(kw)) {
+                    tags.add("18+ Adult")
+                    if (kw == "hentai" || kw == "ecchi") tags.add("Anime")
+                    isAdult = true
+                    break
+                }
             }
         }
 

@@ -1,5 +1,6 @@
 package com.example.util
 
+import com.example.metadata.JavIdParser
 import com.example.model.VideoItem
 import java.util.Locale
 
@@ -7,7 +8,7 @@ object SearchRelevanceScorer {
 
     /**
      * Compute a search relevance score for a VideoItem given the user query and optional corrected query.
-     * Higher score means higher relevance.
+     * Higher score means higher relevance. Unrelated items receive negative scores.
      */
     fun computeRelevanceScore(
         item: VideoItem,
@@ -17,50 +18,96 @@ object SearchRelevanceScorer {
         val title = item.title.lowercase(Locale.ROOT)
         val channel = (item.uploaderName ?: "").lowercase(Locale.ROOT)
         val desc = (item.description ?: "").lowercase(Locale.ROOT)
+        val id = item.id.lowercase(Locale.ROOT)
+        val combined = "$title $channel $desc $id"
+
         val qClean = query.lowercase(Locale.ROOT).trim()
         val cClean = correctedQuery?.lowercase(Locale.ROOT)?.trim()
 
         var score = 0.0
 
-        // 1. Exact match bonuses
+        // 1. Specialized JAV Code Matching (Highest Precision)
+        val javCode = JavIdParser.parse(query) ?: (if (cClean != null) JavIdParser.parse(cClean) else null)
+        if (javCode != null) {
+            val codeNorm = javCode.lowercase(Locale.ROOT)
+            val codeCompact = codeNorm.replace("-", "")
+            val codeSpace = codeNorm.replace("-", " ")
+            val codeUnder = codeNorm.replace("-", "_")
+
+            val matchesJav = combined.contains(codeNorm) ||
+                    combined.contains(codeCompact) ||
+                    combined.contains(codeSpace) ||
+                    combined.contains(codeUnder)
+
+            if (matchesJav) {
+                // Massive bonus for exact JAV code match
+                score += 10000.0
+                if (title.contains(codeNorm) || title.contains(codeCompact)) {
+                    score += 2000.0
+                }
+            } else {
+                // If query is specifically a JAV code, penalize any non-matching video
+                val isStrictJavQuery = qClean == codeNorm || qClean == codeCompact || qClean.length <= codeNorm.length + 3
+                if (isStrictJavQuery) {
+                    return -10000.0
+                }
+            }
+        }
+
+        // 2. Specialized Adult Performer / Model Matching
+        val detectedModel = AdultModelMatcher.findModel(query) ?: (if (cClean != null) AdultModelMatcher.findModel(cClean) else null)
+        if (detectedModel != null) {
+            val matchesModel = AdultModelMatcher.matchesModel(item, detectedModel)
+            if (matchesModel) {
+                score += 8000.0
+                if (title.contains(detectedModel.primaryName.lowercase(Locale.ROOT))) {
+                    score += 1500.0
+                }
+            } else {
+                // If the user query was basically just the model name, discard unrelated videos
+                val isPureModelQuery = detectedModel.aliases.any { alias ->
+                    qClean == alias || SmartSearchSanitizer.levenshteinDistance(qClean, alias) <= 1
+                }
+                if (isPureModelQuery) {
+                    return -8000.0
+                }
+            }
+        }
+
+        // 3. Exact & Prefix Phrase Matches
         if (title == qClean || (cClean != null && title == cClean)) {
+            score += 5000.0
+        } else if (title.startsWith(qClean) || (cClean != null && title.startsWith(cClean))) {
             score += 2500.0
-        }
-
-        // 2. Starts with query bonus
-        if (title.startsWith(qClean) || (cClean != null && title.startsWith(cClean))) {
-            score += 1200.0
-        }
-
-        // 3. Substring full phrase match bonus
-        if (title.contains(qClean)) {
-            score += 900.0
+        } else if (title.contains(qClean)) {
+            score += 1800.0
         } else if (cClean != null && title.contains(cClean)) {
-            score += 850.0
+            score += 1500.0
         }
 
-        // 4. Token-level matching
-        val queryTokens = qClean.split(Regex("[^a-zA-Z0-9]+")).filter { it.length >= 2 }
-        val correctedTokens = cClean?.split(Regex("[^a-zA-Z0-9]+"))?.filter { it.length >= 2 } ?: emptyList()
+        // 4. Token-level matching (Supporting Multi-Language / CJK Unicode Characters)
+        val queryTokens = qClean.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 2 }
+        val correctedTokens = cClean?.split(Regex("[^\\p{L}\\p{N}]+"))?.filter { it.length >= 2 } ?: emptyList()
         val allTokens = (queryTokens + correctedTokens).distinct()
 
         if (allTokens.isNotEmpty()) {
             var matchedTokens = 0
-            val titleWords = title.split(Regex("[^a-zA-Z0-9]+")).toSet()
+            val titleWords = title.split(Regex("[^\\p{L}\\p{N}]+")).toSet()
 
             for (token in allTokens) {
                 if (titleWords.contains(token)) {
                     matchedTokens++
-                    score += 250.0
+                    score += 300.0
                 } else if (title.contains(token)) {
                     matchedTokens++
-                    score += 150.0
+                    score += 200.0
                 } else if (channel.contains(token)) {
-                    score += 80.0
+                    matchedTokens++
+                    score += 120.0
                 } else if (desc.contains(token)) {
-                    score += 20.0
+                    score += 40.0
                 } else {
-                    // Check fuzzy token match (e.g. slight typo in video title)
+                    // Check fuzzy token match
                     val hasFuzzy = titleWords.any { w ->
                         if (w.length >= 4 && token.length >= 4) {
                             val dist = SmartSearchSanitizer.levenshteinDistance(w, token)
@@ -74,22 +121,21 @@ object SearchRelevanceScorer {
                 }
             }
 
-            // High reward if all tokens from either query or corrected query matched
             val qTokensCount = queryTokens.size.coerceAtLeast(1)
             val cTokensCount = correctedTokens.size.coerceAtLeast(1)
             if (matchedTokens >= qTokensCount || matchedTokens >= cTokensCount) {
-                score += 600.0
-            } else if (matchedTokens == 0) {
+                score += 800.0
+            } else if (matchedTokens == 0 && javCode == null && detectedModel == null) {
                 // Severe penalty if video matches NONE of the search terms!
-                score -= 1500.0
+                score -= 5000.0
             }
         }
 
-        // 5. Popularity tie-breaker (capped so it never overrides relevance)
+        // 5. Popularity tie-breaker
         val views = item.viewCount
         if (views > 0) {
-            val viewBonus = kotlin.math.log10(views.toDouble().coerceAtLeast(1.0)) * 6.0
-            score += viewBonus.coerceIn(0.0, 60.0)
+            val viewBonus = kotlin.math.log10(views.toDouble().coerceAtLeast(1.0)) * 5.0
+            score += viewBonus.coerceIn(0.0, 50.0)
         }
 
         // 6. Prefer videos with thumbnail
@@ -102,7 +148,8 @@ object SearchRelevanceScorer {
 
     /**
      * Rank search results strictly by relevance.
-     * Guaranteed that matched videos are at the top, and random unrelated videos are pushed down.
+     * Only relevant videos matching query tokens, model, or JAV code are returned.
+     * Completely unrelated videos are strictly omitted.
      */
     fun rankSearchResults(
         items: List<VideoItem>,
@@ -115,9 +162,19 @@ object SearchRelevanceScorer {
             item to computeRelevanceScore(item, query, correctedQuery)
         }
 
-        val relevant = scored.filter { it.second > 0.0 }.sortedByDescending { it.second }.map { it.first }
-        val marginal = scored.filter { it.second <= 0.0 }.map { it.first }
+        val relevant = scored
+            .filter { it.second > 0.0 }
+            .sortedByDescending { it.second }
+            .map { it.first }
 
-        return relevant + marginal
+        if (relevant.isNotEmpty()) {
+            return relevant
+        }
+
+        // Only allow weak matches, never items that matched zero tokens or failed model/JAV tests
+        return scored
+            .filter { it.second > -500.0 }
+            .sortedByDescending { it.second }
+            .map { it.first }
     }
 }
