@@ -189,8 +189,13 @@ class HlsSegmentDownloader(
                 return@withContext Result.failure(Exception("Download cancelled by user"))
             }
 
-            // 4. Save clean local index.m3u8
-            localIndexFile.writeText(localM3u8Content)
+            // 4. Save clean local index.m3u8 with endlist
+            val finalLocalContent = if (!localM3u8Content.contains("#EXT-X-ENDLIST")) {
+                "$localM3u8Content\n#EXT-X-ENDLIST\n"
+            } else {
+                localM3u8Content
+            }
+            localIndexFile.writeText(finalLocalContent)
 
             // Final progress update
             val finalTotal = totalBytes.get()
@@ -316,6 +321,21 @@ class HlsSegmentDownloader(
                 }
                 // Omit or sanitize EXT-X-KEY in local index since segments are decrypted locally
                 continue
+            } else if (trimmed.startsWith("#EXT-X-MAP")) {
+                val uriMatch = Regex("""URI=["']([^"']+)["']""").find(trimmed)
+                if (uriMatch != null) {
+                    val initSegUrl = resolveUrl(playlistUrl, uriMatch.groupValues[1])
+                    val initBytes = fetchBytes(initSegUrl, headers)
+                    if (initBytes != null) {
+                        val initFile = File(outputFolder, "init.mp4")
+                        initFile.writeBytes(initBytes)
+                        localLines.add("""#EXT-X-MAP:URI="init.mp4"""")
+                    } else {
+                        localLines.add(trimmed)
+                    }
+                } else {
+                    localLines.add(trimmed)
+                }
             } else if (trimmed.startsWith("#EXTINF:")) {
                 val durStr = trimmed.removePrefix("#EXTINF:").substringBefore(",").trim()
                 currentDuration = durStr.toDoubleOrNull() ?: 5.0
@@ -356,8 +376,12 @@ class HlsSegmentDownloader(
             if (line.startsWith("#EXT-X-STREAM-INF")) {
                 val bwMatch = Regex("""BANDWIDTH=(\d+)""").find(line)
                 val bw = bwMatch?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-                if (i + 1 < lines.size) {
-                    val uri = lines[i + 1].trim()
+                var nextLineIndex = i + 1
+                while (nextLineIndex < lines.size && lines[nextLineIndex].trim().startsWith("#")) {
+                    nextLineIndex++
+                }
+                if (nextLineIndex < lines.size) {
+                    val uri = lines[nextLineIndex].trim()
                     if (bw > bestBandwidth && uri.isNotBlank() && !uri.startsWith("#")) {
                         bestBandwidth = bw
                         bestUri = uri

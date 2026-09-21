@@ -242,7 +242,48 @@ object SupabaseAuthManager {
             _isLoggedIn.value = true
             persistSession(sess)
         } else {
-            _authError.value = res.exceptionOrNull()?.message ?: "Sign in failed"
+            val rawErr = res.exceptionOrNull()?.message ?: "Sign in failed"
+            _authError.value = if (rawErr.contains("invalid", ignoreCase = true) || rawErr.contains("credentials", ignoreCase = true)) {
+                "Invalid credentials or email not confirmed yet. Check your Spam folder or enter code below."
+            } else {
+                rawErr
+            }
+        }
+        return res
+    }
+
+    suspend fun resendVerification(email: String): Result<Unit> {
+        _authError.value = null
+        val res = getClient().resendVerification(email.trim())
+        if (!res.isSuccess) {
+            _authError.value = res.exceptionOrNull()?.message ?: "Failed to resend confirmation email"
+        }
+        return res
+    }
+
+    suspend fun verifyEmailOtp(email: String, token: String): Result<SupabaseSession> {
+        _authError.value = null
+        var res = getClient().verifyEmailOtp(email.trim(), token.trim(), "signup")
+        if (res.isFailure) {
+            res = getClient().verifyEmailOtp(email.trim(), token.trim(), "email")
+        }
+        if (res.isSuccess) {
+            val sess = res.getOrThrow()
+            _session.value = sess
+            _currentUser.value = sess.user
+            _isLoggedIn.value = true
+            persistSession(sess)
+        } else {
+            _authError.value = res.exceptionOrNull()?.message ?: "Invalid or expired confirmation code"
+        }
+        return res
+    }
+
+    suspend fun sendOtp(email: String): Result<Unit> {
+        _authError.value = null
+        val res = getClient().sendOtp(email.trim())
+        if (!res.isSuccess) {
+            _authError.value = res.exceptionOrNull()?.message ?: "Failed to send login code"
         }
         return res
     }

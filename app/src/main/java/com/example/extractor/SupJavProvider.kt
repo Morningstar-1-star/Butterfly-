@@ -58,6 +58,7 @@ object SupJavProvider {
         try {
             SupJavResolver.resolveStreams(urlOrId, context)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Error resolving SupJav streams for $urlOrId: ${e.message}")
             emptyList()
         }
@@ -119,6 +120,7 @@ object SupJavProvider {
                 tags = listOf("JAV", "SupJav", javCode)
             )
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Exception creating StreamData for SupJav ($urlOrId): ${e.message}", e)
             null
         }

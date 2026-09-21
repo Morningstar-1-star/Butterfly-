@@ -66,19 +66,48 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshProvidersList() {
-        val list = mutableListOf(
-            ProviderUiItem("all", "All Sources", "🌐", true),
-            ProviderUiItem("youtube", "YouTube", "▶️", true),
-            ProviderUiItem("twitch", "Twitch", "🟣", true),
-            ProviderUiItem("bigo", "Bigo Live", "🔴", true),
-            ProviderUiItem("torrent", "Torrents", "🧲", true),
-            ProviderUiItem("archive_org", "Internet Archive", "🏛️", true),
-            ProviderUiItem("dailymotion", "Dailymotion", "📺", true),
-            ProviderUiItem("bilibili", "Bilibili", "⚡", true),
-            ProviderUiItem("vimeo", "Vimeo", "🎬", true),
-            ProviderUiItem("hotstar", "JioCinema / Hotstar", "🌟", true),
-            ProviderUiItem("bun-tel-meg", "bun-tel-meg", "☁️", true)
-        )
+        val prefs = getApplication<Application>().getSharedPreferences("youtube_extractor_settings", Context.MODE_PRIVATE)
+        val isAdult = prefs.getBoolean("adult_content_enabled", false)
+        val list = if (isAdult) {
+            mutableListOf(
+                ProviderUiItem("all", "All 18+ Sources", "🔞", true),
+                ProviderUiItem("xnxx", "XNXX", "🔞", true),
+                ProviderUiItem("hellporno", "HellPorno", "🔞", true),
+                ProviderUiItem("stripchat", "Stripchat Live", "📹", true),
+                ProviderUiItem("chaturbate", "Chaturbate Live", "📹", true),
+                ProviderUiItem("sextb", "SEXТB", "🔞", true),
+                ProviderUiItem("supjav", "SupJav", "🔞", true),
+                ProviderUiItem("123av", "123AV", "🔞", true),
+                ProviderUiItem("pornhub", "Pornhub", "🔞", true),
+                ProviderUiItem("xvideos", "XVideos", "🔞", true),
+                ProviderUiItem("cam4", "CAM4 Live", "📹", true),
+                ProviderUiItem("cammodels", "CamModels Live", "📹", true),
+                ProviderUiItem("spankbang", "SpankBang", "🔞", true),
+                ProviderUiItem("hanime1", "Hanime1 Anime", "🔞", true),
+                ProviderUiItem("eporner", "Eporner", "🔞", true),
+                ProviderUiItem("youporn", "YouPorn", "🔞", true)
+            )
+        } else {
+            mutableListOf(
+                ProviderUiItem("all", "All Sources", "🌐", true),
+                ProviderUiItem("tencent", "Tencent Video", "📺", true),
+                ProviderUiItem("youtube", "YouTube", "▶️", true),
+                ProviderUiItem("sonyliv", "SonyLIV", "📺", true),
+                ProviderUiItem("hotstar", "JioCinema / Hotstar", "🌟", true),
+                ProviderUiItem("amazonminitv", "Amazon miniTV", "📺", true),
+                ProviderUiItem("crunchyroll", "Crunchyroll Anime", "🍥", true),
+                ProviderUiItem("bilibili", "Bilibili", "⚡", true),
+                ProviderUiItem("disney", "Disney+", "✨", true),
+                ProviderUiItem("popcorntv", "PopcornTV", "🍿", true),
+                ProviderUiItem("twitch", "Twitch", "🟣", true),
+                ProviderUiItem("bigo", "Bigo Live", "🔴", true),
+                ProviderUiItem("torrent", "Torrents", "🧲", true),
+                ProviderUiItem("archive_org", "Internet Archive", "🏛️", true),
+                ProviderUiItem("dailymotion", "Dailymotion", "📺", true),
+                ProviderUiItem("vimeo", "Vimeo", "🎬", true),
+                ProviderUiItem("bun-tel-meg", "bun-tel-meg", "☁️", true)
+            )
+        }
         _providers.value = list
     }
 

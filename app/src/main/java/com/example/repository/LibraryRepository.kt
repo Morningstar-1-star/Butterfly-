@@ -35,7 +35,7 @@ class LibraryRepository(context: Context) {
 
     val watchLaterFlow: Flow<List<VideoItem>> = dao.getBookmarksFlow().map { list ->
         list.map { entity ->
-            VideoItem(
+            val base = VideoItem(
                 id = entity.videoId,
                 title = entity.title,
                 uploaderName = entity.channelName,
@@ -43,6 +43,8 @@ class LibraryRepository(context: Context) {
                 providerId = entity.providerId,
                 durationSeconds = 0L
             )
+            val tags = com.example.util.SmartTagExtractor.extractSemanticKeywords(base)
+            base.copy(tags = tags)
         }
     }
 
@@ -140,6 +142,11 @@ class LibraryRepository(context: Context) {
             obj.put("uploaderName", v.uploaderName)
             obj.put("thumbnailUrl", v.thumbnailUrl)
             obj.put("providerId", v.providerId)
+            obj.put("durationSeconds", v.durationSeconds)
+            obj.put("description", v.description)
+            val tagsArr = JSONArray()
+            v.tags.forEach { tagsArr.put(it) }
+            obj.put("tags", tagsArr)
             arr.put(obj)
         }
         return arr.toString()
@@ -152,16 +159,27 @@ class LibraryRepository(context: Context) {
             val list = mutableListOf<VideoItem>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                list.add(
-                    VideoItem(
-                        id = obj.optString("id"),
-                        title = obj.optString("title"),
-                        uploaderName = obj.optString("uploaderName"),
-                        thumbnailUrl = obj.optString("thumbnailUrl").takeIf { it.isNotBlank() },
-                        providerId = obj.optString("providerId").takeIf { !it.isNullOrEmpty() },
-                        durationSeconds = 0L
-                    )
+                val tagsList = mutableListOf<String>()
+                val tagsArr = obj.optJSONArray("tags")
+                if (tagsArr != null) {
+                    for (j in 0 until tagsArr.length()) {
+                        tagsList.add(tagsArr.optString(j))
+                    }
+                }
+                val base = VideoItem(
+                    id = obj.optString("id"),
+                    title = obj.optString("title"),
+                    uploaderName = obj.optString("uploaderName"),
+                    thumbnailUrl = obj.optString("thumbnailUrl").takeIf { it.isNotBlank() },
+                    providerId = obj.optString("providerId").takeIf { !it.isNullOrEmpty() },
+                    durationSeconds = obj.optLong("durationSeconds", 0L),
+                    description = obj.optString("description").takeIf { it.isNotBlank() },
+                    tags = tagsList
                 )
+                val finalVideo = if (base.tags.isEmpty()) {
+                    base.copy(tags = com.example.util.SmartTagExtractor.extractSemanticKeywords(base))
+                } else base
+                list.add(finalVideo)
             }
             list
         } catch (e: Exception) {

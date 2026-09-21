@@ -43,16 +43,31 @@ object SecureDnsManager {
         .followRedirects(true)
         .build()
 
+    private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InetAddress>>>()
+    private const val DNS_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes TTL
+
     val appDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
+            val now = System.currentTimeMillis()
+            dnsCache[hostname]?.let { (cachedAt, ips) ->
+                if (now - cachedAt < DNS_CACHE_TTL_MS && ips.isNotEmpty()) {
+                    return ips
+                }
+            }
+
             val primaryDns = delegateDns
-            return try {
+            val resolved = try {
                 val results = primaryDns.lookup(hostname)
                 if (results.isNotEmpty()) results else fallbackLookup(hostname)
             } catch (e: Exception) {
                 Log.w(TAG, "Primary DoH lookup failed for $hostname (${e.message}), falling back to system DNS")
                 fallbackLookup(hostname)
             }
+
+            if (resolved.isNotEmpty()) {
+                dnsCache[hostname] = Pair(now, resolved)
+            }
+            return resolved
         }
     }
 

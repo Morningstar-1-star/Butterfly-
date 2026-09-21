@@ -798,7 +798,7 @@ private fun YouTubePlaylistListItem(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    tags.take(2).forEach { tag ->
+                    tags.take(3).forEach { tag ->
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = Color(0xFF2B2B2B),
@@ -903,7 +903,7 @@ private fun AddContentDialog(
                             .height(180.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(searchResults.take(6)) { res ->
+                        items(searchResults.take(6), key = { "${it.providerId}_${it.id}" }) { res ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

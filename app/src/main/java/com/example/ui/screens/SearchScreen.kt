@@ -197,8 +197,9 @@ fun SearchScreen(
         val processedIds = mutableSetOf<String>("all", "ALL")
 
         // 2. Map available enabled providers
+        // 2. Add all available providers from ViewModel
         availableProviders
-            .filter { it.id.lowercase() != "all" && it.isEnabled }
+            .filter { it.id.lowercase() != "all" }
             .filter {
                 if (adultContentEnabled) {
                     viewModel.isAdultProviderId(it.id) && !viewModel.isNormalProvider(it.id)
@@ -218,7 +219,12 @@ fun SearchScreen(
         // 3. Ensure popular default providers exist in normal mode
         if (!adultContentEnabled) {
             val defaults = listOf(
+                ProviderSourceItemData("tencent", "Tencent Video", Icons.Default.Tv, Color(0xFF0052D9)),
                 ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
+                ProviderSourceItemData("bilibili", "Bilibili", Icons.Default.Tv, Color(0xFF00A1D6)),
+                ProviderSourceItemData("sonyliv", "SonyLIV", Icons.Default.Tv, Color(0xFF003087)),
+                ProviderSourceItemData("hotstar", "Hotstar", Icons.Default.Star, Color(0xFF001435)),
+                ProviderSourceItemData("amazonminitv", "miniTV", Icons.Default.Tv, Color(0xFFFF9900)),
                 ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
                 ProviderSourceItemData("jikan_anime", "Anime", Icons.Default.Star, Color(0xFF7B1FA2)),
                 ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
@@ -226,6 +232,24 @@ fun SearchScreen(
                 ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1))
             )
             defaults.forEach { item ->
+                if (!processedIds.contains(item.id.lowercase())) {
+                    processedIds.add(item.id.lowercase())
+                    list.add(item)
+                }
+            }
+        } else {
+            val adultDefaults = listOf(
+                ProviderSourceItemData("xnxx", "XNXX", Icons.Default.Explicit, Color(0xFF00B0FF)),
+                ProviderSourceItemData("hellporno", "HellPorno", Icons.Default.Explicit, Color(0xFFFF1744)),
+                ProviderSourceItemData("stripchat", "Stripchat", Icons.Default.VideoLibrary, Color(0xFFFF3D00)),
+                ProviderSourceItemData("chaturbate", "Chaturbate", Icons.Default.VideoLibrary, Color(0xFFFF6D00)),
+                ProviderSourceItemData("sextb", "SEXTB", Icons.Default.Explicit, Color(0xFFE91E63)),
+                ProviderSourceItemData("supjav", "SupJav", Icons.Default.Explicit, Color(0xFFFF4081)),
+                ProviderSourceItemData("123av", "123AV", Icons.Default.Explicit, Color(0xFF9C27B0)),
+                ProviderSourceItemData("pornhub", "Pornhub", Icons.Default.Explicit, Color(0xFFFF9900)),
+                ProviderSourceItemData("xvideos", "XVideos", Icons.Default.Explicit, Color(0xFFD32F2F))
+            )
+            adultDefaults.forEach { item ->
                 if (!processedIds.contains(item.id.lowercase())) {
                     processedIds.add(item.id.lowercase())
                     list.add(item)
@@ -1086,7 +1110,10 @@ fun SearchScreen(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                items(effectiveSuggestions) { suggestion ->
+                items(
+                    items = effectiveSuggestions,
+                    key = { "${it.query}_${it.providerBadge}" }
+                ) { suggestion ->
                     val thumbnail = historyThumbnailMap[suggestion.query] ?: suggestion.thumbnailUrl
                     SearchSuggestionRow(
                         suggestion = suggestion,
@@ -1450,8 +1477,12 @@ private data class ProviderSourceItemData(
 
 private fun getProviderChipInfo(id: String, defaultName: String): Triple<String, ImageVector, Color> {
     return when (id.lowercase()) {
+        "tencent" -> Triple("Tencent Video", Icons.Default.Tv, Color(0xFF0052D9))
         "youtube" -> Triple("YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000))
         "dailymotion" -> Triple("Dailymotion", Icons.Default.Movie, Color(0xFF0066DC))
+        "bilibili" -> Triple("Bilibili", Icons.Default.Tv, Color(0xFF00A1D6))
+        "sonyliv" -> Triple("SonyLIV", Icons.Default.Tv, Color(0xFF003087))
+        "hotstar" -> Triple("Hotstar", Icons.Default.Star, Color(0xFF001435))
         "amazonminitv", "minitv" -> Triple("miniTV", Icons.Default.Tv, Color(0xFFFF9900))
         "discoveryplus", "discovery" -> Triple("Discovery+", Icons.Default.VideoLibrary, Color(0xFF00838F))
         "disney", "disneyplus" -> Triple("Disney+", Icons.Default.Star, Color(0xFF113CCF))
@@ -1469,8 +1500,16 @@ private fun getProviderChipInfo(id: String, defaultName: String): Triple<String,
         "telegram" -> Triple("Telegram", Icons.Default.Send, Color(0xFF0288D1))
         "direct_mp4", "direct_hls" -> Triple("Direct Video", Icons.Default.VideoLibrary, Color(0xFF00796B))
         "rss_video", "json" -> Triple("Feeds", Icons.Default.RssFeed, Color(0xFFF57C00))
+        "xnxx" -> Triple("XNXX", Icons.Default.Explicit, Color(0xFF00B0FF))
+        "hellporno" -> Triple("HellPorno", Icons.Default.Explicit, Color(0xFFFF1744))
+        "stripchat" -> Triple("Stripchat", Icons.Default.VideoLibrary, Color(0xFFFF3D00))
+        "chaturbate" -> Triple("Chaturbate", Icons.Default.VideoLibrary, Color(0xFFFF6D00))
+        "pornhub" -> Triple("Pornhub", Icons.Default.Explicit, Color(0xFFFF9900))
+        "xvideos" -> Triple("XVideos", Icons.Default.Explicit, Color(0xFFD32F2F))
+        "txxx" -> Triple("TXXX", Icons.Default.Explicit, Color(0xFFFF8F00))
         "eporner" -> Triple("Eporner", Icons.Default.Explicit, Color(0xFFC2185B))
         "sextb" -> Triple("SEXТB", Icons.Default.Explicit, Color(0xFFE91E63))
+        "supjav" -> Triple("SupJav", Icons.Default.Explicit, Color(0xFFFF4081))
         "123av" -> Triple("123AV", Icons.Default.Explicit, Color(0xFF9C27B0))
         "javtiful" -> Triple("Javtiful", Icons.Default.Explicit, Color(0xFF673AB7))
         "jav_all" -> Triple("All JAV", Icons.Default.Explicit, Color(0xFFE91E63))

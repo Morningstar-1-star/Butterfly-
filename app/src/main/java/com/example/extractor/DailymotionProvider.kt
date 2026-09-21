@@ -20,20 +20,34 @@ object DailymotionProvider {
     private const val REFERER = "https://www.dailymotion.com/"
 
     private const val API_FIELDS =
-        "id,title,owner.username,owner.screenname,owner.avatar_120_url,owner.avatar_240_url,owner.avatar_720_url,owner.url,thumbnail_720_url,thumbnail_480_url,duration,views_total,created_time"
+        "id,title,owner.username,owner.screenname,owner.avatar_120_url,owner.avatar_240_url,owner.avatar_720_url,owner.url,thumbnail_720_url,thumbnail_480_url,duration,views_total,created_time,mode,onair"
+
+    @Volatile
+    var lastDmCookies: String = ""
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .addInterceptor { chain ->
-            val req = chain.request().newBuilder()
+            val reqBuilder = chain.request().newBuilder()
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", REFERER)
                 .header("Accept", "*/*")
-                .build()
-            chain.proceed(req)
+            val cookie = lastDmCookies
+            if (cookie.isNotBlank() && chain.request().header("Cookie") == null) {
+                reqBuilder.header("Cookie", cookie)
+            }
+            val response = chain.proceed(reqBuilder.build())
+            val setCookies = response.headers("Set-Cookie")
+            if (setCookies.isNotEmpty()) {
+                val newCookies = setCookies.map { it.substringBefore(";") }.joinToString("; ")
+                if (newCookies.isNotBlank()) {
+                    lastDmCookies = if (lastDmCookies.isBlank()) newCookies else "$lastDmCookies; $newCookies"
+                }
+            }
+            response
         }
         .build()
 
@@ -114,6 +128,10 @@ object DailymotionProvider {
                 val item = listArr.optJSONObject(i) ?: continue
                 val id = item.optString("id", "")
                 if (id.isBlank()) continue
+                val mode = item.optString("mode", "")
+                val onair = item.optBoolean("onair", true)
+                if (mode.equals("live", ignoreCase = true) && !onair) continue
+
                 val title = item.optString("title", "Dailymotion Video")
 
                 // Extract real channel display name and username
@@ -184,12 +202,72 @@ object DailymotionProvider {
 
         if (videoId.isBlank()) return@withContext null
 
-        // 1. Primary: Direct player metadata API
+        // 1. Primary: Retrieve session cookies and internal tokens from embed page
+        var v1stParam: String? = null
+        var tsParam: String? = null
+        var isUnavailableOrOffline = false
+
         try {
-            val metadataUrl = "https://www.dailymotion.com/player/metadata/video/$videoId"
+            val embedUrl = "https://www.dailymotion.com/embed/video/$videoId"
+            val embedReq = Request.Builder()
+                .url(embedUrl)
+                .headers(okhttp3.Headers.Builder().apply { dmHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                .build()
+
+            val embedHtml = httpClient.newCall(embedReq).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+
+            if (!embedHtml.isNullOrBlank()) {
+                val match = Regex("window\\.__PLAYER_CONFIG__\\s*=\\s*(\\{.*?\\});").find(embedHtml)
+                if (match != null) {
+                    val cfgJson = JSONObject(match.groupValues[1])
+                    val err = cfgJson.optJSONObject("error")
+                    if (err != null) {
+                        val errMsg = err.optString("title") + " " + err.optString("raw_message", err.optString("message"))
+                        Log.w(TAG, "Dailymotion video is unavailable/offline: $errMsg")
+                        isUnavailableOrOffline = true
+                        return@withContext null
+                    }
+                    val dmInternal = cfgJson.optJSONObject("dmInternalData")
+                    v1stParam = dmInternal?.optString("v1st")?.takeIf { it.isNotBlank() }
+                    tsParam = dmInternal?.optString("ts")?.takeIf { it.isNotBlank() }
+
+                    // Ensure lastDmCookies has v1st and ts
+                    val currentCookies = lastDmCookies
+                    val cookieParts = mutableListOf<String>()
+                    if (currentCookies.isNotBlank()) cookieParts.add(currentCookies)
+                    if (!currentCookies.contains("v1st=") && v1stParam != null) cookieParts.add("v1st=$v1stParam")
+                    if (!currentCookies.contains("ts=") && tsParam != null) cookieParts.add("ts=$tsParam")
+                    if (!currentCookies.contains("ff=")) cookieParts.add("ff=on")
+                    if (cookieParts.isNotEmpty()) {
+                        lastDmCookies = cookieParts.joinToString("; ")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Dailymotion embed config fetch note: ${e.message}")
+        }
+
+        if (isUnavailableOrOffline) return@withContext null
+
+        // 2. Fetch player metadata with session parameters
+        try {
+            val metaParams = mutableListOf("geo=1")
+            if (!tsParam.isNullOrBlank()) metaParams.add("dmTs=$tsParam")
+            if (!v1stParam.isNullOrBlank()) metaParams.add("dmV1st=$v1stParam")
+            val queryString = metaParams.joinToString("&")
+            val metadataUrl = "https://www.dailymotion.com/player/metadata/video/$videoId?$queryString"
+
+            val effectiveHeaders = if (lastDmCookies.isNotBlank()) {
+                dmHeaders + ("Cookie" to lastDmCookies)
+            } else {
+                dmHeaders
+            }
+
             val metaReq = Request.Builder()
                 .url(metadataUrl)
-                .headers(okhttp3.Headers.Builder().apply { dmHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                .headers(okhttp3.Headers.Builder().apply { effectiveHeaders.forEach { (k, v) -> add(k, v) } }.build())
                 .build()
 
             val metaJsonStr = httpClient.newCall(metaReq).execute().use { resp ->
@@ -198,6 +276,16 @@ object DailymotionProvider {
 
             if (!metaJsonStr.isNullOrBlank()) {
                 val metaJson = JSONObject(metaJsonStr)
+
+                // Check for error in metadata response (e.g. Channel offline / DM003)
+                val metaError = metaJson.optJSONObject("error")
+                if (metaError != null) {
+                    val errTitle = metaError.optString("title")
+                    val errMsg = metaError.optString("raw_message", metaError.optString("message"))
+                    Log.w(TAG, "Dailymotion video error in metadata: $errTitle - $errMsg")
+                    return@withContext null
+                }
+
                 val title = metaJson.optString("title", "Dailymotion Video")
 
                 // Extract real owner / channel name and logo
@@ -244,14 +332,21 @@ object DailymotionProvider {
                 }
 
                 // If master m3u8 is available, fetch and parse resolution variants & subtitles
+                val effectiveHeaders = if (lastDmCookies.isNotBlank()) {
+                    dmHeaders + ("Cookie" to lastDmCookies)
+                } else {
+                    dmHeaders
+                }
+
                 if (!masterM3u8Url.isNullOrBlank()) {
+                    var playlistText: String? = null
                     try {
                         val m3u8Req = Request.Builder()
                             .url(masterM3u8Url)
-                            .headers(okhttp3.Headers.Builder().apply { dmHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                            .headers(okhttp3.Headers.Builder().apply { effectiveHeaders.forEach { (k, v) -> add(k, v) } }.build())
                             .build()
 
-                        val playlistText = httpClient.newCall(m3u8Req).execute().use { resp ->
+                        playlistText = httpClient.newCall(m3u8Req).execute().use { resp ->
                             if (resp.isSuccessful) resp.body?.string() else null
                         }
 
@@ -283,7 +378,7 @@ object DailymotionProvider {
                                                 isMuxed = true,
                                                 videoUrl = masterM3u8Url,
                                                 providerType = ProviderType.DIRECT,
-                                                headers = dmHeaders
+                                                headers = effectiveHeaders
                                             )
                                         )
                                     }
@@ -317,16 +412,28 @@ object DailymotionProvider {
                         Log.w(TAG, "Note: parsing Dailymotion child m3u8 playlists: ${e.message}")
                     }
 
-                    // Always add Adaptive HLS (Auto) at top
-                    val autoOption = PlayableStreamOption(
-                        qualityLabel = "Adaptive HLS (Auto)",
-                        format = "m3u8",
-                        isMuxed = true,
-                        videoUrl = masterM3u8Url,
-                        providerType = ProviderType.DIRECT,
-                        headers = dmHeaders
-                    )
-                    options.add(0, autoOption)
+                    // Add Adaptive HLS (Auto) only if master playlist was successfully retrieved
+                    if (!playlistText.isNullOrBlank() && playlistText.contains("#EXTM3U")) {
+                        val autoOption = PlayableStreamOption(
+                            qualityLabel = "Adaptive HLS (Auto)",
+                            format = "m3u8",
+                            isMuxed = true,
+                            videoUrl = masterM3u8Url,
+                            providerType = ProviderType.DIRECT,
+                            headers = effectiveHeaders
+                        )
+                        options.add(0, autoOption)
+                    } else if (options.isEmpty()) {
+                        val autoOption = PlayableStreamOption(
+                            qualityLabel = "Adaptive HLS (Auto)",
+                            format = "m3u8",
+                            isMuxed = true,
+                            videoUrl = masterM3u8Url,
+                            providerType = ProviderType.DIRECT,
+                            headers = effectiveHeaders
+                        )
+                        options.add(autoOption)
+                    }
                 }
 
                 // Fetch real related videos from Dailymotion
@@ -357,7 +464,7 @@ object DailymotionProvider {
                         tags = tagsList,
                         providerId = PROVIDER_ID,
                         providerType = ProviderType.DIRECT,
-                        headers = dmHeaders
+                        headers = effectiveHeaders
                     )
                 }
             }
@@ -410,7 +517,7 @@ object DailymotionProvider {
         }
 
         // 3. Fall back to YtDlpResolver
-        if (context != null) {
+        if (context != null && !isUnavailableOrOffline) {
             try {
                 Log.i(TAG, "Falling back to YtDlpResolver for Dailymotion video ID: $videoId")
                 val targetUrl = if (cleanInput.startsWith("http")) cleanInput else "https://www.dailymotion.com/video/$videoId"

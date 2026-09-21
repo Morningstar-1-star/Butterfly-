@@ -424,7 +424,7 @@ fun AccountScreen(
                     items(userPlaylists, key = { it.id }) { playlist ->
                         val topCat = remember(playlist.videos) {
                             playlist.videos.flatMap { v -> com.example.util.SmartTagExtractor.extractTags(v, maxTags = 1) }
-                                .groupingBy { it.displayName }
+                                .groupingBy { "${it.emoji} ${it.displayName}" }
                                 .eachCount()
                                 .maxByOrNull { it.value }?.key
                         }
@@ -918,6 +918,12 @@ fun AccountScreen(
                 onPlayDownload = { dl ->
                     showDownloadsSheet = false
                     viewModel.playOfflineDownload(dl)
+                },
+                onPauseDownload = { dl ->
+                    viewModel.pauseDownload(dl.videoId)
+                },
+                onResumeDownload = { dl ->
+                    viewModel.resumeDownload(dl.videoId)
                 },
                 onDeleteDownload = { dl ->
                     viewModel.deleteDownload(dl.videoId, dl.localFilePath)
@@ -1794,8 +1800,8 @@ private fun VideoListBottomSheet(
             }
 
             val playlistCategories = remember(videos) {
-                videos.flatMap { v -> com.example.util.SmartTagExtractor.extractTags(v, maxTags = 2) }
-                    .groupingBy { it.displayName }
+                videos.flatMap { v -> com.example.util.SmartTagExtractor.extractTags(v, maxTags = 3) }
+                    .groupingBy { "${it.emoji} ${it.displayName}" }
                     .eachCount()
                     .entries
                     .sortedByDescending { it.value }
@@ -1927,22 +1933,24 @@ private fun VideoListBottomSheet(
                                     maxLines = 1
                                 )
                                 val vTags = remember(video.id) {
-                                    com.example.util.SmartTagExtractor.extractTags(video, maxTags = 2)
+                                    com.example.util.SmartTagExtractor.extractTags(video, maxTags = 3)
                                 }
                                 if (vTags.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         vTags.forEach { tag ->
                                             Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                                                border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                                             ) {
                                                 Text(
-                                                    text = "#${tag.displayName}",
+                                                    text = "${tag.emoji} ${tag.displayName}",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    fontSize = 9.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                 )
                                             }
                                         }
@@ -1979,6 +1987,8 @@ private fun DownloadsBottomSheet(
     downloads: List<OfflineDownloadEntity>,
     onDismiss: () -> Unit,
     onPlayDownload: (OfflineDownloadEntity) -> Unit,
+    onPauseDownload: (OfflineDownloadEntity) -> Unit,
+    onResumeDownload: (OfflineDownloadEntity) -> Unit,
     onDeleteDownload: (OfflineDownloadEntity) -> Unit
 ) {
     ModalBottomSheet(
@@ -1990,16 +2000,24 @@ private fun DownloadsBottomSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Text(
-                text = "Downloads",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "${downloads.size} videos available offline",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Downloads",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${downloads.count { it.status == "COMPLETED" }} downloaded • ${downloads.size} total",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -2010,69 +2028,195 @@ private fun DownloadsBottomSheet(
                         .padding(vertical = 36.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No downloaded videos yet.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Outlined.FileDownload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No downloaded videos yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Videos you download will appear here for offline viewing.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .heightIn(max = 480.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(downloads, key = { it.videoId }) { dl ->
-                        Row(
+                        val isDone = dl.status == "COMPLETED"
+                        val isDownloading = dl.status == "DOWNLOADING"
+                        val isPaused = dl.status == "PAUSED"
+                        val isFailed = dl.status == "FAILED"
+
+                        val progressFraction = if (dl.totalBytes > 0L) {
+                            (dl.downloadedBytes.toFloat() / dl.totalBytes.toFloat()).coerceIn(0f, 1f)
+                        } else if (isDone) 1f else 0f
+
+                        val pct = (progressFraction * 100).toInt()
+
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onPlayDownload(dl) }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    if (isDone) {
+                                        onPlayDownload(dl)
+                                    } else if (isPaused || isFailed) {
+                                        onResumeDownload(dl)
+                                    } else if (isDownloading) {
+                                        onPauseDownload(dl)
+                                    }
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 100.dp, height = 56.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                if (!dl.thumbnailUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = dl.thumbnailUrl,
-                                        contentDescription = dl.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 110.dp, height = 62.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (!dl.thumbnailUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = dl.thumbnailUrl,
+                                                contentDescription = dl.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        if (isDone) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(Color.Black.copy(alpha = 0.25f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PlayCircle,
+                                                    contentDescription = "Play",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = dl.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "${dl.channelName} • ${dl.qualityLabel}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        val statusText = when {
+                                            isDone -> "Ready offline • ${formatDownloadBytes(dl.downloadedBytes)}"
+                                            isDownloading -> "Downloading $pct% • ${formatDownloadBytes(dl.downloadedBytes)} / ${formatDownloadBytes(dl.totalBytes)}"
+                                            isPaused -> "Paused • ${formatDownloadBytes(dl.downloadedBytes)}"
+                                            isFailed -> "Failed • Tap to retry"
+                                            else -> "Queued"
+                                        }
+                                        val statusColor = when {
+                                            isDone -> Color(0xFF4CAF50)
+                                            isDownloading -> Color(0xFF2196F3)
+                                            isPaused -> Color(0xFFFF9800)
+                                            isFailed -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                        Text(
+                                            text = statusText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = statusColor,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (isDownloading) {
+                                            IconButton(onClick = { onPauseDownload(dl) }) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Pause,
+                                                    contentDescription = "Pause",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        } else if (isPaused || isFailed) {
+                                            IconButton(onClick = { onResumeDownload(dl) }) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Refresh,
+                                                    contentDescription = "Resume",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        } else if (isDone) {
+                                            IconButton(onClick = { onPlayDownload(dl) }) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PlayArrow,
+                                                    contentDescription = "Play offline",
+                                                    tint = Color(0xFF4CAF50),
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                        }
+
+                                        IconButton(onClick = { onDeleteDownload(dl) }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (isDownloading) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { progressFraction },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
                                     )
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = dl.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "${dl.channelName} • ${dl.qualityLabel}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            IconButton(onClick = { onDeleteDownload(dl) }) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp)
-                                )
                             }
                         }
                     }
@@ -2081,5 +2225,16 @@ private fun DownloadsBottomSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+}
+
+private fun formatDownloadBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 MB"
+    val mb = bytes / (1024.0 * 1024.0)
+    val gb = mb / 1024.0
+    return if (gb >= 1.0) {
+        String.format(java.util.Locale.US, "%.2f GB", gb)
+    } else {
+        String.format(java.util.Locale.US, "%.1f MB", mb)
     }
 }

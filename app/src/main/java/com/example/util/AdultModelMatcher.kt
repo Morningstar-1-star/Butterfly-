@@ -12,8 +12,11 @@ object AdultModelMatcher {
     data class ModelEntry(
         val primaryName: String,
         val aliases: List<String>,
-        val isJav: Boolean
+        val isJav: Boolean,
+        val imageUrl: String? = null
     )
+
+    fun getAllKnownModels(): List<ModelEntry> = MODEL_DATABASE
 
     private val MODEL_DATABASE = listOf(
         // JAV Top Actresses with Romaji, Kana, Kanji variants

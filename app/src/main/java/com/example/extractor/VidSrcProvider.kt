@@ -208,48 +208,58 @@ object VidSrcProvider {
             Log.w(TAG, "Failed to query TMDB details for VidSrc: ${e.message}")
         }
 
-        val vidsrcToUrl = if (isTv) "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode" else "https://vidsrc.to/embed/movie/$tmdbId"
-        val vidsrcMeUrl = if (isTv) "https://vidsrc.me/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode" else "https://vidsrc.me/embed/movie?tmdb=$tmdbId"
-        val vidsrcSbsUrl = if (isTv) "https://vidsrc.sbs/embed/tv/$tmdbId/$season/$episode" else "https://vidsrc.sbs/embed/movie/$tmdbId"
+        val options = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+            context = context,
+            tmdbIdOrUrl = tmdbId,
+            mediaType = if (isTv) "tv" else "movie",
+            season = season,
+            episode = episode,
+            title = mediaTitle,
+            providerName = "VidSrc"
+        ).toMutableList()
 
-        val options = listOf(
-            PlayableStreamOption(
-                qualityLabel = "[VidSrc] VidSrc.to • Fast Mirror (1080p)",
-                format = "m3u8",
-                isMuxed = true,
-                videoUrl = vidsrcToUrl,
-                providerType = ProviderType.DIRECT,
-                headers = mapOf("Referer" to "https://vidsrc.to/", "Origin" to "https://vidsrc.to"),
-                sourceName = "VidSrc",
-                qualityCategory = "1080p",
-                releaseTitle = "$mediaTitle [VidSrc.to]",
-                serverStatus = "Online"
-            ),
-            PlayableStreamOption(
-                qualityLabel = "[VidSrc] VidSrc.me • Server 2 (1080p)",
-                format = "m3u8",
-                isMuxed = true,
-                videoUrl = vidsrcMeUrl,
-                providerType = ProviderType.DIRECT,
-                headers = mapOf("Referer" to "https://vidsrc.me/", "Origin" to "https://vidsrc.me"),
-                sourceName = "VidSrc",
-                qualityCategory = "1080p",
-                releaseTitle = "$mediaTitle [VidSrc.me]",
-                serverStatus = "Online"
-            ),
-            PlayableStreamOption(
-                qualityLabel = "[VidSrc] VidSrc.sbs • Server 3 (720p/1080p)",
-                format = "m3u8",
-                isMuxed = true,
-                videoUrl = vidsrcSbsUrl,
-                providerType = ProviderType.DIRECT,
-                headers = mapOf("Referer" to "https://vidsrc.sbs/", "Origin" to "https://vidsrc.sbs"),
-                sourceName = "VidSrc",
-                qualityCategory = "720p",
-                releaseTitle = "$mediaTitle [VidSrc.sbs]",
-                serverStatus = "Online"
-            )
-        )
+        // Fallback: Official preview / trailer from TMDB if full cloud stream is not available
+        if (options.isEmpty()) {
+            try {
+                val apiKey = AppConfig.TMDB_API_KEY
+                val mType = if (isTv) "tv" else "movie"
+                val vUrl = "https://api.themoviedb.org/3/$mType/$tmdbId/videos?api_key=$apiKey"
+                val vReq = Request.Builder().url(vUrl).header("User-Agent", "Mozilla/5.0").build()
+                val vResp = httpClient.newCall(vReq).execute()
+                val vBody = vResp.body?.string().orEmpty()
+                if (vBody.contains("results")) {
+                    val vResults = JSONObject(vBody).optJSONArray("results")
+                    if (vResults != null && vResults.length() > 0) {
+                        for (i in 0 until vResults.length()) {
+                            val vObj = vResults.optJSONObject(i) ?: continue
+                            val site = vObj.optString("site")
+                            val key = vObj.optString("key")
+                            if (site.equals("YouTube", ignoreCase = true) && key.isNotBlank()) {
+                                val ytRes = YouTubeExtractorHelper.resolveStream("https://www.youtube.com/watch?v=$key", context, "youtube")
+                                if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success) {
+                                    ytRes.streamData.availableStreamOptions.forEach { opt ->
+                                        options.add(
+                                            opt.copy(
+                                                qualityLabel = "[VidSrc] Official Preview • ${opt.qualityLabel}",
+                                                sourceName = "VidSrc Preview"
+                                            )
+                                        )
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback trailer resolution error: ${e.message}")
+            }
+        }
+
+        if (options.isEmpty()) {
+            Log.w(TAG, "No playable stream options available for VidSrc ($clean)")
+            return@withContext null
+        }
 
         return@withContext StreamData(
             videoId = clean,

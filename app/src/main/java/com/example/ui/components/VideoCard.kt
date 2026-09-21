@@ -120,6 +120,43 @@ fun VideoCard(
     val context = LocalContext.current
     val effectiveWatchProgress = watchProgressFraction
 
+    var asyncTranslatedTitle by remember(video.id, video.title, video.translatedTitleEN) {
+        mutableStateOf(video.translatedTitleEN)
+    }
+
+    val detectedLang = remember(video.title, video.detectedLanguage) {
+        video.detectedLanguage ?: com.example.util.UniversalTranslator.detectLanguage(video.title)
+    }
+
+    LaunchedEffect(video.id, video.title) {
+        if (asyncTranslatedTitle.isNullOrBlank() && detectedLang != "en" && detectedLang != "hi") {
+            try {
+                val res = com.example.util.UniversalTranslator.translateTitle(video.title)
+                if (res.translatedEN.isNotBlank() && !res.translatedEN.equals(video.title, ignoreCase = true)) {
+                    asyncTranslatedTitle = res.translatedEN
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val effectiveOriginalTitle = video.originalTitle ?: video.title
+    val effectiveTranslatedTitle = asyncTranslatedTitle ?: video.translatedTitleEN
+
+    val activeTitle = remember(video, localShowOriginal, effectiveOriginalTitle, effectiveTranslatedTitle, detectedLang) {
+        if (localShowOriginal || detectedLang == "hi") {
+            effectiveOriginalTitle
+        } else {
+            effectiveTranslatedTitle?.takeIf { it.isNotBlank() } ?: video.getDisplayTitle(false, "en")
+        }
+    }
+
+    val hasTranslation = remember(effectiveOriginalTitle, effectiveTranslatedTitle, detectedLang) {
+        detectedLang != "en" &&
+        detectedLang != "hi" &&
+        !effectiveTranslatedTitle.isNullOrBlank() &&
+        !effectiveOriginalTitle.equals(effectiveTranslatedTitle, ignoreCase = true)
+    }
+
     val sourceBadge = remember(video.providerId, video.id, video.uploaderName, video.thumbnailUrl) {
         com.example.util.SourceTagHelper.getSourceBadge(video)
     }
@@ -274,8 +311,8 @@ fun VideoCard(
         )
     }
 
-    // Horizontal Scrubbing Modifier: attached to cards supporting teaser scrubbing
-    val scrubModifier = if (hasScrubbingTeaser) {
+    // Horizontal Scrubbing Modifier: only attached when teaser preview is active to keep scroll physics 100% native and fluid
+    val scrubModifier = if (hasScrubbingTeaser && (isPreviewActive || isAutoPlaying)) {
         Modifier.pointerInput(video.id, loadedPreviewFrames) {
             detectHorizontalDragGestures(
                 onDragStart = { offset ->
@@ -337,35 +374,36 @@ fun VideoCard(
                 .then(scrubModifier)
         ) {
                 if (thumbnailImageRequest != null) {
-                    val isKnownNon169Source = remember(video.providerId, video.id, video.tags, video.thumbnailUrl) {
+                    val isStandardVideoTube = remember(video.providerId, video.id) {
+                        val pid = (video.providerId ?: "").lowercase()
+                        val idLower = video.id.lowercase()
+                        pid in listOf("pornhub", "thumbzilla", "xvideos", "redtube", "spankbang", "eporner", "youporn", "xhamster", "thisvid", "tnaflix", "noodlemagazine", "rule34video", "dailymotion", "vimeo", "bilibili", "twitch", "beeg", "4tube", "hqporner") ||
+                        idLower.contains("pornhub") || idLower.contains("ph") || idLower.contains("xvideos") || idLower.contains("spankbang") || idLower.contains("eporner")
+                    }
+
+                    val isKnownPosterSource = remember(video.providerId, video.id, video.tags, video.thumbnailUrl) {
                         val pid = (video.providerId ?: "").lowercase()
                         val idLower = video.id.lowercase()
                         val thumbLower = (video.thumbnailUrl ?: "").lowercase()
-                        pid in listOf("sextb", "supjav", "jav", "javvideo", "123av", "javtiful", "vega", "vegacloud", "vidsrc", "vidrock", "tmdb", "anilist", "jikan", "torrent") ||
-                        idLower.contains("sextb") || idLower.contains("supjav") || idLower.contains("jav") || idLower.contains("movie_") || idLower.contains("tv_") || idLower.contains("torrent_") || idLower.contains("vega_") ||
-                        thumbLower.contains("sextb") || thumbLower.contains("supjav") || thumbLower.contains("jav") || thumbLower.contains("poster") || thumbLower.contains("cover") || thumbLower.contains("dmm.co.jp") || thumbLower.contains("r18") || thumbLower.contains("image.tmdb.org") ||
-                        video.tags.any { it.contains("JAV", ignoreCase = true) || it.contains("Poster", ignoreCase = true) }
+                        !isStandardVideoTube && (
+                            pid in listOf("tmdb", "anilist", "jikan", "torrent", "vidsrc", "vega") ||
+                            idLower.contains("movie_") || idLower.contains("tv_") || idLower.contains("torrent_") ||
+                            thumbLower.contains("poster") || thumbLower.contains("image.tmdb.org") ||
+                            video.tags.any { it.contains("Poster", ignoreCase = true) }
+                        )
                     }
 
-                    var isNon169Ratio by remember(activeImageUrl, isKnownNon169Source) { mutableStateOf(isKnownNon169Source) }
+                    var isNon169Ratio by remember(activeImageUrl, isKnownPosterSource, isStandardVideoTube) {
+                        mutableStateOf(if (isStandardVideoTube) false else isKnownPosterSource)
+                    }
 
-                    if (isNon169Ratio) {
-                        // 1. Blurred Backdrop for Non-16:9 / Vertical Poster Thumbnails
-                        AsyncImage(
-                            model = thumbnailImageRequest,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .blur(22.dp)
-                                .graphicsLayer { alpha = 0.65f }
-                        )
+                    if (isNon169Ratio && !isStandardVideoTube) {
+                        // High-contrast clean dark background for poster / non-16:9 media cards
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.38f))
+                                .background(Color(0xFF101010))
                         )
-                        // 2. Main Full Uncropped Thumbnail (ContentScale.Fit inside 16:9 box)
                         AsyncImage(
                             model = thumbnailImageRequest,
                             contentDescription = video.title,
@@ -375,24 +413,26 @@ fun VideoCard(
                                 val h = state.result.drawable.intrinsicHeight
                                 if (w > 0 && h > 0) {
                                     val aspect = w.toFloat() / h.toFloat()
-                                    isNon169Ratio = aspect < 1.5f || aspect > 2.2f
+                                    isNon169Ratio = aspect < 0.9f || aspect > 2.4f
                                 }
                             },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        // Standard 16:9 Landscape Artwork Layer
+                        // Standard Full-Frame 16:9 Landscape Artwork Layer (Pornhub, Tubes, etc.)
                         AsyncImage(
                             model = thumbnailImageRequest,
                             contentDescription = video.title,
                             contentScale = ContentScale.Crop,
                             onSuccess = { state ->
-                                val w = state.result.drawable.intrinsicWidth
-                                val h = state.result.drawable.intrinsicHeight
-                                if (w > 0 && h > 0) {
-                                    val aspect = w.toFloat() / h.toFloat()
-                                    if (aspect < 1.5f || aspect > 2.2f) {
-                                        isNon169Ratio = true
+                                if (!isStandardVideoTube) {
+                                    val w = state.result.drawable.intrinsicWidth
+                                    val h = state.result.drawable.intrinsicHeight
+                                    if (w > 0 && h > 0) {
+                                        val aspect = w.toFloat() / h.toFloat()
+                                        if (aspect < 0.9f || aspect > 2.4f) {
+                                            isNon169Ratio = true
+                                        }
                                     }
                                 }
                             },
@@ -709,18 +749,6 @@ fun VideoCard(
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
-                    val activeTitle = remember(video, localShowOriginal) {
-                        video.getDisplayTitle(localShowOriginal, "en")
-                    }
-                    val hasTranslation = remember(video.originalTitle, video.translatedTitleEN, video.detectedLanguage) {
-                        video.detectedLanguage != null &&
-                        video.detectedLanguage != "en" &&
-                        video.detectedLanguage != "hi" &&
-                        !video.translatedTitleEN.isNullOrBlank() &&
-                        video.originalTitle != null &&
-                        video.originalTitle != video.translatedTitleEN
-                    }
-
                     Text(
                         text = activeTitle,
                         style = MaterialTheme.typography.titleMedium.copy(
@@ -731,6 +759,20 @@ fun VideoCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    if (hasTranslation && !localShowOriginal && !effectiveOriginalTitle.equals(activeTitle, ignoreCase = true)) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = effectiveOriginalTitle,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
 
                     val youtubeMetadataLine = remember(
                         targetChannelName,
@@ -860,12 +902,10 @@ fun VideoCard(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
 
-                val hasTranslationSheet = video.detectedLanguage != null &&
-                        video.detectedLanguage != "en" &&
-                        video.detectedLanguage != "hi" &&
-                        !video.translatedTitleEN.isNullOrBlank() &&
-                        video.originalTitle != null &&
-                        video.originalTitle != video.translatedTitleEN
+                val hasTranslationSheet = detectedLang != "en" &&
+                        detectedLang != "hi" &&
+                        !effectiveTranslatedTitle.isNullOrBlank() &&
+                        effectiveOriginalTitle != effectiveTranslatedTitle
                 if (hasTranslationSheet) {
                     VideoOptionMenuItem(
                         icon = Icons.Outlined.Translate,

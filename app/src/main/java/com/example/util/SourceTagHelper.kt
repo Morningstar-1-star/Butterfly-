@@ -52,6 +52,7 @@ object SourceTagHelper {
             pid == "twitch" -> "Twitch"
             pid == "bigo" || pid == "bigolive" -> "Bigo Live"
             pid == "bilibili" -> "Bilibili"
+            pid == "tencent" || pid == "vqq" || pid == "qq" -> "Tencent Video"
             pid == "vimeo" -> "Vimeo"
             pid == "hotstar" || pid == "jiohotstar" -> "Hotstar"
             pid == "amazonminitv" || pid == "minitv" -> "MiniTV"
@@ -96,6 +97,9 @@ object SourceTagHelper {
             // Adult / 18+ Sources (Identify actual source accurately)
             pid == "pornhub" -> "Pornhub"
             pid == "xvideos" -> "XVideos"
+            pid == "xnxx" -> "XNXX"
+            pid == "hellporno" -> "HellPorno"
+            pid == "stripchat" -> "Stripchat Live"
             pid == "xhamster" -> "xHamster"
             pid == "redtube" -> "RedTube"
             pid == "youporn" -> "YouPorn"
@@ -139,6 +143,7 @@ object SourceTagHelper {
             vid.startsWith("mega_") || vid.contains("mega.nz") -> "MEGA"
             vid.startsWith("tg_") || vid.contains("t.me/") -> "Telegram"
             vid.startsWith("bili_") || vid.startsWith("bv") || vid.contains("bilibili.com") -> "Bilibili"
+            vid.startsWith("tencent:") || vid.startsWith("vqq:") || vid.contains("v.qq.com") || vid.contains("video.qq.com") -> "Tencent Video"
             vid.startsWith("dm_") || vid.contains("dailymotion.com") -> "Dailymotion"
             vid.startsWith("vim_") || vid.contains("vimeo.com") -> "Vimeo"
             vid.startsWith("twitch_") || vid.contains("twitch.tv") -> "Twitch"
@@ -170,6 +175,7 @@ object SourceTagHelper {
             thumb.contains("dmcdn.net") || thumb.contains("dailymotion.com") -> "Dailymotion"
             thumb.contains("vimeocdn.com") -> "Vimeo"
             thumb.contains("hdslb.com") || thumb.contains("biliapi.net") -> "Bilibili"
+            thumb.contains("gtimg.com") || thumb.contains("qpic.cn") || thumb.contains("v.qq.com") -> "Tencent Video"
             thumb.contains("ttvnw.net") -> "Twitch"
             thumb.contains("archive.org") -> "Archive"
             thumb.contains("eporner.com") -> "Eporner"
@@ -190,6 +196,7 @@ object SourceTagHelper {
             uploader.contains("telegram") -> "Telegram"
             uploader.contains("dailymotion") -> "Dailymotion"
             uploader.contains("bilibili") -> "Bilibili"
+            uploader.contains("tencent") || uploader.contains("v.qq") -> "Tencent Video"
             uploader.contains("vimeo") -> "Vimeo"
             uploader.contains("twitch") -> "Twitch"
 
@@ -225,6 +232,7 @@ object SourceTagHelper {
             s.contains("twitch") -> Pair(Color(0xFF9146FF), Color.White)
             s.contains("bigo") -> Pair(Color(0xFF00B0FF), Color.White)
             s.contains("bilibili") -> Pair(Color(0xFF00AEEC), Color.White)
+            s.contains("tencent") || s.contains("vqq") -> Pair(Color(0xFF0052D9), Color.White)
             s.contains("vimeo") -> Pair(Color(0xFF1AB7EA), Color.White)
             s.contains("hotstar") -> Pair(Color(0xFF0D47A1), Color.White)
             s.contains("minitv") -> Pair(Color(0xFFFF9900), Color.White)
@@ -252,6 +260,9 @@ object SourceTagHelper {
             // Adult / 18+ Platforms
             s.contains("pornhub") -> Pair(Color(0xFFFF9900), Color.Black)
             s.contains("xvideos") -> Pair(Color(0xFFD32F2F), Color.White)
+            s.contains("xnxx") -> Pair(Color(0xFF0288D1), Color.White)
+            s.contains("hellporno") -> Pair(Color(0xFFD50000), Color.White)
+            s.contains("stripchat") -> Pair(Color(0xFFE91E63), Color.White)
             s.contains("xhamster") -> Pair(Color(0xFFF7941D), Color.White)
             s.contains("redtube") -> Pair(Color(0xFFE50914), Color.White)
             s.contains("youporn") -> Pair(Color(0xFFF22B69), Color.White)
@@ -291,7 +302,7 @@ object SourceTagHelper {
             return true
         }
         if ((target == "jav_all" || target == "all_jav") &&
-            (pId == "jav_all" || pId == "123av" || pId == "javtiful" || pId == "sextb")) {
+            (pId == "jav_all" || pId == "all_jav" || pId == "supjav" || pId == "123av" || pId == "javtiful" || pId == "sextb" || pId == "javplayer" || pId.contains("jav"))) {
             return true
         }
         if ((target == "jikan_anime" || target == "anime") &&

@@ -244,14 +244,17 @@ object DecryptorProvider {
                     }
                     captionOptions.addAll(subs)
 
+                    val isEmbed = server.type.equals("embed", ignoreCase = true) ||
+                            (playUrl.contains("/embed/", ignoreCase = true) && !playUrl.contains(".m3u8", ignoreCase = true) && !playUrl.contains(".mp4", ignoreCase = true))
+
                     options.add(
                         PlayableStreamOption(
                             qualityLabel = label,
-                            format = if (playUrl.contains(".m3u8")) "m3u8" else "mp4",
+                            format = if (isEmbed) "embed" else if (playUrl.contains(".m3u8")) "m3u8" else "mp4",
                             isMuxed = true,
                             videoUrl = playUrl,
                             audioUrl = null,
-                            providerType = ProviderType.DIRECT,
+                            providerType = if (isEmbed) ProviderType.EMBED else ProviderType.DIRECT,
                             headers = server.headers,
                             sourceName = "Decryptor",
                             qualityCategory = qCat,
@@ -266,25 +269,59 @@ object DecryptorProvider {
 
         // 3. Resilient fallback mirror if extractor backend has not decoded yet
         if (options.isEmpty()) {
-            val fallbackUrl = if (isTv) {
-                "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode"
-            } else {
-                "https://vidsrc.to/embed/movie/$tmdbId"
-            }
-            options.add(
-                PlayableStreamOption(
-                    qualityLabel = "[Decryptor] Fast Mirror • 1080p",
-                    format = "m3u8",
-                    isMuxed = true,
-                    videoUrl = fallbackUrl,
-                    providerType = ProviderType.DIRECT,
-                    headers = mapOf("Referer" to "https://vidsrc.to/", "Origin" to "https://vidsrc.to"),
-                    sourceName = "Decryptor",
-                    qualityCategory = "1080p",
-                    releaseTitle = "$mediaTitle [Fast Mirror]",
-                    serverStatus = "Online"
-                )
+            val directStreams = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+                context = context,
+                tmdbIdOrUrl = tmdbId,
+                mediaType = if (isTv) "tv" else "movie",
+                season = season,
+                episode = episode,
+                title = mediaTitle,
+                providerName = "Decryptor"
             )
+            options.addAll(directStreams)
+        }
+
+        // 4. Official preview/trailer fallback if full cinema stream is not available
+        if (options.isEmpty()) {
+            try {
+                val apiKey = AppConfig.TMDB_API_KEY
+                val mType = if (isTv) "tv" else "movie"
+                val vUrl = "https://api.themoviedb.org/3/$mType/$tmdbId/videos?api_key=$apiKey"
+                val vReq = Request.Builder().url(vUrl).header("User-Agent", "Mozilla/5.0").build()
+                val vResp = httpClient.newCall(vReq).execute()
+                val vBody = vResp.body?.string().orEmpty()
+                if (vBody.contains("results")) {
+                    val vResults = JSONObject(vBody).optJSONArray("results")
+                    if (vResults != null && vResults.length() > 0) {
+                        for (i in 0 until vResults.length()) {
+                            val vObj = vResults.optJSONObject(i) ?: continue
+                            val site = vObj.optString("site")
+                            val key = vObj.optString("key")
+                            if (site.equals("YouTube", ignoreCase = true) && key.isNotBlank()) {
+                                val ytRes = YouTubeExtractorHelper.resolveStream("https://www.youtube.com/watch?v=$key", context, "youtube")
+                                if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success) {
+                                    ytRes.streamData.availableStreamOptions.forEach { opt ->
+                                        options.add(
+                                            opt.copy(
+                                                qualityLabel = "[Decryptor] Official Preview • ${opt.qualityLabel}",
+                                                sourceName = "Decryptor Preview"
+                                            )
+                                        )
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback trailer resolution error: ${e.message}")
+            }
+        }
+
+        if (options.isEmpty()) {
+            Log.w(TAG, "No playable stream options available for Decryptor ($clean)")
+            return@withContext null
         }
 
         val distinctCaptions = captionOptions.distinctBy { it.url }

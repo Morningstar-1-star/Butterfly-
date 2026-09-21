@@ -569,7 +569,7 @@ private fun ManageSubscriptionsSheetContent(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(channels) { channel ->
+            items(channels, key = { it.id }) { channel ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier

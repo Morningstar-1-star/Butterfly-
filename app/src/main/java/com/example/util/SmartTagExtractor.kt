@@ -19,41 +19,91 @@ object SmartTagExtractor {
         val count: Int
     )
 
+    private val HASHTAG_REGEX = Regex("""#([a-zA-Z0-9_\-]+)""")
+
+    /**
+     * Extracts hashtags from text.
+     */
+    fun extractHashtags(vararg texts: String?): Set<String> {
+        val result = mutableSetOf<String>()
+        for (text in texts) {
+            if (!text.isNullOrBlank()) {
+                HASHTAG_REGEX.findAll(text).forEach { match ->
+                    val tag = match.groupValues[1].lowercase(Locale.ROOT)
+                    if (tag.isNotBlank()) {
+                        result.add(tag)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private fun String.hasWord(vararg words: String): Boolean {
+        return words.any { word ->
+            Regex("""(?i)\b${Regex.escape(word)}\b""").containsMatchIn(this)
+        }
+    }
+
+    private fun String.hasPhrase(vararg phrases: String): Boolean {
+        return phrases.any { phrase ->
+            Regex("""(?i)\b${Regex.escape(phrase)}\b""").containsMatchIn(this)
+        }
+    }
+
     /**
      * Extracts ALL internal categories and semantic tags without arbitrary limits.
-     * Used exclusively by the AI Intelligence and Smart Recommendation Engine so it
-     * builds multi-dimensional taste profiles across all user content (likes, dislikes,
-     * playlists, watch history).
+     * Used exclusively by the AI Intelligence and Smart Recommendation Engine.
      */
     fun extractInternalCategoryTags(video: VideoItem): List<TagInfo> {
         val detected = detectAllCategories(video)
-        return detected.distinctBy { it.category }
-            .filter { 
-                !it.category.contains("torrent", ignoreCase = true) && 
-                !it.displayName.contains("torrent", ignoreCase = true) && 
-                it.category != "video" 
-            }
-            .sortedBy { it.priority }
+        return filterAndSortTags(detected, maxTags = Int.MAX_VALUE)
     }
 
     /**
-     * Extracts high-accuracy semantic tags for UI presentation (badges, chips).
-     * Defaults to the top [maxTags] for clean and uncluttered layouts.
+     * Extracts high-accuracy semantic tags for UI presentation (Watch Later, Playlists, Badges).
+     * Defaults to the top [maxTags] (up to 3) for clean, high-precision layouts.
      */
-    fun extractTags(video: VideoItem, maxTags: Int = 2): List<TagInfo> {
+    fun extractTags(video: VideoItem, maxTags: Int = 3): List<TagInfo> {
         val detected = detectAllCategories(video)
-        return detected.distinctBy { it.category }
-            .filter { 
-                !it.category.contains("torrent", ignoreCase = true) && 
-                !it.displayName.contains("torrent", ignoreCase = true) && 
-                it.category != "video" 
-            }
-            .sortedBy { it.priority }
-            .take(maxTags)
+        return filterAndSortTags(detected, maxTags = maxTags)
     }
 
     /**
-     * Core detection engine parsing title, description, uploader, provider, and explicit tags.
+     * Filters out conflicting tags and ensures high-priority specific tags surface first.
+     */
+    private fun filterAndSortTags(detected: List<TagInfo>, maxTags: Int): List<TagInfo> {
+        val distinct = detected.distinctBy { it.category }
+            .filter {
+                !it.category.contains("torrent", ignoreCase = true) &&
+                !it.displayName.contains("torrent", ignoreCase = true) &&
+                it.category != "video"
+            }
+
+        val hasTrailer = distinct.any { it.category in setOf("trailer", "movie_trailer", "gameplay_trailer", "anime_trailer") }
+        val hasGameplay = distinct.any { it.category == "gameplay" }
+        val hasSong = distinct.any { it.category == "song" }
+        val hasShortFilm = distinct.any { it.category == "short_film" }
+
+        val filtered = distinct.filter { tag ->
+            when {
+                // If it's a trailer, it's not the full movie!
+                hasTrailer && tag.category in setOf("movie", "classic_cinema") -> false
+                // If gameplay is present, drop generic gaming so Gameplay is front and center
+                hasGameplay && tag.category == "gaming" -> false
+                // If song is present, drop redundant generic "music" tag (keep specific genre like lo-fi, hip-hop, acoustic)
+                hasSong && tag.category == "music" -> false
+                // If short film is present, drop generic movie tag
+                hasShortFilm && tag.category == "movie" -> false
+                else -> true
+            }
+        }
+
+        return filtered.sortedBy { it.priority }.take(maxTags)
+    }
+
+    /**
+     * Core detection engine parsing title, description, uploader, provider, explicit tags, and hashtags.
      */
     private fun detectAllCategories(video: VideoItem): List<TagInfo> {
         val title = video.title ?: ""
@@ -64,39 +114,31 @@ object SmartTagExtractor {
         val rawTagsString = video.tags.joinToString(" ").lowercase(Locale.ROOT)
         val fullText = "$titleLower $uploaderLower $descriptionLower $rawTagsString $providerLower"
 
+        val hashtags = extractHashtags(title, video.description, rawTagsString)
+
         val detected = mutableListOf<TagInfo>()
 
         // 0. Adult / 18+ / Erotic Sources & Content
         val isAdultProvider = providerLower in setOf(
             "pornhub", "xvideos", "youporn", "xhamster",
-            "rule34video", "hanime1", "redtube", "tube8", "coomer", "pmvhaven"
+            "rule34video", "hanime1", "redtube", "tube8", "coomer", "pmvhaven", "eporner", "txxx", "motherless"
         )
-        val hasAdultKeywords = titleLower.contains("porn") || titleLower.contains("xxx") ||
-                titleLower.contains("hentai") || titleLower.contains("jav ") || titleLower.contains("erotic") ||
-                titleLower.contains("nsfw") || titleLower.contains("uncensored") || titleLower.contains("creampie") ||
-                titleLower.contains("milf") || titleLower.contains("bdsm") || titleLower.contains("fetish") ||
-                titleLower.contains("pmv") || titleLower.contains("doujin") || titleLower.contains("lewd") ||
-                rawTagsString.contains("porn") || rawTagsString.contains("hentai") || rawTagsString.contains("nsfw") ||
-                rawTagsString.contains("erotic") || rawTagsString.contains("xxx")
+        val hasAdultKeywords = titleLower.hasWord("porn", "xxx", "hentai", "jav", "erotic", "nsfw", "uncensored", "creampie", "milf", "bdsm", "fetish", "pmv", "doujin", "lewd") ||
+                hashtags.any { it in setOf("porn", "hentai", "nsfw", "erotic", "xxx", "18plus") }
 
         if (isAdultProvider || hasAdultKeywords) {
             when {
-                titleLower.contains("hentai") || rawTagsString.contains("hentai") || providerLower == "hanime1" || providerLower == "rule34video" -> {
+                titleLower.contains("hentai") || hashtags.contains("hentai") || providerLower in setOf("hanime1", "rule34video") -> {
                     detected.add(TagInfo("hentai", "Hentai & 2D", "🔞", 5))
                     detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 8))
                 }
-                titleLower.contains("pmv") || rawTagsString.contains("pmv") || providerLower == "pmvhaven" -> {
+                titleLower.contains("pmv") || hashtags.contains("pmv") || providerLower == "pmvhaven" -> {
                     detected.add(TagInfo("pmv", "PMV & Music Edit", "🔥", 6))
                     detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 8))
                 }
-                titleLower.contains("bdsm") || titleLower.contains("fetish") || titleLower.contains("cosplay") ||
-                        rawTagsString.contains("fetish") || rawTagsString.contains("bdsm") -> {
+                titleLower.contains("bdsm") || titleLower.contains("fetish") || hashtags.any { it in setOf("fetish", "bdsm") } -> {
                     detected.add(TagInfo("fetish", "Specialty", "🌶️", 7))
                     detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 8))
-                }
-                titleLower.contains("lingerie") || titleLower.contains("sensual") || titleLower.contains("glamour") -> {
-                    detected.add(TagInfo("glamour", "Glamour & Sensual", "💋", 8))
-                    detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 10))
                 }
                 else -> {
                     detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 8))
@@ -104,373 +146,409 @@ object SmartTagExtractor {
             }
         }
 
-        // 1. MUSIC & SONGS (High-Precision Detection across artists, features, stems, & channels)
+        // ==========================================
+        // 1. TRAILERS & TEASERS (Highest Priority Precision)
+        // ==========================================
+        val hasTrailerHashtag = hashtags.any {
+            it in setOf(
+                "trailer", "trailers", "officialtrailer", "teasertrailer", "teaser", "gametrailer",
+                "movietrailer", "sneakpeek", "firstlook", "launchtrailer", "storytrailer", "tvspot",
+                "announcementtrailer", "gameplaytrailer", "finaltrailer", "animetrailer", "reveal"
+            )
+        }
+
+        val hasTrailerPhrase = titleLower.hasPhrase(
+            "official trailer", "teaser trailer", "final trailer", "main trailer",
+            "launch trailer", "story trailer", "announcement trailer", "gameplay trailer",
+            "reveal trailer", "cinematic trailer", "red band trailer", "green band trailer",
+            "extended trailer", "exclusive trailer", "official teaser", "first look",
+            "sneak peek", "tv spot", "exclusive preview", "official preview", "trailer 1",
+            "trailer 2", "trailer 3", "trailer #1", "trailer #2", "official pv", "teaser pv",
+            "main pv", "character pv"
+        )
+
+        val hasTrailerWord = titleLower.hasWord("trailer", "teaser", "tvspot") ||
+                Regex("""(?i)\b(pv\s*\d+|pv\b)""").containsMatchIn(titleLower) && (titleLower.contains("anime") || titleLower.contains("official"))
+
+        val isTrailer = hasTrailerHashtag || hasTrailerPhrase || hasTrailerWord
+
+        if (isTrailer) {
+            val isGameRelated = titleLower.hasWord("gameplay", "game", "ps5", "xbox", "pc", "switch", "nintendo", "playstation", "steam", "dlc") ||
+                    titleLower.hasPhrase("game trailer", "launch trailer", "gameplay trailer", "story trailer") ||
+                    hashtags.any { it in setOf("gametrailer", "gameplaytrailer", "gaming") }
+
+            val isAnimeRelated = titleLower.hasWord("anime", "manga", "shonen", "season", "episode", "pv") ||
+                    hashtags.any { it in setOf("anime", "animetrailer", "pv") }
+
+            val isMovieRelated = titleLower.hasPhrase("movie trailer", "official movie trailer", "theatrical trailer") ||
+                    titleLower.hasWord("movie", "film", "cinema", "theaters", "cinemas") ||
+                    uploaderLower.contains("pictures") || uploaderLower.contains("studios") || uploaderLower.contains("entertainment") ||
+                    hashtags.any { it in setOf("movietrailer", "film") }
+
+            when {
+                isGameRelated -> detected.add(TagInfo("gameplay_trailer", "Game Trailer", "🎮", 1))
+                isAnimeRelated -> detected.add(TagInfo("anime_trailer", "Anime Trailer", "🎌", 1))
+                isMovieRelated -> detected.add(TagInfo("movie_trailer", "Movie Trailer", "🎬", 1))
+                else -> detected.add(TagInfo("trailer", "Trailer", "🎬", 1))
+            }
+        }
+
+        // ==========================================
+        // 2. SONGS & MUSIC (High-Precision User Intent)
+        // ==========================================
         val featRegex = Regex("""(?i)\b(ft\.?|feat\.?|featuring)\b""")
         val prodRegex = Regex("""(?i)\b(prod\.?|produced\s+by|prod\s+by)\b""")
-        val collabRegex = Regex("""(?i)\s+(x|&|\+)\s+""")
-
         val hasFeat = featRegex.containsMatchIn(title) || featRegex.containsMatchIn(descriptionLower)
         val hasProd = prodRegex.containsMatchIn(title) || prodRegex.containsMatchIn(descriptionLower)
         val hasArtistDashTitle = title.contains(" - ") || title.contains(" – ") || title.contains(" — ")
 
-        val hasMusicSuffix = titleLower.contains("official music video") || titleLower.contains("official video") ||
-                titleLower.contains("music video") || titleLower.contains("official audio") ||
-                titleLower.contains("lyric video") || titleLower.contains("visualizer") ||
-                titleLower.contains("official visualizer") || titleLower.contains("video clip") ||
-                titleLower.contains("clip officiel") || titleLower.contains("audio track") ||
-                titleLower.contains("[mv]") || titleLower.contains("(mv)") ||
-                titleLower.contains("[m/v]") || titleLower.contains("(m/v)") ||
-                titleLower.contains("official mv") || titleLower.contains("[audio]") ||
-                titleLower.contains("(audio)") || titleLower.contains("[lyrics]") ||
-                titleLower.contains("(lyrics)") || titleLower.contains("slowed + reverb") ||
-                titleLower.contains("slowed and reverb") || titleLower.contains("sped up") ||
-                titleLower.contains("bass boosted") || titleLower.contains("nightcore") ||
-                titleLower.contains("instrumental") || titleLower.contains("karaoke")
+        val hasSongHashtag = hashtags.any {
+            it in setOf(
+                "song", "songs", "newsong", "music", "musicvideo", "officialvideo",
+                "officialmusicvideo", "officialaudio", "audio", "audiotrack", "lyrics",
+                "lyricvideo", "soundtrack", "ost", "lofi", "lo-fi", "remix", "acoustic",
+                "cover", "singing", "singer", "gana", "geet", "bhajan", "naat", "qawwali",
+                "kpop", "hiphop", "rap", "rock", "edm", "beats", "trap", "phonk", "slowed"
+            )
+        }
 
-        val hasMusicKeyword = titleLower.contains("song") || titleLower.contains("songs") ||
-                titleLower.contains("gana") || titleLower.contains("geet") ||
-                titleLower.contains("singing") || titleLower.contains("singer") ||
-                titleLower.contains("soundtrack") || titleLower.contains(" ost") ||
-                titleLower.startsWith("ost ") || titleLower.contains("ost:") ||
-                titleLower.contains("album") || titleLower.contains("single") ||
-                titleLower.contains("track") || titleLower.contains("lyrics") ||
-                titleLower.contains("remix") || titleLower.contains("acoustic") ||
-                titleLower.contains("unplugged") || titleLower.contains("live concert") ||
-                titleLower.contains("live session") || titleLower.contains("live at") ||
-                titleLower.contains("lofi") || titleLower.contains("lo-fi") ||
-                titleLower.contains("chill beats") || titleLower.contains("synthwave") ||
-                titleLower.contains("phonk") || titleLower.contains("afrobeats") ||
-                titleLower.contains("afropop") || titleLower.contains("hip hop") ||
-                titleLower.contains("hip-hop") || titleLower.contains("rap ") ||
-                titleLower.contains("rapper") || titleLower.contains("r&b") ||
-                titleLower.contains("rnb") || titleLower.contains("k-pop") ||
-                titleLower.contains("kpop") || titleLower.contains("j-pop") ||
-                titleLower.contains("jpop") || titleLower.contains("edm ") ||
-                titleLower.contains("techno") || titleLower.contains("house music") ||
-                titleLower.contains("reggae") || titleLower.contains("dancehall") ||
-                titleLower.contains("piano cover") || titleLower.contains("guitar cover") ||
-                titleLower.contains("melody") || titleLower.contains("tune") ||
-                titleLower.contains("vocals") || titleLower.contains("audio song") ||
-                titleLower.contains("video song") || titleLower.contains("official song") ||
-                rawTagsString.contains("music") || rawTagsString.contains("song")
+        val hasMusicSuffix = titleLower.hasPhrase(
+            "official music video", "official video", "music video", "official audio",
+            "audio track", "lyric video", "lyrics video", "official visualizer", "visualizer",
+            "audio song", "video song", "new song", "full song", "title track", "full audio",
+            "slowed + reverb", "slowed and reverb", "sped up", "nightcore", "bass boosted",
+            "piano cover", "guitar cover", "live acoustic", "live concert", "live performance"
+        ) || titleLower.contains("[mv]") || titleLower.contains("(mv)") ||
+           titleLower.contains("[m/v]") || titleLower.contains("(m/v)") ||
+           titleLower.contains("[audio]") || titleLower.contains("(audio)") ||
+           titleLower.contains("[lyrics]") || titleLower.contains("(lyrics)") ||
+           titleLower.contains("[official audio]") || titleLower.contains("[official video]")
+
+        val hasMusicKeyword = titleLower.hasWord(
+            "song", "songs", "gana", "geet", "singing", "singer", "soundtrack",
+            "ost", "album", "single", "track", "lyrics", "remix", "acoustic", "unplugged",
+            "lofi", "lo-fi", "synthwave", "phonk", "afrobeats", "afropop", "hip-hop",
+            "rapper", "rnb", "kpop", "jpop", "reggae", "vocals", "mashup"
+        ) || titleLower.hasPhrase("hip hop", "chill beats", "live concert", "live session", "live at", "k-pop", "j-pop", "house music")
 
         val isMusicChannel = uploaderLower.endsWith(" - topic") || uploaderLower.contains("vevo") ||
-                uploaderLower.contains("records") || uploaderLower.contains("music") ||
-                uploaderLower.contains("audio") || uploaderLower.contains("t-series") ||
-                uploaderLower.contains("tseries") || uploaderLower.contains("zee music") ||
-                uploaderLower.contains("sony music") || uploaderLower.contains("speed records") ||
-                uploaderLower.contains("saregama") || uploaderLower.contains("tips") ||
-                uploaderLower.contains("yrf") || uploaderLower.contains("geet mp3") ||
-                uploaderLower.contains("desimusic") || uploaderLower.contains("spinnin") ||
-                uploaderLower.contains("monstercat") || uploaderLower.contains("def jam") ||
-                uploaderLower.contains("atlantic") || uploaderLower.contains("warner") ||
-                uploaderLower.contains("interscope") || uploaderLower.contains("columbia") ||
-                uploaderLower.contains("bad boy") || uploaderLower.contains("republic records") ||
-                uploaderLower.contains("hybe") || uploaderLower.contains("sm entertainment") ||
-                uploaderLower.contains("yg entertainment") || uploaderLower.contains("bighit")
+                uploaderLower.hasWord("records", "music", "audio", "sound") ||
+                uploaderLower.contains("t-series") || uploaderLower.contains("tseries") ||
+                uploaderLower.contains("zee music") || uploaderLower.contains("sony music") ||
+                uploaderLower.contains("speed records") || uploaderLower.contains("saregama") ||
+                uploaderLower.contains("yrf") || uploaderLower.contains("spinnin") ||
+                uploaderLower.contains("monstercat") || uploaderLower.contains("warner") ||
+                uploaderLower.contains("atlantic") || uploaderLower.contains("interscope") ||
+                uploaderLower.contains("hybe") || uploaderLower.contains("bighit")
 
-        val isKnownMusicArtist = titleLower.contains("burna boy") || titleLower.contains("m.anifest") ||
-                titleLower.contains("wizkid") || titleLower.contains("davido") || titleLower.contains("rema") ||
-                titleLower.contains("asake") || titleLower.contains("tiwa savage") || titleLower.contains("drake") ||
-                titleLower.contains("kendrick lamar") || titleLower.contains("travis scott") ||
-                titleLower.contains("the weeknd") || titleLower.contains("taylor swift") ||
-                titleLower.contains("eminem") || titleLower.contains("kanye") ||
-                titleLower.contains("bad bunny") || titleLower.contains("bts") ||
-                titleLower.contains("blackpink") || titleLower.contains("billie eilish") ||
-                titleLower.contains("post malone") || titleLower.contains("dua lipa") ||
-                titleLower.contains("ed sheeran") || titleLower.contains("justin bieber") ||
-                titleLower.contains("coldplay") || titleLower.contains("queen") ||
-                titleLower.contains("bob marley") || titleLower.contains("sza") ||
-                titleLower.contains("olivia rodrigo") || titleLower.contains("metro boomin") ||
-                titleLower.contains("21 savage") || titleLower.contains("future") ||
-                titleLower.contains("arijit") || titleLower.contains("badshah") ||
-                titleLower.contains("sidhu moose") || titleLower.contains("diljit") ||
-                titleLower.contains("shreya ghoshal") || titleLower.contains("ar rahman") ||
-                titleLower.contains("pritam") || titleLower.contains("neha kakkar") ||
-                titleLower.contains("honey singh") || titleLower.contains("karan aujla") ||
-                titleLower.contains("ap dhillon") || titleLower.contains("anirudh") ||
-                titleLower.contains("bruno mars") || titleLower.contains("adele") ||
-                titleLower.contains("alan walker") || titleLower.contains("marshmello")
-
-        val isSongStructuralPattern = hasArtistDashTitle && (
-                hasFeat || hasProd || hasMusicSuffix || hasMusicKeyword || isMusicChannel || isKnownMusicArtist ||
-                (video.durationSeconds in 45..600 && !titleLower.contains("news") && !titleLower.contains("review") &&
-                 !titleLower.contains("episode") && !titleLower.contains("tutorial") && !titleLower.contains("gameplay"))
+        val isKnownMusicArtist = titleLower.hasWord(
+            "drake", "eminem", "kanye", "bts", "blackpink", "coldplay", "sza",
+            "badshah", "diljit", "pritam", "anirudh", "adele", "marshmello"
+        ) || titleLower.hasPhrase(
+            "burna boy", "taylor swift", "the weeknd", "travis scott", "kendrick lamar",
+            "billie eilish", "post malone", "dua lipa", "ed sheeran", "justin bieber",
+            "arijit singh", "sidhu moose wala", "ar rahman", "shreya ghoshal", "karan aujla",
+            "ap dhillon", "bruno mars", "alan walker"
         )
 
-        val isMusic = hasFeat || hasProd || hasMusicSuffix || hasMusicKeyword || isMusicChannel || isKnownMusicArtist || isSongStructuralPattern
+        val isSongStructural = hasArtistDashTitle && (
+            hasFeat || hasProd || hasMusicSuffix || hasMusicKeyword || isMusicChannel || isKnownMusicArtist ||
+            (video.durationSeconds in 45..600 && !titleLower.hasWord("news", "review", "episode", "tutorial", "gameplay", "walkthrough", "analysis", "podcast"))
+        )
 
-        if (isMusic) {
-            detected.add(TagInfo("song", "Song", "🎵", 4))
-            detected.add(TagInfo("music", "Music", "🎧", 5))
+        val isMusicOrSong = !isTrailer && (hasSongHashtag || hasMusicSuffix || hasMusicKeyword || isMusicChannel || isKnownMusicArtist || isSongStructural)
 
-            // Sub-genre identification
+        if (isMusicOrSong) {
+            val isExplicitSong = hasSongHashtag || hasMusicSuffix || titleLower.hasWord("song", "songs", "track", "single", "gana", "geet", "remix", "acoustic", "lofi") ||
+                    hasFeat || hasProd || titleLower.contains("[mv]") || titleLower.contains("(mv)")
+
+            if (isExplicitSong) {
+                detected.add(TagInfo("song", "Song", "🎵", 1))
+            } else {
+                detected.add(TagInfo("music", "Music", "🎧", 3))
+            }
+
+            // Sub-genre identification for richer, ultra-accurate context
             when {
-                titleLower.contains("afrobeats") || titleLower.contains("afropop") || titleLower.contains("burna boy") ||
-                        titleLower.contains("wizkid") || titleLower.contains("davido") || titleLower.contains("rema") ||
-                        titleLower.contains("asake") || titleLower.contains("m.anifest") -> {
-                    detected.add(TagInfo("afrobeats", "Afrobeats", "🌍", 12))
-                }
-                titleLower.contains("hip hop") || titleLower.contains("hip-hop") || titleLower.contains("rap") ||
-                        titleLower.contains("trap") || titleLower.contains("freestyle") || titleLower.contains("drake") ||
-                        titleLower.contains("kendrick") || titleLower.contains("travis scott") || titleLower.contains("eminem") -> {
-                    detected.add(TagInfo("hip_hop", "Hip-Hop", "🎤", 12))
-                }
-                titleLower.contains("lofi") || titleLower.contains("lo-fi") || titleLower.contains("chill beats") -> {
-                    detected.add(TagInfo("lofi", "Lo-Fi", "☕", 12))
-                }
-                titleLower.contains("rock") || titleLower.contains("metal") || titleLower.contains("punk") -> {
-                    detected.add(TagInfo("rock", "Rock", "🎸", 12))
-                }
-                titleLower.contains("edm") || titleLower.contains("techno") || titleLower.contains("house") ||
-                        titleLower.contains("phonk") || titleLower.contains("electronic") -> {
-                    detected.add(TagInfo("edm", "EDM & Beats", "⚡", 12))
-                }
-                titleLower.contains("k-pop") || titleLower.contains("kpop") || titleLower.contains("bts") ||
-                        titleLower.contains("blackpink") -> {
-                    detected.add(TagInfo("kpop", "K-Pop", "🌟", 12))
-                }
-                titleLower.contains("acoustic") || titleLower.contains("unplugged") || titleLower.contains("piano cover") -> {
-                    detected.add(TagInfo("acoustic", "Acoustic", "🎻", 12))
-                }
-                titleLower.contains("soundtrack") || titleLower.contains(" ost") || titleLower.startsWith("ost ") -> {
-                    detected.add(TagInfo("soundtrack", "Soundtrack", "🎼", 12))
-                }
+                titleLower.hasWord("lofi", "lo-fi") || titleLower.hasPhrase("chill beats", "study beats") || hashtags.any { it in setOf("lofi", "lofitrack") } ->
+                    detected.add(TagInfo("lofi", "Lo-Fi", "☕", 2))
+                titleLower.hasPhrase("hip hop", "hip-hop") || titleLower.hasWord("rap", "trap", "freestyle", "drill") || hashtags.any { it in setOf("hiphop", "rap") } ->
+                    detected.add(TagInfo("hip_hop", "Hip-Hop", "🎤", 2))
+                titleLower.hasWord("acoustic", "unplugged") || titleLower.hasPhrase("piano cover", "guitar cover") || hashtags.contains("acoustic") ->
+                    detected.add(TagInfo("acoustic", "Acoustic", "🎻", 2))
+                titleLower.hasWord("soundtrack", "ost", "score") || hashtags.any { it in setOf("soundtrack", "ost") } ->
+                    detected.add(TagInfo("soundtrack", "Soundtrack", "🎼", 2))
+                titleLower.hasWord("edm", "techno", "phonk", "electronic") || titleLower.hasPhrase("house music") || hashtags.any { it in setOf("edm", "phonk") } ->
+                    detected.add(TagInfo("edm", "EDM & Beats", "⚡", 2))
+                titleLower.hasWord("rock", "metal", "punk", "grunge") || hashtags.contains("rock") ->
+                    detected.add(TagInfo("rock", "Rock", "🎸", 2))
+                titleLower.hasWord("kpop", "bts", "blackpink", "twice", "newjeans") || titleLower.hasPhrase("k-pop") || hashtags.contains("kpop") ->
+                    detected.add(TagInfo("kpop", "K-Pop", "🌟", 2))
             }
         }
 
-        // 2. Trailers & Teasers
-        if (titleLower.contains("trailer") || titleLower.contains("teaser") || titleLower.contains("first look") || titleLower.contains("pv ")) {
-            when {
-                titleLower.contains("anime") || titleLower.contains("pv ") ->
-                    detected.add(TagInfo("anime_trailer", "Anime Trailer", "🎌", 12))
-                titleLower.contains("gameplay") || titleLower.contains("game trailer") || titleLower.contains("launch trailer") ->
-                    detected.add(TagInfo("gaming_trailer", "Gaming Trailer", "🎮", 12))
-                titleLower.contains("movie") || titleLower.contains("official trailer") || titleLower.contains("extended") ->
-                    detected.add(TagInfo("movie_trailer", "Movie Trailer", "🎬", 12))
-                else ->
-                    detected.add(TagInfo("trailer", "Trailer", "🎬", 12))
+        // ==========================================
+        // 3. GAMEPLAY & GAMING (High-Precision User Intent)
+        // ==========================================
+        val hasGameplayHashtag = hashtags.any {
+            it in setOf(
+                "gameplay", "gameplaywalkthrough", "walkthrough", "playthrough", "letsplay",
+                "speedrun", "bossfight", "nohit", "nocommentary", "gamestream", "ps5gameplay",
+                "pcgameplay", "xboxgameplay", "longplay", "gaming", "gamer", "esports"
+            )
+        }
+
+        val hasGameplayPhrase = titleLower.hasPhrase(
+            "gameplay walkthrough", "full walkthrough", "let's play", "lets play",
+            "no commentary", "boss fight", "speedrun", "longplay", "playtest",
+            "pc gameplay", "ps5 gameplay", "4k gameplay", "60fps gameplay", "ranked match",
+            "multiplayer gameplay", "game test", "fps test", "graphics comparison"
+        )
+
+        val hasGameplayWord = titleLower.hasWord(
+            "gameplay", "walkthrough", "playthrough", "speedrun", "longplay", "playtest"
+        )
+
+        val isGamingTitle = titleLower.hasWord(
+            "minecraft", "gta", "fortnite", "roblox", "valorant", "apex", "zelda",
+            "genshin", "pokemon", "dota", "overwatch", "cs2", "pubg"
+        ) || titleLower.hasPhrase(
+            "grand theft auto", "call of duty", "warzone", "elden ring", "dark souls",
+            "cyberpunk 2077", "resident evil", "god of war", "ea sports fc", "league of legends",
+            "counter-strike", "black myth wukong", "mobile legends"
+        )
+
+        val hasGameContext = isGamingTitle && (
+            titleLower.hasWord("part", "ep", "survival", "hardcore", "mod", "quest", "mission", "boss") ||
+            video.durationSeconds >= 600
+        )
+
+        val isGameplay = !isTrailer && (hasGameplayHashtag || hasGameplayPhrase || hasGameplayWord || hasGameContext)
+
+        if (isGameplay) {
+            val isExplicitGameplay = hasGameplayWord || hasGameplayPhrase ||
+                    hashtags.any { it in setOf("gameplay", "walkthrough", "playthrough", "letsplay", "speedrun", "nocommentary") }
+
+            if (isExplicitGameplay) {
+                detected.add(TagInfo("gameplay", "Gameplay", "🕹️", 2))
+            } else {
+                detected.add(TagInfo("gaming", "Gaming", "🎮", 3))
+            }
+
+            if (titleLower.hasWord("esports", "tournament", "championship") || hashtags.contains("esports")) {
+                detected.add(TagInfo("esports", "Esports", "🏆", 3))
             }
         }
 
-        // 3. Movies & Cinema (Strictly validated to avoid false positives on short videos or random years)
+        // ==========================================
+        // 4. MOVIES & CINEMA (High-Precision User Intent)
+        // ==========================================
+        val hasMovieHashtag = hashtags.any {
+            it in setOf(
+                "movie", "movies", "fullmovie", "cinema", "film", "films", "shortfilm",
+                "featurefilm", "fullfilm", "hindimovie", "telugumovie", "tamilmovie",
+                "hollywoodmovie", "bollywoodmovie", "indiefilm"
+            )
+        }
+
+        val hasMoviePhrase = titleLower.hasPhrase(
+            "full movie", "entire movie", "full length movie", "full film", "feature film",
+            "motion picture", "short film", "independent film", "indie film",
+            "hindi movie", "tamil movie", "telugu movie", "malayalam movie", "kannada movie",
+            "hollywood movie", "bollywood movie", "korean movie", "complete movie", "dubbed movie"
+        ) || titleLower.contains("[full movie]") || titleLower.contains("(full movie)") ||
+           titleLower.contains("[full hd movie]") || titleLower.contains("(full hd movie)")
+
         val yearPattern = Regex("\\((19\\d{2}|20\\d{2})\\)")
         val hasYear = yearPattern.containsMatchIn(title)
-        val isArchive = uploaderLower.contains("archive") || fullText.contains("internet archive") || uploaderLower.contains("classic")
-        val isExplicitMovie = titleLower.contains("full movie") || titleLower.contains("entire movie") ||
-                titleLower.contains("feature film") || titleLower.contains("full length movie") ||
-                titleLower.contains("motion picture")
+        val isArchive = uploaderLower.contains("archive") || fullText.contains("internet archive")
 
-        // Only classify as Movie if it has explicit movie keywords OR long-form cinema duration
-        if (!isMusic && !titleLower.contains("trailer") && !titleLower.contains("teaser")) {
-            if (isExplicitMovie) {
-                detected.add(TagInfo("movie", "Movie", "🍿", 15))
-            } else if (isArchive && (titleLower.contains("movie") || titleLower.contains("film") || video.durationSeconds >= 2400)) {
-                detected.add(TagInfo("movie", "Movie", "🍿", 15))
-                detected.add(TagInfo("classic_cinema", "Classic Cinema", "📽️", 18))
-            } else if (hasYear && video.durationSeconds >= 2400 && (titleLower.contains("movie") || titleLower.contains("film"))) {
-                // Must be at least 40 mins
-                detected.add(TagInfo("movie", "Movie", "🍿", 15))
+        // Exclusions to avoid tagging clips, reactions, reviews, or songs as movies
+        val hasMovieExclusions = isTrailer || isMusicOrSong ||
+                titleLower.hasWord("review", "reaction", "scene", "clip", "breakdown", "recap", "ending", "explained") ||
+                titleLower.hasPhrase("behind the scenes", "blooper", "making of", "deleted scene")
+
+        val isMovie = !hasMovieExclusions && (
+            hasMoviePhrase ||
+            hasMovieHashtag ||
+            (isArchive && (titleLower.hasWord("movie", "film") || video.durationSeconds >= 2400)) ||
+            (hasYear && (titleLower.hasWord("movie", "film", "cinema")) && (video.durationSeconds >= 1800 || video.durationSeconds == 0L))
+        )
+
+        if (isMovie) {
+            if (titleLower.hasPhrase("short film") || hashtags.contains("shortfilm")) {
+                detected.add(TagInfo("short_film", "Short Film", "🎬", 2))
+            } else {
+                detected.add(TagInfo("movie", "Movie", "🍿", 2))
             }
         }
 
-        // 4. Anime, Manga & Animation
-        if (titleLower.contains("anime") || titleLower.contains("manga") || titleLower.contains("shonen") ||
-            titleLower.contains("isekai") || fullText.contains("subbed") || fullText.contains("crunchyroll") ||
-            titleLower.contains("shadow realm") || titleLower.contains("daemons of the shadow realm") ||
-            titleLower.contains("naruto") || titleLower.contains("one piece") || titleLower.contains("bleach") ||
-            titleLower.contains("jujutsu kaisen") || titleLower.contains("demon slayer") || titleLower.contains("chainsaw man") ||
-            titleLower.contains("solo leveling") || titleLower.contains("frieren") || titleLower.contains("dragon ball") ||
-            titleLower.contains("attack on titan") || titleLower.contains("shingeki") || titleLower.contains("boku no hero") ||
-            titleLower.contains("my hero academia") || titleLower.contains("spy x family") ||
-            providerLower == "hianime" || providerLower == "aniwatch") {
-            detected.add(TagInfo("anime", "Anime", "🎌", 12))
-        }
-        if (titleLower.contains("animation") || titleLower.contains("animated") || titleLower.contains("pixar") ||
-            titleLower.contains("disney") || titleLower.contains("cartoon")) {
-            detected.add(TagInfo("animation", "Animation", "🎨", 14))
+        // ==========================================
+        // 5. TUTORIALS, GUIDES & HOW-TO
+        // ==========================================
+        val isTutorial = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("how to", "step by step", "beginner's guide", "beginners guide", "crash course", "tips & tricks", "tips and tricks", "complete guide", "for beginners") ||
+            titleLower.hasWord("tutorial", "guide", "masterclass", "learn", "course") ||
+            hashtags.any { it in setOf("tutorial", "howto", "guide", "learn", "stepbystep", "coding", "programming") }
+        )
+        if (isTutorial) {
+            detected.add(TagInfo("tutorial", "Tutorial", "💡", 3))
         }
 
-        // 5. Series, Shows & K-Drama
-        if (titleLower.contains("episode") || titleLower.contains("season ") || titleLower.contains("series") ||
-            titleLower.contains("web series") || titleLower.contains(" ep ") || titleLower.contains("ep.")) {
-            if (titleLower.contains("k-drama") || titleLower.contains("kdrama") || titleLower.contains("korean drama")) {
-                detected.add(TagInfo("kdrama", "K-Drama", "✨", 18))
-            }
-            detected.add(TagInfo("series", "Series & TV", "📺", 20))
+        // ==========================================
+        // 6. REVIEWS & UNBOXING
+        // ==========================================
+        val isUnboxing = titleLower.hasWord("unboxing") || hashtags.contains("unboxing")
+        val isReview = !isTrailer && (
+            titleLower.hasPhrase("before you buy", "hands on", "hands-on", "is it worth it", "in-depth review", "honest review") ||
+            titleLower.hasWord("review", "unboxing") ||
+            hashtags.any { it in setOf("review", "unboxing", "handson") }
+        )
+        if (isUnboxing) {
+            detected.add(TagInfo("unboxing", "Unboxing", "📦", 3))
+        } else if (isReview) {
+            detected.add(TagInfo("review", "Review", "⭐", 3))
         }
 
-        // 6. Action, Romance, Sci-Fi & Genres (Only if not already tagged as music)
-        if (!isMusic) {
-            if (titleLower.contains("action") || titleLower.contains("fight") || titleLower.contains("battle") ||
-                titleLower.contains("combat") || titleLower.contains("stunt") || titleLower.contains("chase")) {
-                detected.add(TagInfo("action", "Action", "💥", 18))
-            }
-            if (titleLower.contains("romance") || titleLower.contains("romantic") || titleLower.contains("love story") ||
-                titleLower.contains("relationship") || titleLower.contains("dating")) {
-                detected.add(TagInfo("romance", "Romance", "💕", 18))
-            }
-            if (titleLower.contains("sci-fi") || titleLower.contains("scifi") || titleLower.contains("superhero") ||
-                titleLower.contains("marvel") || titleLower.contains("dc comic")) {
-                detected.add(TagInfo("scifi", "Sci-Fi & Fantasy", "⚡", 18))
-            }
-            if (titleLower.contains("horror") || titleLower.contains("thriller") || titleLower.contains("creepy") ||
-                titleLower.contains("scary") || titleLower.contains("ghost") || titleLower.contains("paranormal")) {
-                detected.add(TagInfo("horror", "Thriller & Horror", "😱", 18))
-            }
+        // ==========================================
+        // 7. ANIME & ANIMATION
+        // ==========================================
+        val isAnime = titleLower.hasWord("anime", "manga", "shonen", "isekai", "amv", "otaku") ||
+                titleLower.hasWord("naruto", "bleach", "frieren", "crunchyroll") ||
+                titleLower.hasPhrase("one piece", "jujutsu kaisen", "demon slayer", "chainsaw man", "solo leveling", "attack on titan", "dragon ball", "my hero academia") ||
+                providerLower in setOf("hianime", "aniwatch") ||
+                hashtags.any { it in setOf("anime", "manga", "amv", "otaku") }
+        if (isAnime && !isTrailer) {
+            detected.add(TagInfo("anime", "Anime", "🎌", 3))
         }
 
-        // 7. Video Essays, Philosophy & Deep Dives
-        if (titleLower.contains("essay") || titleLower.contains("deep dive") || titleLower.contains("retrospective") ||
-            titleLower.contains("analysis") || titleLower.contains("philosophy") || titleLower.contains("psychology") ||
-            titleLower.contains("morality") || titleLower.contains("humanity") || titleLower.contains("meaning of")) {
-            if (titleLower.contains("essay") || titleLower.contains("deep dive") || titleLower.contains("analysis")) {
-                detected.add(TagInfo("video_essay", "Video Essay", "📖", 16))
-            }
-            if (titleLower.contains("philosophy") || titleLower.contains("psychology") || titleLower.contains("meaning of")) {
-                detected.add(TagInfo("philosophy", "Philosophy", "🧠", 18))
-            }
+        // ==========================================
+        // 8. PODCASTS & INTERVIEWS
+        // ==========================================
+        val isPodcast = !isTrailer && !isMusicOrSong && (
+            titleLower.hasWord("podcast", "interview") ||
+            titleLower.hasPhrase("talk show", "full interview", "in conversation with") ||
+            uploaderLower.contains("podcast") ||
+            hashtags.any { it in setOf("podcast", "interview", "talkshow") }
+        )
+        if (isPodcast) {
+            detected.add(TagInfo("podcast", "Podcast", "🎙️", 3))
         }
 
-        // 8. Gaming, Gameplay & Esports
-        if (titleLower.contains("gameplay") || titleLower.contains("apex") || titleLower.contains("kills") ||
-            titleLower.contains("gta") || titleLower.contains("minecraft") || titleLower.contains("roblox") ||
-            titleLower.contains("fortnite") || titleLower.contains("cod ") || titleLower.contains("valorant") ||
-            titleLower.contains("ps5") || titleLower.contains("xbox") || titleLower.contains("nintendo") ||
-            titleLower.contains("walkthrough") || titleLower.contains("esports") || uploaderLower.contains("gaming") ||
-            rawTagsString.contains("gaming") || rawTagsString.contains("gameplay")) {
-            detected.add(TagInfo("gaming", "Gaming", "🎮", 15))
-            if (titleLower.contains("gameplay") || titleLower.contains("kills") || titleLower.contains("walkthrough")) {
-                detected.add(TagInfo("gameplay", "Gameplay", "🕹️", 18))
-            }
-            if (titleLower.contains("esports") || titleLower.contains("tournament") || titleLower.contains("championship")) {
-                detected.add(TagInfo("esports", "Esports", "🏆", 18))
-            }
+        // ==========================================
+        // 9. DOCUMENTARY & HISTORY
+        // ==========================================
+        val isDoc = !isTrailer && !isMusicOrSong && (
+            titleLower.hasWord("documentary", "docuseries", "investigation") ||
+            titleLower.hasPhrase("untold story", "the story of", "history of", "rise and fall") ||
+            hashtags.any { it in setOf("documentary", "docuseries", "history") }
+        )
+        if (isDoc) {
+            detected.add(TagInfo("documentary", "Documentary", "📽️", 3))
         }
 
-        // 9. Podcasts & Talk Shows
-        if (titleLower.contains("podcast") || titleLower.contains("joe rogan") || titleLower.contains("lex fridman") ||
-            titleLower.contains("huberman") || titleLower.contains("interview") || uploaderLower.contains("podcast") ||
-            titleLower.contains("talk show") || rawTagsString.contains("podcast")) {
-            detected.add(TagInfo("podcast", "Podcast", "🎙️", 16))
+        // ==========================================
+        // 10. COMEDY & STAND-UP
+        // ==========================================
+        val isComedy = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("stand up", "stand-up", "comedy sketch", "funny moments") ||
+            titleLower.hasWord("comedy", "parody", "prank", "roast", "meme", "memes", "hilarious") ||
+            hashtags.any { it in setOf("comedy", "standup", "funny", "meme", "prank") }
+        )
+        if (isComedy) {
+            detected.add(TagInfo("comedy", "Comedy", "🎭", 4))
         }
 
-        // 10. Comedy, Stand-up & Memes
-        if (titleLower.contains("stand up") || titleLower.contains("stand-up") || titleLower.contains("funny") ||
-            titleLower.contains("parody") || titleLower.contains("comedy") || titleLower.contains("prank") ||
-            titleLower.contains("roast") || titleLower.contains("sketch") || titleLower.contains("meme") ||
-            titleLower.contains("humor") || rawTagsString.contains("comedy")) {
-            detected.add(TagInfo("comedy", "Comedy", "🎭", 18))
-            if (titleLower.contains("meme") || titleLower.contains("shitpost")) {
-                detected.add(TagInfo("meme", "Meme & Fun", "😂", 20))
-            }
+        // ==========================================
+        // 11. TECH, AI & DEV
+        // ==========================================
+        val isTech = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("artificial intelligence", "machine learning", "software engineering") ||
+            titleLower.hasWord("chatgpt", "gemini", "coding", "programming", "python", "kotlin", "smartphone", "laptop", "gpu", "gadgets") ||
+            hashtags.any { it in setOf("tech", "technology", "ai", "coding", "programming", "gadgets") }
+        )
+        if (isTech) {
+            detected.add(TagInfo("tech", "Tech & AI", "💻", 4))
         }
 
-        // 11. Documentaries & History
-        if (titleLower.contains("documentary") || titleLower.contains("docuseries") || titleLower.contains("untold story") ||
-            titleLower.contains("history of") || titleLower.contains("ancient") || titleLower.contains("archaeology")) {
-            detected.add(TagInfo("documentary", "Documentary", "🍿", 18))
-            if (titleLower.contains("history") || titleLower.contains("ancient") || titleLower.contains("war ")) {
-                detected.add(TagInfo("history", "History", "🏛️", 20))
-            }
+        // ==========================================
+        // 12. NEWS & CURRENT AFFAIRS
+        // ==========================================
+        val isNews = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("breaking news", "press conference", "live coverage", "special report") ||
+            titleLower.hasWord("news", "headline", "geopolitics") ||
+            uploaderLower.hasWord("news", "bbc", "cnn") ||
+            hashtags.any { it in setOf("news", "breakingnews", "worldnews") }
+        )
+        if (isNews) {
+            detected.add(TagInfo("news", "News", "📰", 3))
         }
 
-        // 12. Tech, AI & Coding
-        if (titleLower.contains("unboxing") || titleLower.contains("iphone") || titleLower.contains("samsung") ||
-            titleLower.contains("pixel") || titleLower.contains("tech") || titleLower.contains("gadgets") ||
-            uploaderLower.contains("mkbhd") || fullText.contains("laptop") || fullText.contains("gpu") ||
-            rawTagsString.contains("technology") || rawTagsString.contains("gadgets")) {
-            detected.add(TagInfo("tech", "Tech", "💻", 20))
-        }
-        if (titleLower.contains("ai ") || titleLower.contains("chatgpt") || titleLower.contains("gemini") ||
-            titleLower.contains("artificial intelligence") || titleLower.contains("machine learning") ||
-            titleLower.contains("coding") || titleLower.contains("programming") || titleLower.contains("developer") ||
-            titleLower.contains("python") || titleLower.contains("kotlin") || titleLower.contains("javascript")) {
-            detected.add(TagInfo("ai", "AI & Dev", "🤖", 20))
+        // ==========================================
+        // 13. SPORTS & HIGHLIGHTS
+        // ==========================================
+        val isSports = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("match highlights", "full match") ||
+            titleLower.hasWord("highlights", "cricket", "football", "soccer", "nba", "ufc", "goals", "knockout") ||
+            hashtags.any { it in setOf("sports", "highlights", "cricket", "football", "soccer", "nba", "ufc") }
+        )
+        if (isSports) {
+            detected.add(TagInfo("sports", "Sports", "⚽", 4))
         }
 
-        // 13. News & Geopolitics
-        if (titleLower.contains("news") || titleLower.contains("breaking") || uploaderLower.contains("news") ||
-            uploaderLower.contains("bbc") || uploaderLower.contains("cnn") || rawTagsString.contains("news") ||
-            titleLower.contains("shooting") || titleLower.contains("police") || titleLower.contains("press conference") ||
-            titleLower.contains("white house") || titleLower.contains("pentagon") || titleLower.contains("times square")) {
-            detected.add(TagInfo("news", "News", "📰", 15))
-        }
-        if (titleLower.contains("geopolitics") || titleLower.contains("world affairs") || titleLower.contains("military") ||
-            titleLower.contains("defense") || titleLower.contains("war ") || titleLower.contains("foreign policy")) {
-            detected.add(TagInfo("world_affairs", "World Affairs", "🌐", 20))
-        }
-
-        // 14. Learning, Science & Education
-        if (titleLower.contains("explained") || titleLower.contains("how to") || titleLower.contains("tutorial") ||
-            titleLower.contains("guide") || titleLower.contains("learn") || uploaderLower.contains("academy")) {
-            detected.add(TagInfo("education", "Education", "📚", 22))
-        }
-        if (titleLower.contains("science") || titleLower.contains("physics") || titleLower.contains("space") ||
-            titleLower.contains("nasa") || titleLower.contains("quantum") || titleLower.contains("biology")) {
-            detected.add(TagInfo("science", "Science", "🔬", 22))
+        // ==========================================
+        // 14. FITNESS & WORKOUT
+        // ==========================================
+        val isFitness = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("full body workout", "home workout", "gym workout") ||
+            titleLower.hasWord("workout", "fitness", "calisthenics", "bodybuilding", "exercises") ||
+            hashtags.any { it in setOf("workout", "fitness", "gym", "bodybuilding") }
+        )
+        if (isFitness) {
+            detected.add(TagInfo("fitness", "Fitness", "💪", 4))
         }
 
-        // 15. Reaction & Reviews
-        if (titleLower.contains("reaction") || titleLower.contains("reacts")) {
-            detected.add(TagInfo("reaction", "Reaction", "😲", 22))
-        } else if (titleLower.contains("review")) {
-            detected.add(TagInfo("review", "Review", "⭐", 22))
-        }
-
-        // 16. Sports & Fitness
-        if (titleLower.contains("cricket") || titleLower.contains("football") || titleLower.contains("soccer") ||
-            titleLower.contains("nba") || titleLower.contains("match highlights") || titleLower.contains("goals")) {
-            detected.add(TagInfo("sports", "Sports", "⚽", 18))
-        }
-        if (titleLower.contains("workout") || titleLower.contains("fitness") || titleLower.contains("gym") ||
-            titleLower.contains("bodybuilding") || titleLower.contains("exercise") || titleLower.contains("calisthenics")) {
-            detected.add(TagInfo("fitness", "Fitness & Health", "💪", 22))
-        }
-
-        // 17. Automotive, Food, ASMR & Travel
-        if (titleLower.contains("tesla") || titleLower.contains("supercar") || titleLower.contains("car review") ||
-            titleLower.contains("drive") || titleLower.contains("ev ") || titleLower.contains("bmw") || titleLower.contains("porsche")) {
-            detected.add(TagInfo("auto", "Auto", "🚗", 25))
-        }
-        if (titleLower.contains("recipe") || titleLower.contains("cooking") || titleLower.contains("street food") ||
-            titleLower.contains("food") || titleLower.contains("chef")) {
-            detected.add(TagInfo("food", "Food & Cooking", "🍔", 25))
-        }
-        if (titleLower.contains("asmr") || titleLower.contains("whispering") || titleLower.contains("relaxation") ||
-            titleLower.contains("sleep sounds")) {
-            detected.add(TagInfo("asmr", "ASMR & Relax", "🎧", 25))
-        }
-        if (titleLower.contains("travel") || titleLower.contains("trip to") || titleLower.contains("tokyo") ||
-            titleLower.contains("vacation") || (titleLower.contains("vlog") && !titleLower.contains("daily"))) {
-            detected.add(TagInfo("travel", "Travel & Vlogs", "✈️", 25))
+        // ==========================================
+        // 15. COOKING & FOOD
+        // ==========================================
+        val isFood = !isTrailer && !isMusicOrSong && (
+            titleLower.hasPhrase("how to cook", "street food", "easy recipe") ||
+            titleLower.hasWord("recipe", "cooking", "baking", "chef", "foodie") ||
+            hashtags.any { it in setOf("recipe", "cooking", "streetfood", "foodie") }
+        )
+        if (isFood) {
+            detected.add(TagInfo("food", "Cooking & Food", "🍳", 4))
         }
 
         // Incorporate explicit tags if present
         for (explicitTag in video.tags) {
-            val cleanExp = explicitTag.trim().lowercase(Locale.ROOT)
-            if (cleanExp.length >= 3) {
+            val cleanExp = explicitTag.replace("#", "").trim().lowercase(Locale.ROOT)
+            if (cleanExp.length >= 2) {
                 mapExplicitTagToCategory(cleanExp)?.let { detected.add(it) }
             }
         }
 
-        // Never emit dumb fallback tags like "Watch" or "video". If nothing matches, return empty.
         return detected
     }
 
     private fun mapExplicitTagToCategory(tag: String): TagInfo? {
         return when {
-            tag in setOf("anime", "manga", "animation", "otaku") -> TagInfo("anime", "Anime", "🎌", 12)
-            tag in setOf("gaming", "game", "gameplay", "walkthrough", "speedrun") -> TagInfo("gaming", "Gaming", "🎮", 15)
-            tag in setOf("movie", "film", "cinema", "trailer") -> TagInfo("movie", "Movie", "🍿", 15)
-            tag in setOf("music", "song", "songs", "audio", "soundtrack", "ost", "singing", "gana", "geet") -> TagInfo("song", "Song", "🎵", 4)
-            tag in setOf("tech", "technology", "gadgets", "computer", "smartphone") -> TagInfo("tech", "Tech", "💻", 25)
-            tag in setOf("ai", "artificial intelligence", "coding", "programming", "software") -> TagInfo("ai", "AI & Dev", "🤖", 22)
-            tag in setOf("comedy", "funny", "humor", "meme") -> TagInfo("comedy", "Comedy", "🎭", 20)
-            tag in setOf("podcast", "interview", "discussion") -> TagInfo("podcast", "Podcast", "🎙️", 15)
-            tag in setOf("news", "politics", "journalism") -> TagInfo("news", "News", "📰", 25)
-            tag in setOf("sports", "fitness", "workout", "football", "cricket") -> TagInfo("sports", "Sports", "⚽", 25)
-            tag in setOf("education", "tutorial", "howto", "learning", "science") -> TagInfo("education", "Education", "📚", 25)
+            tag in setOf("trailer", "trailers", "officialtrailer", "teasertrailer", "teaser") -> TagInfo("trailer", "Trailer", "🎬", 1)
+            tag in setOf("gameplay", "walkthrough", "playthrough", "letsplay", "speedrun") -> TagInfo("gameplay", "Gameplay", "🕹️", 2)
+            tag in setOf("gaming", "game", "gamer", "esports") -> TagInfo("gaming", "Gaming", "🎮", 4)
+            tag in setOf("movie", "movies", "film", "films", "cinema", "fullmovie", "shortfilm") -> TagInfo("movie", "Movie", "🍿", 2)
+            tag in setOf("song", "songs", "gana", "geet", "newsong", "musicvideo", "track") -> TagInfo("song", "Song", "🎵", 1)
+            tag in setOf("music", "audio", "soundtrack", "ost", "lofi", "remix", "acoustic") -> TagInfo("music", "Music", "🎧", 3)
+            tag in setOf("tutorial", "howto", "guide", "learn", "course") -> TagInfo("tutorial", "Tutorial", "💡", 3)
+            tag in setOf("review", "unboxing", "handson") -> TagInfo("review", "Review", "⭐", 3)
+            tag in setOf("anime", "manga", "animation", "amv", "otaku") -> TagInfo("anime", "Anime", "🎌", 3)
+            tag in setOf("podcast", "interview", "talkshow") -> TagInfo("podcast", "Podcast", "🎙️", 3)
+            tag in setOf("documentary", "history", "investigation") -> TagInfo("documentary", "Documentary", "📽️", 3)
+            tag in setOf("comedy", "funny", "humor", "meme", "standup") -> TagInfo("comedy", "Comedy", "🎭", 4)
+            tag in setOf("tech", "technology", "gadgets", "ai", "coding", "programming") -> TagInfo("tech", "Tech & AI", "💻", 4)
+            tag in setOf("news", "breakingnews", "politics") -> TagInfo("news", "News", "📰", 3)
+            tag in setOf("sports", "fitness", "workout", "football", "cricket") -> TagInfo("sports", "Sports", "⚽", 4)
+            tag in setOf("recipe", "cooking", "food", "chef") -> TagInfo("food", "Cooking & Food", "🍳", 4)
             tag in setOf("hentai", "nsfw", "porn", "xxx", "erotic", "18+") -> TagInfo("nsfw_adult", "Adult 18+", "🔞", 8)
             else -> null
         }
@@ -496,7 +574,15 @@ object SmartTagExtractor {
             }
         }
 
-        // Add categories
+        // Add hashtags from title & description
+        val hashtags = extractHashtags(video.title, video.description)
+        for (ht in hashtags) {
+            if (ht.length >= 3 && ht !in stopWords) {
+                keywords.add(ht)
+            }
+        }
+
+        // Add internal categories
         for (cat in extractInternalCategoryTags(video)) {
             keywords.add(cat.category)
             keywords.add(cat.displayName.lowercase(Locale.ROOT))
@@ -540,7 +626,7 @@ object SmartTagExtractor {
         val tagCountMap = mutableMapOf<String, Pair<TagInfo, Int>>()
 
         videos.forEach { video ->
-            val tags = extractTags(video, maxTags = 2)
+            val tags = extractTags(video, maxTags = 3)
             tags.forEach { tagInfo ->
                 if (tagInfo.category != "torrent" && tagInfo.category != "video") {
                     val current = tagCountMap[tagInfo.category]
@@ -554,7 +640,6 @@ object SmartTagExtractor {
         }
 
         val result = mutableListOf<SmartTagChip>()
-        // Always include "All" at the start
         result.add(SmartTagChip(key = "all", label = "All", emoji = "•", count = videos.size))
 
         // Sort tags by frequency (descending) and then priority

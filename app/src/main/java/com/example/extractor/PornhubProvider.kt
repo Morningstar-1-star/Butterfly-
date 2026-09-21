@@ -220,15 +220,22 @@ object PornhubProvider {
                     card.select(".title, .linkVideoThumb, h5, a").text().trim()
                 }.ifBlank { "Pornhub Video $vk" }
 
-                var thumb = card.select("img").attr("data-src").ifBlank {
+                var thumb = card.select("img").attr("data-mediumthumb").ifBlank {
                     card.select("img").attr("data-thumb_url")
                 }.ifBlank {
+                    card.select("img").attr("data-poster")
+                }.ifBlank {
                     card.select("img").attr("data-image")
+                }.ifBlank {
+                    card.select("img").attr("data-src")
                 }.ifBlank {
                     card.select("img").attr("src")
                 }
 
                 if (thumb.startsWith("//")) thumb = "https:$thumb"
+                if (thumb.contains("(m=eaSaaOfW_baaaa)")) {
+                    thumb = thumb.replace("(m=eaSaaOfW_baaaa)", "(m=eGNUXgaaW_baaaa)")
+                }
 
                 val durText = card.select(".duration, .var-duration, .time").text().trim()
                 val durSec = parseDurationToSeconds(durText)
@@ -505,8 +512,9 @@ object PornhubProvider {
                 val url = vObj.optString("url", if (videoId.isNotBlank()) "https://www.pornhub.com/view_video.php?viewkey=$videoId" else "")
                 if (url.isBlank()) continue
 
-                var thumb = vObj.optString("default_thumb", "").ifBlank { vObj.optString("thumb", "") }
+                var thumb = ""
                 val thumbsList = mutableListOf<String>()
+                var bestScore = -1
 
                 val thumbsArr = vObj.optJSONArray("thumbs")
                 if (thumbsArr != null && thumbsArr.length() > 0) {
@@ -516,11 +524,19 @@ object PornhubProvider {
                         if (src.isNotBlank()) {
                             if (src.startsWith("//")) src = "https:$src"
                             thumbsList.add(src)
+                            val sizeStr = tObj.optString("size", "").lowercase()
+                            val width = tObj.optInt("width", 0)
+                            var score = width
+                            if (sizeStr.contains("16x9") || sizeStr.contains("large") || sizeStr.contains("hd")) score += 2000
+                            if (score > bestScore) {
+                                bestScore = score
+                                thumb = src
+                            }
                         }
                     }
-                    if (thumb.isBlank() && thumbsList.isNotEmpty()) {
-                        thumb = thumbsList.first()
-                    }
+                }
+                if (thumb.isBlank()) {
+                    thumb = vObj.optString("default_thumb", "").ifBlank { vObj.optString("thumb", "") }
                 }
                 if (thumb.startsWith("//")) thumb = "https:$thumb"
 

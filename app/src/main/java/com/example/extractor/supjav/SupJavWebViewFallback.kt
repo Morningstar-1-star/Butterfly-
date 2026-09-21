@@ -99,23 +99,32 @@ object SupJavWebViewFallback {
         }
 
         continuation.invokeOnCancellation {
-            cleanup()
+            Handler(Looper.getMainLooper()).post { cleanup() }
         }
 
         try {
             val wv = WebView(context.applicationContext)
             webView = wv
+            wv.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
 
             val settings = wv.settings
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            settings.blockNetworkImage = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.userAgentString = SupJavNetwork.DEFAULT_USER_AGENT
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             settings.cacheMode = WebSettings.LOAD_DEFAULT
 
             wv.webViewClient = object : WebViewClient() {
+                override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                    Log.w(TAG, "SupJav fallback: Renderer process gone, cleaning up")
+                    cleanup()
+                    if (continuation.isActive) continuation.resume(null)
+                    return true
+                }
+
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     request: WebResourceRequest?
@@ -248,19 +257,30 @@ object SupJavWebViewFallback {
             }
         }
 
-        continuation.invokeOnCancellation { cleanup() }
+        continuation.invokeOnCancellation {
+            Handler(Looper.getMainLooper()).post { cleanup() }
+        }
 
         try {
             val wv = WebView(context.applicationContext)
             webView = wv
+            wv.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
 
             val settings = wv.settings
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.blockNetworkImage = true
             settings.userAgentString = SupJavNetwork.DEFAULT_USER_AGENT
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
             wv.webViewClient = object : WebViewClient() {
+                override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                    Log.w(TAG, "SupJav HTML fallback: Renderer process gone, cleaning up")
+                    cleanup()
+                    if (continuation.isActive) continuation.resume(null)
+                    return true
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     Handler(Looper.getMainLooper()).postDelayed({

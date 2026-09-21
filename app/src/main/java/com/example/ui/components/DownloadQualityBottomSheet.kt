@@ -54,14 +54,22 @@ fun DownloadQualityBottomSheet(
     val qualityOptions = remember(availableOptions) {
         val list = mutableListOf<DownloadQualityItem>()
 
-        val opt1080 = availableOptions.firstOrNull { it.qualityLabel.contains("1080") }
-        val opt720 = availableOptions.firstOrNull { it.qualityLabel.contains("720") }
-        val opt480 = availableOptions.firstOrNull { it.qualityLabel.contains("480") }
-        val opt360 = availableOptions.firstOrNull { it.qualityLabel.contains("360") }
+        val opt1080 = availableOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080") }
+            ?: availableOptions.firstOrNull { it.qualityLabel.contains("1080") }
+        val opt720 = availableOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720") }
+            ?: availableOptions.firstOrNull { it.qualityLabel.contains("720") }
+            ?: availableOptions.firstOrNull { it.isMuxed }
+        val opt480 = availableOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("480") }
+            ?: availableOptions.firstOrNull { it.qualityLabel.contains("480") }
+            ?: availableOptions.firstOrNull { it.isMuxed }
+        val opt360 = availableOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("360") }
+            ?: availableOptions.firstOrNull { it.qualityLabel.contains("360") }
+            ?: availableOptions.firstOrNull { it.isMuxed }
         val optAudio = availableOptions.firstOrNull { 
             it.qualityLabel.contains("audio", ignoreCase = true) || 
             it.format.contains("m4a", ignoreCase = true) || 
-            (it.videoUrl.isNullOrBlank() && !it.audioUrl.isNullOrBlank()) 
+            (it.videoUrl.isNullOrBlank() && !it.audioUrl.isNullOrBlank()) ||
+            it.audioStream != null
         }
 
         list.add(

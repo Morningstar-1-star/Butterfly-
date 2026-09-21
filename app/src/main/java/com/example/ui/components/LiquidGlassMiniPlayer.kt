@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -69,7 +68,6 @@ fun LiquidGlassMiniPlayer(
     onExpand: () -> Unit,
     onClose: () -> Unit,
     onNext: () -> Unit = {},
-    onAudioMode: () -> Unit = {},
     bottomBarPaddingDp: androidx.compose.ui.unit.Dp = 80.dp,
     statusBarPaddingDp: androidx.compose.ui.unit.Dp = 32.dp,
     modifier: Modifier = Modifier
@@ -472,35 +470,6 @@ fun LiquidGlassMiniPlayer(
                             tint = Color.White,
                             modifier = Modifier
                                 .size(24.dp)
-                                .shadow(
-                                    elevation = if (buttonBgAlpha.value < 0.2f) 4.dp else 0.dp,
-                                    shape = CircleShape,
-                                    spotColor = Color.Black
-                                )
-                        )
-                    }
-
-                    // CENTER: HEADPHONES AUDIO MODE & DYNAMIC ISLAND BUTTON
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.58f * buttonBgAlpha.value))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                triggerButtonBgActive()
-                                onAudioMode()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Headphones,
-                            contentDescription = "Switch to Audio Mode & Dynamic Island",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier
-                                .size(22.dp)
                                 .shadow(
                                     elevation = if (buttonBgAlpha.value < 0.2f) 4.dp else 0.dp,
                                     shape = CircleShape,

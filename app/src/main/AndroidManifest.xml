@@ -14,7 +14,6 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".MainApplication"
@@ -30,17 +29,18 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
         <service
-            android:name=".ui.player.dynamicisland.ButterflyDynamicIslandService"
+            android:name=".service.BackgroundAudioService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-        <receiver
-            android:name=".ui.player.dynamicisland.ButterflyPipActionReceiver"
-            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

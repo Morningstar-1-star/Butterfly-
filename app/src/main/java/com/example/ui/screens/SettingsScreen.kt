@@ -41,8 +41,8 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     GENERAL("General", "Theme, colors & layout preferences", Icons.Outlined.Palette),
     LANGUAGE("Language & Translation", "App language, auto-translation & original titles", Icons.Outlined.Translate),
     PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
-    ACCOUNTS_SOURCES("Accounts & Sources", "YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
-    PROVIDERS("Content Sources", "Manage YouTube, Dailymotion, BitTorrent & more", Icons.Outlined.Source),
+    ACCOUNTS_SOURCES("Accounts & Sources", "Tencent Video, YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
+    PROVIDERS("Content Sources", "Manage Tencent Video (v.qq.com), YouTube, Dailymotion & more", Icons.Outlined.Source),
     PROWLARR_INDEXERS("Prowlarr & Cardigann Indexers", "Manage Prowlarr V11 YAML indexers, test & sync", Icons.Outlined.Radar),
     SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
@@ -847,18 +847,6 @@ fun SettingsScreen(
                                     onCheckedChange = { coroutineScope.launch { playbackPrefs.setDisableSpeedForMusic(it) } }
                                 )
                             }
-                            item {
-                                val hasOverlayPerm = com.example.ui.player.dynamicisland.AudioModeManager.canDrawOverlays(context)
-                                YouTubeDetailRow(
-                                    title = "Dynamic Island Notch Player",
-                                    subtitle = if (hasOverlayPerm) "Active • Floating island appears around camera punch-hole" else "Requires 'Appear on top' permission • Tap to enable",
-                                    onClick = {
-                                        (context as? android.app.Activity)?.let { act ->
-                                            com.example.ui.player.dynamicisland.AudioModeManager.requestOverlayPermission(act)
-                                        }
-                                    }
-                                )
-                            }
                         }
                     }
 
@@ -886,21 +874,26 @@ fun SettingsScreen(
                                     )
                                 }
                                 val adultProviders = listOf(
+                                    "xnxx" to "XNXX (HD Adult Video)",
+                                    "hellporno" to "HellPorno (HD Streams)",
+                                    "stripchat" to "Stripchat (Live Webcam Shows)",
+                                    "chaturbate" to "Chaturbate (Live Webcam Cams)",
                                     "sextb" to "SEXТB (StreamTB)",
+                                    "supjav" to "SupJav (FHD Stream)",
                                     "123av" to "123AV (JAV & Player)",
                                     "javtiful" to "Javtiful (JAV)",
+                                    "jav_all" to "All JAV Sources",
                                     "pornhub" to "Pornhub",
                                     "xvideos" to "XVideos",
-                                    "spankbang" to "SpankBang",
-                                    "motherless" to "Motherless",
-                                    "playvid" to "Playvid",
-                                    "txxx" to "TXXX",
-                                    "chaturbate" to "Chaturbate (Live Cams)",
                                     "cam4" to "CAM4 (Live Shows)",
                                     "cammodels" to "CamModels (Live)",
                                     "noodlemagazine" to "NoodleMagazine",
                                     "thisvid" to "ThisVid",
                                     "tnaflix" to "TNAFlix",
+                                    "spankbang" to "SpankBang",
+                                    "motherless" to "Motherless",
+                                    "playvid" to "Playvid",
+                                    "txxx" to "TXXX",
                                     "eporner" to "Eporner",
                                     "hanime1" to "Hanime1 Anime",
                                     "hqporner" to "HQPorner 4K",
@@ -919,6 +912,27 @@ fun SettingsScreen(
                                         checked = isEnabled,
                                         onCheckedChange = { viewModel.toggleProviderEnabled(id) }
                                     )
+                                }
+                            } else {
+                                item {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = "18+ Adult Sources Inactive",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Turn on '18+ Adult Content Mode' above to activate sources: XNXX, HellPorno, Stripchat, Chaturbate, SEXТB, SupJav, 123AV, Pornhub, XVideos, and more.",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1244,20 +1258,132 @@ fun SettingsScreen(
                                 }
                             }
 
+                            // Featured Tencent Video (v.qq.com) Card
+                            item {
+                                val isTencentEnabled = enabledProviderIds.contains("tencent")
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = Color(0xFF0052D9).copy(alpha = 0.12f)
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.5.dp,
+                                        Color(0xFF0052D9).copy(alpha = 0.6f)
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color(0xFF0052D9),
+                                                    modifier = Modifier.size(40.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.LiveTv,
+                                                            contentDescription = "Tencent Video",
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(22.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = "Tencent Video",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = Color(0xFF0052D9)
+                                                        ) {
+                                                            Text(
+                                                                text = "v.qq.com",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = Color.White,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                                fontSize = 10.sp
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = "Chinese VIP Dramas, Donghua & Movies",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            Switch(
+                                                checked = isTencentEnabled,
+                                                onCheckedChange = { viewModel.toggleProviderEnabled("tencent") }
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "Stream official Donghua (Soul Land, Perfect World, Battle Through the Heavens, Joy of Life, The Untamed) & C-Dramas with 1080p HLS playback.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    if (!isTencentEnabled) {
+                                                        viewModel.toggleProviderEnabled("tencent")
+                                                    }
+                                                    viewModel.setAdultContentEnabled(false)
+                                                    viewModel.setActiveProvider("tencent")
+                                                    currentCategory = null
+                                                    viewModel.navigateToScreen(com.example.model.AppScreen.HOME)
+                                                    Toast.makeText(context, "Switched to Tencent Video Home Feed", Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0052D9)),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Open on Homepage", fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             val normalProviders = listOf(
+                                "tencent" to "Tencent Video (v.qq.com)",
                                 "youtube" to "YouTube",
-                                "crunchyroll" to "Crunchyroll Anime",
                                 "sonyliv" to "SonyLIV",
+                                "hotstar" to "Hotstar / Jio",
+                                "amazonminitv" to "Amazon miniTV",
+                                "crunchyroll" to "Crunchyroll Anime",
+                                "bilibili" to "Bilibili",
                                 "dailymotion" to "Dailymotion",
                                 "twitch" to "Twitch",
                                 "bigo" to "Bigo Live",
                                 "archive_org" to "Internet Archive",
-                                "bilibili" to "Bilibili",
                                 "vimeo" to "Vimeo",
-                                "hotstar" to "Hotstar / Jio",
                                 "bun-tel-meg" to "bun-tel-meg (Telegram, MEGA & Bunkr)",
                                 "torrent" to "BitTorrent (P2P)",
-                                "amazonminitv" to "Amazon miniTV",
                                 "discoveryplus" to "Discovery+",
                                 "disney" to "Disney / Disney+",
                                 "hbo" to "HBO / Max",
@@ -1275,7 +1401,8 @@ fun SettingsScreen(
                                     YouTubeSwitchRow(
                                         title = name,
                                         subtitle = when (id) {
-                                            "crunchyroll" -> "Crunchyroll anime catalog, simulcasts, popular series & episodes"
+                                            "bilibili" -> "Bilibili anime, pop culture & dynamic Chinese video streams"
+                                            "tencent" -> "Tencent Video (v.qq.com) Chinese dramas, anime & cinema series"
                                             "sonyliv" -> "SonyLIV TV shows, live sports, premium web series & cinema"
                                             "bigo" -> "Bigo Live interactive streams, global broadcasters & video rooms"
                                             "bun-tel-meg" -> "Telegram Channels, MEGA Folders & Bunkr Albums video links"

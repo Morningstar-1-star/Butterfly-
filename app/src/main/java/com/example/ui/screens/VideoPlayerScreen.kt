@@ -106,11 +106,24 @@ fun VideoPlayerScreen(
     var showDownloadQualitySheet by remember { mutableStateOf(false) }
 
     val offlineDownloads by viewModel.offlineDownloads.collectAsState()
-    val isDownloaded = remember(activeVideoId, offlineDownloads) {
-        activeVideoId != null && offlineDownloads.any { it.videoId == activeVideoId && it.status == "COMPLETED" }
+    val activeDownload = remember(activeVideoId, offlineDownloads) {
+        offlineDownloads.firstOrNull { it.videoId == activeVideoId }
     }
-    val isDownloading = remember(activeVideoId, offlineDownloads) {
-        activeVideoId != null && offlineDownloads.any { it.videoId == activeVideoId && it.status == "DOWNLOADING" }
+    val isDownloaded = remember(activeDownload) {
+        activeDownload?.status == "COMPLETED"
+    }
+    val isDownloading = remember(activeDownload) {
+        activeDownload?.status == "DOWNLOADING"
+    }
+    val downloadProgressFraction = remember(activeDownload) {
+        val dl = activeDownload
+        if (dl != null && dl.totalBytes > 0L) {
+            (dl.downloadedBytes.toFloat() / dl.totalBytes.toFloat()).coerceIn(0f, 1f)
+        } else if (dl?.status == "COMPLETED") {
+            1f
+        } else {
+            0f
+        }
     }
 
     val playbackEnded by GlobalPlayerManager.playbackEnded.collectAsState()
@@ -222,6 +235,41 @@ fun VideoPlayerScreen(
     val activeSourceCandidate by viewModel.activeSourceCandidate.collectAsState()
     val isResolvingUnifiedSources by viewModel.isResolvingUnifiedSources.collectAsState()
     val unifiedStatusMessage by viewModel.unifiedStatusMessage.collectAsState()
+
+    val isOptionEmbed = remember(selectedOption) {
+        val currOpt = selectedOption
+        val url = currOpt?.videoUrl.orEmpty()
+        currOpt?.format.equals("embed", ignoreCase = true) ||
+        currOpt?.providerType == com.example.model.ProviderType.EMBED ||
+        (url.contains("/embed/", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
+        (url.contains("vidsrc.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
+        (url.contains("autoembed.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
+        (url.contains("vidlink.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
+        (url.contains("smashystream.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
+        (url.contains("2embed.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
+        (url.contains("multiembed.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true))
+    }
+
+    val effectiveEmbedCandidate = remember(activeSourceCandidate, isOptionEmbed, selectedOption, currentStreamData, currentVideoItem) {
+        val currOpt = selectedOption
+        activeSourceCandidate?.takeIf { it.type == SourceStreamType.EMBED_WEBVIEW }
+            ?: if (isOptionEmbed && currOpt != null && !currOpt.videoUrl.isNullOrBlank()) {
+                val vUrl = currOpt.videoUrl
+                com.example.resolver.SourceCandidate(
+                    id = "embed_${vUrl.hashCode()}",
+                    providerId = currOpt.sourceName.ifBlank { "embed" },
+                    providerName = currOpt.sourceName.ifBlank { "Embed Stream" },
+                    serverName = currOpt.qualityLabel,
+                    type = SourceStreamType.EMBED_WEBVIEW,
+                    title = currentStreamData?.title ?: currentVideoItem?.title ?: "Video",
+                    urlOrMagnet = vUrl,
+                    quality = currOpt.qualityCategory.ifBlank { "1080p" },
+                    qualityScore = 1080,
+                    format = "embed",
+                    headers = currOpt.headers
+                )
+            } else null
+    }
 
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -493,9 +541,9 @@ fun VideoPlayerScreen(
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
+            if (effectiveEmbedCandidate != null) {
                 EmbedWebViewPlayer(
-                    candidate = activeSourceCandidate!!,
+                    candidate = effectiveEmbedCandidate,
                     onClose = onBackClick,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -614,9 +662,9 @@ fun VideoPlayerScreen(
                                 .background(Color.Black),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (activeSourceCandidate?.type == SourceStreamType.EMBED_WEBVIEW) {
+                            if (effectiveEmbedCandidate != null) {
                                 EmbedWebViewPlayer(
-                                    candidate = activeSourceCandidate!!,
+                                    candidate = effectiveEmbedCandidate,
                                     onClose = minimizePlayerAction,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -824,8 +872,21 @@ fun VideoPlayerScreen(
                                 },
                                 isDownloaded = isDownloaded,
                                 isDownloading = isDownloading,
-                                downloadProgress = 0f,
-                                onDownloadClick = { showDownloadQualitySheet = true },
+                                downloadProgress = downloadProgressFraction,
+                                onDownloadClick = {
+                                    if (isDownloaded) {
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Video is already downloaded for offline playback")
+                                        }
+                                    } else if (isDownloading) {
+                                        coroutineScope.launch {
+                                            val pct = (downloadProgressFraction * 100).toInt()
+                                            snackbarHostState.showSnackbar("Downloading: $pct%")
+                                        }
+                                    } else {
+                                        showDownloadQualitySheet = true
+                                    }
+                                },
                                 onTitleDrag = { deltaY ->
                                     coroutineScope.launch {
                                         val deltaFraction = deltaY / maxExpandPx
@@ -1424,7 +1485,7 @@ fun VideoPlayerScreen(
         DownloadQualityBottomSheet(
             videoTitle = currentStreamData?.title ?: currentVideoItem?.title ?: "Video",
             channelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: "Channel",
-            thumbnailUrl = currentStreamData?.channelAvatarUrl ?: currentVideoItem?.thumbnailUrl,
+            thumbnailUrl = currentStreamData?.thumbnailUrl ?: currentVideoItem?.thumbnailUrl,
             durationText = currentVideoItem?.formattedDuration,
             availableOptions = currentStreamData?.availableStreamOptions ?: emptyList(),
             onConfirmDownload = { qualityLabel, chosenStreamOption ->
@@ -1435,7 +1496,7 @@ fun VideoPlayerScreen(
                         videoId = targetVideoId,
                         title = currentStreamData?.title ?: currentVideoItem?.title ?: "Video",
                         channelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: "Channel",
-                        thumbnailUrl = currentStreamData?.channelAvatarUrl ?: currentVideoItem?.thumbnailUrl,
+                        thumbnailUrl = currentStreamData?.thumbnailUrl ?: currentVideoItem?.thumbnailUrl,
                         qualityLabel = qualityLabel,
                         streamOption = chosenStreamOption ?: selectedOption
                     )

@@ -39,9 +39,12 @@ fun SupabaseAuthDialog(
     var isSignUpTab by remember { mutableStateOf(false) }
     var emailInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
+    var otpInput by remember { mutableStateOf("") }
+    var showOtpSection by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
+    var resendSuccess by remember { mutableStateOf<String?>(null) }
 
     // Custom Server Config
     var showConfigSection by remember { mutableStateOf(false) }
@@ -219,6 +222,31 @@ fun SupabaseAuthDialog(
                     )
 
                     infoMessage?.let { msg ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = msg,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "💡 Tip: Check your Spam, Junk, or Updates folder if not in Primary inbox.",
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+
+                    resendSuccess?.let { msg ->
                         Text(
                             text = msg,
                             color = MaterialTheme.colorScheme.primary,
@@ -240,13 +268,14 @@ fun SupabaseAuthDialog(
                             if (emailInput.isNotBlank() && passwordInput.isNotBlank()) {
                                 isLoading = true
                                 infoMessage = null
+                                resendSuccess = null
                                 coroutineScope.launch {
                                     if (isSignUpTab) {
                                         val res = SupabaseAuthManager.signUp(emailInput, passwordInput)
                                         if (res.isSuccess) {
                                             val sess = res.getOrNull()
                                             if (sess != null && sess.accessToken.isBlank()) {
-                                                infoMessage = "Account created! Please check your email to confirm your account, then sign in."
+                                                infoMessage = "Account created! A confirmation link/code has been sent to $emailInput. Please check your email (and Spam folder)."
                                                 isSignUpTab = false
                                             }
                                         }
@@ -271,6 +300,119 @@ fun SupabaseAuthDialog(
                             )
                         } else {
                             Text(if (isSignUpTab) "Create Account" else "Sign In")
+                        }
+                    }
+
+                    // Email verification / OTP helper actions
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                if (emailInput.isNotBlank()) {
+                                    isLoading = true
+                                    resendSuccess = null
+                                    coroutineScope.launch {
+                                        val res = SupabaseAuthManager.resendVerification(emailInput)
+                                        isLoading = false
+                                        if (res.isSuccess) {
+                                            resendSuccess = "Confirmation email resent to $emailInput! Check Spam/Junk."
+                                        }
+                                    }
+                                } else {
+                                    resendSuccess = "Please enter your email above first."
+                                }
+                            },
+                            enabled = !isLoading
+                        ) {
+                            Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Resend Email", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        TextButton(
+                            onClick = { showOtpSection = !showOtpSection }
+                        ) {
+                            Icon(Icons.Default.Pin, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (showOtpSection) "Hide Code Entry" else "Enter Code / OTP", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    AnimatedVisibility(visible = showOtpSection) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Verify with Email Code / OTP",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "If you received a 6-digit code in your email, enter it below to activate your account instantly:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = otpInput,
+                                onValueChange = { otpInput = it.take(8) },
+                                label = { Text("6-digit Code / OTP") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        if (emailInput.isNotBlank()) {
+                                            isLoading = true
+                                            resendSuccess = null
+                                            coroutineScope.launch {
+                                                val res = SupabaseAuthManager.sendOtp(emailInput)
+                                                isLoading = false
+                                                if (res.isSuccess) {
+                                                    resendSuccess = "Login OTP sent to $emailInput! Check your email."
+                                                }
+                                            }
+                                        } else {
+                                            resendSuccess = "Please enter your email above first."
+                                        }
+                                    },
+                                    enabled = !isLoading
+                                ) {
+                                    Text("Send Login OTP", style = MaterialTheme.typography.labelSmall)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (emailInput.isNotBlank() && otpInput.isNotBlank()) {
+                                            isLoading = true
+                                            coroutineScope.launch {
+                                                SupabaseAuthManager.verifyEmailOtp(emailInput, otpInput)
+                                                isLoading = false
+                                                if (SupabaseAuthManager.isLoggedIn.value) {
+                                                    SupabaseSyncManager.triggerSync(forceFull = true)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !isLoading && emailInput.isNotBlank() && otpInput.isNotBlank()
+                                ) {
+                                    Text("Verify & Sign In")
+                                }
+                            }
                         }
                     }
                 }

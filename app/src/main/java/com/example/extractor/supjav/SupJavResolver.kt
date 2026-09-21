@@ -217,6 +217,7 @@ object SupJavResolver {
                 if (fallback != null) sources.add(fallback)
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Error resolving from page URL $pageUrl: ${e.message}")
         }
 

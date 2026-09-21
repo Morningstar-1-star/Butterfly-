@@ -84,6 +84,26 @@ enum class SourcePlatform(
         brandColor = Color(0xFF229ED9),
         icon = Icons.Outlined.Send,
         supportsPremiumStream = false
+    ),
+    DISCOVERY_PLUS(
+        id = "discoveryplus",
+        displayName = "Discovery+",
+        subtitle = "Discovery, Science, Animal Planet & TLC docu-series",
+        defaultLoginUrl = "https://www.discoveryplus.in/login",
+        primaryDomain = ".discoveryplus.in",
+        brandColor = Color(0xFF00838F),
+        icon = Icons.Outlined.Explore,
+        supportsPremiumStream = true
+    ),
+    TENCENT(
+        id = "tencent",
+        displayName = "Tencent Video",
+        subtitle = "Tencent Video & VIP accounts, dramas & anime releases",
+        defaultLoginUrl = "https://v.qq.com",
+        primaryDomain = ".qq.com",
+        brandColor = Color(0xFF0052D9),
+        icon = Icons.Outlined.LiveTv,
+        supportsPremiumStream = true
     );
 
     companion object {

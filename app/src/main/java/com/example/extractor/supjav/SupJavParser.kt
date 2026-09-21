@@ -73,7 +73,7 @@ object SupJavParser {
                         rawTitle = slug.replace("-", " ").replace("_", " ").uppercase()
                     }
 
-                    val title = cleanTitle(rawTitle)
+                    val title = cleanTitle(rawTitle, slug)
 
                     // Extract standard JAV Code from title or slug (e.g. SSIS-123)
                     val code = extractJavCode(title).ifBlank { extractJavCode(slug) }
@@ -159,7 +159,7 @@ object SupJavParser {
             docTitle.isNotBlank() -> docTitle
             else -> "SupJav Video ($slug)"
         }
-        val title = cleanTitle(rawTitle)
+        val title = cleanTitle(rawTitle, slug)
 
         // 2. JAV Code
         val code = extractJavCode(title).ifBlank { extractJavCode(slug) }
@@ -312,6 +312,8 @@ object SupJavParser {
 
     fun extractJavCode(text: String): String {
         if (text.isBlank()) return ""
+        val parsed = JavEnglishTitleHelper.extractJavCode(text)
+        if (parsed.isNotBlank()) return parsed
         val matcher = JAV_CODE_PATTERN.matcher(text)
         if (matcher.find()) {
             return matcher.group(1).uppercase().replace(" ", "-")
@@ -361,17 +363,8 @@ object SupJavParser {
         return base64Pattern.matcher(str).matches()
     }
 
-    fun cleanTitle(raw: String): String {
-        if (raw.isBlank()) return ""
-        val unescaped = org.jsoup.parser.Parser.unescapeEntities(raw, false)
-        var cleaned = unescaped
-            .replace(Regex("""\s*[-|–—]\s*(?:SupJav|Phim\s*Sex|JAV\s*Vietsub|Xem\s*JAV|Xem\s*Phim|JAVHD).*$""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\s*[-|–—]\s*(?:supjav\.[a-z]+).*$""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\s*\|\s*(?:Phim\s*Sex|JAV\s*Vietsub|SupJav).*$""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\s{2,}"""), " ")
-            .trim()
-        if (cleaned.isBlank()) cleaned = raw.trim()
-        return cleaned
+    fun cleanTitle(raw: String, slug: String = ""): String {
+        return JavEnglishTitleHelper.toEnglishTitle(raw, slug)
     }
 
     private fun extractBestImageUrl(imgEl: Element?, card: Element?, baseUrl: String): String? {

@@ -180,6 +180,111 @@ class SupabaseClient(private val context: Context) {
         }
     }
 
+    suspend fun verifyEmailOtp(email: String, token: String, type: String = "signup"): Result<SupabaseSession> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/auth/v1/verify"
+            val bodyObj = JSONObject().apply {
+                put("type", type)
+                put("email", email.trim())
+                put("token", token.trim())
+            }
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", anonKey)
+                .addHeader("Content-Type", "application/json")
+                .post(bodyObj.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val error = extractErrorMessage(body, "Email verification failed (${response.code})")
+                return@withContext Result.failure(IOException(error))
+            }
+
+            val json = JSONObject(body)
+            val sessionObj = json.optJSONObject("session")
+            val accessToken = json.optString("access_token", sessionObj?.optString("access_token", "") ?: "")
+            val refreshToken = json.optString("refresh_token", sessionObj?.optString("refresh_token", "") ?: "")
+            val expiresIn = if (json.has("expires_in")) json.optLong("expires_in", 3600L) else sessionObj?.optLong("expires_in", 3600L) ?: 3600L
+            val userObj = json.optJSONObject("user") ?: sessionObj?.optJSONObject("user") ?: if (json.has("id")) json else null
+
+            val user = SupabaseUser(
+                id = userObj?.optString("id", "") ?: "",
+                email = userObj?.optString("email", email.trim()) ?: email.trim(),
+                createdAt = userObj?.optString("created_at")
+            )
+
+            val session = SupabaseSession(
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                user = user,
+                expiresAt = if (expiresIn > 0) System.currentTimeMillis() + (expiresIn * 1000) else 0L
+            )
+            Result.success(session)
+        } catch (e: Exception) {
+            Log.e(tag, "verifyEmailOtp error", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun resendVerification(email: String, type: String = "signup"): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/auth/v1/resend"
+            val bodyObj = JSONObject().apply {
+                put("type", type)
+                put("email", email.trim())
+            }
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", anonKey)
+                .addHeader("Content-Type", "application/json")
+                .post(bodyObj.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val error = extractErrorMessage(body, "Resending confirmation email failed (${response.code})")
+                return@withContext Result.failure(IOException(error))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(tag, "resendVerification error", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendOtp(email: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/auth/v1/otp"
+            val bodyObj = JSONObject().apply {
+                put("email", email.trim())
+                put("create_user", false)
+            }
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", anonKey)
+                .addHeader("Content-Type", "application/json")
+                .post(bodyObj.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val error = extractErrorMessage(body, "Sending OTP failed (${response.code})")
+                return@withContext Result.failure(IOException(error))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(tag, "sendOtp error", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun exchangeCodeForSession(authCode: String): Result<SupabaseSession> = withContext(Dispatchers.IO) {
         try {
             val url = "$baseUrl/auth/v1/token?grant_type=pkce"

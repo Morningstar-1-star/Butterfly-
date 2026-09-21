@@ -85,7 +85,7 @@ object MediaHeaderHelper {
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1")
             }
-            urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("motherless") || urlStr.contains("cdn.motherless") -> {
+            urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("cdn.motherless") -> {
                 builder.header("Referer", "https://motherless.com/")
                 builder.header("Origin", "https://motherless.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -93,9 +93,19 @@ object MediaHeaderHelper {
             }
             urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event") -> {
                 builder.header("Referer", "https://www.dailymotion.com/")
-                builder.header("Origin", "https://www.dailymotion.com")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.header("Accept", "*/*")
+                if (urlStr.contains("dmcdn.net")) {
+                    builder.removeHeader("Cookie")
+                    builder.removeHeader("cookie")
+                } else {
+                    val dmCookie = com.example.extractor.DailymotionProvider.lastDmCookies
+                    if (dmCookie.isNotBlank()) {
+                        builder.header("Cookie", dmCookie)
+                    }
+                }
                 if (request.method.equals("HEAD", ignoreCase = true)) {
                     val getReq = builder.get().build()
                     val resp = chain.proceed(getReq)
@@ -255,7 +265,7 @@ object MediaHeaderHelper {
                 builder.removeHeader("origin")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US")
             }
-            urlStr.contains("motherless") || urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") -> {
+            urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("cdn.motherless") -> {
                 builder.header("Referer", "https://motherless.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.removeHeader("Origin")
@@ -317,6 +327,44 @@ object MediaHeaderHelper {
                 }
                 if (request.header("Origin") == null) {
                     builder.header("Origin", orig)
+                }
+            }
+            urlStr.contains("vidsrc") || urlStr.contains("cloudorchestranova") || urlStr.contains("vsembed") ||
+            urlStr.contains("vidlink") || urlStr.contains("autoembed") || urlStr.contains("smashystream") ||
+            urlStr.contains("2embed") || urlStr.contains("multiembed") || urlStr.contains("vidrock") ||
+            urlStr.contains("embed.su") || urlStr.contains("rive.stream") || urlStr.contains("decryptor") ||
+            urlStr.contains("vidhide") || urlStr.contains("turboviplay") || urlStr.contains("luluvdo") ||
+            urlStr.contains("lulustream") || urlStr.contains("vidara") || urlStr.contains("streamhide") ||
+            urlStr.contains("vidmoly") || urlStr.contains("nxsha") || urlStr.contains("onrender.com") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                val ref = when {
+                    urlStr.contains("cloudorchestranova") -> "https://cloudorchestranova.com/"
+                    urlStr.contains("vidsrc.to") -> "https://vidsrc.to/"
+                    urlStr.contains("vidsrc.net") -> "https://vidsrc.net/"
+                    urlStr.contains("vidsrc.pm") -> "https://vidsrc.pm/"
+                    urlStr.contains("vidsrc.xyz") -> "https://vidsrc.xyz/"
+                    urlStr.contains("vidsrc.cc") -> "https://vidsrc.cc/"
+                    urlStr.contains("vidsrc.vip") -> "https://vidsrc.vip/"
+                    urlStr.contains("vidsrc.icu") -> "https://vidsrc.icu/"
+                    urlStr.contains("vidsrc.in") -> "https://vidsrc.in/"
+                    urlStr.contains("vidlink.pro") -> "https://vidlink.pro/"
+                    urlStr.contains("autoembed.cc") -> "https://player.autoembed.cc/"
+                    urlStr.contains("smashystream") -> "https://embed.smashystream.com/"
+                    urlStr.contains("2embed") -> "https://www.2embed.cc/"
+                    urlStr.contains("multiembed") -> "https://multiembed.mov/"
+                    urlStr.contains("embed.su") -> "https://embed.su/"
+                    urlStr.contains("rive.stream") -> "https://rive.stream/"
+                    urlStr.contains("vidhide") -> "https://vidhidepro.com/"
+                    urlStr.contains("turboviplay") -> "https://turboviplay.com/"
+                    urlStr.contains("luluvdo") || urlStr.contains("lulustream") -> "https://luluvdo.com/"
+                    urlStr.contains("vidara") -> "https://vidara.org/"
+                    else -> "https://cloudorchestranova.com/"
+                }
+                if (request.header("Referer") == null) {
+                    builder.header("Referer", ref)
+                }
+                if (request.header("Origin") == null) {
+                    builder.header("Origin", ref.trimEnd('/'))
                 }
             }
         }
@@ -439,5 +487,42 @@ object MediaHeaderHelper {
         System.arraycopy(pmtHeader, 0, fixed, 188, pmtHeader.size)
 
         return fixed
+    }
+
+    val networkHeaderInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val urlStr = request.url.toString()
+        val builder = request.newBuilder()
+
+        val isBili = urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") ||
+                urlStr.contains("hdslb") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
+                urlStr.contains("acgvideo") || urlStr.contains("upgcxcode") || urlStr.contains("upos") ||
+                urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") ||
+                urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") ||
+                urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
+                urlStr.contains("biliintl")
+
+        val isDm = urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event")
+
+        if (isBili) {
+            val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
+            builder.header("Referer", biliReferer)
+            builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            builder.header("Accept", "*/*")
+            builder.removeHeader("Origin")
+            builder.removeHeader("origin")
+        } else if (isDm) {
+            builder.header("Referer", "https://www.dailymotion.com/")
+            builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            builder.header("Accept", "*/*")
+            builder.removeHeader("Origin")
+            builder.removeHeader("origin")
+            if (urlStr.contains("dmcdn.net")) {
+                builder.removeHeader("Cookie")
+                builder.removeHeader("cookie")
+            }
+        }
+
+        chain.proceed(builder.build())
     }
 }

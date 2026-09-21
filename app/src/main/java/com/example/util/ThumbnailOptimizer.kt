@@ -201,7 +201,7 @@ object ThumbnailOptimizer {
                 builder.setHeader("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1")
                 builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            lowerUrl.contains("motherless.com") || lowerUrl.contains("motherlessmedia") || lowerUrl.contains("motherless") || lowerUrl.contains("cdn.motherless") -> {
+            lowerUrl.contains("motherless.com") || lowerUrl.contains("motherlessmedia") || lowerUrl.contains("cdn.motherless") -> {
                 builder.setHeader("Referer", "https://motherless.com/")
                 builder.setHeader("Cookie", "content_filter=0; member=1; age_verified=1; country=US; consent=1")
                 builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -380,13 +380,13 @@ object ThumbnailOptimizer {
 
         preloadScope.launch {
             try {
+                // Primary thumbnail prefetch: keeps network bandwidth focused on fast visible thumbnail displays
                 videos.take(maxCount).forEach { video ->
                     val request = buildThumbnailRequest(context, video.thumbnailUrl, crossfadeMillis = 0, preferCompact = true)
                     if (request != null) {
                         imageLoader.enqueue(request)
                     }
                 }
-                PreviewFrameResolver.prefetchTeasersForFeed(context, videos.take(4))
             } catch (ignored: Exception) {
                 // Ignore background prefetch errors gracefully
             }

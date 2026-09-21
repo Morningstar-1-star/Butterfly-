@@ -8,7 +8,9 @@ import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
 import com.example.ui.player.session.PlaybackSession
 import com.example.util.SubtitleCue
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * GlobalPlayerManager: Public facade for video playback across Butterfly.
@@ -237,5 +239,23 @@ object GlobalPlayerManager {
 
     fun releasePlayer() {
         sessionInstance?.releasePlayer()
+    }
+
+    var onNextVideoRequested: (() -> Unit)? = null
+
+    fun playNext() {
+        val cb = onNextVideoRequested
+        if (cb != null) {
+            cb.invoke()
+        } else {
+            seekForward(10000L)
+        }
+    }
+
+    private val _isBackgroundAudioOnly = MutableStateFlow(false)
+    val isBackgroundAudioOnly: StateFlow<Boolean> = _isBackgroundAudioOnly.asStateFlow()
+
+    fun setBackgroundAudioOnly(enabled: Boolean) {
+        _isBackgroundAudioOnly.value = enabled
     }
 }

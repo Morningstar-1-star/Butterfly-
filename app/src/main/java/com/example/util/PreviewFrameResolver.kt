@@ -250,6 +250,14 @@ object PreviewFrameResolver {
 
         // 8. MOTHERLESS
         if (provider.contains("motherless") || thumbLower.contains("motherless")) {
+            if (thumbLower.contains("eporner.com")) {
+                val epornerMatcher = Regex("""/(\d+)(_\d+\.jpg)""").find(rawThumb)
+                if (epornerMatcher != null) {
+                    val suffix = epornerMatcher.groupValues[2]
+                    val base = rawThumb.substring(0, epornerMatcher.range.first)
+                    return (1..16).map { idx -> "$base/$idx$suffix" }
+                }
+            }
             val mlMatch = Regex("""/([a-zA-Z0-9]+)(?:_\d+)?\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (mlMatch != null) {
                 val fileId = mlMatch.groupValues[1]

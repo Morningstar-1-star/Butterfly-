@@ -547,10 +547,35 @@ object YouTubeExtractorHelper {
                 urlOrId.startsWith("dailymotion:", ignoreCase = true)
         if (isDailymotion) {
             val dmData = DailymotionProvider.getStreamData(urlOrId, context)
-            if (dmData != null) {
+            if (dmData != null && dmData.availableStreamOptions.isNotEmpty()) {
                 Log.i(TAG, "Resolved via DailymotionProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(dmData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Dailymotion to YtDlpResolver fallback for $urlOrId")
+                val fullDmUrl = when {
+                    urlOrId.startsWith("http://") || urlOrId.startsWith("https://") -> urlOrId
+                    urlOrId.startsWith("dailymotion:", ignoreCase = true) -> {
+                        val id = urlOrId.substringAfter(":").trim('/')
+                        if (id.startsWith("http")) id else "https://www.dailymotion.com/video/$id"
+                    }
+                    else -> "https://www.dailymotion.com/video/$urlOrId"
+                }
+                val ytDlpRes = YtDlpResolver.extractStreamInfo(context, fullDmUrl)
+                if (ytDlpRes is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytDlpRes.streamData.copy(providerId = "dailymotion")
+                    )
+                }
             }
+            return@withContext ExtractionResult.Error(
+                ExtractorErrorDetails(
+                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                    message = "Unable to load Dailymotion video stream (video may be private or live stream offline)",
+                    rawExceptionName = "DailymotionExtractionException",
+                    fullStackTrace = "",
+                    urlOrId = urlOrId
+                )
+            )
         }
 
         val isThisVid = providerId == "thisvid" || urlOrId.contains("thisvid.com") ||
@@ -783,6 +808,25 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isTencent = providerId == "tencent" || providerId == "vqq" || providerId == "qq" ||
+                urlOrId.contains("v.qq.com") || urlOrId.contains("video.qq.com") ||
+                urlOrId.startsWith("tencent:", ignoreCase = true) || urlOrId.startsWith("vqq:", ignoreCase = true)
+        if (isTencent) {
+            val tencentData = TencentProvider.getStreamData(urlOrId, context)
+            if (tencentData != null) {
+                Log.i(TAG, "Resolved via TencentProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(tencentData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing Tencent to YtDlpResolver fallback for $urlOrId")
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, urlOrId)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = TencentProvider.PROVIDER_ID)
+                    )
+                }
+            }
+        }
+
         val isGoogleDrive = providerId == "googledrive" || providerId == "gdrive" || providerId == "google_drive" || urlOrId.contains("drive.google.com") || urlOrId.contains("docs.google.com")
         if (isGoogleDrive) {
             val gdriveData = GoogleDriveProvider.getStreamData(urlOrId, context)
@@ -858,6 +902,33 @@ object YouTubeExtractorHelper {
             if (xvData != null) {
                 Log.i(TAG, "Resolved via XVideosProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(xvData)
+            }
+        }
+
+        val isXnxx = providerId == "xnxx" || urlOrId.contains("xnxx.com") || urlOrId.startsWith("xnxx:", ignoreCase = true)
+        if (isXnxx) {
+            val xnData = XnxxProvider.getStreamData(urlOrId, context)
+            if (xnData != null) {
+                Log.i(TAG, "Resolved via XnxxProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(xnData)
+            }
+        }
+
+        val isHellPorno = providerId == "hellporno" || urlOrId.contains("hellporno.com") || urlOrId.contains("hellporno.tv") || urlOrId.startsWith("hellporno:", ignoreCase = true)
+        if (isHellPorno) {
+            val hpData = HellPornoProvider.getStreamData(urlOrId, context)
+            if (hpData != null) {
+                Log.i(TAG, "Resolved via HellPornoProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(hpData)
+            }
+        }
+
+        val isStripchat = providerId == "stripchat" || urlOrId.contains("stripchat.com") || urlOrId.startsWith("stripchat:", ignoreCase = true)
+        if (isStripchat) {
+            val scData = StripchatProvider.getStreamData(urlOrId, context)
+            if (scData != null) {
+                Log.i(TAG, "Resolved via StripchatProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(scData)
             }
         }
 
@@ -1056,6 +1127,20 @@ object YouTubeExtractorHelper {
                 val fullBiliUrl = when {
                     urlOrId.startsWith("http://") || urlOrId.startsWith("https://") -> urlOrId
                     urlOrId.startsWith("bilisearch", ignoreCase = true) -> urlOrId
+                    urlOrId.startsWith("bili:", ignoreCase = true) || urlOrId.startsWith("bilibili:", ignoreCase = true) -> {
+                        val id = urlOrId.substringAfter(":").trim('/')
+                        when {
+                            id.startsWith("http") -> id
+                            id.startsWith("BV", ignoreCase = true) || id.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$id"
+                            id.startsWith("ep", ignoreCase = true) || id.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$id"
+                            id.startsWith("md", ignoreCase = true) -> "https://www.bilibili.com/bangumi/media/$id"
+                            else -> "https://www.bilibili.com/video/$id"
+                        }
+                    }
+                    urlOrId.startsWith("bili_live:", ignoreCase = true) || urlOrId.startsWith("bilibili_live:", ignoreCase = true) -> {
+                        val id = urlOrId.substringAfter(":").trim('/')
+                        if (id.startsWith("http")) id else "https://live.bilibili.com/$id"
+                    }
                     urlOrId.startsWith("BV", ignoreCase = true) || urlOrId.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$urlOrId"
                     urlOrId.startsWith("ep", ignoreCase = true) || urlOrId.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$urlOrId"
                     urlOrId.startsWith("md", ignoreCase = true) -> "https://www.bilibili.com/bangumi/media/$urlOrId"

@@ -66,51 +66,149 @@ object NoodleMagazineProvider {
         "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
     )
 
-    fun cleanAndTranslateNoodleTitle(rawTitle: String): String {
-        if (rawTitle.isBlank()) return "NoodleMagazine Video"
+    fun cleanAndTranslateNoodleTitle(rawTitle: String, fallbackSlug: String = ""): String {
+        if (rawTitle.isBlank() && fallbackSlug.isBlank()) return "NoodleMagazine Exclusive HD"
 
-        var clean = rawTitle
-            .replace(Regex("(?i) - NoodleMagazine.*"), "")
+        var clean = org.jsoup.parser.Parser.unescapeEntities(rawTitle, false)
+            .replace(Regex("(?i)\\s*-\\s*NoodleMagazine.*"), "")
             .replace(Regex("(?i)NoodleMagazine.*"), "")
+            .replace(Regex("(?i)\\b(?:noodlemagazine|noodlemag)\\b"), "")
             .trim()
 
-        val russianNoiseMap = listOf(
-            Regex("(?i)\\bяпонское порно\\b") to "",
-            Regex("(?i)\\bпорно фильм\\b") to "movie",
-            Regex("(?i)\\bрусским переводом\\b") to "english sub",
-            Regex("(?i)\\bрусский перевод\\b") to "english sub",
-            Regex("(?i)\\bс переводом\\b") to "subtitled",
-            Regex("(?i)\\bпереводом\\b") to "",
-            Regex("(?i)\\bпорно\\b") to "video",
-            Regex("(?i)\\bсекс\\b") to "sex",
-            Regex("(?i)\\bминиэт\\b") to "blowjob",
-            Regex("(?i)\\bминет\\b") to "blowjob",
-            Regex("(?i)\\bсиськи\\b") to "big tits",
-            Regex("(?i)\\bжопа\\b") to "ass",
-            Regex("(?i)\\bкино\\b") to "movie",
-            Regex("(?i)\\bфильм\\b") to "movie",
-            Regex("(?i)\\bэротика\\b") to "erotic",
-            Regex("(?i)\\bазиатское\\b") to "asian",
-            Regex("(?i)\\bяпонка\\b") to "japanese",
-            Regex("(?i)\\bкореянка\\b") to "korean",
-            Regex("(?i)\\bкитаянка\\b") to "chinese",
-            Regex("(?i)\\bучительница\\b") to "teacher",
-            Regex("(?i)\\bстудентка\\b") to "student",
-            Regex("(?i)\\bкрасавица\\b") to "beauty",
-            Regex("(?i)\\bшкольница\\b") to "schoolgirl"
+        // 1. Thai Keywords & Phrases to English
+        val thaiTranslations = listOf(
+            Regex("""(?i)(?:คลิปหลุด|หลุด|คลิปเด็ด)""") to "Leaked Video",
+            Regex("""(?i)(?:สาวไทย|คนไทย|หญิงไทย)""") to "Thai Beauty",
+            Regex("""(?i)(?:น้องแนท|น้อง|น้องๆ)""") to "Model",
+            Regex("""(?i)(?:นักศึกษา|นักเรียน|มหาลัย|มัธยม|ชุดนักเรียน|ชุดนักศึกษา)""") to "College Student",
+            Regex("""(?i)(?:เด็ดมาก|โครตเด็ด|เด็ดๆ|สุดยอด)""") to "Super Hot",
+            Regex("""(?i)(?:น่ารัก|สาวสวย|คนสวย)""") to "Cute Model",
+            Regex("""(?i)(?:สาวออฟฟิศ|พนักงาน|สาวโรงงาน)""") to "Office Girl",
+            Regex("""(?i)(?:แอบถ่าย|กล้องแอบ)""") to "Hidden Cam",
+            Regex("""(?i)(?:งานดี|งานพรีเมี่ยม)""") to "Premium HD",
+            Regex("""(?i)(?:เน็ตไอดอล|เน็ตไอดอลสาว)""") to "Net Idol",
+            Regex("""(?i)(?:นวด|สปา|นวดน้ำมัน)""") to "Sensual Oil Massage",
+            Regex("""(?i)(?:แฟน|คู่รัก)""") to "Amateur Couple",
+            Regex("""(?i)(?:ขย่ม|คราง|เสียว)""") to "Passionate Romance",
+            Regex("""(?i)(?:ดูดนม|นมใหญ่|อกโต|นมโต)""") to "Big Tits Model",
+            Regex("""(?i)(?:ช่วยตัวเอง|เสร็จคาปาก)""") to "Sensational Solo",
+            Regex("""(?i)(?:ชวนเสียว|เสียวๆ)""") to "Sensational",
+            Regex("""(?i)(?:ในห้อง|โรงแรม|ม่านรูด)""") to "Hotel Room Romance"
         )
-
-        for ((pattern, replacement) in russianNoiseMap) {
-            clean = clean.replace(pattern, replacement)
+        for ((p, r) in thaiTranslations) {
+            clean = clean.replace(p, " $r ")
         }
 
-        clean = clean.replace(Regex("""\s+"""), " ")
+        // 2. Chinese & Taiwanese Keywords & Phrases to English
+        val chineseTranslations = listOf(
+            Regex("""(?i)(?:台灣自拍|台湾自拍|自拍)""") to "Amateur POV",
+            Regex("""(?i)(?:外流|流出|私密流出)""") to "Exclusive Leaked",
+            Regex("""(?i)(?:極品|顶级|頂級)""") to "Top Tier Glamour",
+            Regex("""(?i)(?:正妹|美女|女神|靚女)""") to "Beautiful Model",
+            Regex("""(?i)(?:台灣|台湾)""") to "Taiwanese",
+            Regex("""(?i)(?:國產|国产|麻豆)""") to "Asian Romance",
+            Regex("""(?i)(?:學生妹|大學生|女大生|學生|女學生)""") to "College Student",
+            Regex("""(?i)(?:制服|JK|校服)""") to "Uniform Cosplay",
+            Regex("""(?i)(?:素人|清純|初撮)""") to "Cute Amateur",
+            Regex("""(?i)(?:少婦|人妻|熟女)""") to "Married Housewife",
+            Regex("""(?i)(?:無碼|無修正)""") to "Uncensored",
+            Regex("""(?i)(?:中文字幕|中文)""") to "English Sub",
+            Regex("""(?i)(?:主播|直播|網紅)""") to "Live Streamer",
+            Regex("""(?i)(?:推特|推特大神)""") to "Social Media Model",
+            Regex("""(?i)(?:探花|約炮|搭訕)""") to "Street Encounter",
+            Regex("""(?i)(?:巨乳|大胸|爆乳)""") to "Busty Model",
+            Regex("""(?i)(?:按摩|油壓|水療)""") to "Sensual Oil Massage",
+            Regex("""(?i)(?:情侶|女友)""") to "Passionate Girlfriend",
+            Regex("""(?i)(?:私拍|約拍)""") to "Private Photoshoot",
+            Regex("""(?i)(?:誘惑|性感|騷貨)""") to "Sensual Seduction",
+            Regex("""(?i)(?:內射|中出)""") to "Intimate Climax",
+            Regex("""(?i)(?:高潮|潮吹)""") to "Sensational Climax",
+            Regex("""(?i)(?:口交|吹簫)""") to "Blowjob",
+            Regex("""(?i)(?:野外|車震)""") to "Outdoor Adventure"
+        )
+        for ((p, r) in chineseTranslations) {
+            clean = clean.replace(p, " $r ")
+        }
+
+        // 3. Russian & Cyrillic Keywords to English
+        val russianTranslations = listOf(
+            Regex("(?i)\\bяпонское порно\\b") to "Japanese Video",
+            Regex("(?i)\\bпорно фильм\\b") to "Movie",
+            Regex("(?i)\\bрусским переводом\\b") to "English Sub",
+            Regex("(?i)\\bрусский перевод\\b") to "English Sub",
+            Regex("(?i)\\bс переводом\\b") to "Subtitled",
+            Regex("(?i)\\bпереводом\\b") to "",
+            Regex("(?i)\\bрусское\\b|\\bрусская\\b|\\bрусский\\b") to "Russian",
+            Regex("(?i)\\bпорно\\b") to "Video",
+            Regex("(?i)\\bсекс\\b") to "Sex",
+            Regex("(?i)\\bминиэт\\b|\\bминет\\b") to "Blowjob",
+            Regex("(?i)\\bсиськи\\b|\\bгрудь\\b") to "Big Tits",
+            Regex("(?i)\\bжопа\\b|\\bпопка\\b") to "Ass",
+            Regex("(?i)\\bкино\\b|\\bфильм\\b") to "Movie",
+            Regex("(?i)\\bэротика\\b") to "Erotic",
+            Regex("(?i)\\bазиатское\\b|\\bазиатка\\b") to "Asian",
+            Regex("(?i)\\bяпонка\\b") to "Japanese",
+            Regex("(?i)\\bкореянка\\b") to "Korean",
+            Regex("(?i)\\bкитаянка\\b") to "Chinese",
+            Regex("(?i)\\bучительница\\b") to "Teacher",
+            Regex("(?i)\\bстудентка\\b|\\bшкольница\\b") to "College Student",
+            Regex("(?i)\\bкрасавица\\b|\\bкрасотка\\b") to "Beauty",
+            Regex("(?i)\\bмассаж\\b") to "Massage",
+            Regex("(?i)\\bдомашнее\\b") to "Homemade",
+            Regex("(?i)\\bскрытая камера\\b") to "Hidden Cam"
+        )
+        for ((p, r) in russianTranslations) {
+            clean = clean.replace(p, " $r ")
+        }
+
+        // 4. Vietnamese & Indonesian Keywords to English
+        val seAsianTranslations = listOf(
+            Regex("""(?i)\b(?:gái xinh|hot girl|người đẹp)\b""") to "Pretty Girl",
+            Regex("""(?i)\b(?:sinh viên|học sinh)\b""") to "College Student",
+            Regex("""(?i)\b(?:lộ clip|clip nóng|clip hot)\b""") to "Leaked Video",
+            Regex("""(?i)\b(?:tự quay|phòng trọ)\b""") to "Amateur Bedroom",
+            Regex("""(?i)\b(?:bokep|indo sub|sub indo|jilbab|pemersatu)\b""") to "Asian Romance"
+        )
+        for ((p, r) in seAsianTranslations) {
+            clean = clean.replace(p, " $r ")
+        }
+
+        // 5. Strip all foreign non-Latin scripts (Thai, CJK, Hangul, Cyrillic, Arabic, etc.)
+        clean = clean
+            .replace(Regex("""[\u0E00-\u0E7F]"""), " ") // Thai
+            .replace(Regex("""[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]"""), " ") // CJK Unified Ideographs
+            .replace(Regex("""[\u3040-\u309F\u30A0-\u30FF]"""), " ") // Hiragana & Katakana
+            .replace(Regex("""[\uAC00-\uD7AF\u1100-\u11FF]"""), " ") // Hangul
+            .replace(Regex("""[\u0400-\u04FF\u0500-\u052F]"""), " ") // Cyrillic
+            .replace(Regex("""[\u0600-\u06FF]"""), " ") // Arabic
+            .replace(Regex("""[【】「」『』《》〈〉［］（）]"""), " ")
+
+        // 6. Clean up punctuation, redundant whitespace, empty brackets
+        clean = clean
+            .replace(Regex("""\s+"""), " ")
             .replace(Regex("""\[\s*\]"""), "")
             .replace(Regex("""\(\s*\)"""), "")
+            .replace(Regex("""\s*[-–—_|,:]\s*"""), " ")
             .replace(Regex("""^[\s,-]+|[\s,-]+$"""), "")
             .trim()
 
-        return clean.ifBlank { "NoodleMagazine Video" }
+        // 7. If clean Latin string is too short or empty, derive from slug or high quality descriptors
+        val latinLetters = clean.filter { it.isLetter() }
+        if (latinLetters.length < 4) {
+            val slugWords = fallbackSlug
+                .replace(Regex("""(?i)(?:https?://|noodlemagazine\.com|watch|video|v/|\.html|\d{5,})"""), " ")
+                .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
+                .split(" ")
+                .filter { it.length > 2 && it.matches(Regex("""^[A-Za-z]+$""")) }
+
+            clean = if (slugWords.isNotEmpty()) {
+                slugWords.take(5).joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } } + " (Ultra HD)"
+            } else {
+                "Exclusive Glamour & Lifestyle Feature (1080p HD)"
+            }
+        }
+
+        return clean.ifBlank { "NoodleMagazine HD Video" }
     }
 
     suspend fun getHome(limit: Int = 24, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -238,7 +336,7 @@ object NoodleMagazineProvider {
                 val rawTitle = card.select(".title, .item_title, a[title], h3, h2, .v_title").text().trim().ifBlank {
                     card.select("img").attr("alt").ifBlank { "NoodleMagazine Video" }
                 }
-                val title = cleanAndTranslateNoodleTitle(rawTitle)
+                val title = cleanAndTranslateNoodleTitle(rawTitle, href)
 
                 var thumb = card.select("img").attr("data-src").ifBlank {
                     card.select("img").attr("data-original")
@@ -356,18 +454,6 @@ object NoodleMagazineProvider {
                 val author = doc.select(".channel, .author, .user, .uploader, .channel_name, a[href*='/channel/']").firstOrNull()?.text()?.trim()
                 if (!author.isNullOrBlank()) resolvedChannel = author
 
-                // Add Web Player Option as a fallback
-                videoSources.add(
-                    PlayableStreamOption(
-                        qualityLabel = "NoodleMagazine Web Player (HD)",
-                        format = "embed",
-                        isMuxed = true,
-                        videoUrl = targetUrl,
-                        providerType = ProviderType.OTHER,
-                        headers = defaultHeaders
-                    )
-                )
-
                 // A. Parse direct video streams from script configs & JSON in page
                 extractDirectScriptStreams(html, videoSources)
 
@@ -404,16 +490,36 @@ object NoodleMagazineProvider {
             Log.w(TAG, "Direct NoodleMagazine extraction error: ${e.message}")
         }
 
-        if (videoSources.isNotEmpty()) {
-            Log.i(TAG, "Successfully extracted ${videoSources.size} streams from NoodleMagazine HTML")
-            val bestOption = videoSources.first()
+        val directPlayableSources = videoSources.filter {
+            !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
+        }.distinctBy { it.videoUrl }
+
+        if (directPlayableSources.isNotEmpty()) {
+            Log.i(TAG, "Successfully extracted ${directPlayableSources.size} streams from NoodleMagazine HTML")
+            val combinedSources = mutableListOf<PlayableStreamOption>()
+            combinedSources.addAll(directPlayableSources)
+
+            val streamIdx = Math.abs(videoId.hashCode()) % fallbackStreams.size
+            val fallbackUrl = fallbackStreams[streamIdx]
+            combinedSources.add(
+                PlayableStreamOption(
+                    qualityLabel = "Auto Backup HD",
+                    format = "mp4",
+                    isMuxed = true,
+                    videoUrl = fallbackUrl,
+                    providerType = ProviderType.OTHER,
+                    headers = mapOf("User-Agent" to DEFAULT_UA)
+                )
+            )
+
+            val bestOption = combinedSources.first()
             return@withContext StreamData(
                 videoId = videoId,
                 videoUrl = bestOption.videoUrl ?: "",
                 title = resolvedTitle,
                 channelName = resolvedChannel,
                 thumbnailUrl = resolvedThumbnail,
-                availableStreamOptions = videoSources,
+                availableStreamOptions = combinedSources,
                 selectedStreamOption = bestOption,
                 providerId = PROVIDER_ID,
                 headers = bestOption.headers
@@ -439,7 +545,7 @@ object NoodleMagazineProvider {
         try {
             val candidateTitle = if (resolvedTitle != "NoodleMagazine Video") resolvedTitle else clean.substringAfterLast("/").substringBefore("?")
             val cleanQuery = candidateTitle
-                .replace(Regex("""(?i)(?:noodlemagazine|watch|video|\.html|\d{6,}|[-_])"""), " ")
+                .replace(Regex("""(?i)(?:noodlemagazine|watch|video|\.html|\d{5,}|[-_])"""), " ")
                 .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
                 .trim()
             if (cleanQuery.isNotBlank() && cleanQuery.length > 2) {
@@ -448,15 +554,22 @@ object NoodleMagazineProvider {
                     for (searchItem in epSearch) {
                         val streamData = EpornerProvider.getStreamData(searchItem.id, context)
                         if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                            Log.i(TAG, "Successfully matched NoodleMagazine video to high-speed stream for '$cleanQuery'")
-                            return@withContext streamData.copy(
-                                videoId = videoId,
-                                title = resolvedTitle.ifBlank { streamData.title },
-                                channelName = resolvedChannel.ifBlank { "NoodleMagazine HD" },
-                                thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                                providerId = PROVIDER_ID,
-                                headers = streamData.headers
-                            )
+                            val directEpSources = streamData.availableStreamOptions.filter {
+                                !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
+                            }
+                            if (directEpSources.isNotEmpty()) {
+                                Log.i(TAG, "Successfully matched NoodleMagazine video to high-speed stream for '$cleanQuery'")
+                                return@withContext streamData.copy(
+                                    videoId = videoId,
+                                    title = resolvedTitle.ifBlank { streamData.title },
+                                    channelName = resolvedChannel.ifBlank { "NoodleMagazine HD" },
+                                    thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
+                                    availableStreamOptions = directEpSources,
+                                    selectedStreamOption = directEpSources.first(),
+                                    providerId = PROVIDER_ID,
+                                    headers = directEpSources.first().headers
+                                )
+                            }
                         }
                     }
                 }

@@ -86,12 +86,14 @@ object ThisVidWebViewFallback {
             }
 
             webView = WebView(context.applicationContext).apply {
+                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     databaseEnabled = true
+                    blockNetworkImage = true
                     allowFileAccess = false
                     allowContentAccess = false
                     mediaPlaybackRequiresUserGesture = false
@@ -130,6 +132,15 @@ object ThisVidWebViewFallback {
                 )
 
                 webViewClient = object : WebViewClient() {
+                    override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                        Log.w(TAG, "ThisVid WebView renderer process gone, cleaning up")
+                        Handler(Looper.getMainLooper()).post {
+                            cleanupWebView()
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                        return true
+                    }
+
                     override fun shouldInterceptRequest(
                         view: WebView?,
                         request: WebResourceRequest?
@@ -161,25 +172,34 @@ object ThisVidWebViewFallback {
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        // Inject video element watcher
+                        // Inject video element watcher and player inspector
                         val js = """
                             (function() {
                                 function checkMedia() {
                                     var v = document.querySelector('video');
-                                    if (v && v.src && v.src.indexOf('http') === 0) {
+                                    if (v && v.src && v.src.indexOf('http') === 0 && (v.src.indexOf('.mp4') !== -1 || v.src.indexOf('.m3u8') !== -1)) {
                                         window.ThisVidBridge.onMediaFound(v.src);
                                         return;
                                     }
                                     var sources = document.querySelectorAll('video source');
                                     for (var i = 0; i < sources.length; i++) {
-                                        if (sources[i].src && sources[i].src.indexOf('http') === 0) {
+                                        if (sources[i].src && sources[i].src.indexOf('http') === 0 && (sources[i].src.indexOf('.mp4') !== -1 || sources[i].src.indexOf('.m3u8') !== -1)) {
                                             window.ThisVidBridge.onMediaFound(sources[i].src);
                                             return;
                                         }
                                     }
+                                    if (window.flowplayer) {
+                                        try {
+                                            var fp = window.flowplayer();
+                                            if (fp && fp.video && fp.video.src && fp.video.src.indexOf('http') === 0) {
+                                                window.ThisVidBridge.onMediaFound(fp.video.src);
+                                                return;
+                                            }
+                                        } catch (e) {}
+                                    }
                                 }
                                 checkMedia();
-                                var interval = setInterval(checkMedia, 400);
+                                var interval = setInterval(checkMedia, 300);
                                 setTimeout(function() { clearInterval(interval); }, 5000);
                             })();
                         """.trimIndent()
@@ -205,11 +225,12 @@ object ThisVidWebViewFallback {
         if (lower.contains("preview") || lower.contains("poster") || lower.contains("thumb") ||
             lower.contains(".jpg") || lower.contains(".png") || lower.contains(".gif") ||
             lower.contains(".css") || lower.contains(".js") || lower.contains("blank") ||
-            lower.contains("tracking") || lower.contains("ads")
+            lower.contains("tracking") || lower.contains("event_reporting") || lower.contains("event_") ||
+            lower.contains("analytics") || lower.contains("pixel") || lower.contains("log") ||
+            lower.contains("ads") || lower.contains("count")
         ) {
             return false
         }
-        return (lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("/get_file/")) &&
-                lower.startsWith("http")
+        return (lower.contains(".mp4") || lower.contains(".m3u8")) && lower.startsWith("http")
     }
 }

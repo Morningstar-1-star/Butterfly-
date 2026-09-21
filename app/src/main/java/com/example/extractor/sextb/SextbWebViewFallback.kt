@@ -98,21 +98,27 @@ object SextbWebViewFallback {
             }
         }
 
+        continuation.invokeOnCancellation {
+            Handler(Looper.getMainLooper()).post { cleanupWebView() }
+        }
+
         try {
             android.webkit.CookieManager.getInstance().apply {
                 setAcceptCookie(true)
             }
 
             webView = WebView(context.applicationContext).apply {
+                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                 android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     databaseEnabled = true
-                    allowFileAccess = true
-                    allowContentAccess = true
-                    javaScriptCanOpenWindowsAutomatically = true
+                    blockNetworkImage = true
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    javaScriptCanOpenWindowsAutomatically = false
                     mediaPlaybackRequiresUserGesture = false
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     userAgentString = SextbResolver.DEFAULT_UA
@@ -177,6 +183,15 @@ object SextbWebViewFallback {
                 )
 
                 webViewClient = object : WebViewClient() {
+                    override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                        Log.w(TAG, "SEXТB fallback: Renderer process gone, cleaning up")
+                        Handler(Looper.getMainLooper()).post {
+                            cleanupWebView()
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                        return true
+                    }
+
                     override fun shouldInterceptRequest(
                         view: WebView?,
                         request: WebResourceRequest?
@@ -430,16 +445,31 @@ object SextbWebViewFallback {
                         }
                     }
 
+                    continuation.invokeOnCancellation {
+                        Handler(Looper.getMainLooper()).post { cleanup() }
+                    }
+
                     try {
                         webView = WebView(context.applicationContext).apply {
+                            setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
+                                blockNetworkImage = true
                                 userAgentString = SextbResolver.DEFAULT_UA
                                 cacheMode = WebSettings.LOAD_DEFAULT
                             }
 
                             webViewClient = object : WebViewClient() {
+                                override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                                    Log.w(TAG, "SEXТB catalog WebView renderer process gone, cleaning up")
+                                    Handler(Looper.getMainLooper()).post {
+                                        cleanup()
+                                        if (continuation.isActive) continuation.resume(emptyList())
+                                    }
+                                    return true
+                                }
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     // Give DOM 1.2s to render dynamic video cards

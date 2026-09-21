@@ -226,9 +226,21 @@ object BilibiliProvider {
             }
 
             // 1. Standard BiliBili Video extraction (BV/av)
-            val standardStream = resolveStandardVideoStream(targetUrl)
+            val standardStream = resolveStandardVideoStream(targetUrl, context)
             if (standardStream != null) {
                 return@withContext standardStream
+            }
+
+            if (context != null) {
+                try {
+                    val fullBiliUrl = if (targetUrl.startsWith("http")) targetUrl else "https://www.bilibili.com/video/$targetUrl"
+                    val ytRes = YtDlpResolver.extractStreamInfo(context, fullBiliUrl)
+                    if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success && ytRes.streamData.availableStreamOptions.isNotEmpty()) {
+                        return@withContext ytRes.streamData.copy(providerId = PROVIDER_ID)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "YtDlpResolver Bilibili attempt failed: ${e.message}")
+                }
             }
 
             Log.w(TAG, "Standard extraction did not match for: $cleanInput")
@@ -243,7 +255,7 @@ object BilibiliProvider {
     // 1. STANDARD BILIBILI VIDEO (BV / av)
     // =========================================================================
 
-    private suspend fun resolveStandardVideoStream(targetUrl: String): StreamData? = withContext(Dispatchers.IO) {
+    private suspend fun resolveStandardVideoStream(targetUrl: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         var bvid = ""
         var aid = ""
 
@@ -271,7 +283,7 @@ object BilibiliProvider {
             return@withContext null
         }
 
-        fetchVideoStreamData(bvid = bvid, aid = aid)
+        fetchVideoStreamData(bvid = bvid, aid = aid, context = context)
     }
 
     private suspend fun fetchVideoStreamData(
@@ -281,7 +293,8 @@ object BilibiliProvider {
         customTitle: String? = null,
         customDesc: String? = null,
         customUploader: String? = null,
-        customThumb: String? = null
+        customThumb: String? = null,
+        context: Context? = null
     ): StreamData? = withContext(Dispatchers.IO) {
         // 1. Fetch Metadata from Bilibili Web API with cookie header
         val biliCookie = getBilibiliCookie()
@@ -415,6 +428,23 @@ object BilibiliProvider {
         }
 
         if (streamOptions.isEmpty()) {
+            if (context != null) {
+                try {
+                    Log.i(TAG, "Falling back to YtDlpResolver for Bilibili video: $resolvedBvid")
+                    val fullBiliUrl = "https://www.bilibili.com/video/$resolvedBvid"
+                    val ytDlpRes = YtDlpResolver.extractStreamInfo(context, fullBiliUrl)
+                    if (ytDlpRes is YouTubeExtractorHelper.ExtractionResult.Success && ytDlpRes.streamData.availableStreamOptions.isNotEmpty()) {
+                        return@withContext ytDlpRes.streamData.copy(
+                            providerId = PROVIDER_ID,
+                            title = if (ytDlpRes.streamData.title != "Video") ytDlpRes.streamData.title else title,
+                            channelName = if (ytDlpRes.streamData.channelName != "Bilibili") ytDlpRes.streamData.channelName else uploader,
+                            thumbnailUrl = if (!ytDlpRes.streamData.thumbnailUrl.isNullOrBlank()) ytDlpRes.streamData.thumbnailUrl else pic
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "YtDlpResolver Bilibili fallback failed: ${e.message}")
+                }
+            }
             Log.w(TAG, "No playable streams extracted directly for Bilibili $resolvedBvid")
             return@withContext null
         }
@@ -791,8 +821,14 @@ object BilibiliProvider {
         var cleanUrl = rawUrl.trim()
         if (cleanUrl.isBlank()) return ""
 
-        // 1. Check if backupArr has a clean overseas/akamai/ali/tencent mirror
-        if (backupArr != null && backupArr.length() > 0) {
+        val rawLower = cleanUrl.lowercase()
+        val isProblematic = rawLower.contains("mcdn") || rawLower.contains("p2p") ||
+                rawLower.contains("szbdyd") || rawLower.contains(":4483") ||
+                rawLower.contains(":8080") || rawLower.contains(":8000") ||
+                rawLower.contains(":8443") || rawLower.contains(":51056")
+
+        // If primary URL is problematic, check if backupArr has a clean overseas/akamai/ali/tencent mirror
+        if (isProblematic && backupArr != null && backupArr.length() > 0) {
             for (b in 0 until backupArr.length()) {
                 val cand = backupArr.optString(b, "").trim()
                 if (cand.isNotBlank()) {
@@ -811,31 +847,9 @@ object BilibiliProvider {
             }
         }
 
-        val lower = cleanUrl.lowercase()
-        val isProblematic = lower.contains("mcdn") || lower.contains(":4483") || lower.contains(":8080") ||
-                lower.contains(":8000") || lower.contains(":8443") || lower.contains(":51056") || lower.contains("p2p") ||
-                lower.contains("szbdyd.com") || lower.contains("ws.acgvideo.com") ||
-                lower.matches(Regex(".*https?://\\d+\\.\\d+\\.\\d+\\.\\d+.*"))
-
-        // If it is a UPOS path and problematic or has P2P ports, route via Akamai mirror
-        if (isProblematic && (lower.contains("upgcxcode") || lower.contains("/upos/"))) {
-            val uposMatch = Regex("https?://[^/]+/(upgcxcode/.*|upos/.*)", RegexOption.IGNORE_CASE).find(cleanUrl)
-            if (uposMatch != null) {
-                val pathAndQuery = uposMatch.groupValues[1]
-                cleanUrl = "https://upos-hz-mirrorakam.akamaized.net/$pathAndQuery"
-            } else {
-                cleanUrl = cleanUrl.replace(Regex(":(4483|8080|8000|8443|51056)"), "")
-            }
-        } else if (isProblematic) {
-            cleanUrl = cleanUrl.replace(Regex(":(4483|8080|8000|8443|51056)"), "")
-        }
-
         if (cleanUrl.startsWith("http://", ignoreCase = true)) {
             cleanUrl = "https://" + cleanUrl.substring(7)
         }
-
-        // Clean any leftover host:port pattern
-        cleanUrl = cleanUrl.replace(Regex("(https?://[^/:]+):\\d+/"), "$1/")
 
         return cleanUrl
     }
@@ -1076,34 +1090,13 @@ object BilibiliProvider {
             }
         }
 
-        // 5. Mobile Android progressive direct MP4 stream
-        val androidDeferred = async(Dispatchers.IO) {
-            try {
-                val androidUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=0&platform=android&high_quality=1"
-                val androidReq = Request.Builder()
-                    .url(androidUrl)
-                    .header("User-Agent", "Bilibili Freedome/5.50.0")
-                    .header("Referer", REFERER)
-                    .header("Cookie", getBilibiliCookie())
-                    .build()
-
-                httpClient.newCall(androidReq).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching android playurl: ${e.message}")
-                null
-            }
-        }
-
         val progMp4JsonStr = progMp4Deferred.await()
         val progJsonStr = progDeferred.await()
         val dashCompatJsonStr = dashCompatDeferred.await()
         val dashFullJsonStr = dashFullDeferred.await()
-        val androidJsonStr = androidDeferred.await()
 
         // Process Progressive Muxed Streams (fnval=1, fnval=0)
-        val progressiveJsonList = listOfNotNull(progMp4JsonStr, progJsonStr, androidJsonStr)
+        val progressiveJsonList = listOfNotNull(progMp4JsonStr, progJsonStr)
         for (pJsonStr in progressiveJsonList) {
             try {
                 val playJson = JSONObject(pJsonStr)
@@ -1372,8 +1365,8 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.SubtitleTranslator.translationCache.get("$cleanTitle|en")
-                                val finalTitle = if (!cachedTitle.isNullOrBlank()) cachedTitle else cleanTitle
+                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
+                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1397,6 +1390,9 @@ object BilibiliProvider {
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = pic,
+                                        originalTitle = cleanTitle,
+                                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                                        detectedLanguage = "zh",
                                         providerId = PROVIDER_ID
                                     )
                                 )
@@ -1436,8 +1432,8 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.SubtitleTranslator.translationCache.get("$cleanTitle|en")
-                                val finalTitle = if (!cachedTitle.isNullOrBlank()) cachedTitle else cleanTitle
+                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
+                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1461,6 +1457,9 @@ object BilibiliProvider {
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = pic,
+                                        originalTitle = cleanTitle,
+                                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                                        detectedLanguage = "zh",
                                         providerId = PROVIDER_ID
                                     )
                                 )
@@ -1500,8 +1499,8 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.SubtitleTranslator.translationCache.get("$cleanTitle|en")
-                                val finalTitle = if (!cachedTitle.isNullOrBlank()) cachedTitle else cleanTitle
+                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
+                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1525,6 +1524,9 @@ object BilibiliProvider {
                                         durationSeconds = duration,
                                         viewCount = viewCount,
                                         thumbnailUrl = pic,
+                                        originalTitle = cleanTitle,
+                                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                                        detectedLanguage = "zh",
                                         providerId = PROVIDER_ID
                                     )
                                 )
@@ -1588,8 +1590,8 @@ object BilibiliProvider {
                 if (bvid.isBlank()) continue
                 val rawTitle = item.optString("title", "Bilibili Video")
                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                val cachedTitle = com.example.util.SubtitleTranslator.translationCache.get("$cleanTitle|en")
-                val finalTitle = if (!cachedTitle.isNullOrBlank()) cachedTitle else cleanTitle
+                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
+                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
 
                 var pic = item.optString("pic", "")
                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1612,6 +1614,9 @@ object BilibiliProvider {
                         durationSeconds = durationSec,
                         viewCount = play,
                         thumbnailUrl = pic,
+                        originalTitle = cleanTitle,
+                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                        detectedLanguage = "zh",
                         providerId = PROVIDER_ID
                     )
                 )

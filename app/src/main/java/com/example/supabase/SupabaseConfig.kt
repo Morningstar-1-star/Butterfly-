@@ -22,7 +22,7 @@ object SupabaseConfig {
         cachedUrl?.let { return it }
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val url = prefs.getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
-        val effectiveUrl = if (url.contains("aistudio-butterfly.supabase.co") || url.contains("placeholder") || url.contains("wlyqppcnywrftvducgz")) DEFAULT_URL else url
+        val effectiveUrl = if (url.contains("aistudio-butterfly.supabase.co") || url.contains("placeholder") || url.contains("wlyqppcnywrftvducgz") || url.contains("wlyqppcnywrftvdducgz")) DEFAULT_URL else url
         cachedUrl = effectiveUrl
         return effectiveUrl
     }

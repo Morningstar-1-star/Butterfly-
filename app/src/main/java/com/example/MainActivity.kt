@@ -47,6 +47,43 @@ class MainActivity : ComponentActivity() {
 
         handleDeepLinkIntent(intent)
 
+        // Register PiP action receiver for headphone (audio-only), play/pause, next
+        val pipFilter = android.content.IntentFilter().apply {
+            addAction(ACTION_PIP_HEADPHONES)
+            addAction(ACTION_PIP_PLAY_PAUSE)
+            addAction(ACTION_PIP_NEXT)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                pipActionReceiver,
+                pipFilter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            registerReceiver(pipActionReceiver, pipFilter)
+        }
+
+        // Keep PiP actions dynamically synced with playback state
+        lifecycleScope.launch {
+            com.example.ui.player.GlobalPlayerManager.isPlaying.collect {
+                updatePipParams()
+            }
+        }
+        lifecycleScope.launch {
+            com.example.ui.player.GlobalPlayerManager.videoAspectRatio.collect {
+                updatePipParams()
+            }
+        }
+        lifecycleScope.launch {
+            viewModel.activeVideoId.collect {
+                updatePipParams()
+            }
+        }
+
+        // Restore playback state if returning to app while audio is playing
+        viewModel.syncWithGlobalPlayer()
+
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
             val accentColor by viewModel.accentColor.collectAsState()
@@ -58,10 +95,10 @@ class MainActivity : ComponentActivity() {
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
-                // Safety watchdog: ensure opening animation is guaranteed to dismiss within 1.2s
+                // Safety watchdog: ensure opening animation is guaranteed to dismiss quickly (450ms)
                 LaunchedEffect(showOpeningAnimation, isOpeningAnimationEnabled) {
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        kotlinx.coroutines.delay(1200L)
+                        kotlinx.coroutines.delay(450L)
                         viewModel.dismissOpeningAnimation()
                     }
                 }
@@ -116,12 +153,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (viewModel.activeVideoId.value != null && com.example.ui.player.GlobalPlayerManager.isPlaying.value) {
+        if ((viewModel.activeVideoId.value != null || com.example.ui.player.GlobalPlayerManager.hasLoadedMedia()) &&
+            com.example.ui.player.GlobalPlayerManager.isPlaying.value) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
                     if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
                         val params = buildPipParams()
-                        enterPictureInPictureMode(params)
+                        if (params != null) {
+                            enterPictureInPictureMode(params)
+                        }
                     }
                 } catch (e: Exception) {
                     // Ignore
@@ -130,84 +170,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun buildPipParams(): android.app.PictureInPictureParams {
-        val builder = android.app.PictureInPictureParams.Builder()
-            .setAspectRatio(android.util.Rational(16, 9))
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            builder.setActions(createPipActions())
-        }
-        return builder.build()
+    override fun onResume() {
+        super.onResume()
+        // Stop background audio notification and restore video screen when returning to the app
+        com.example.service.BackgroundAudioService.stop(this)
+        com.example.ui.player.GlobalPlayerManager.setBackgroundAudioOnly(false)
+        viewModel.syncWithGlobalPlayer()
+        updatePipParams()
     }
 
-    private fun createPipActions(): List<android.app.RemoteAction> {
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return emptyList()
-        val actions = mutableListOf<android.app.RemoteAction>()
-
-        // 1. Headphones / Audio Mode Action (Matches user screenshot: tap to switch video to audio + dynamic island)
-        val audioIntent = Intent(this, com.example.ui.player.dynamicisland.ButterflyPipActionReceiver::class.java).apply {
-            action = com.example.ui.player.dynamicisland.ButterflyPipActionReceiver.ACTION_PIP_AUDIO_MODE
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(pipActionReceiver)
+        } catch (_: Exception) {}
+        // If dismissed/swiped away from PiP (not audio-only headphone mode), clean up player
+        if (!com.example.ui.player.GlobalPlayerManager.isBackgroundAudioOnly.value) {
+            com.example.ui.player.GlobalPlayerManager.stopAndClear()
         }
-        val audioPendingIntent = android.app.PendingIntent.getBroadcast(
-            this,
-            201,
-            audioIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val audioIcon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_headphones)
-        actions.add(
-            android.app.RemoteAction(
-                audioIcon,
-                "Audio Mode",
-                "Switch to background Audio Mode & Dynamic Island",
-                audioPendingIntent
-            )
-        )
-
-        // 2. Play / Pause Action
-        val isPlaying = com.example.ui.player.GlobalPlayerManager.isPlaying.value
-        val playIntent = Intent(this, com.example.ui.player.dynamicisland.ButterflyPipActionReceiver::class.java).apply {
-            action = com.example.ui.player.dynamicisland.ButterflyPipActionReceiver.ACTION_PIP_TOGGLE_PLAY
-        }
-        val playPendingIntent = android.app.PendingIntent.getBroadcast(
-            this,
-            202,
-            playIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val playIcon = android.graphics.drawable.Icon.createWithResource(
-            this,
-            if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
-        )
-        actions.add(
-            android.app.RemoteAction(
-                playIcon,
-                if (isPlaying) "Pause" else "Play",
-                "Toggle playback",
-                playPendingIntent
-            )
-        )
-
-        // 3. Forward 10s Action
-        val forwardIntent = Intent(this, com.example.ui.player.dynamicisland.ButterflyPipActionReceiver::class.java).apply {
-            action = com.example.ui.player.dynamicisland.ButterflyPipActionReceiver.ACTION_PIP_FORWARD_10
-        }
-        val forwardPendingIntent = android.app.PendingIntent.getBroadcast(
-            this,
-            203,
-            forwardIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val forwardIcon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_forward_10)
-        actions.add(
-            android.app.RemoteAction(
-                forwardIcon,
-                "Forward 10s",
-                "Seek forward 10 seconds",
-                forwardPendingIntent
-            )
-        )
-
-        return actions
     }
 
     override fun onPictureInPictureModeChanged(
@@ -216,11 +196,137 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         viewModel.setPipMode(isInPictureInPictureMode)
-        if (isInPictureInPictureMode && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (isInPictureInPictureMode) {
+            updatePipParams()
+        }
+    }
+
+    private fun handlePipHeadphonesAction() {
+        // Switch to audio-only mode: video PiP disappears, audio keeps playing
+        com.example.ui.player.GlobalPlayerManager.setBackgroundAudioOnly(true)
+        com.example.service.BackgroundAudioService.start(this)
+        // Dismiss the PiP window so the home screen is clear
+        finish()
+    }
+
+    private fun buildPipParams(): android.app.PictureInPictureParams? {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return null
+        if (!packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) return null
+
+        val builder = android.app.PictureInPictureParams.Builder()
+
+        // 1. Aspect Ratio
+        try {
+            val aspect = com.example.ui.player.GlobalPlayerManager.videoAspectRatio.value
+            val clampedAspect = if (aspect in 0.418410f..2.390000f) aspect else (16f / 9f)
+            val rational = android.util.Rational((clampedAspect * 1000).toInt(), 1000)
+            builder.setAspectRatio(rational)
+        } catch (_: Exception) {
+            builder.setAspectRatio(android.util.Rational(16, 9))
+        }
+
+        // 2. PiP Actions: Headphones (🎧 audio-only outside app), Play/Pause, Next
+        val actions = ArrayList<android.app.RemoteAction>()
+
+        // Action 1: Headphone 🎧 icon (Audio-only background mode)
+        val headphonesIntent = Intent(ACTION_PIP_HEADPHONES).setPackage(packageName)
+        val headphonesPendingIntent = android.app.PendingIntent.getBroadcast(
+            this,
+            101,
+            headphonesIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val headphonesIcon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_pip_headphones)
+        val headphonesAction = android.app.RemoteAction(
+            headphonesIcon,
+            "Audio Only",
+            "Listen in background (audio only)",
+            headphonesPendingIntent
+        )
+        actions.add(headphonesAction)
+
+        // Action 2: Play/Pause toggle
+        val isPlaying = com.example.ui.player.GlobalPlayerManager.isPlaying.value
+        val playPauseIntent = Intent(ACTION_PIP_PLAY_PAUSE).setPackage(packageName)
+        val playPausePendingIntent = android.app.PendingIntent.getBroadcast(
+            this,
+            102,
+            playPauseIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val playPauseIcon = if (isPlaying) {
+            android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_pip_pause)
+        } else {
+            android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_pip_play)
+        }
+        val playPauseTitle = if (isPlaying) "Pause" else "Play"
+        val playPauseAction = android.app.RemoteAction(
+            playPauseIcon,
+            playPauseTitle,
+            playPauseTitle,
+            playPausePendingIntent
+        )
+        actions.add(playPauseAction)
+
+        // Action 3: Next track
+        val nextIntent = Intent(ACTION_PIP_NEXT).setPackage(packageName)
+        val nextPendingIntent = android.app.PendingIntent.getBroadcast(
+            this,
+            103,
+            nextIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val nextIcon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_pip_next)
+        val nextAction = android.app.RemoteAction(
+            nextIcon,
+            "Next",
+            "Next video",
+            nextPendingIntent
+        )
+        actions.add(nextAction)
+
+        builder.setActions(actions)
+
+        // Auto-enter PiP on Android 12+ (S)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val canAutoEnter = (viewModel.activeVideoId.value != null || com.example.ui.player.GlobalPlayerManager.hasLoadedMedia())
+            builder.setAutoEnterEnabled(canAutoEnter)
+        }
+
+        return builder.build()
+    }
+
+    private fun updatePipParams() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             try {
-                setPictureInPictureParams(buildPipParams())
-            } catch (e: Exception) {
-                // Ignore
+                val params = buildPipParams()
+                if (params != null) {
+                    setPictureInPictureParams(params)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    companion object {
+        const val ACTION_PIP_HEADPHONES = "com.example.action.PIP_HEADPHONES"
+        const val ACTION_PIP_PLAY_PAUSE = "com.example.action.PIP_PLAY_PAUSE"
+        const val ACTION_PIP_NEXT = "com.example.action.PIP_NEXT"
+    }
+
+    private val pipActionReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            when (intent?.action) {
+                ACTION_PIP_HEADPHONES -> {
+                    handlePipHeadphonesAction()
+                }
+                ACTION_PIP_PLAY_PAUSE -> {
+                    com.example.ui.player.GlobalPlayerManager.togglePlayPause()
+                    updatePipParams()
+                }
+                ACTION_PIP_NEXT -> {
+                    com.example.ui.player.GlobalPlayerManager.playNext()
+                    updatePipParams()
+                }
             }
         }
     }
@@ -228,18 +334,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleCustomIntents(intent)
         handleDeepLinkIntent(intent)
-    }
-
-    private fun handleCustomIntents(intent: Intent?) {
-        if (intent == null) return
-        if (intent.getBooleanExtra("EXIT_PIP_TO_AUDIO", false)) {
-            moveTaskToBack(true)
-        }
-        if (intent.getBooleanExtra("FROM_DYNAMIC_ISLAND", false)) {
-            viewModel.navigateToScreen(com.example.model.AppScreen.PLAYER)
-        }
     }
 
     private fun handleDeepLinkIntent(intent: Intent?) {

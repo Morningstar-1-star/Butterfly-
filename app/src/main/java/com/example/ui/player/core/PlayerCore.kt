@@ -41,13 +41,13 @@ class PlayerCore(
         val appContext = context.applicationContext
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                15_000,   // minBufferMs (15s minimum buffer to prevent bandwidth thrashing and memory pressure)
-                60_000,   // maxBufferMs (60s)
-                800,      // bufferForPlaybackMs (800ms for instant initial playback startup)
-                1_500     // bufferForPlaybackAfterRebufferMs (1.5s fast resume after buffering)
+                8_000,    // minBufferMs (8s fast buffer and low RAM footprint)
+                30_000,   // maxBufferMs (30s)
+                350,      // bufferForPlaybackMs (350ms for near-instant video playback start)
+                750       // bufferForPlaybackAfterRebufferMs (750ms fast resume)
             )
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(10_000, true)
+            .setBackBuffer(5_000, true)
             .build()
 
         val audioEnhancementProcessor = AudioEnhancementEngine.getAudioProcessor()
@@ -64,13 +64,20 @@ class PlayerCore(
             val decoders = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, requiresSecure, requiresTunneling)
             if (isEmulator) {
                 // In emulator environments, virtual hardware codecs (e.g. goldfish) often lack required system resources
-                // and cause CCodec "Failed to query component interface for required system resources: 6" errors.
-                // Prioritize standard software decoders (c2.android.*, OMX.google.*) which reliably execute without hardware interface queries.
-                decoders.sortedWith(
-                    compareByDescending<MediaCodecInfo> {
-                        it.softwareOnly || it.name.startsWith("c2.android.") || it.name.startsWith("OMX.google.")
-                    }.thenBy { it.name.contains("goldfish", ignoreCase = true) }
-                )
+                // and trigger CCodec "Failed to query component interface for required system resources: 6" warnings.
+                // Prioritize and isolate standard software decoders (c2.android.*, OMX.google.*) which execute reliably.
+                val swDecoders = decoders.filter {
+                    it.softwareOnly || it.name.startsWith("c2.android.") || it.name.startsWith("OMX.google.")
+                }
+                if (swDecoders.isNotEmpty()) {
+                    swDecoders
+                } else {
+                    decoders.sortedWith(
+                        compareByDescending<MediaCodecInfo> {
+                            it.softwareOnly || it.name.startsWith("c2.android.") || it.name.startsWith("OMX.google.")
+                        }.thenBy { it.name.contains("goldfish", ignoreCase = true) }
+                    )
+                }
             } else {
                 decoders
             }

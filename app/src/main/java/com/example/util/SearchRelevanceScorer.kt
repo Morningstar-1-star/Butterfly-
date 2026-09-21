@@ -13,7 +13,8 @@ object SearchRelevanceScorer {
     fun computeRelevanceScore(
         item: VideoItem,
         query: String,
-        correctedQuery: String? = null
+        correctedQuery: String? = null,
+        userTasteVector: com.example.recommendation.SmartRecommendationEngine.TasteVector? = null
     ): Double {
         val title = item.title.lowercase(Locale.ROOT)
         val channel = (item.uploaderName ?: "").lowercase(Locale.ROOT)
@@ -143,23 +144,71 @@ object SearchRelevanceScorer {
             score += 15.0
         }
 
+        // 7. Personalized Intelligence Boost (Viewing habits, language, creators, timeline)
+        if (userTasteVector != null) {
+            val vid = item.id.trim()
+            if (userTasteVector.dislikedVideoIds.contains(vid) || com.example.recommendation.UserActivityMemory.isDisliked(vid)) {
+                return -99999.0
+            }
+            if (channel.isNotBlank() && (userTasteVector.dislikedChannels.contains(channel) || com.example.recommendation.UserActivityMemory.getDislikedChannels().contains(channel))) {
+                return -99999.0
+            }
+
+            // Creator affinity
+            if (channel.isNotBlank()) {
+                val chanAff = userTasteVector.channelScores[channel] ?: 0f
+                if (chanAff > 0f) {
+                    score += (chanAff * 8.0).coerceIn(0.0, 350.0)
+                }
+            }
+
+            // Language affinity
+            val lang = com.example.recommendation.SmartRecommendationEngine.detectLanguage(item)
+            val langAff = userTasteVector.languageScores[lang.code] ?: 0f
+            if (langAff > 10.0f) {
+                score += ((langAff - 8.0f) * 6.0).coerceIn(0.0, 200.0)
+            }
+
+            // Category & Tag affinity
+            val catTags = SmartTagExtractor.extractTags(item, maxTags = 2)
+            for (tag in catTags) {
+                val catAff = userTasteVector.categoryScores[tag.category] ?: 0f
+                if (catAff > 0f) {
+                    score += (catAff * 6.0).coerceIn(0.0, 200.0)
+                }
+                // Time of day affinity
+                val hourAff = userTasteVector.hourlyCategoryAffinities[tag.category] ?: 0f
+                if (hourAff > 0f) {
+                    score += (hourAff * 10.0).coerceIn(0.0, 250.0)
+                }
+            }
+
+            // Provider affinity
+            val prov = (item.providerId ?: "").lowercase(Locale.ROOT)
+            val provAff = userTasteVector.providerScores[prov] ?: 0f
+            if (provAff > 0f) {
+                score += (provAff * 4.0).coerceIn(0.0, 150.0)
+            }
+        }
+
         return score
     }
 
     /**
-     * Rank search results strictly by relevance.
+     * Rank search results strictly by relevance and personalized taste vector.
      * Only relevant videos matching query tokens, model, or JAV code are returned.
      * Completely unrelated videos are strictly omitted.
      */
     fun rankSearchResults(
         items: List<VideoItem>,
         query: String,
-        correctedQuery: String? = null
+        correctedQuery: String? = null,
+        userTasteVector: com.example.recommendation.SmartRecommendationEngine.TasteVector? = null
     ): List<VideoItem> {
         if (items.isEmpty() || query.isBlank()) return items
 
         val scored = items.map { item ->
-            item to computeRelevanceScore(item, query, correctedQuery)
+            item to computeRelevanceScore(item, query, correctedQuery, userTasteVector)
         }
 
         val relevant = scored

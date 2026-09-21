@@ -613,33 +613,22 @@ fun UniversalVideoPlayer(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        androidx.compose.material3.CircularProgressIndicator(
-                            color = Color(0xFF00E5FF),
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(38.dp)
-                        )
                         val isTorrent = streamOption?.providerType == com.example.model.ProviderType.TORRENT ||
                                 streamOption?.videoUrl?.contains("/stream") == true ||
                                 activeStreamData?.providerId == "torrent"
-                        if (isTorrent && torrentStats.infoHash.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            val speedKb = torrentStats.downloadSpeedBps / 1024
-                            val speedStr = if (speedKb > 1024) String.format("%.1f MB/s", speedKb / 1024f) else "$speedKb KB/s"
-                            val seedsDisplay = if (torrentStats.activeSeeders > 0) "${torrentStats.activeSeeders} seeds" else "${torrentStats.connectedPeers} peers"
-                            Text(
-                                text = "P2P Swarm: $seedsDisplay • $speedStr",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                        val statusMsg = if (isTorrent && torrentStats.infoHash.isNotBlank()) {
                             if (torrentStats.state == com.example.torrent.model.TorrentEngineState.FETCHING_METADATA) {
-                                Text(
-                                    text = "Retrieving swarm metadata...",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 10.sp
-                                )
+                                "Retrieving swarm metadata..."
+                            } else {
+                                val speedKb = torrentStats.downloadSpeedBps / 1024
+                                val speedStr = if (speedKb > 1024) String.format("%.1f MB/s", speedKb / 1024f) else "$speedKb KB/s"
+                                val seedsDisplay = if (torrentStats.activeSeeders > 0) "${torrentStats.activeSeeders} seeds" else "${torrentStats.connectedPeers} peers"
+                                "P2P: $seedsDisplay • $speedStr"
                             }
+                        } else {
+                            "Buffering stream..."
                         }
+                        GlowingBufferingIndicator(statusText = statusMsg)
                     }
                 }
             }
@@ -885,23 +874,6 @@ fun UniversalVideoPlayer(
                                 contentDescription = "Google Lens & Circle to Search",
                                 tint = Color.White,
                                 modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        // Headphones Audio Mode & Dynamic Island
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.showControls()
-                                com.example.ui.player.dynamicisland.AudioModeManager.enterAudioMode(context)
-                                onBackClick?.invoke()
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Headphones,
-                                contentDescription = "Switch to Audio Mode & Dynamic Island",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(23.dp)
                             )
                         }
 

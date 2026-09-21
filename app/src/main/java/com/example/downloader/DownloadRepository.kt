@@ -25,15 +25,18 @@ class DownloadRepository(private val context: Context) {
         channelName: String,
         thumbnailUrl: String?,
         qualityLabel: String,
-        downloadUrl: String
+        downloadUrl: String,
+        headers: Map<String, String> = emptyMap()
     ) {
+        val headersEncoded = headers.entries.joinToString(";;") { "${it.key}::${it.value}" }
         val workData = workDataOf(
             DownloadWorker.KEY_VIDEO_ID to videoId,
             DownloadWorker.KEY_TITLE to title,
             DownloadWorker.KEY_CHANNEL to channelName,
             DownloadWorker.KEY_THUMBNAIL to thumbnailUrl,
             DownloadWorker.KEY_QUALITY to qualityLabel,
-            DownloadWorker.KEY_URL to downloadUrl
+            DownloadWorker.KEY_URL to downloadUrl,
+            DownloadWorker.KEY_HEADERS to headersEncoded
         )
 
         val constraints = Constraints.Builder()
@@ -43,6 +46,7 @@ class DownloadRepository(private val context: Context) {
         val downloadWork = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(workData)
             .setConstraints(constraints)
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag("download_$videoId")
             .build()
 
@@ -69,9 +73,10 @@ class DownloadRepository(private val context: Context) {
         channelName: String,
         thumbnailUrl: String?,
         qualityLabel: String,
-        downloadUrl: String
+        downloadUrl: String,
+        headers: Map<String, String> = emptyMap()
     ) {
-        enqueueDownload(videoId, title, channelName, thumbnailUrl, qualityLabel, downloadUrl)
+        enqueueDownload(videoId, title, channelName, thumbnailUrl, qualityLabel, downloadUrl, headers)
     }
 
     fun cancelDownload(videoId: String) {
@@ -85,11 +90,28 @@ class DownloadRepository(private val context: Context) {
         workManager.cancelUniqueWork("download_$videoId")
         scope.launch {
             if (!filePath.isNullOrBlank()) {
-                val file = File(filePath)
-                if (file.exists()) {
-                    file.delete()
-                }
+                try {
+                    val file = File(filePath)
+                    if (file.exists()) {
+                        if (file.isDirectory) {
+                            file.deleteRecursively()
+                        } else {
+                            val parent = file.parentFile
+                            file.delete()
+                            if (parent != null && parent.name.startsWith("hls_")) {
+                                parent.deleteRecursively()
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
             }
+            try {
+                val dir = File(context.getExternalFilesDir(null) ?: context.filesDir, "OfflineDownloads")
+                val safeId = videoId.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+                val thumbFile = File(dir, "thumb_$safeId.jpg")
+                if (thumbFile.exists()) thumbFile.delete()
+            } catch (_: Exception) {}
+
             db.userDataDao().deleteDownload(videoId)
         }
     }

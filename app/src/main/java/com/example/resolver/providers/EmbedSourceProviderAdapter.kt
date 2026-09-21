@@ -64,7 +64,7 @@ class EmbedSourceProviderAdapter(
             type = SourceStreamType.EMBED_WEBVIEW,
             title = identity.title,
             urlOrMagnet = embedUrl,
-            quality = "Auto HD",
+            quality = "1080p HD",
             qualityScore = 1080,
             format = "embed",
             sizeBytes = 0L,

@@ -54,6 +54,15 @@ android {
     }
   }
 
+  splits {
+    abi {
+      isEnable = true
+      reset()
+      include("arm64-v8a", "x86_64")
+      isUniversalApk = true
+    }
+  }
+
   signingConfigs {
     create("release") {
       val keystorePath =
@@ -132,7 +141,6 @@ dependencies {
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.exoplayer.dash)
   implementation(libs.androidx.media3.ui)
-  implementation(libs.androidx.media3.session)
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.effect)
   implementation(libs.androidx.media3.datasource.okhttp)

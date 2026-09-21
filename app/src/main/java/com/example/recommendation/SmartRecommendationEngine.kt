@@ -26,6 +26,13 @@ object SmartRecommendationEngine {
         ENGLISH("en", "English", "🇬🇧"),
         HINDI("hi", "Hindi", "🇮🇳"),
         JAPANESE("ja", "Japanese", "🇯🇵"),
+        CHINESE("zh", "Chinese", "🇨🇳"),
+        KOREAN("ko", "Korean", "🇰🇷"),
+        SPANISH("es", "Spanish", "🇪🇸"),
+        FRENCH("fr", "French", "🇫🇷"),
+        GERMAN("de", "German", "🇩🇪"),
+        RUSSIAN("ru", "Russian", "🇷🇺"),
+        ARABIC("ar", "Arabic", "🇸🇦"),
         OTHER("other", "International", "🌐")
     }
 
@@ -33,6 +40,8 @@ object SmartRecommendationEngine {
         val categoryScores: Map<String, Float> = emptyMap(),
         val channelScores: Map<String, Float> = emptyMap(),
         val languageScores: Map<String, Float> = emptyMap(),
+        val providerScores: Map<String, Float> = emptyMap(),
+        val hashtagScores: Map<String, Float> = emptyMap(),
         val searchIntentTerms: List<String> = emptyList(),
         val searchTokens: Set<String> = emptySet(),
         val channelWatchCounts: Map<String, Int> = emptyMap(),
@@ -43,7 +52,10 @@ object SmartRecommendationEngine {
         val dislikedKeywords: Set<String> = emptySet(),
         val dislikedCategories: Map<String, Int> = emptyMap(),
         val hourlyCategoryAffinities: Map<String, Float> = emptyMap(),
-        val hourlyChannelAffinities: Map<String, Float> = emptyMap()
+        val hourlyChannelAffinities: Map<String, Float> = emptyMap(),
+        val hourlyProviderAffinities: Map<String, Float> = emptyMap(),
+        val hourlyLanguageAffinities: Map<String, Float> = emptyMap(),
+        val providerTimeSpent: Map<String, Long> = emptyMap()
     )
 
     data class ScoredVideo(
@@ -59,42 +71,20 @@ object SmartRecommendationEngine {
         val title = video.title ?: ""
         val uploader = video.uploaderName ?: ""
         val desc = video.description ?: ""
-        val fullText = "$title $uploader $desc ${video.tags.joinToString(" ")}".lowercase(Locale.ROOT)
-
-        // 1. Devanagari script check for Hindi
-        val hasDevanagari = title.any { it in '\u0900'..'\u097F' } || uploader.any { it in '\u0900'..'\u097F' }
-        if (hasDevanagari) return ContentLanguage.HINDI
-
-        // 2. Japanese Hiragana/Katakana/Kanji script check
-        val hasJapanese = title.any { it in '\u3040'..'\u309F' || it in '\u30A0'..'\u30FF' || it in '\u4E00'..'\u9FAF' } ||
-                uploader.any { it in '\u3040'..'\u309F' || it in '\u30A0'..'\u30FF' || it in '\u4E00'..'\u9FAF' }
-        if (hasJapanese) return ContentLanguage.JAPANESE
-
-        // 3. Hindi Keywords & Studios
-        val hindiKeywords = listOf(
-            "hindi", "bollywood", "dubbed in hindi", "hindi dubbed", "t-series", "tseries",
-            "zee music", "goldmines", "shemaroo", "starplus", "sab tv", "sony liv", "voot",
-            "hotstar", "aaj tak", "colors tv", "yash raj", "dharma", "bhansali", "south hindi",
-            "filmy", "geet", "gaana", "b4u", "ultra movie", "desi", "hindi song", "hindi movie"
-        )
-        if (hindiKeywords.any { fullText.contains(it) }) return ContentLanguage.HINDI
-
-        // 4. Japanese Keywords & Anime Studios
-        val japaneseKeywords = listOf(
-            "japanese", "anime", "subbed", "english sub", "raw", "pv ", "jp ", "toei",
-            "mappa", "ghibli", "kadokawa", "crunchyroll", "aniplex", "toho", "madhouse",
-            "kyoto animation", "shonen", "manga", "seiyuu", "j-pop", "voiceworks",
-            "otaku", "demonslayer", "jujutsu", "naruto", "one piece", "dragon ball",
-            "frieren", "solo leveling", "attack on titan", "my hero academia", "bleach"
-        )
-        if (japaneseKeywords.any { fullText.contains(it) }) return ContentLanguage.JAPANESE
-
-        // 5. English Keywords
-        if (fullText.contains("english") || fullText.contains("hollywood") || fullText.contains("official") || uploader.isNotBlank()) {
-            return ContentLanguage.ENGLISH
+        val meta = VideoKnowledgeExtractor.detectLanguageDetailed(title, desc, uploader, video.tags, video.providerId)
+        return when (meta.code) {
+            "zh" -> ContentLanguage.CHINESE
+            "ja" -> ContentLanguage.JAPANESE
+            "ko" -> ContentLanguage.KOREAN
+            "hi" -> ContentLanguage.HINDI
+            "es" -> ContentLanguage.SPANISH
+            "fr" -> ContentLanguage.FRENCH
+            "de" -> ContentLanguage.GERMAN
+            "ru" -> ContentLanguage.RUSSIAN
+            "ar" -> ContentLanguage.ARABIC
+            "en" -> ContentLanguage.ENGLISH
+            else -> ContentLanguage.OTHER
         }
-
-        return ContentLanguage.OTHER
     }
 
     /**
@@ -127,11 +117,30 @@ object SmartRecommendationEngine {
         val cleanSearchTerms = mutableListOf<String>()
         var interactions = 0
 
-        // Baseline Language Preferences: Promote English, Hindi, Japanese out of the box
+        // Baseline Language Preferences: Promote Chinese, Japanese, Hindi, English out of the box
         langScores["en"] = 8.0f
         langScores["hi"] = 14.0f
         langScores["ja"] = 14.0f
+        langScores["zh"] = 14.0f
+        langScores["ko"] = 10.0f
         langScores["other"] = 4.0f
+
+        val providerScores = mutableMapOf<String, Float>()
+        val hashtagScores = mutableMapOf<String, Float>()
+
+        // Seed with learned affinities from persistent memory
+        for ((p, aff) in UserActivityMemory.getProviderAffinities()) {
+            providerScores[p] = aff
+        }
+        for ((ht, aff) in UserActivityMemory.getHashtagAffinities()) {
+            hashtagScores[ht] = aff
+        }
+        for ((l, aff) in UserActivityMemory.getLanguageAffinities()) {
+            langScores[l] = (langScores[l] ?: 0f) + aff
+        }
+        for ((c, aff) in UserActivityMemory.getCategoryAffinities()) {
+            catScores[c] = (catScores[c] ?: 0f) + aff
+        }
 
         // 1. Process and Infer Intent from Recent Searches
         val stopWords = setOf(
@@ -148,16 +157,34 @@ object SmartRecommendationEngine {
 
             val recencyWeight = (16.0f - (index * 1.2f)).coerceAtLeast(4.0f)
             val qLower = q.lowercase(Locale.ROOT)
-            val tokens = qLower.split(Regex("[^a-zA-Z0-9]+")).filter { it.length > 2 && it !in stopWords }
+            val tokens = qLower.split(Regex("[^\\p{L}0-9]+")).filter { it.length > 2 && it !in stopWords }
             searchTokens.addAll(tokens)
 
-            // Language inference from search
+            // Language & Provider inference from search
             when {
+                qLower.contains("chinese") || qLower.contains("mandarin") || qLower.contains("donghua") || qLower.contains("cdrama") || qLower.contains("c-drama") -> {
+                    langScores["zh"] = (langScores["zh"] ?: 0f) + recencyWeight
+                    catScores["chinese_drama_donghua"] = (catScores["chinese_drama_donghua"] ?: 0f) + recencyWeight
+                    providerScores["tencent"] = (providerScores["tencent"] ?: 0f) + recencyWeight
+                }
+                qLower.contains("stripchat") || qLower.contains("chaturbate") || qLower.contains("webcam") || qLower.contains("cam4") -> {
+                    catScores["live_cams_webcams"] = (catScores["live_cams_webcams"] ?: 0f) + recencyWeight
+                    if (qLower.contains("stripchat")) providerScores["stripchat"] = (providerScores["stripchat"] ?: 0f) + recencyWeight
+                    if (qLower.contains("chaturbate")) providerScores["chaturbate"] = (providerScores["chaturbate"] ?: 0f) + recencyWeight
+                }
+                qLower.contains("xnxx") || qLower.contains("hellporno") || qLower.contains("pornhub") || qLower.contains("xvideos") -> {
+                    catScores["adult_hd_tube"] = (catScores["adult_hd_tube"] ?: 0f) + recencyWeight
+                    if (qLower.contains("xnxx")) providerScores["xnxx"] = (providerScores["xnxx"] ?: 0f) + recencyWeight
+                    if (qLower.contains("hellporno")) providerScores["hellporno"] = (providerScores["hellporno"] ?: 0f) + recencyWeight
+                }
                 qLower.contains("hindi") || qLower.contains("bollywood") || qLower.contains("t-series") || qLower.contains("tseries") -> {
                     langScores["hi"] = (langScores["hi"] ?: 0f) + recencyWeight
                 }
                 qLower.contains("anime") || qLower.contains("japanese") || qLower.contains("manga") || qLower.contains("subbed") -> {
                     langScores["ja"] = (langScores["ja"] ?: 0f) + recencyWeight
+                }
+                qLower.contains("korean") || qLower.contains("k-drama") || qLower.contains("kdrama") || qLower.contains("kpop") -> {
+                    langScores["ko"] = (langScores["ko"] ?: 0f) + recencyWeight
                 }
                 qLower.contains("english") || qLower.contains("hollywood") -> {
                     langScores["en"] = (langScores["en"] ?: 0f) + recencyWeight
@@ -223,6 +250,7 @@ object SmartRecommendationEngine {
         // 2. Evaluate Watch History & Spend Time / Dwell Duration
         for (video in watchHistory.take(60)) {
             interactions++
+            val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
             val tags = SmartTagExtractor.extractInternalCategoryTags(video)
             val prog = watchProgressMap[video.id] ?: 0.5f
             val posMs = watchPositionMsMap[video.id] ?: 0L
@@ -238,11 +266,21 @@ object SmartRecommendationEngine {
             for (tag in tags) {
                 catScores[tag.category] = (catScores[tag.category] ?: 0f) + weightMultiplier
             }
+            catScores[knowledge.primaryCategory] = (catScores[knowledge.primaryCategory] ?: 0f) + weightMultiplier
 
             val channel = video.uploaderName.lowercase(Locale.ROOT).trim()
             if (channel.isNotBlank()) {
                 chanScores[channel] = (chanScores[channel] ?: 0f) + weightMultiplier
                 chanWatchCounts[channel] = (chanWatchCounts[channel] ?: 0) + 1
+            }
+
+            val prov = knowledge.providerId
+            if (prov.isNotBlank()) {
+                providerScores[prov] = (providerScores[prov] ?: 0f) + weightMultiplier
+            }
+
+            for (ht in knowledge.hashtags) {
+                hashtagScores[ht] = (hashtagScores[ht] ?: 0f) + (weightMultiplier * 0.8f)
             }
 
             langScores[lang.code] = (langScores[lang.code] ?: 0f) + weightMultiplier
@@ -354,11 +392,16 @@ object SmartRecommendationEngine {
         val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val hourlyCatAff = UserActivityMemory.getHourlyCategoryAffinity(currentHour)
         val hourlyChanAff = UserActivityMemory.getHourlyChannelAffinity(currentHour)
+        val hourlyProvAff = UserActivityMemory.getHourlyProviderAffinity(currentHour)
+        val hourlyLangAff = UserActivityMemory.getHourlyLanguageAffinity(currentHour)
+        val provTimeSpent = UserActivityMemory.getProviderTimeSpentMap()
 
         return TasteVector(
             categoryScores = catScores,
             channelScores = chanScores,
             languageScores = langScores,
+            providerScores = providerScores,
+            hashtagScores = hashtagScores,
             searchIntentTerms = cleanSearchTerms,
             searchTokens = searchTokens,
             channelWatchCounts = chanWatchCounts,
@@ -369,7 +412,10 @@ object SmartRecommendationEngine {
             dislikedKeywords = dislikedKeywords,
             dislikedCategories = dislikedCategories,
             hourlyCategoryAffinities = hourlyCatAff,
-            hourlyChannelAffinities = hourlyChanAff
+            hourlyChannelAffinities = hourlyChanAff,
+            hourlyProviderAffinities = hourlyProvAff,
+            hourlyLanguageAffinities = hourlyLangAff,
+            providerTimeSpent = provTimeSpent
         )
     }
 
@@ -400,6 +446,7 @@ object SmartRecommendationEngine {
         }
 
         var score = 10.0f
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
         val tags = SmartTagExtractor.extractInternalCategoryTags(video)
         val titleLower = (video.title ?: "").lowercase(Locale.ROOT).trim()
         val descLower = (video.description ?: "").lowercase(Locale.ROOT)
@@ -422,11 +469,13 @@ object SmartRecommendationEngine {
             }
         }
 
-        // A. Category Alignment
+        // A. Category Alignment (Both standard and deep knowledge category)
         for (tag in tags) {
             val catW = tasteVector.categoryScores[tag.category] ?: 0f
             score += catW * 2.8f
         }
+        val primaryCatW = tasteVector.categoryScores[knowledge.primaryCategory] ?: 0f
+        score += primaryCatW * 2.5f
 
         // B. Channel Affinity & Creator Promotion (Boost source channels user loves!)
         if (channel.isNotBlank()) {
@@ -439,14 +488,35 @@ object SmartRecommendationEngine {
             }
         }
 
-        // C. Content Language Promotion (English, Hindi, Japanese)
+        // C. Provider / Source Affinity & Dwell Time Preference
+        val prov = knowledge.providerId
+        if (prov.isNotBlank()) {
+            val provW = tasteVector.providerScores[prov] ?: 0f
+            score += provW * 3.5f
+
+            // Bonus if user has significant watch/dwell time on this provider
+            val timeSpent = tasteVector.providerTimeSpent[prov] ?: 0L
+            if (timeSpent > 300_000L) { // > 5 minutes of engagement
+                score += 15.0f
+            }
+        }
+
+        // D. Semantic Hashtag Intelligence (Internal deep tagging)
+        for (ht in knowledge.hashtags) {
+            val htW = tasteVector.hashtagScores[ht] ?: 0f
+            if (htW > 0f) {
+                score += (htW * 2.2f).coerceAtMost(30.0f)
+            }
+        }
+
+        // E. Content Language Promotion (Chinese, Japanese, Hindi, English)
         val langW = tasteVector.languageScores[lang.code] ?: 0f
         score += langW * 3.0f
-        if (lang == ContentLanguage.HINDI || lang == ContentLanguage.JAPANESE || lang == ContentLanguage.ENGLISH) {
+        if (lang == ContentLanguage.HINDI || lang == ContentLanguage.JAPANESE || lang == ContentLanguage.CHINESE || lang == ContentLanguage.ENGLISH) {
             score += 12.0f
         }
 
-        // D. Direct Search Intent & Keyword Relevance Matching
+        // F. Direct Search Intent & Keyword Relevance Matching
         if (tasteVector.searchTokens.isNotEmpty()) {
             var tokenHits = 0
             for (token in tasteVector.searchTokens) {
@@ -463,7 +533,7 @@ object SmartRecommendationEngine {
             }
         }
 
-        // E. Exact Search Phrase Match Bonus
+        // G. Exact Search Phrase Match Bonus
         var matchedSearchTerm: String? = null
         for (searchTerm in tasteVector.searchIntentTerms) {
             val termLower = searchTerm.lowercase(Locale.ROOT)
@@ -474,8 +544,8 @@ object SmartRecommendationEngine {
             }
         }
 
-        // F. Learned Circadian Time-of-Day Contextual Intelligence
-        // 1) Dynamic learned preference at this specific hour of the day
+        // H. Learned Circadian Time-of-Day Contextual Intelligence
+        // 1) Dynamic learned preference at this specific hour of the day (Categories, Channels, Providers, Languages)
         var learnedHourHit = false
         for (tag in tags) {
             val learnedCatBoost = tasteVector.hourlyCategoryAffinities[tag.category] ?: 0f
@@ -491,6 +561,18 @@ object SmartRecommendationEngine {
                 learnedHourHit = true
             }
         }
+        if (prov.isNotBlank()) {
+            val learnedProvBoost = tasteVector.hourlyProviderAffinities[prov] ?: 0f
+            if (learnedProvBoost > 0f) {
+                score += (learnedProvBoost * 5.0f).coerceAtMost(35.0f)
+                learnedHourHit = true
+            }
+        }
+        val learnedLangBoost = tasteVector.hourlyLanguageAffinities[lang.code] ?: 0f
+        if (learnedLangBoost > 0f) {
+            score += (learnedLangBoost * 4.0f).coerceAtMost(25.0f)
+            learnedHourHit = true
+        }
 
         // 2) Baseline circadian learning if no user history for this hour yet
         for (tag in tags) {
@@ -503,15 +585,15 @@ object SmartRecommendationEngine {
                     if (cat in listOf("Comedy", "Gaming", "Music", "Sports", "Auto", "Food", "comedy", "gaming", "music", "sports")) score += 4.5f
                 }
                 in 18..23 -> {
-                    if (cat in listOf("Movie Trailer", "Movie", "Video Essay", "Philosophy", "Anime", "Cinema", "movie", "movie_trailer", "anime", "series")) score += 6.0f
+                    if (cat in listOf("Movie Trailer", "Movie", "Video Essay", "Philosophy", "Anime", "Cinema", "movie", "movie_trailer", "anime", "series", "chinese_drama_donghua")) score += 6.0f
                 }
                 else -> { // Late night 0..5 AM
-                    if (cat in listOf("Video Essay", "Philosophy", "Music", "Movie", "Podcast", "music", "podcast", "video_essay", "nsfw_adult", "asmr", "lofi")) score += 4.5f
+                    if (cat in listOf("Video Essay", "Philosophy", "Music", "Movie", "Podcast", "music", "podcast", "video_essay", "nsfw_adult", "adult_hd_tube", "live_cams_webcams", "asmr", "lofi")) score += 4.5f
                 }
             }
         }
 
-        // G. Contextual Player Match (Active Video Player)
+        // I. Contextual Player Match (Active Video Player)
         var isContextualRelated = false
         if (activeVideo != null) {
             val activeTags = SmartTagExtractor.extractInternalCategoryTags(activeVideo).map { it.category }.toSet()
@@ -530,7 +612,7 @@ object SmartRecommendationEngine {
 
             // Keyword overlap between current playing video title and candidate
             val activeKeywords = activeVideo.title.lowercase(Locale.ROOT)
-                .split(Regex("[^a-zA-Z0-9]+"))
+                .split(Regex("[^\\p{L}0-9]+"))
                 .filter { it.length >= 4 && it !in setOf("video", "official", "trailer", "full", "movie", "part", "hindi", "english") }
             var kwHits = 0
             for (kw in activeKeywords) {
@@ -544,6 +626,10 @@ object SmartRecommendationEngine {
             val activeLang = detectLanguage(activeVideo)
             if (activeLang == lang) {
                 score += 8.0f
+            }
+
+            if (activeVideo.providerId != null && activeVideo.providerId == video.providerId) {
+                score += 10.0f
             }
         }
 
@@ -565,6 +651,8 @@ object SmartRecommendationEngine {
                 "🔍 Matches search '$matchedSearchTerm'"
             learnedHourHit && tags.isNotEmpty() ->
                 "🕒 Your $timeLabel pick (${tags.first().displayName})"
+            lang == ContentLanguage.CHINESE && langW > 10f ->
+                "🇨🇳 Top Chinese pick for you"
             lang == ContentLanguage.HINDI && langW > 10f ->
                 "🇮🇳 Top Hindi pick for you"
             lang == ContentLanguage.JAPANESE && langW > 10f ->

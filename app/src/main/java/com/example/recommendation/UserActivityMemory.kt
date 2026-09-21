@@ -57,10 +57,23 @@ object UserActivityMemory {
     private val likedVideos = ConcurrentHashMap<String, LikedVideoInfo>()
     private val favoriteChannels = ConcurrentHashMap<String, Float>() // channel -> affinity weight
 
+    // Cumulative time spent watching per source/provider (in milliseconds)
+    private val providerTimeSpentMs = ConcurrentHashMap<String, Long>()
+
     // 24-hour histogram: Hour (0..23) -> Category -> Watch count
     private val hourlyCategoryCounts = ConcurrentHashMap<Int, ConcurrentHashMap<String, Int>>()
     // 24-hour histogram: Hour (0..23) -> Channel -> Watch count
     private val hourlyChannelCounts = ConcurrentHashMap<Int, ConcurrentHashMap<String, Int>>()
+    // 24-hour histogram: Hour (0..23) -> Provider -> Watch count
+    private val hourlyProviderCounts = ConcurrentHashMap<Int, ConcurrentHashMap<String, Int>>()
+    // 24-hour histogram: Hour (0..23) -> Language code -> Watch count
+    private val hourlyLanguageCounts = ConcurrentHashMap<Int, ConcurrentHashMap<String, Int>>()
+
+    // Deep Semantic Affinity Graphs
+    private val hashtagAffinities = ConcurrentHashMap<String, Float>()
+    private val languageAffinities = ConcurrentHashMap<String, Float>()
+    private val providerAffinities = ConcurrentHashMap<String, Float>()
+    private val categoryAffinities = ConcurrentHashMap<String, Float>()
 
     // Completion / Bounce tracking
     private val highCompletionChannels = ConcurrentHashMap<String, Int>()
@@ -99,6 +112,8 @@ object UserActivityMemory {
                 loadLikes(prefs)
                 loadHourlyPatterns(prefs)
                 loadChannelAffinities(prefs)
+                loadKnowledgeAffinities(prefs)
+                loadProviderTimeSpent(prefs)
                 isInitialized = true
                 Log.i(TAG, "UserActivityMemory initialized. Dislikes: ${dislikedVideos.size}, Likes: ${likedVideos.size}")
             } catch (e: Exception) {
@@ -119,10 +134,10 @@ object UserActivityMemory {
         val vid = video.id.trim()
         if (vid.isEmpty()) return
 
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
         val channel = video.uploaderName.trim().lowercase(Locale.ROOT)
         val extractedTags = SmartTagExtractor.extractSemanticKeywords(video)
-        val catTags = SmartTagExtractor.extractInternalCategoryTags(video)
-        val mainCat = catTags.firstOrNull()?.category ?: "general"
+        val mainCat = knowledge.primaryCategory
 
         val info = DislikedVideoInfo(
             videoId = vid,
@@ -141,6 +156,16 @@ object UserActivityMemory {
 
         dislikedCategories[mainCat] = (dislikedCategories[mainCat] ?: 0) + 1
 
+        // Knowledge penalties
+        val prov = knowledge.providerId
+        if (prov.isNotBlank()) {
+            providerAffinities[prov] = (providerAffinities[prov] ?: 0f) - 20f
+        }
+        categoryAffinities[mainCat] = (categoryAffinities[mainCat] ?: 0f) - 20f
+        for (ht in knowledge.hashtags) {
+            hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) - 15f
+        }
+
         // Extract semantic negative keywords (filter common noise)
         val stopWords = setOf("the", "and", "for", "with", "video", "official", "movie", "trailer", "part", "hindi", "english")
         val keywords = video.title.lowercase(Locale.ROOT)
@@ -155,6 +180,7 @@ object UserActivityMemory {
         }
 
         persistDislikes(context)
+        persistKnowledgeAffinities(context)
     }
 
     fun removeDislike(videoId: String, context: Context) {
@@ -192,9 +218,9 @@ object UserActivityMemory {
 
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val channel = video.uploaderName.trim().lowercase(Locale.ROOT)
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
         val extractedTags = SmartTagExtractor.extractSemanticKeywords(video)
-        val catTags = SmartTagExtractor.extractInternalCategoryTags(video)
-        val mainCat = catTags.firstOrNull()?.category ?: "general"
+        val mainCat = knowledge.primaryCategory
 
         val info = LikedVideoInfo(
             videoId = vid,
@@ -215,12 +241,27 @@ object UserActivityMemory {
             favoriteChannels[channel] = (favoriteChannels[channel] ?: 0f) + 25f
         }
 
-        // Record hourly positive preference
-        recordHourlyActivity(hour, mainCat, channel)
+        // Deep Knowledge Boosts
+        val prov = knowledge.providerId
+        if (prov.isNotBlank()) {
+            providerAffinities[prov] = (providerAffinities[prov] ?: 0f) + 25f
+        }
+        val lang = knowledge.detectedLanguage.code
+        if (lang != "other") {
+            languageAffinities[lang] = (languageAffinities[lang] ?: 0f) + 20f
+        }
+        categoryAffinities[mainCat] = (categoryAffinities[mainCat] ?: 0f) + 20f
+        for (ht in knowledge.hashtags) {
+            hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) + 15f
+        }
+
+        // Record hourly positive preference across category, channel, provider, and language
+        recordHourlyActivity(hour, mainCat, channel, prov, lang)
 
         persistLikes(context)
         persistChannelAffinities(context)
         persistHourlyPatterns(context)
+        persistKnowledgeAffinities(context)
     }
 
     fun removeLike(videoId: String, context: Context) {
@@ -241,6 +282,77 @@ object UserActivityMemory {
     fun getLikedVideosList(): List<LikedVideoInfo> = likedVideos.values.toList()
 
     // ==========================================
+    // BOOKMARKS & WATCH LATER INTENT TRACKING
+    // ==========================================
+
+    fun recordBookmark(video: VideoItem, context: Context) {
+        val vid = video.id.trim()
+        if (vid.isEmpty()) return
+
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val channel = video.uploaderName.trim().lowercase(Locale.ROOT)
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
+        val mainCat = knowledge.primaryCategory
+        val prov = knowledge.providerId
+        val lang = knowledge.detectedLanguage.code
+
+        if (channel.isNotBlank()) {
+            favoriteChannels[channel] = (favoriteChannels[channel] ?: 0f) + 14.0f
+        }
+        if (prov.isNotBlank()) {
+            providerAffinities[prov] = (providerAffinities[prov] ?: 0f) + 14.0f
+        }
+        categoryAffinities[mainCat] = (categoryAffinities[mainCat] ?: 0f) + 14.0f
+        if (lang != "other") {
+            languageAffinities[lang] = (languageAffinities[lang] ?: 0f) + 10.0f
+        }
+        for (ht in knowledge.hashtags) {
+            hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) + 8.0f
+        }
+
+        recordHourlyActivity(hour, mainCat, channel, prov, lang)
+        persistKnowledgeAffinities(context)
+        persistChannelAffinities(context)
+        persistHourlyPatterns(context)
+    }
+
+    fun recordRemoveBookmark(videoId: String, context: Context) {
+        // Soft reduction if user un-saves
+        persistKnowledgeAffinities(context)
+    }
+
+    fun recordPlaylistAdd(video: VideoItem, playlistTitle: String, context: Context) {
+        val vid = video.id.trim()
+        if (vid.isEmpty()) return
+
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val channel = video.uploaderName.trim().lowercase(Locale.ROOT)
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
+        val mainCat = knowledge.primaryCategory
+        val prov = knowledge.providerId
+        val lang = knowledge.detectedLanguage.code
+
+        if (channel.isNotBlank()) {
+            favoriteChannels[channel] = (favoriteChannels[channel] ?: 0f) + 18.0f
+        }
+        if (prov.isNotBlank()) {
+            providerAffinities[prov] = (providerAffinities[prov] ?: 0f) + 18.0f
+        }
+        categoryAffinities[mainCat] = (categoryAffinities[mainCat] ?: 0f) + 18.0f
+        if (lang != "other") {
+            languageAffinities[lang] = (languageAffinities[lang] ?: 0f) + 12.0f
+        }
+        for (ht in knowledge.hashtags) {
+            hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) + 10.0f
+        }
+
+        recordHourlyActivity(hour, mainCat, channel, prov, lang)
+        persistKnowledgeAffinities(context)
+        persistChannelAffinities(context)
+        persistHourlyPatterns(context)
+    }
+
+    // ==========================================
     // WATCH DWELL, COMPLETION & TIME HISTOGRAMS
     // ==========================================
 
@@ -253,11 +365,13 @@ object UserActivityMemory {
     ) {
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val channel = video.uploaderName.trim().lowercase(Locale.ROOT)
-        val catTags = SmartTagExtractor.extractInternalCategoryTags(video)
-        val mainCat = catTags.firstOrNull()?.category ?: "general"
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
+        val mainCat = knowledge.primaryCategory
+        val prov = knowledge.providerId
+        val lang = knowledge.detectedLanguage.code
 
-        // Update hourly pattern
-        recordHourlyActivity(hour, mainCat, channel)
+        // Update hourly pattern across dimensions
+        recordHourlyActivity(hour, mainCat, channel, prov, lang)
 
         // Completion signals
         if (progressFraction >= 0.70f || currentPositionMs >= 180_000L) {
@@ -266,11 +380,24 @@ object UserActivityMemory {
                 highCompletionChannels[channel] = (highCompletionChannels[channel] ?: 0) + 1
                 favoriteChannels[channel] = (favoriteChannels[channel] ?: 0f) + 4.0f
             }
+            if (prov.isNotBlank()) {
+                providerAffinities[prov] = (providerAffinities[prov] ?: 0f) + 3.0f
+            }
+            categoryAffinities[mainCat] = (categoryAffinities[mainCat] ?: 0f) + 3.0f
+            if (lang != "other") {
+                languageAffinities[lang] = (languageAffinities[lang] ?: 0f) + 2.5f
+            }
+            for (ht in knowledge.hashtags) {
+                hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) + 2.0f
+            }
         } else if (progressFraction < 0.12f && currentPositionMs in 5_000L..25_000L && totalDurationMs > 60_000L) {
             // Fast skip / early bounce
             if (channel.isNotBlank()) {
                 earlyBounceChannels[channel] = (earlyBounceChannels[channel] ?: 0) + 1
                 favoriteChannels[channel] = (favoriteChannels[channel] ?: 0f) - 3.0f
+            }
+            for (ht in knowledge.hashtags) {
+                hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) - 1.5f
             }
         }
 
@@ -278,16 +405,82 @@ object UserActivityMemory {
         if (System.currentTimeMillis() % 5 == 0L) {
             persistHourlyPatterns(context)
             persistChannelAffinities(context)
+            persistKnowledgeAffinities(context)
         }
     }
 
-    private fun recordHourlyActivity(hour: Int, category: String, channel: String) {
+    /**
+     * Dwell Time & Active Playback Recorder.
+     * Records exact time spent (in milliseconds) on the active video/source,
+     * including live streams and tube video playback.
+     */
+    fun recordDwellTime(
+        video: VideoItem,
+        sessionDeltaMs: Long,
+        currentPositionMs: Long,
+        totalDurationMs: Long,
+        context: Context
+    ) {
+        if (sessionDeltaMs <= 0L) return
+        val prov = (video.providerId ?: "youtube").lowercase(Locale.ROOT)
+
+        // 1. Accumulate total time spent on this provider
+        val currentSpent = providerTimeSpentMs[prov] ?: 0L
+        providerTimeSpentMs[prov] = currentSpent + sessionDeltaMs
+
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val channel = video.uploaderName.trim().lowercase(Locale.ROOT)
+        val knowledge = VideoKnowledgeExtractor.extractKnowledge(video)
+        val mainCat = knowledge.primaryCategory
+        val lang = knowledge.detectedLanguage.code
+
+        // 2. Update timeline histograms
+        recordHourlyActivity(hour, mainCat, channel, prov, lang)
+
+        // 3. Increment provider affinity based on dwell time (1 point per 60 seconds watched)
+        val dwellPoints = (sessionDeltaMs.toFloat() / 60_000f) * 1.5f
+        if (dwellPoints > 0f) {
+            providerAffinities[prov] = (providerAffinities[prov] ?: 0f) + dwellPoints
+            categoryAffinities[mainCat] = (categoryAffinities[mainCat] ?: 0f) + dwellPoints
+            if (lang != "other") {
+                languageAffinities[lang] = (languageAffinities[lang] ?: 0f) + (dwellPoints * 0.8f)
+            }
+            for (ht in knowledge.hashtags) {
+                hashtagAffinities[ht] = (hashtagAffinities[ht] ?: 0f) + (dwellPoints * 0.5f)
+            }
+        }
+
+        // Periodically save
+        if (System.currentTimeMillis() % 10 == 0L) {
+            persistProviderTimeSpent(context)
+            persistHourlyPatterns(context)
+            persistKnowledgeAffinities(context)
+        }
+    }
+
+    private fun recordHourlyActivity(
+        hour: Int,
+        category: String,
+        channel: String,
+        provider: String = "",
+        language: String = ""
+    ) {
         val catMap = hourlyCategoryCounts.getOrPut(hour) { ConcurrentHashMap() }
         catMap[category] = (catMap[category] ?: 0) + 1
 
         if (channel.isNotBlank()) {
             val chanMap = hourlyChannelCounts.getOrPut(hour) { ConcurrentHashMap() }
             chanMap[channel] = (chanMap[channel] ?: 0) + 1
+        }
+
+        if (provider.isNotBlank()) {
+            val provMap = hourlyProviderCounts.getOrPut(hour) { ConcurrentHashMap() }
+            provMap[provider] = (provMap[provider] ?: 0) + 1
+        }
+
+        if (language.isNotBlank() && language != "other") {
+            val langMap = hourlyLanguageCounts.getOrPut(hour) { ConcurrentHashMap() }
+            langMap[language] = (langMap[language] ?: 0) + 1
         }
     }
 
@@ -337,6 +530,70 @@ object UserActivityMemory {
 
         return result
     }
+
+    /**
+     * Computes the user's learned provider/source affinity weights for a specific hour of day (0..23).
+     */
+    fun getHourlyProviderAffinity(targetHour: Int): Map<String, Float> {
+        ensureInitialized()
+        val result = mutableMapOf<String, Float>()
+        val hoursToCheck = listOf(
+            (targetHour + 23) % 24,
+            targetHour,
+            (targetHour + 1) % 24
+        )
+
+        for (h in hoursToCheck) {
+            val counts = hourlyProviderCounts[h] ?: continue
+            val weight = if (h == targetHour) 1.5f else 0.8f
+            for ((prov, count) in counts) {
+                result[prov] = (result[prov] ?: 0f) + (count * weight)
+            }
+        }
+
+        return result
+    }
+
+    /**
+     * Computes the user's learned language affinity weights for a specific hour of day (0..23).
+     */
+    fun getHourlyLanguageAffinity(targetHour: Int): Map<String, Float> {
+        ensureInitialized()
+        val result = mutableMapOf<String, Float>()
+        val hoursToCheck = listOf(
+            (targetHour + 23) % 24,
+            targetHour,
+            (targetHour + 1) % 24
+        )
+
+        for (h in hoursToCheck) {
+            val counts = hourlyLanguageCounts[h] ?: continue
+            val weight = if (h == targetHour) 1.5f else 0.8f
+            for ((lang, count) in counts) {
+                result[lang] = (result[lang] ?: 0f) + (count * weight)
+            }
+        }
+
+        return result
+    }
+
+    fun getProviderTimeSpentMap(): Map<String, Long> {
+        ensureInitialized()
+        return providerTimeSpentMs.toMap()
+    }
+
+    fun getTopProvidersByTimeSpent(): List<Pair<String, Long>> {
+        ensureInitialized()
+        return providerTimeSpentMs.entries
+            .filter { it.value > 0L }
+            .sortedByDescending { it.value }
+            .map { it.key to it.value }
+    }
+
+    fun getHashtagAffinities(): Map<String, Float> { ensureInitialized(); return hashtagAffinities.toMap() }
+    fun getLanguageAffinities(): Map<String, Float> { ensureInitialized(); return languageAffinities.toMap() }
+    fun getProviderAffinities(): Map<String, Float> { ensureInitialized(); return providerAffinities.toMap() }
+    fun getCategoryAffinities(): Map<String, Float> { ensureInitialized(); return categoryAffinities.toMap() }
 
     fun getFavoriteChannels(): List<String> {
         ensureInitialized()
@@ -475,7 +732,30 @@ object UserActivityMemory {
                 }
                 catObj.put(hour.toString(), hObj)
             }
-            getPrefs(context).edit().putString("hourly_categories_json", catObj.toString()).apply()
+
+            val provObj = JSONObject()
+            for ((hour, counts) in hourlyProviderCounts) {
+                val hObj = JSONObject()
+                for ((prov, count) in counts) {
+                    hObj.put(prov, count)
+                }
+                provObj.put(hour.toString(), hObj)
+            }
+
+            val langObj = JSONObject()
+            for ((hour, counts) in hourlyLanguageCounts) {
+                val hObj = JSONObject()
+                for ((lang, count) in counts) {
+                    hObj.put(lang, count)
+                }
+                langObj.put(hour.toString(), hObj)
+            }
+
+            getPrefs(context).edit()
+                .putString("hourly_categories_json", catObj.toString())
+                .putString("hourly_providers_json", provObj.toString())
+                .putString("hourly_languages_json", langObj.toString())
+                .apply()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist hourly patterns", e)
         }
@@ -483,19 +763,144 @@ object UserActivityMemory {
 
     private fun loadHourlyPatterns(prefs: SharedPreferences) {
         try {
-            val catStr = prefs.getString("hourly_categories_json", null) ?: return
-            val catObj = JSONObject(catStr)
-            for (key in catObj.keys()) {
-                val hour = key.toIntOrNull() ?: continue
-                val hObj = catObj.getJSONObject(key)
-                val map = ConcurrentHashMap<String, Int>()
-                for (cat in hObj.keys()) {
-                    map[cat] = hObj.getInt(cat)
+            val catStr = prefs.getString("hourly_categories_json", null)
+            if (catStr != null) {
+                val catObj = JSONObject(catStr)
+                for (key in catObj.keys()) {
+                    val hour = key.toIntOrNull() ?: continue
+                    val hObj = catObj.getJSONObject(key)
+                    val map = ConcurrentHashMap<String, Int>()
+                    for (cat in hObj.keys()) {
+                        map[cat] = hObj.getInt(cat)
+                    }
+                    hourlyCategoryCounts[hour] = map
                 }
-                hourlyCategoryCounts[hour] = map
+            }
+
+            val provStr = prefs.getString("hourly_providers_json", null)
+            if (provStr != null) {
+                val provObj = JSONObject(provStr)
+                for (key in provObj.keys()) {
+                    val hour = key.toIntOrNull() ?: continue
+                    val hObj = provObj.getJSONObject(key)
+                    val map = ConcurrentHashMap<String, Int>()
+                    for (prov in hObj.keys()) {
+                        map[prov] = hObj.getInt(prov)
+                    }
+                    hourlyProviderCounts[hour] = map
+                }
+            }
+
+            val langStr = prefs.getString("hourly_languages_json", null)
+            if (langStr != null) {
+                val langObj = JSONObject(langStr)
+                for (key in langObj.keys()) {
+                    val hour = key.toIntOrNull() ?: continue
+                    val hObj = langObj.getJSONObject(key)
+                    val map = ConcurrentHashMap<String, Int>()
+                    for (lang in hObj.keys()) {
+                        map[lang] = hObj.getInt(lang)
+                    }
+                    hourlyLanguageCounts[hour] = map
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load hourly patterns", e)
+        }
+    }
+
+    private fun persistKnowledgeAffinities(context: Context) {
+        try {
+            val root = JSONObject()
+
+            val htObj = JSONObject()
+            for ((ht, score) in hashtagAffinities) {
+                htObj.put(ht, score.toDouble())
+            }
+            root.put("hashtags", htObj)
+
+            val langObj = JSONObject()
+            for ((l, score) in languageAffinities) {
+                langObj.put(l, score.toDouble())
+            }
+            root.put("languages", langObj)
+
+            val provObj = JSONObject()
+            for ((p, score) in providerAffinities) {
+                provObj.put(p, score.toDouble())
+            }
+            root.put("providers", provObj)
+
+            val catObj = JSONObject()
+            for ((c, score) in categoryAffinities) {
+                catObj.put(c, score.toDouble())
+            }
+            root.put("categories", catObj)
+
+            getPrefs(context).edit().putString("knowledge_affinities_json", root.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to persist knowledge affinities", e)
+        }
+    }
+
+    private fun loadKnowledgeAffinities(prefs: SharedPreferences) {
+        try {
+            val str = prefs.getString("knowledge_affinities_json", null) ?: return
+            val root = JSONObject(str)
+
+            val htObj = root.optJSONObject("hashtags")
+            if (htObj != null) {
+                for (k in htObj.keys()) {
+                    hashtagAffinities[k] = htObj.getDouble(k).toFloat()
+                }
+            }
+
+            val langObj = root.optJSONObject("languages")
+            if (langObj != null) {
+                for (k in langObj.keys()) {
+                    languageAffinities[k] = langObj.getDouble(k).toFloat()
+                }
+            }
+
+            val provObj = root.optJSONObject("providers")
+            if (provObj != null) {
+                for (k in provObj.keys()) {
+                    providerAffinities[k] = provObj.getDouble(k).toFloat()
+                }
+            }
+
+            val catObj = root.optJSONObject("categories")
+            if (catObj != null) {
+                for (k in catObj.keys()) {
+                    categoryAffinities[k] = catObj.getDouble(k).toFloat()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load knowledge affinities", e)
+        }
+    }
+
+    private fun persistProviderTimeSpent(context: Context) {
+        try {
+            val obj = JSONObject()
+            for ((prov, timeMs) in providerTimeSpentMs) {
+                obj.put(prov, timeMs)
+            }
+            getPrefs(context).edit().putString("provider_time_spent_json", obj.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to persist provider time spent", e)
+        }
+    }
+
+    private fun loadProviderTimeSpent(prefs: SharedPreferences) {
+        try {
+            val str = prefs.getString("provider_time_spent_json", null) ?: return
+            val obj = JSONObject(str)
+            for (k in obj.keys()) {
+                providerTimeSpentMs[k] = obj.getLong(k)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load provider time spent", e)
         }
     }
 

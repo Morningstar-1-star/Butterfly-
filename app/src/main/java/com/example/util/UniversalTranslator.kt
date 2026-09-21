@@ -237,6 +237,17 @@ object UniversalTranslator {
             )
         }
 
+        // If title is English, keep as English with zero network overhead
+        if (detectedLang == "en") {
+            return TranslationResult(
+                originalText = title,
+                translatedEN = title,
+                translatedHI = "",
+                detectedLanguage = "en",
+                confidence = 1.0f
+            )
+        }
+
         // Check memory cache
         memoryCache[title]?.let { return it }
 

@@ -77,36 +77,85 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         val currentPos = initialPosOverride ?: GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
         val currentSpeed = GlobalPlayerManager.getExoPlayer(context).playbackParameters.speed
 
-        if (candidate.type == SourceStreamType.EMBED_WEBVIEW) {
-            _activeCandidate.value = candidate
-            GlobalPlayerManager.prepareAndPlay(
-                context = context,
-                streamData = null,
-                streamOption = null,
-                hlsUrl = null,
-                captionOption = null
-            )
-            onStatus("Loaded embed player: ${candidate.serverName}")
-            _isResolving.value = false
-            return@withContext true
+        val isEmbed = candidate.type == SourceStreamType.EMBED_WEBVIEW ||
+                candidate.urlOrMagnet.contains("/embed/", ignoreCase = true) ||
+                candidate.urlOrMagnet.contains("vidsrc.", ignoreCase = true) ||
+                candidate.urlOrMagnet.contains("vidrock.", ignoreCase = true) ||
+                candidate.urlOrMagnet.contains("vidlink.", ignoreCase = true) ||
+                candidate.urlOrMagnet.contains("2embed.", ignoreCase = true)
+
+        val effectiveCandidate = if (isEmbed && !candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true) && !candidate.urlOrMagnet.contains(".mp4", ignoreCase = true)) {
+            onStatus("Extracting native video stream from ${candidate.serverName}...")
+            val tmdbId = Regex("""\d+""").find(candidate.urlOrMagnet)?.value ?: ""
+            val isTv = candidate.urlOrMagnet.contains("/tv") || candidate.urlOrMagnet.contains("tv=")
+            val directStreams = if (tmdbId.isNotBlank()) {
+                try {
+                    com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+                        context = context,
+                        tmdbIdOrUrl = tmdbId,
+                        mediaType = if (isTv) "tv" else "movie",
+                        title = candidate.title,
+                        providerName = candidate.providerName
+                    )
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            if (directStreams.isNotEmpty() && !directStreams.first().videoUrl.isNullOrBlank()) {
+                val primary = directStreams.first()
+                candidate.copy(
+                    type = SourceStreamType.HLS,
+                    urlOrMagnet = primary.videoUrl.orEmpty(),
+                    format = primary.format ?: "m3u8",
+                    headers = primary.headers
+                )
+            } else {
+                val sniffed = try {
+                    withContext(Dispatchers.Main) {
+                        com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(context, candidate.urlOrMagnet)
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+                if (sniffed != null && !sniffed.videoUrl.isNullOrBlank() && !sniffed.videoUrl.contains("/embed/")) {
+                    candidate.copy(
+                        type = SourceStreamType.HLS,
+                        urlOrMagnet = sniffed.videoUrl.orEmpty(),
+                        format = sniffed.format ?: "m3u8",
+                        headers = sniffed.headers
+                    )
+                } else {
+                    Log.w(TAG, "Failed to resolve live media stream for embed: ${candidate.urlOrMagnet}")
+                    onStatus("Failed to resolve playable media for ${candidate.serverName}")
+                    _isResolving.value = false
+                    return@withContext false
+                }
+            }
+        } else {
+            if (candidate.type == SourceStreamType.EMBED_WEBVIEW) {
+                candidate.copy(type = SourceStreamType.HLS, format = "m3u8")
+            } else {
+                candidate
+            }
         }
 
         try {
             val resolved = withContext(Dispatchers.IO) {
-                resolveCandidateToStream(candidate, onStatus)
+                resolveCandidateToStream(effectiveCandidate, onStatus)
             }
 
             if (resolved == null) {
-                onStatus("Failed to resolve ${candidate.serverName}")
+                onStatus("Failed to resolve ${effectiveCandidate.serverName}")
                 _isResolving.value = false
                 return@withContext false
             }
 
-            _activeCandidate.value = candidate
+            _activeCandidate.value = effectiveCandidate
 
             // Package into StreamData & PlayableStreamOption for GlobalPlayerManager
             val streamOption = PlayableStreamOption(
-                qualityLabel = candidate.quality,
+                qualityLabel = effectiveCandidate.quality,
                 format = resolved.format,
                 isMuxed = true,
                 videoUrl = resolved.mediaUri,
@@ -114,12 +163,12 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             )
 
             val streamData = StreamData(
-                videoId = candidate.id,
-                title = candidate.title,
-                channelName = candidate.serverName,
+                videoId = effectiveCandidate.id,
+                title = effectiveCandidate.title,
+                channelName = effectiveCandidate.serverName,
                 availableStreamOptions = listOf(streamOption),
                 selectedStreamOption = streamOption,
-                providerId = candidate.providerId,
+                providerId = effectiveCandidate.providerId,
                 headers = resolved.headers
             )
 
@@ -128,7 +177,7 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
                 context = context,
                 streamData = streamData,
                 streamOption = streamOption,
-                hlsUrl = if (candidate.type == SourceStreamType.HLS) resolved.mediaUri else null,
+                hlsUrl = if (effectiveCandidate.type == SourceStreamType.HLS) resolved.mediaUri else null,
                 captionOption = null,
                 initialPos = currentPos
             )

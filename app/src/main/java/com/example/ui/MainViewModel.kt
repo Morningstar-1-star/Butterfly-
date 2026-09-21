@@ -99,6 +99,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             obj.put("uploaderName", v.uploaderName)
             obj.put("thumbnailUrl", v.thumbnailUrl)
             obj.put("providerId", v.providerId)
+            obj.put("durationSeconds", v.durationSeconds)
+            obj.put("description", v.description)
+            val tagsArr = JSONArray()
+            v.tags.forEach { tagsArr.put(it) }
+            obj.put("tags", tagsArr)
             arr.put(obj)
         }
         return arr.toString()
@@ -111,16 +116,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val list = mutableListOf<VideoItem>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                list.add(
-                    VideoItem(
-                        id = obj.optString("id"),
-                        title = obj.optString("title"),
-                        uploaderName = obj.optString("uploaderName"),
-                        thumbnailUrl = obj.optString("thumbnailUrl").takeIf { it.isNotBlank() },
-                        providerId = obj.optString("providerId").takeIf { !it.isNullOrEmpty() },
-                        durationSeconds = 0L
-                    )
+                val tagsList = mutableListOf<String>()
+                val tagsArr = obj.optJSONArray("tags")
+                if (tagsArr != null) {
+                    for (j in 0 until tagsArr.length()) {
+                        tagsList.add(tagsArr.optString(j))
+                    }
+                }
+                val base = VideoItem(
+                    id = obj.optString("id"),
+                    title = obj.optString("title"),
+                    uploaderName = obj.optString("uploaderName"),
+                    thumbnailUrl = obj.optString("thumbnailUrl").takeIf { it.isNotBlank() },
+                    providerId = obj.optString("providerId").takeIf { !it.isNullOrEmpty() },
+                    durationSeconds = obj.optLong("durationSeconds", 0L),
+                    description = obj.optString("description").takeIf { it.isNotBlank() },
+                    tags = tagsList
                 )
+                val finalVideo = if (base.tags.isEmpty()) {
+                    base.copy(tags = com.example.util.SmartTagExtractor.extractSemanticKeywords(base))
+                } else base
+                list.add(finalVideo)
             }
             list
         } catch (e: Exception) {
@@ -192,12 +208,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val adultIdsList = listOf(
-        "supjav", "sextb", "123av", "javtiful", "jav_all", "pornhub", "xvideos", "chaturbate", "cam4", "cammodels",
+        "supjav", "sextb", "123av", "javtiful", "jav_all", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "chaturbate", "cam4", "cammodels",
         "noodlemagazine", "thisvid", "tnaflix", "spankbang", "motherless", "playvid", "txxx", "eporner", "hanime1", "hqporner", "redtube",
         "xhamster", "beeg", "4tube", "rule34video", "youporn"
     )
     private val normalIdsList = listOf(
-        "youtube", "crunchyroll", "sonyliv", "twitch", "bigo", "bilibili", "dailymotion", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
+        "youtube", "crunchyroll", "sonyliv", "twitch", "bigo", "bilibili", "tencent", "dailymotion", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
         "decryptor", "vidsrc"
     )
@@ -213,12 +229,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (enabled) {
             newSet.addAll(adultIdsList)
             newSet.add("all")
+            newSet.add("xnxx")
+            newSet.add("hellporno")
+            newSet.add("stripchat")
+            newSet.add("chaturbate")
             if (!isAdultProviderId(_activeProviderId.value) && _activeProviderId.value != "all") {
                 _activeProviderId.value = "all"
             }
         } else {
             newSet.addAll(defaultEnabledNormalIdsList)
             newSet.add("all")
+            newSet.add("tencent")
             if (isAdultProviderId(_activeProviderId.value)) {
                 _activeProviderId.value = "all"
             }
@@ -362,13 +383,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _showOpeningAnimation = MutableStateFlow(true)
-    val showOpeningAnimation: StateFlow<Boolean> = _showOpeningAnimation.asStateFlow()
-
     private val _isOpeningAnimationEnabled = MutableStateFlow(
-        settingsPrefs.getBoolean("opening_animation_enabled", true)
+        settingsPrefs.getBoolean("opening_animation_enabled", false)
     )
     val isOpeningAnimationEnabled: StateFlow<Boolean> = _isOpeningAnimationEnabled.asStateFlow()
+
+    private val _showOpeningAnimation = MutableStateFlow(
+        settingsPrefs.getBoolean("opening_animation_enabled", false)
+    )
+    val showOpeningAnimation: StateFlow<Boolean> = _showOpeningAnimation.asStateFlow()
 
     private val _openingAnimationStyle = MutableStateFlow(
         OpeningAnimationStyle.fromId(
@@ -611,7 +634,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val adultProviderIds = setOf(
         "supjav", "sextb", "123av", "javtiful", "jav_all", "all_jav", "javplayer", "eporner",
-        "pornhub", "xvideos", "4tube", "beeg", "rule34video", "redtube", "xhamster",
+        "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "4tube", "beeg", "rule34video", "redtube", "xhamster",
         "youporn", "apijav", "hanime1", "hqporner", "cam4", "cammodels",
         "chaturbate", "noodlemagazine", "thisvid", "tnaflix", "spankbang", "motherless",
         "playvid", "txxx"
@@ -626,7 +649,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun isNormalProvider(providerId: String?): Boolean {
         if (providerId.isNullOrBlank()) return false
         val lower = providerId.lowercase()
-        return lower.startsWith("vega_") || lower.contains("youtube") || lower.contains("archive") ||
+        return lower.startsWith("vega_") || lower.contains("tencent") || lower.contains("vqq") || lower.contains("qq") ||
+               lower.contains("youtube") || lower.contains("archive") ||
                lower.contains("torrent") || lower.contains("dailymotion") || lower.contains("bilibili") ||
                lower.contains("jikan") || lower.contains("anime") || lower.contains("twitch") ||
                lower.contains("vimeo") || lower.contains("crunchyroll") || lower.contains("sonyliv") ||
@@ -679,36 +703,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
-        val migrationApplied = settingsPrefs.getBoolean("default_disabled_providers_applied_v4", false)
         val isAdult = settingsPrefs.getBoolean("adult_content_enabled", false)
-        if (!migrationApplied) {
-            settingsPrefs.edit()
-                .putBoolean("default_disabled_providers_applied_v4", true)
-                .apply()
-            val initialSet = if (isAdult) {
-                (setOf("all") + adultIdsList).toSet()
-            } else {
-                (setOf("all") + defaultEnabledNormalIdsList).toSet()
-            }
-            settingsPrefs.edit().putStringSet("enabled_provider_ids", initialSet).apply()
-            initialSet
+        val migrationApplied = settingsPrefs.getBoolean("default_disabled_providers_applied_v12", false)
+        val baseSet = if (isAdult) {
+            (setOf("all", "xnxx", "hellporno", "stripchat", "chaturbate") + adultIdsList).toMutableSet()
         } else {
-            val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
-            if (saved != null && saved.isNotEmpty()) {
-                val filtered = saved.filterTo(mutableSetOf()) { pid ->
-                    if (pid == "all") true
-                    else if (isAdult) isAdultProviderId(pid)
-                    else !isAdultProviderId(pid)
-                }
-                filtered.add("all")
-                filtered
-            } else {
-                if (isAdult) {
-                    (setOf("all") + adultIdsList).toSet()
-                } else {
-                    (setOf("all") + defaultEnabledNormalIdsList).toSet()
-                }
+            (setOf("all", "tencent") + defaultEnabledNormalIdsList).toMutableSet()
+        }
+        val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
+
+        if (!migrationApplied || saved == null || saved.isEmpty()) {
+            settingsPrefs.edit()
+                .putBoolean("default_disabled_providers_applied_v12", true)
+                .putStringSet("enabled_provider_ids", baseSet)
+                .apply()
+            baseSet
+        } else {
+            val filtered = saved.filterTo(mutableSetOf()) { pid ->
+                if (pid == "all") true
+                else if (isAdult) isAdultProviderId(pid)
+                else !isAdultProviderId(pid)
             }
+            if (isAdult) {
+                // Auto-include standard adult providers
+                filtered.addAll(adultIdsList.filterNot { it in defaultDisabledProviderIds })
+                filtered.add("xnxx")
+                filtered.add("hellporno")
+                filtered.add("stripchat")
+                filtered.add("chaturbate")
+            } else {
+                // Auto-include standard normal providers like tencent
+                filtered.addAll(defaultEnabledNormalIdsList)
+                filtered.add("tencent")
+            }
+            filtered.add("all")
+            settingsPrefs.edit()
+                .putBoolean("default_disabled_providers_applied_v12", true)
+                .putStringSet("enabled_provider_ids", filtered)
+                .apply()
+            filtered
         }
     }())
     val enabledProviderIds: StateFlow<Set<String>> = _enabledProviderIds.asStateFlow()
@@ -1326,10 +1359,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastRecordedProgressTime = 0L
 
     fun recordWatchProgress(videoId: String, currentPositionMs: Long, totalDurationMs: Long) {
-        if (totalDurationMs <= 0) return
         val now = System.currentTimeMillis()
-        if (now - lastRecordedProgressTime < 1500L) return
+        val elapsedWallClockMs = if (lastRecordedProgressTime > 0L) (now - lastRecordedProgressTime).coerceIn(0L, 10000L) else 0L
+        if (lastRecordedProgressTime > 0L && now - lastRecordedProgressTime < 1500L) return
         lastRecordedProgressTime = now
+
+        val matchingItem = (_searchResults.value + _trendingVideos.value + _watchHistory.value + listOfNotNull(_activeVideoItem.value)).firstOrNull { it.id == videoId }
+
+        // Live stream or unmetered stream
+        if (totalDurationMs <= 0L) {
+            if (matchingItem != null && elapsedWallClockMs in 1000L..10000L) {
+                com.example.recommendation.UserActivityMemory.recordDwellTime(matchingItem, elapsedWallClockMs, currentPositionMs, 0L, getApplication())
+            }
+            return
+        }
 
         val fraction = (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
         val currentFraction = _watchProgressMap.value[videoId] ?: -1f
@@ -1338,9 +1381,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _watchPositionMsMap.value = _watchPositionMsMap.value + (videoId to currentPositionMs)
             com.example.util.PlaybackResumeManager.savePosition(getApplication(), videoId, currentPositionMs, totalDurationMs)
 
-            val matchingItem = (_searchResults.value + _trendingVideos.value + _watchHistory.value + listOfNotNull(_activeVideoItem.value)).firstOrNull { it.id == videoId }
             if (matchingItem != null) {
                 com.example.recommendation.UserActivityMemory.recordWatchActivity(matchingItem, fraction, currentPositionMs, totalDurationMs, getApplication())
+                if (elapsedWallClockMs in 1000L..10000L) {
+                    com.example.recommendation.UserActivityMemory.recordDwellTime(matchingItem, elapsedWallClockMs, currentPositionMs, totalDurationMs, getApplication())
+                }
             }
         }
     }
@@ -1684,17 +1729,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addToWatchLater(video: VideoItem) {
-        if (_watchLaterList.value.none { it.id == video.id }) {
-            _watchLaterList.value = listOf(video) + _watchLaterList.value
+        val enriched = if (video.tags.isEmpty()) {
+            video.copy(tags = com.example.util.SmartTagExtractor.extractSemanticKeywords(video))
+        } else video
+        if (_watchLaterList.value.none { it.id == enriched.id }) {
+            _watchLaterList.value = listOf(enriched) + _watchLaterList.value
+            com.example.recommendation.UserActivityMemory.recordBookmark(enriched, getApplication())
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     userDataDao.insertBookmark(
                         BookmarkEntity(
-                            videoId = video.id,
-                            title = video.title ?: video.id,
-                            channelName = video.uploaderName ?: "",
-                            thumbnailUrl = video.thumbnailUrl,
-                            providerId = video.providerId
+                            videoId = enriched.id,
+                            title = enriched.title ?: enriched.id,
+                            channelName = enriched.uploaderName ?: "",
+                            thumbnailUrl = enriched.thumbnailUrl,
+                            providerId = enriched.providerId
                         )
                     )
                 } catch (t: Throwable) {
@@ -1725,6 +1774,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 description = item.overview
             )
             _watchLaterList.value = listOf(videoItem) + _watchLaterList.value.filterNot { it.id == item.id }
+            com.example.recommendation.UserActivityMemory.recordBookmark(videoItem, getApplication())
             viewModelScope.launch(Dispatchers.IO) {
                 userDataDao.insertBookmark(
                     BookmarkEntity(
@@ -1870,6 +1920,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (pl.id == playlistId) {
                 if (pl.videos.none { it.id == enriched.id }) {
                     val updated = pl.copy(videos = pl.videos + enriched)
+                    com.example.recommendation.UserActivityMemory.recordPlaylistAdd(enriched, pl.title, getApplication())
                     viewModelScope.launch(Dispatchers.IO) {
                         userDataDao.insertOrUpdatePlaylist(
                             UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
@@ -2178,15 +2229,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         qualityLabel: String,
         streamOption: PlayableStreamOption? = null
     ) {
-        val url = streamOption?.videoUrl ?: return
-        downloadRepository.enqueueDownload(
-            videoId = videoId,
-            title = title,
-            channelName = channelName,
-            thumbnailUrl = thumbnailUrl,
-            qualityLabel = qualityLabel,
-            downloadUrl = url
-        )
+        viewModelScope.launch(Dispatchers.IO) {
+            var selectedOption = streamOption
+            if (selectedOption == null || selectedOption.videoUrl.isNullOrBlank()) {
+                val extraction = YouTubeExtractorHelper.fetchStreamData(videoId, getApplication())
+                if (extraction is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    val available = extraction.streamData.availableStreamOptions
+                    val cleanTag = qualityLabel.filter { it.isDigit() }
+                    selectedOption = available.firstOrNull { it.isMuxed && it.qualityLabel.contains(cleanTag) }
+                        ?: available.firstOrNull { it.qualityLabel.contains(cleanTag) }
+                        ?: available.firstOrNull { it.isMuxed }
+                        ?: extraction.streamData.selectedStreamOption
+                        ?: available.firstOrNull()
+                }
+            }
+
+            val targetUrl = selectedOption?.videoUrl ?: selectedOption?.videoStream?.url
+            if (targetUrl.isNullOrBlank()) {
+                Log.e("MainViewModel", "Could not resolve playable download URL for $videoId")
+                return@launch
+            }
+
+            downloadRepository.enqueueDownload(
+                videoId = videoId,
+                title = title,
+                channelName = channelName,
+                thumbnailUrl = thumbnailUrl,
+                qualityLabel = selectedOption?.qualityLabel?.ifBlank { qualityLabel } ?: qualityLabel,
+                downloadUrl = targetUrl,
+                headers = selectedOption?.headers ?: emptyMap()
+            )
+        }
     }
 
     fun pauseDownload(videoId: String) {
@@ -2195,16 +2268,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resumeDownload(videoId: String) {
         val dl = _offlineDownloads.value.firstOrNull { it.videoId == videoId } ?: return
-        val currentOption = _selectedStreamOption.value
-        val url = currentOption?.videoUrl ?: return
-        downloadRepository.resumeDownload(
-            videoId = videoId,
-            title = dl.title,
-            channelName = dl.channelName,
-            thumbnailUrl = dl.thumbnailUrl,
-            qualityLabel = dl.qualityLabel,
-            downloadUrl = url
-        )
+        viewModelScope.launch(Dispatchers.IO) {
+            var targetUrl = _selectedStreamOption.value?.videoUrl
+            var headers = _selectedStreamOption.value?.headers ?: emptyMap()
+
+            if (targetUrl.isNullOrBlank()) {
+                val extraction = YouTubeExtractorHelper.fetchStreamData(videoId, getApplication())
+                if (extraction is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    val available = extraction.streamData.availableStreamOptions
+                    val cleanTag = dl.qualityLabel.filter { it.isDigit() }
+                    val option = available.firstOrNull { it.isMuxed && it.qualityLabel.contains(cleanTag) }
+                        ?: available.firstOrNull { it.qualityLabel.contains(cleanTag) }
+                        ?: available.firstOrNull { it.isMuxed }
+                        ?: extraction.streamData.selectedStreamOption
+                        ?: available.firstOrNull()
+
+                    targetUrl = option?.videoUrl
+                    headers = option?.headers ?: emptyMap()
+                }
+            }
+
+            if (!targetUrl.isNullOrBlank()) {
+                downloadRepository.resumeDownload(
+                    videoId = videoId,
+                    title = dl.title,
+                    channelName = dl.channelName,
+                    thumbnailUrl = dl.thumbnailUrl,
+                    qualityLabel = dl.qualityLabel,
+                    downloadUrl = targetUrl,
+                    headers = headers
+                )
+            }
+        }
     }
 
     fun deleteDownload(videoId: String, localFilePath: String? = null) {
@@ -2218,9 +2313,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playOfflineDownload(download: OfflineDownloadEntity) {
-        val file = java.io.File(download.localFilePath)
-        val fileUri = if (file.exists()) "file://${file.absolutePath}" else download.localFilePath
-        val isHls = download.localFilePath.endsWith(".m3u8", ignoreCase = true)
+        val rawPath = download.localFilePath
+        val fileUri = if (rawPath.startsWith("file://") || rawPath.startsWith("content://")) {
+            rawPath
+        } else {
+            val file = java.io.File(rawPath)
+            "file://${file.absolutePath}"
+        }
+        val isHls = rawPath.endsWith(".m3u8", ignoreCase = true)
 
         val option = PlayableStreamOption(
             qualityLabel = download.qualityLabel,
@@ -2236,7 +2336,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             channelName = download.channelName,
             thumbnailUrl = download.thumbnailUrl,
             availableStreamOptions = listOf(option),
-            selectedStreamOption = option
+            selectedStreamOption = option,
+            providerId = "offline"
         )
 
         _activeVideoId.value = download.videoId
@@ -2257,7 +2358,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             context = getApplication(),
             streamData = streamData,
             streamOption = option,
-            hlsUrl = null,
+            hlsUrl = if (isHls) fileUri else null,
             captionOption = null
         )
     }
@@ -2327,13 +2428,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch {
                 userDataDao.getBookmarksFlow().collect { bookmarkEntities ->
                     _watchLaterList.value = bookmarkEntities.map { entity ->
-                        VideoItem(
+                        val base = VideoItem(
                             id = entity.videoId,
                             title = entity.title,
                             uploaderName = entity.channelName,
                             thumbnailUrl = entity.thumbnailUrl,
                             providerId = entity.providerId
                         )
+                        val tags = com.example.util.SmartTagExtractor.extractSemanticKeywords(base)
+                        base.copy(tags = tags)
                     }
                 }
             }
@@ -2384,18 +2487,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         tryNextFallbackStream()
                     }
                 }
-            }
-            @OptIn(FlowPreview::class)
-            launch {
-                _searchQuery
-                    .debounce(250)
-                    .collectLatest { query ->
-                        _searchSuggestions.value = emptyList()
+                com.example.ui.player.GlobalPlayerManager.onNextVideoRequested = {
+                    viewModelScope.launch(Dispatchers.Main) {
+                        playNextInQueue()
                     }
+                }
+                syncWithGlobalPlayer()
             }
         }
     }
 
+    fun syncWithGlobalPlayer() {
+        val stream = com.example.ui.player.GlobalPlayerManager.activeStreamData.value
+        if (stream != null) {
+            if (_activeVideoId.value == null || _activeVideoId.value != stream.videoId) {
+                _activeVideoId.value = stream.videoId
+                _activeVideoItem.value = VideoItem(
+                    id = stream.videoId,
+                    title = stream.title,
+                    uploaderName = stream.channelName,
+                    thumbnailUrl = stream.thumbnailUrl,
+                    viewCount = stream.viewCount,
+                    providerId = stream.providerId
+                )
+                _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(stream)
+                _selectedStreamOption.value = stream.selectedStreamOption
+            }
+            _isPlaying.value = com.example.ui.player.GlobalPlayerManager.isPlaying.value
+            _currentScreen.value = AppScreen.PLAYER
+        }
+    }
 
     fun navigateToScreen(screen: AppScreen) {
         _currentScreen.value = screen
@@ -2552,6 +2673,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 settingsPrefs.edit().putBoolean("adult_content_enabled", true).apply()
             } catch (_: Exception) {}
+        } else if (providerId == "tencent" || providerId == "youtube" || providerId == "sonyliv" || providerId == "hotstar" || providerId == "bilibili" || providerId == "amazonminitv" || providerId == "crunchyroll") {
+            _adultContentEnabled.value = false
+            try {
+                settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
+            } catch (_: Exception) {}
         }
         if (!_enabledProviderIds.value.contains(providerId)) {
             _enabledProviderIds.value = _enabledProviderIds.value + providerId
@@ -2568,12 +2694,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshProvidersList() {
         val activeId = _activeProviderId.value
-        val enabledSet = _enabledProviderIds.value
         val adultEnabled = _adultContentEnabled.value
+        val enabledSet = _enabledProviderIds.value.toMutableSet()
+
+        // Ensure user-requested core providers are always enabled
+        val coreAlways = listOf("all", "tencent", "xnxx", "hellporno", "stripchat", "chaturbate")
+        var coreChanged = false
+        for (p in coreAlways) {
+            if (!enabledSet.contains(p)) {
+                enabledSet.add(p)
+                coreChanged = true
+            }
+        }
+        if (adultEnabled) {
+            val essentialAdult = listOf("sextb", "supjav", "123av", "pornhub", "xvideos")
+            for (p in essentialAdult) {
+                if (!enabledSet.contains(p)) {
+                    enabledSet.add(p)
+                    coreChanged = true
+                }
+            }
+        } else {
+            val essentialNormal = listOf("youtube", "sonyliv", "hotstar", "amazonminitv", "bilibili")
+            for (p in essentialNormal) {
+                if (!enabledSet.contains(p)) {
+                    enabledSet.add(p)
+                    coreChanged = true
+                }
+            }
+        }
+        if (coreChanged) {
+            _enabledProviderIds.value = enabledSet
+            try { settingsPrefs.edit().putStringSet("enabled_provider_ids", enabledSet).apply() } catch (_: Exception) {}
+        }
+
         val uiList = mutableListOf<ProviderUiItem>()
 
         if (adultEnabled) {
-            // ONLY 18+ adult providers shown when 18+ toggle is enabled
             uiList.add(
                 ProviderUiItem(
                     id = "all",
@@ -2584,15 +2741,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isDefault = (activeId == "all")
                 )
             )
+            // Include Tencent Video so it's always accessible in adult mode too
+            uiList.add(
+                ProviderUiItem(
+                    id = "tencent",
+                    name = "Tencent Video (v.qq.com)",
+                    description = "Tencent Video (v.qq.com) Chinese dramas, anime, movies & series",
+                    category = "Video/Cinema",
+                    isEnabled = enabledSet.contains("tencent"),
+                    isDefault = (activeId == "tencent")
+                )
+            )
             val adultProviders = listOf(
-                Triple("supjav", "SupJav (FHD Stream)", "SupJav Asian & Japanese adult video catalog with TVLogy & StreamWish 1080p HLS"),
+                Triple("xnxx", "XNXX", "XNXX HD adult video tube catalog & high-speed streaming"),
+                Triple("hellporno", "HellPorno", "HellPorno HD adult video streams & categories"),
+                Triple("stripchat", "Stripchat (Live Cams)", "Live interactive adult webcam broadcast rooms & models"),
+                Triple("chaturbate", "Chaturbate (Live Cams)", "Live interactive adult webcam rooms & broadcast shows"),
                 Triple("sextb", "SEXТB (StreamTB)", "SEXТB Asian & Japanese adult video catalog with native StreamTB HLS resolution"),
+                Triple("supjav", "SupJav (FHD Stream)", "SupJav Asian & Japanese adult video catalog with TVLogy & StreamWish 1080p HLS"),
                 Triple("123av", "123AV (JAV & Player)", "123AV Japanese Adult Video catalog & JAVPlayer HLS direct streams"),
                 Triple("javtiful", "Javtiful (JAV)", "Javtiful trending JAV video catalog & high-speed streaming"),
                 Triple("jav_all", "All JAV Sources", "Aggregated JAV trending feed & releases across all JAV providers"),
                 Triple("pornhub", "Pornhub", "Pornhub video catalog, playlists, users & Thumbzilla"),
                 Triple("xvideos", "XVideos", "XVideos video catalog"),
-                Triple("chaturbate", "Chaturbate (Live Cams)", "Live interactive adult webcam rooms & broadcast shows"),
                 Triple("cam4", "CAM4 (Live Shows)", "Live adult webcam performers & shows"),
                 Triple("cammodels", "CamModels (Live)", "Live webcam models stream catalog"),
                 Triple("noodlemagazine", "NoodleMagazine", "NoodleMagazine video catalog & high-speed streaming"),
@@ -2625,7 +2796,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         } else {
-            // ONLY normal provider sources shown when 18+ toggle is disabled
+            // Mainstream / Normal provider sources
             uiList.add(
                 ProviderUiItem(
                     id = "all",
@@ -2634,6 +2805,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = "Aggregator",
                     isEnabled = enabledSet.contains("all"),
                     isDefault = (activeId == "all")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "tencent",
+                    name = "Tencent Video (v.qq.com)",
+                    description = "Tencent Video (v.qq.com) Chinese dramas, anime, movies & series",
+                    category = "Video/Cinema",
+                    isEnabled = enabledSet.contains("tencent"),
+                    isDefault = (activeId == "tencent")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "xnxx",
+                    name = "XNXX",
+                    description = "XNXX HD adult video tube catalog & high-speed streaming",
+                    category = "18+",
+                    isEnabled = enabledSet.contains("xnxx"),
+                    isDefault = (activeId == "xnxx")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "hellporno",
+                    name = "HellPorno",
+                    description = "HellPorno HD adult video streams & categories",
+                    category = "18+",
+                    isEnabled = enabledSet.contains("hellporno"),
+                    isDefault = (activeId == "hellporno")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "stripchat",
+                    name = "Stripchat (Live Cams)",
+                    description = "Live interactive adult webcam broadcast rooms & models",
+                    category = "18+",
+                    isEnabled = enabledSet.contains("stripchat"),
+                    isDefault = (activeId == "stripchat")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "chaturbate",
+                    name = "Chaturbate (Live Cams)",
+                    description = "Live interactive adult webcam rooms & broadcast shows",
+                    category = "18+",
+                    isEnabled = enabledSet.contains("chaturbate"),
+                    isDefault = (activeId == "chaturbate")
                 )
             )
             uiList.add(
@@ -3287,62 +3508,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         suggestionJob = viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.delay(180L)
+            kotlinx.coroutines.delay(120L)
             if (!isActive) return@launch
 
-            val sanitized = com.example.util.SmartSearchSanitizer.sanitizeQuery(q)
-
-            val historyMatches = _recentSearches.value
-                .filter { it.contains(q, ignoreCase = true) || it.contains(sanitized.cleanQuery, ignoreCase = true) }
-                .take(3)
-                .map { SearchSuggestionItem(query = it, isHistory = true) }
-
-            val fetchedSuggestions = com.example.extractor.YouTubeExtractorHelper.fetchSearchSuggestions(sanitized.cleanQuery)
-            if (!isActive) return@launch
-
-            val ytSuggestions = fetchedSuggestions.map { sug ->
-                SearchSuggestionItem(
-                    query = sug,
-                    isHistory = false,
-                    providerBadge = "YouTube"
-                )
-            }
-
-            val combined = mutableListOf<SearchSuggestionItem>()
-            val seenQueries = mutableSetOf<String>()
-
-            // 1. AI Sanitized / Typo Correction suggestion at top
-            if (sanitized.wasCleaned) {
-                val cleanLower = sanitized.cleanQuery.lowercase()
-                if (seenQueries.add(cleanLower)) {
-                    combined.add(
-                        SearchSuggestionItem(
-                            query = sanitized.cleanQuery,
-                            isHistory = false,
-                            providerBadge = if (sanitized.didYouMean != null) "Did You Mean" else "AI Cleaned"
-                        )
-                    )
-                }
-            }
-
-            // 2. History matches
-            historyMatches.forEach { item ->
-                val lower = item.query.lowercase()
-                if (seenQueries.add(lower)) {
-                    combined.add(item)
-                }
-            }
-
-            // 3. YouTube live suggestions
-            ytSuggestions.forEach { item ->
-                val lower = item.query.lowercase()
-                if (seenQueries.add(lower)) {
-                    combined.add(item)
-                }
-            }
+            val suggestions = com.example.util.UniversalSearchSuggestionEngine.getSuggestions(
+                query = q,
+                adultEnabled = _adultContentEnabled.value,
+                activeProviderId = _activeProviderId.value,
+                recentSearches = _recentSearches.value
+            )
 
             if (isActive) {
-                _searchSuggestions.value = combined
+                _searchSuggestions.value = suggestions
             }
         }
     }
@@ -3444,10 +3621,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                     }
+                    val liveTaste = getLiveTasteVector(filtered)
                     val ranked = com.example.util.SearchRelevanceScorer.rankSearchResults(
                         items = filtered,
                         query = searchTarget,
-                        correctedQuery = correctedTarget ?: sanitized.cleanQuery
+                        correctedQuery = correctedTarget ?: sanitized.cleanQuery,
+                        userTasteVector = liveTaste
                     )
                     val translatedResults = com.example.util.UniversalTranslator.translateVideoItemList(ranked)
                     _searchResults.value = translatedResults
@@ -3571,14 +3750,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // 7. MultiSource / Adult & Normal providers
                     val adultSources = listOf(
                         "supjav", "123av", "javtiful", "jav_all", "sextb",
-                        "spankbang", "pornhub", "xvideos", "xhamster",
+                        "spankbang", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "xhamster",
                         "redtube", "youporn", "hqporner", "beeg", "hanime1", "4tube",
                         "rule34video", "thisvid", "tnaflix", "noodlemagazine", "motherless",
                         "playvid", "txxx", "chaturbate", "cam4", "cammodels"
                     )
 
                     val normalSources = listOf(
-                        "twitch", "bigo", "vimeo", "hotstar", "bun-tel-meg",
+                        "tencent", "twitch", "bigo", "vimeo", "hotstar", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
                         "crunchyroll", "sonyliv", "decryptor", "vidsrc"
                     )
@@ -3609,52 +3788,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Query JAV code or Model name variants for maximum recall on adult/JAV sources
                     val parsedJav = if (adultEnabled) com.example.metadata.JavIdParser.parse(searchTarget) else null
                     val detectedModel = if (adultEnabled) com.example.util.AdultModelMatcher.findModel(searchTarget) else null
+                    val multiSourceSemaphore = Semaphore(6)
 
                     targetMultiSources.forEach { prov ->
                         launch(Dispatchers.IO) {
-                            try {
-                                val timeoutMs = if (isSpecificSource) 8000L else 5000L
-                                val isJavSource = prov in listOf("supjav", "123av", "javtiful", "sextb", "jav_all")
+                            multiSourceSemaphore.withPermit {
+                                try {
+                                    val timeoutMs = if (isSpecificSource) 8000L else 5000L
+                                    val isJavSource = prov in listOf("supjav", "123av", "javtiful", "sextb", "jav_all")
 
-                                // Choose optimal query for provider
-                                val queryToUse = when {
-                                    isJavSource && parsedJav != null -> parsedJav
-                                    isJavSource && detectedModel != null && detectedModel.isJav && !detectedModel.aliases.firstOrNull { it.any { c -> c.code in 0x4E00..0x9FFF } }.isNullOrBlank() -> {
-                                        // Use Japanese name alias if available for JAV sources
-                                        detectedModel.aliases.firstOrNull { it.any { c -> c.code in 0x4E00..0x9FFF } } ?: searchTarget
+                                    // Choose optimal query for provider
+                                    val queryToUse = when {
+                                        isJavSource && parsedJav != null -> parsedJav
+                                        isJavSource && detectedModel != null && detectedModel.isJav && !detectedModel.aliases.firstOrNull { it.any { c -> c.code in 0x4E00..0x9FFF } }.isNullOrBlank() -> {
+                                            // Use Japanese name alias if available for JAV sources
+                                            detectedModel.aliases.firstOrNull { it.any { c -> c.code in 0x4E00..0x9FFF } } ?: searchTarget
+                                        }
+                                        else -> searchTarget
                                     }
-                                    else -> searchTarget
-                                }
 
-                                val provResults = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-                                    com.example.extractor.MultiSourceProvider.search(getApplication(), prov, queryToUse, 25)
-                                } ?: emptyList()
+                                    val provResults = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                                        com.example.extractor.MultiSourceProvider.search(getApplication(), prov, queryToUse, 25)
+                                    } ?: emptyList()
 
-                                // If primary search on JAV source returned few results and we have an alternate query, run secondary search
-                                val finalResults = if (isJavSource && provResults.size < 5) {
-                                    val alternateQuery = when {
-                                        parsedJav != null -> parsedJav.replace("-", "")
-                                        detectedModel != null && queryToUse != searchTarget -> searchTarget
-                                        else -> null
-                                    }
-                                    if (alternateQuery != null && alternateQuery != queryToUse) {
-                                        val secondary = kotlinx.coroutines.withTimeoutOrNull(3500L) {
-                                            com.example.extractor.MultiSourceProvider.search(getApplication(), prov, alternateQuery, 20)
-                                        } ?: emptyList()
-                                        (provResults + secondary).distinctBy { it.id }
+                                    // If primary search on JAV source returned few results and we have an alternate query, run secondary search
+                                    val finalResults = if (isJavSource && provResults.size < 5) {
+                                        val alternateQuery = when {
+                                            parsedJav != null -> parsedJav.replace("-", "")
+                                            detectedModel != null && queryToUse != searchTarget -> searchTarget
+                                            else -> null
+                                        }
+                                        if (alternateQuery != null && alternateQuery != queryToUse) {
+                                            val secondary = kotlinx.coroutines.withTimeoutOrNull(3500L) {
+                                                com.example.extractor.MultiSourceProvider.search(getApplication(), prov, alternateQuery, 20)
+                                            } ?: emptyList()
+                                            (provResults + secondary).distinctBy { it.id }
+                                        } else {
+                                            provResults
+                                        }
                                     } else {
                                         provResults
                                     }
-                                } else {
-                                    provResults
-                                }
 
-                                if (finalResults.isNotEmpty()) {
-                                    synchronized(collectedList) { collectedList.addAll(finalResults) }
-                                    updateUiResults()
+                                    if (finalResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(finalResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w("MainViewModel", "MultiSource search note for $prov: ${e.message}")
                                 }
-                            } catch (e: Exception) {
-                                Log.w("MainViewModel", "MultiSource search note for $prov: ${e.message}")
                             }
                         }
                     }
@@ -3758,7 +3940,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         .distinctBy { (it.providerId ?: "") + "_" + it.id }
                         .filter {
                             if (activeProv != "all") {
-                                it.providerId == activeProv || (activeProv == "bun-tel-meg" && (it.providerId == "bunkr" || it.providerId == "mega" || it.providerId == "telegram"))
+                                com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                             } else {
                                 adultEnabled || !isAdultVideoItem(it)
                             }
@@ -3789,18 +3971,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val provLimit = if (activeProv == "all") 20 else 50
                 val globalLimiter = kotlinx.coroutines.sync.Semaphore(12)
 
-                // Progressive updater that merges new batches smoothly and updates UI immediately
-                fun updateFeedProgressively(newItems: List<VideoItem>) {
-                    if (newItems.isEmpty()) return
-                    synchronized(collectedFeed) {
-                        collectedFeed.addAll(newItems)
-                    }
+                var lastUiUpdateTime = 0L
+                var pendingBatchJob: kotlinx.coroutines.Job? = null
+
+                fun commitFeedUpdate() {
                     val currentSnapshot = synchronized(collectedFeed) { ArrayList(collectedFeed) }
                     val balanced = buildBalancedFeed(currentSnapshot)
                     if (balanced.isNotEmpty()) {
                         _trendingVideos.value = balanced
                         _isLoadingTrending.value = false
                         _isFeedRefreshing.value = false
+                        lastUiUpdateTime = System.currentTimeMillis()
+                    }
+                }
+
+                // Progressive updater that merges new batches smoothly and updates UI without jitter
+                fun updateFeedProgressively(newItems: List<VideoItem>) {
+                    if (newItems.isEmpty()) return
+                    synchronized(collectedFeed) {
+                        collectedFeed.addAll(newItems)
+                    }
+                    val now = System.currentTimeMillis()
+                    if (_trendingVideos.value.isEmpty() || now - lastUiUpdateTime > 400L) {
+                        pendingBatchJob?.cancel()
+                        commitFeedUpdate()
+                    } else {
+                        if (pendingBatchJob == null || pendingBatchJob?.isCompleted == true) {
+                            pendingBatchJob = launch(Dispatchers.IO) {
+                                kotlinx.coroutines.delay(220L)
+                                commitFeedUpdate()
+                            }
+                        }
                     }
                 }
 
@@ -3908,16 +4109,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // === PRIORITY 2: SECONDARY FAST MULTISOURCE PROVIDERS ===
                 val fastMultiSources = if (activeProv == "all") {
-                    listOf("hotstar", "twitch", "bigo", "bun-tel-meg")
+                    listOf("tencent", "hotstar", "twitch", "bigo", "bun-tel-meg")
                 } else {
                     listOf(
-                        "hotstar", "twitch", "bigo", "bun-tel-meg",
+                        "tencent", "hotstar", "twitch", "bigo", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
                         "crunchyroll", "sonyliv", "decryptor", "vidsrc",
                         "sextb", "123av", "javtiful", "jav_all",
                         "hanime1", "hqporner", "pornhub", "beeg",
-                        "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
-                        "spankbang", "motherless", "playvid", "txxx"
+                        "cam4", "cammodels", "chaturbate", "stripchat", "noodlemagazine", "thisvid", "tnaflix",
+                        "spankbang", "motherless", "playvid", "txxx", "xnxx", "hellporno"
                     )
                 }
                 val targetFastSources = when {
@@ -3929,7 +4130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     supervisorScope {
                         targetFastSources.forEach { prov ->
                             launch(Dispatchers.IO) {
-                                val srcItems = fetchSafely(prov, 3000L) {
+                                val srcItems = fetchSafely(prov, if (activeProv != "all") 12000L else 3500L) {
                                     com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, provLimit, targetPage)
                                 }
                                 if (srcItems.isNotEmpty()) {
@@ -3954,7 +4155,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Heavy adult scrapers
                     targetHeavySources.forEach { prov ->
                         launch(Dispatchers.IO) {
-                            val srcItems = fetchSafely(prov, 3000L) {
+                            val srcItems = fetchSafely(prov, if (activeProv != "all") 12000L else 4000L) {
                                 com.example.extractor.MultiSourceProvider.getHome(getApplication(), prov, provLimit, targetPage)
                             }
                             if (srcItems.isNotEmpty()) {
@@ -4012,12 +4213,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                // Final commit of any pending throttled items
+                commitFeedUpdate()
+
                 // Final cache check
                 if (_trendingVideos.value.isNotEmpty()) {
                     com.example.util.HomeFeedCacheManager.saveCachedFeed(getApplication(), _trendingVideos.value)
                     com.example.util.HomeFeedCache.saveFeed(getApplication(), _trendingVideos.value)
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e("MainViewModel", "loadTrending failed", e)
             } finally {
                 _isLoadingTrending.value = false
@@ -4074,7 +4279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     val filtered = newItems.filter {
                         if (activeProv != "all") {
-                            it.providerId == activeProv
+                            com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                         } else {
                             adultEnabled || !isAdultVideoItem(it)
                         }
@@ -4103,7 +4308,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "crunchyroll", "sonyliv", "decryptor", "vidsrc"
                         ) + (if (adultEnabled) listOf(
                             "sextb", "123av", "javtiful", "jav_all",
-                            "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
+                            "hanime1", "hqporner", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "motherless", "playvid", "txxx"
                         ) else emptyList())
@@ -4119,7 +4324,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     val filtered = newItems.filter {
                         if (activeProv != "all") {
-                            it.providerId == activeProv
+                            com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                         } else {
                             adultEnabled || !isAdultVideoItem(it)
                         }
@@ -4344,6 +4549,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("4tube.com", ignoreCase = true) -> "4tube"
                 cleanIdOrUrl.contains("beeg.com", ignoreCase = true) -> "beeg"
                 cleanIdOrUrl.contains("bilibili", ignoreCase = true) || cleanIdOrUrl.contains("b23.tv", ignoreCase = true) || cleanIdOrUrl.contains("biliintl", ignoreCase = true) || cleanIdOrUrl.startsWith("bili:", ignoreCase = true) || cleanIdOrUrl.startsWith("bilibili:", ignoreCase = true) || cleanIdOrUrl.startsWith("bilisearch", ignoreCase = true) || cleanIdOrUrl.startsWith("BV", ignoreCase = true) || cleanIdOrUrl.startsWith("av", ignoreCase = true) || cleanIdOrUrl.startsWith("ep", ignoreCase = true) || cleanIdOrUrl.startsWith("ss", ignoreCase = true) || cleanIdOrUrl.startsWith("md", ignoreCase = true) -> "bilibili"
+                cleanIdOrUrl.contains("v.qq.com", ignoreCase = true) || cleanIdOrUrl.contains("video.qq.com", ignoreCase = true) || cleanIdOrUrl.startsWith("tencent:", ignoreCase = true) || cleanIdOrUrl.startsWith("vqq:", ignoreCase = true) -> "tencent"
+                cleanIdOrUrl.contains("xnxx.com", ignoreCase = true) || cleanIdOrUrl.startsWith("xnxx:", ignoreCase = true) -> "xnxx"
+                cleanIdOrUrl.contains("hellporno.com", ignoreCase = true) || cleanIdOrUrl.contains("hellporno.tv", ignoreCase = true) || cleanIdOrUrl.startsWith("hellporno:", ignoreCase = true) -> "hellporno"
+                cleanIdOrUrl.contains("stripchat.com", ignoreCase = true) || cleanIdOrUrl.startsWith("stripchat:", ignoreCase = true) -> "stripchat"
                 cleanIdOrUrl.contains("vimeo.com", ignoreCase = true) -> "vimeo"
                 cleanIdOrUrl.contains("hotstar.com", ignoreCase = true) || cleanIdOrUrl.contains("jiohotstar.com", ignoreCase = true) -> "hotstar"
                 cleanIdOrUrl.contains("amazon.in/minitv", ignoreCase = true) || cleanIdOrUrl.contains("amazonminitv", ignoreCase = true) || cleanIdOrUrl.startsWith("minitv:", ignoreCase = true) -> "amazonminitv"
@@ -4629,14 +4838,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 } else {
-                    kotlinx.coroutines.withTimeoutOrNull(12000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(20000L) {
                         YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
                     } ?: YouTubeExtractorHelper.ExtractionResult.Error(
                         ExtractorErrorDetails(
                             errorType = ExtractorErrorType.NETWORK_ERROR,
                             message = "Stream extraction timed out. Please check your network connection or try again.",
                             rawExceptionName = "TimeoutException",
-                            fullStackTrace = "resolveStream exceeded 12s timeout",
+                            fullStackTrace = "resolveStream exceeded 20s timeout",
                             urlOrId = cleanIdOrUrl
                         )
                     )
@@ -4651,32 +4860,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _selectedStreamOption.value = primary
                     _selectedCaptionOption.value = result.streamData.captionOptions.firstOrNull()
 
-                    val pUrl = primary?.videoUrl ?: ""
-                    val isPrimaryEmbed = primary?.format.equals("embed", true) ||
-                            primary?.sourceName?.contains("VidSrc", true) == true ||
-                            primary?.sourceName?.contains("VidRock", true) == true ||
-                            primary?.sourceName?.contains("Embed", true) == true ||
-                            pUrl.contains("/embed/", true) ||
-                            pUrl.contains("vidsrc.", true) ||
-                            pUrl.contains("vidrock.net", true) ||
-                            pUrl.contains("2embed.", true) ||
-                            pUrl.contains("vidlink.", true)
-
-                    if (isPrimaryEmbed && pUrl.startsWith("http")) {
-                        val candidate = com.example.resolver.SourceCandidate(
-                            id = "embed_${(primary?.sourceName ?: "embed").lowercase()}_${System.currentTimeMillis()}",
-                            providerId = (primary?.sourceName ?: "embed").lowercase(),
-                            providerName = primary?.sourceName ?: "Web Embed",
-                            serverName = primary?.sourceName ?: "Web Embed",
-                            type = com.example.resolver.SourceStreamType.EMBED_WEBVIEW,
-                            title = primary?.releaseTitle?.ifBlank { result.streamData.title } ?: result.streamData.title,
-                            urlOrMagnet = pUrl,
-                            quality = primary?.qualityCategory?.ifBlank { "1080p" } ?: "1080p"
-                        )
-                        unifiedPlayback.setActiveCandidate(candidate)
-                    } else {
-                        unifiedPlayback.setActiveCandidate(null)
-                    }
+                    // Ensure native ExoPlayer is always active, clear any embed webview candidate
+                    unifiedPlayback.setActiveCandidate(null)
 
                     val streamThumb = result.streamData.thumbnailUrl?.takeIf { it.isNotBlank() && !it.contains("blank.gif") && !it.contains("loading.gif") }
                     val streamTitle = result.streamData.title.takeIf { it.isNotBlank() && !it.equals("XVideos", ignoreCase = true) && !it.equals("Video", ignoreCase = true) }
@@ -4838,41 +5023,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val url = option.videoUrl ?: ""
 
-            // Check if this is an embed stream (VidSrc, VidRock, or web embed URL)
-            val isEmbedUrl = option.sourceName.contains("VidSrc", true) ||
-                    option.sourceName.contains("VidRock", true) ||
-                    option.sourceName.contains("Embed", true) ||
-                    option.format.equals("embed", true) ||
-                    url.contains("vidsrc.", true) ||
-                    url.contains("vidrock.net", true) ||
-                    url.contains("2embed.", true) ||
-                    url.contains("vidlink.", true) ||
-                    url.contains("/embed/", true)
+            // Clear any active embed player candidate so native player is always used
+            unifiedPlayback.setActiveCandidate(null)
+
+            val isEmbedUrl = (url.contains("/embed/", true) || url.contains("vidsrc.", true) ||
+                    url.contains("vidrock.net", true) || url.contains("2embed.", true) ||
+                    url.contains("vidlink.", true)) && !url.contains(".m3u8", true) && !url.contains(".mp4", true)
 
             if (isEmbedUrl && url.startsWith("http")) {
-                val candidate = com.example.resolver.SourceCandidate(
-                    id = "embed_${option.sourceName.lowercase()}_${System.currentTimeMillis()}",
-                    providerId = option.sourceName.lowercase(),
-                    providerName = option.sourceName,
-                    serverName = option.sourceName,
-                    type = com.example.resolver.SourceStreamType.EMBED_WEBVIEW,
-                    title = option.releaseTitle.ifBlank { ext.streamData.title },
-                    urlOrMagnet = url,
-                    quality = option.qualityCategory.ifBlank { "1080p" }
-                )
-                unifiedPlayback.setActiveCandidate(candidate)
-                com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
-                    context = getApplication(),
-                    streamData = null,
-                    streamOption = null,
-                    hlsUrl = null,
-                    captionOption = null
-                )
+                viewModelScope.launch {
+                    val sniffed = try {
+                        com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(getApplication(), url)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val playableOpt = if (sniffed != null && !sniffed.videoUrl.isNullOrBlank()) {
+                        option.copy(
+                            videoUrl = sniffed.videoUrl,
+                            format = sniffed.format,
+                            headers = sniffed.headers
+                        )
+                    } else {
+                        option
+                    }
+                    val directData = ext.streamData.copy(
+                        selectedStreamOption = playableOpt,
+                        availableStreamOptions = ext.streamData.availableStreamOptions.map { if (it == option) playableOpt else it }
+                    )
+                    _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(directData)
+                    _selectedStreamOption.value = playableOpt
+                    com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+                        context = getApplication(),
+                        streamData = directData,
+                        streamOption = playableOpt,
+                        hlsUrl = if (playableOpt.format.contains("m3u8", true) || playableOpt.videoUrl?.contains(".m3u8", true) == true) playableOpt.videoUrl else null,
+                        captionOption = _selectedCaptionOption.value,
+                        initialPos = currentPos
+                    )
+                }
                 return
             }
-
-            // Clear any active embed player candidate when switching to regular stream
-            unifiedPlayback.setActiveCandidate(null)
 
             if (option.providerType == com.example.model.ProviderType.TORRENT || url.contains("/stream")) {
                 val matchingRelease = activeTorrentReleasesMap[url]
@@ -4984,71 +5174,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val effectiveId = resolvedTmdb ?: tmdbId ?: resolvedImdb
 
-                // 2. VidSrc & VidRock High-Speed Cloud Streams
+                // 2. VidSrc High-Speed Cloud Streams
                 if (!effectiveId.isNullOrBlank()) {
                     val isTv = mediaType.equals("tv", ignoreCase = true) || mediaType.equals("series", ignoreCase = true)
                     val s = season ?: 1
                     val ep = episode ?: 1
 
-                    // A. VidSrc Primary (vidsrc.sbs)
-                    val vidsrcSbsUrl = if (isTv) {
-                        "https://vidsrc.sbs/embed/tv/$effectiveId/$s/$ep"
-                    } else {
-                        "https://vidsrc.sbs/embed/movie/$effectiveId"
-                    }
-                    discovered.add(
-                        PlayableStreamOption(
-                            qualityLabel = "VidSrc • Cloud Stream (1080p Auto)",
-                            format = "mp4",
-                            isMuxed = true,
-                            videoUrl = vidsrcSbsUrl,
-                            providerType = com.example.model.ProviderType.DIRECT,
-                            sourceName = "VidSrc",
-                            qualityCategory = "1080p",
-                            seeders = -1,
-                            releaseTitle = "VidSrc Cloud Stream - $title"
-                        )
+                    val vidsrcStreams = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+                        context = getApplication(),
+                        tmdbIdOrUrl = effectiveId,
+                        mediaType = if (isTv) "tv" else "movie",
+                        season = s,
+                        episode = ep,
+                        title = title,
+                        providerName = "VidSrc"
                     )
-
-                    // B. VidRock Direct Embed (vidrock.net)
-                    val vidrockUrl = if (isTv) {
-                        "https://vidrock.net/tv/$effectiveId/$s/$ep"
-                    } else {
-                        "https://vidrock.net/movie/$effectiveId"
-                    }
-                    discovered.add(
-                        PlayableStreamOption(
-                            qualityLabel = "VidRock • High-Speed Stream (1080p Auto)",
-                            format = "mp4",
-                            isMuxed = true,
-                            videoUrl = vidrockUrl,
-                            providerType = com.example.model.ProviderType.DIRECT,
-                            sourceName = "VidRock",
-                            qualityCategory = "1080p",
-                            seeders = -1,
-                            releaseTitle = "VidRock Stream - $title"
-                        )
-                    )
-
-                    // C. VidSrc.to Fast Mirror
-                    val vidsrcToUrl = if (isTv) {
-                        "https://vidsrc.to/embed/tv/$effectiveId/$s/$ep"
-                    } else {
-                        "https://vidsrc.to/embed/movie/$effectiveId"
-                    }
-                    discovered.add(
-                        PlayableStreamOption(
-                            qualityLabel = "VidSrc.to • Fast Mirror (1080p Auto)",
-                            format = "mp4",
-                            isMuxed = true,
-                            videoUrl = vidsrcToUrl,
-                            providerType = com.example.model.ProviderType.DIRECT,
-                            sourceName = "VidSrc",
-                            qualityCategory = "1080p",
-                            seeders = -1,
-                            releaseTitle = "VidSrc.to Stream - $title"
-                        )
-                    )
+                    discovered.addAll(vidsrcStreams)
                 }
 
                 // 3. Decryptor Independent Multi-Server Extraction (Nxsha HLS Engine)
@@ -5091,7 +5232,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                             discovered.addAll(decryptorOptions)
-                            // Immediately emit Decryptor streams so user can start playing right away
+                            withContext(Dispatchers.Main) {
+                                onDiscovered(discovered.toList())
+                            }
+                        } else {
+                            // High-speed direct multi-server fallback for Decryptor
+                            val decryptorFallbacks = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+                                context = getApplication(),
+                                tmdbIdOrUrl = queryTarget,
+                                mediaType = if (isTv) "tv" else "movie",
+                                season = s,
+                                episode = ep,
+                                title = cleanSearch,
+                                providerName = "Decryptor"
+                            )
+                            discovered.addAll(decryptorFallbacks)
                             withContext(Dispatchers.Main) {
                                 onDiscovered(discovered.toList())
                             }

@@ -99,9 +99,23 @@ object YtDlpResolver {
             u.startsWith("noodlemag:") ||
             u.startsWith("hqporner:") ||
             u.startsWith("hqplayer:") ||
+            u.startsWith("tencent:") ||
+            u.startsWith("vqq:") ||
+            u.startsWith("vqq:video") ||
+            u.startsWith("vqq:series") ||
             u.startsWith("bigo:") ||
             u.startsWith("cammodels:") ||
             u.startsWith("chaturbate:") ||
+            u.startsWith("hellporno:") ||
+            u.startsWith("xnxx:") ||
+            u.startsWith("stripchat:") ||
+            u.startsWith("hotstar:") ||
+            u.startsWith("jiohotstar:") ||
+            u.startsWith("hotstarseries:") ||
+            u.startsWith("sonylivseries:") ||
+            u.startsWith("discoverynetworksde:") ||
+            u.startsWith("discoveryplusindia:") ||
+            u.startsWith("discoveryplusindiashow:") ||
             u.startsWith("discoveryplus") ||
             u.startsWith("disney") ||
             u.startsWith("hbo") ||
@@ -132,6 +146,9 @@ object YtDlpResolver {
             "bilibili.com", "b23.tv", "biliintl.com",
             "pornhub.com", "phncdn.com",
             "xvideos.com",
+            "xnxx.com",
+            "hellporno.com", "hellporno.tv",
+            "stripchat.com",
             "4tube.com",
             "beeg.com",
             "rule34video.com",
@@ -160,6 +177,7 @@ object YtDlpResolver {
             "disneyplus.com",
             "hbo.com", "hbomax.com", "max.com", "play.max.com", "play.hbomax.com",
             "curiositystream.com",
+            "v.qq.com", "video.qq.com", "qq.com",
             "tiktok.com",
             "twitch.tv",
             "soundcloud.com"
@@ -268,9 +286,22 @@ object YtDlpResolver {
                 targetUrl.startsWith("bigo:", ignoreCase = true) -> "https://www.bigo.tv/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("cam4:", ignoreCase = true) -> "https://www.cam4.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("chaturbate:", ignoreCase = true) -> "https://chaturbate.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("stripchat:", ignoreCase = true) -> "https://stripchat.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("hellporno:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://hellporno.com/videos/$id/"
+                }
+                targetUrl.startsWith("xnxx:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://www.xnxx.com/video-$id/"
+                }
                 targetUrl.startsWith("cammodels:", ignoreCase = true) -> "https://www.cammodels.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("crunchyroll:", ignoreCase = true) -> "https://www.crunchyroll.com/${targetUrl.substringAfter(":")}"
-                targetUrl.startsWith("sonyliv:", ignoreCase = true) -> "https://www.sonyliv.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("sonyliv:", ignoreCase = true) || targetUrl.startsWith("sonylivseries:", ignoreCase = true) -> "https://www.sonyliv.com/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("hotstar:", ignoreCase = true) || targetUrl.startsWith("jiohotstar:", ignoreCase = true) || targetUrl.startsWith("hotstarseries:", ignoreCase = true) -> "https://www.hotstar.com/in/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("discoveryplusindia:", ignoreCase = true) || targetUrl.startsWith("discoveryplusindiashow:", ignoreCase = true) -> "https://www.discoveryplus.in/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("discoverynetworksde:", ignoreCase = true) -> "https://discovery.de/${targetUrl.substringAfter(":")}"
+                targetUrl.startsWith("discoveryplus:", ignoreCase = true) -> "https://www.discoveryplus.in/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("hbo:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("hbomax:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"
                 targetUrl.startsWith("max:", ignoreCase = true) -> "https://play.max.com/${targetUrl.substringAfter(":")}"
@@ -301,9 +332,38 @@ object YtDlpResolver {
                 }
                 targetUrl.startsWith("ytsearch:", ignoreCase = true) || targetUrl.startsWith("ytsearch1:", ignoreCase = true) -> targetUrl
                 targetUrl.startsWith("bilisearch", ignoreCase = true) -> targetUrl
+                targetUrl.startsWith("dailymotion:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://www.dailymotion.com/video/$id"
+                }
+                targetUrl.matches(Regex("(?i)^x[a-z0-9]{5,}$")) -> "https://www.dailymotion.com/video/$targetUrl"
+                targetUrl.startsWith("bili:", ignoreCase = true) || targetUrl.startsWith("bilibili:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    when {
+                        id.startsWith("http") -> id
+                        id.startsWith("BV", ignoreCase = true) || id.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$id"
+                        id.startsWith("ep", ignoreCase = true) || id.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$id"
+                        id.startsWith("md", ignoreCase = true) -> "https://www.bilibili.com/bangumi/media/$id"
+                        else -> "https://www.bilibili.com/video/$id"
+                    }
+                }
+                targetUrl.startsWith("bili_live:", ignoreCase = true) || targetUrl.startsWith("bilibili_live:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://live.bilibili.com/$id"
+                }
                 targetUrl.startsWith("BV", ignoreCase = true) || targetUrl.startsWith("av", ignoreCase = true) -> "https://www.bilibili.com/video/$targetUrl"
                 targetUrl.startsWith("ep", ignoreCase = true) || targetUrl.startsWith("ss", ignoreCase = true) -> "https://www.bilibili.com/bangumi/play/$targetUrl"
                 targetUrl.startsWith("md", ignoreCase = true) -> "https://www.bilibili.com/bangumi/media/$targetUrl"
+                targetUrl.startsWith("tencent:", ignoreCase = true) || targetUrl.startsWith("vqq:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    when {
+                        id.startsWith("http") -> id
+                        id.startsWith("vqq:video") || id.startsWith("vqq:series") -> id
+                        id.contains("/x/cover/") || id.contains("/x/page/") -> "https://v.qq.com/$id"
+                        else -> "https://v.qq.com/x/cover/$id.html"
+                    }
+                }
+                targetUrl.startsWith("vqq:video", ignoreCase = true) || targetUrl.startsWith("vqq:series", ignoreCase = true) -> targetUrl
                 targetUrl.length == 11 && !targetUrl.contains(" ") -> "https://www.youtube.com/watch?v=$targetUrl"
                 else -> "ytsearch1:$targetUrl"
             }
@@ -315,17 +375,13 @@ object YtDlpResolver {
             val isBilibiliUrl = videoUrl.contains("bilibili") || videoUrl.contains("b23.tv") || videoUrl.startsWith("bilisearch", ignoreCase = true)
             val isMultiItemUrl = isBilibiliUrl && (
                 videoUrl.startsWith("bilisearch", ignoreCase = true) ||
-                videoUrl.contains("/v/") ||
+                (videoUrl.contains("/v/") && !videoUrl.contains("/video/")) ||
                 videoUrl.contains("collectiondetail") ||
                 videoUrl.contains("seriesdetail") ||
                 videoUrl.contains("medialist") ||
                 videoUrl.contains("favlist") ||
                 videoUrl.contains("playlist") ||
-                videoUrl.contains("watchlater") ||
-                videoUrl.contains("/video") ||
-                videoUrl.contains("/audio") ||
-                videoUrl.contains("/ss") ||
-                videoUrl.contains("/md")
+                videoUrl.contains("watchlater")
             )
 
             val request = YtDlpRequest(videoUrl)
@@ -340,7 +396,6 @@ object YtDlpResolver {
             request.addOption("--user-agent", DEFAULT_USER_AGENT)
             request.addOption("--add-header", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
             request.addOption("--add-header", "Accept-Language: en-US,en;q=0.9")
-            request.addOption("--add-header", "Sec-Fetch-Mode: navigate")
 
             // Domain-specific Referer & Origin headers
             val domainHeaders = mutableMapOf<String, String>()
@@ -478,6 +533,45 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Referer: https://www.twitch.tv/")
                     domainHeaders["Referer"] = "https://www.twitch.tv/"
                 }
+                lowerUrl.contains("v.qq.com") || lowerUrl.contains("qq.com") || lowerUrl.startsWith("vqq:") || lowerUrl.startsWith("tencent:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--geo-bypass-country", "CN")
+                    request.addOption("--xff", "CN")
+                    request.addOption("--add-header", "X-Forwarded-For: 114.114.114.114")
+                    request.addOption("--add-header", "Referer: https://v.qq.com/")
+                    request.addOption("--add-header", "Origin: https://v.qq.com")
+                    domainHeaders["X-Forwarded-For"] = "114.114.114.114"
+                    domainHeaders["Referer"] = "https://v.qq.com/"
+                    domainHeaders["Origin"] = "https://v.qq.com"
+                }
+                lowerUrl.contains("xnxx.com") || lowerUrl.startsWith("xnxx:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--add-header", "Referer: https://www.xnxx.com/")
+                    request.addOption("--add-header", "Origin: https://www.xnxx.com")
+                    domainHeaders["Referer"] = "https://www.xnxx.com/"
+                    domainHeaders["Origin"] = "https://www.xnxx.com"
+                }
+                lowerUrl.contains("hellporno") || lowerUrl.startsWith("hellporno:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--add-header", "Referer: https://hellporno.com/")
+                    request.addOption("--add-header", "Origin: https://hellporno.com")
+                    domainHeaders["Referer"] = "https://hellporno.com/"
+                    domainHeaders["Origin"] = "https://hellporno.com"
+                }
+                lowerUrl.contains("stripchat") || lowerUrl.startsWith("stripchat:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--add-header", "Referer: https://stripchat.com/")
+                    request.addOption("--add-header", "Origin: https://stripchat.com")
+                    domainHeaders["Referer"] = "https://stripchat.com/"
+                    domainHeaders["Origin"] = "https://stripchat.com"
+                }
+                lowerUrl.contains("chaturbate.com") || lowerUrl.startsWith("chaturbate:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--add-header", "Referer: https://chaturbate.com/")
+                    request.addOption("--add-header", "Origin: https://chaturbate.com")
+                    domainHeaders["Referer"] = "https://chaturbate.com/"
+                    domainHeaders["Origin"] = "https://chaturbate.com"
+                }
                 lowerUrl.contains("cam4.com") || lowerUrl.startsWith("cam4:") -> {
                     request.addOption("--add-header", "Referer: https://www.cam4.com/")
                     request.addOption("--add-header", "Origin: https://www.cam4.com")
@@ -489,12 +583,6 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Origin: https://www.bigo.tv")
                     domainHeaders["Referer"] = "https://www.bigo.tv/"
                     domainHeaders["Origin"] = "https://www.bigo.tv"
-                }
-                lowerUrl.contains("chaturbate.com") || lowerUrl.startsWith("chaturbate:") -> {
-                    request.addOption("--add-header", "Referer: https://chaturbate.com/")
-                    request.addOption("--add-header", "Origin: https://chaturbate.com")
-                    domainHeaders["Referer"] = "https://chaturbate.com/"
-                    domainHeaders["Origin"] = "https://chaturbate.com"
                 }
                 lowerUrl.contains("cammodels.com") || lowerUrl.startsWith("cammodels:") -> {
                     request.addOption("--add-header", "Referer: https://cammodels.com/")
@@ -553,7 +641,17 @@ object YtDlpResolver {
                 .map { it.trim() }
                 .firstOrNull { it.startsWith("{") && it.endsWith("}") } ?: jsonStr
 
-            val json = JSONObject(jsonLine)
+            val rawJson = JSONObject(jsonLine)
+            val json = if (rawJson.optString("_type") == "playlist" || rawJson.has("entries")) {
+                val entries = rawJson.optJSONArray("entries")
+                if (entries != null && entries.length() > 0) {
+                    entries.optJSONObject(0) ?: rawJson
+                } else {
+                    rawJson
+                }
+            } else {
+                rawJson
+            }
             val videoId = json.optString("id", targetUrl)
             val title = json.optString("title", "Video")
             val uploader = json.optString("uploader", json.optString("channel", json.optString("extractor", "Online Video")))
@@ -645,6 +743,14 @@ object YtDlpResolver {
                             fmtHeaders["Cookie"] = cookie
                         }
                         finalStreamUrl = com.example.extractor.BilibiliProvider.cleanBilibiliStreamUrl(streamUrl, null)
+                    }
+
+                    val isDm = lowerUrl.contains("dailymotion.com") || lowerUrl.contains("dai.ly") ||
+                            streamUrl.contains("dailymotion") || streamUrl.contains("dmcdn")
+                    if (isDm) {
+                        fmtHeaders.remove("Origin")
+                        fmtHeaders.remove("origin")
+                        fmtHeaders["Referer"] = "https://www.dailymotion.com/"
                     }
 
                     parsedFormats.add(

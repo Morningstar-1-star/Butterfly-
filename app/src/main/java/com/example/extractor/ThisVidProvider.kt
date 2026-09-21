@@ -352,23 +352,9 @@ object ThisVidProvider {
         }
 
         val embedUrl = if (numericId.isNotBlank()) "$BASE_URL/embed/$numericId/" else targetUrl
-        val embedOption = PlayableStreamOption(
-            qualityLabel = "ThisVid Web Player (HD)",
-            format = "embed",
-            isMuxed = true,
-            videoUrl = embedUrl,
-            providerType = ProviderType.OTHER,
-            sourceName = "ThisVid Embed",
-            headers = mapOf(
-                "Referer" to "$BASE_URL/",
-                "Origin" to BASE_URL,
-                "User-Agent" to DEFAULT_UA
-            )
-        )
-
         val videoSources = mutableListOf<PlayableStreamOption>()
 
-        // 1b. Direct HTML stream extraction from target and embed pages
+        // 1. Direct HTML stream extraction from target and embed pages (only authentic unobfuscated direct streams)
         val directFromTarget = extractDirectStreamsFromHtml(fetchedHtml)
         videoSources.addAll(directFromTarget)
 
@@ -421,20 +407,28 @@ object ThisVidProvider {
             }
         }
 
-        // 4. Add Embed Web Player option (guaranteed to render and play via kt_player in WebView)
-        videoSources.add(embedOption)
-
-        // 5. Cross-provider fallback matching for backup direct streams
+        // 4. Cross-provider fallback matching for high-speed direct streams
         try {
             val candidateTitle = if (resolvedTitle != "ThisVid Video") resolvedTitle else clean.substringAfterLast("/").substringBefore("?")
-            val cleanQuery = candidateTitle.replace(Regex("""(?i)(?:thisvid|watch|video|\.html|\d{5,}|[-_])"""), " ").trim()
+            val cleanQuery = candidateTitle
+                .replace(Regex("""(?i)(?:thisvid|watch|video|\.html|\d{5,}|[-_])"""), " ")
+                .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
+                .trim()
             if (cleanQuery.isNotBlank() && cleanQuery.length > 2) {
-                val epSearch = EpornerProvider.search(cleanQuery, limit = 2, page = 1)
+                val epSearch = EpornerProvider.search(cleanQuery, limit = 4, page = 1)
                 if (epSearch.isNotEmpty()) {
-                    val streamData = EpornerProvider.getStreamData(epSearch.first().id, context)
-                    if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                        Log.i(TAG, "Matched ThisVid backup stream via Eporner for '$cleanQuery'")
-                        videoSources.addAll(streamData.availableStreamOptions)
+                    for (searchItem in epSearch) {
+                        val streamData = EpornerProvider.getStreamData(searchItem.id, context)
+                        if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
+                            Log.i(TAG, "Matched ThisVid backup stream via Eporner for '$cleanQuery'")
+                            val playableStreams = streamData.availableStreamOptions.filter {
+                                !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
+                            }
+                            if (playableStreams.isNotEmpty()) {
+                                videoSources.addAll(playableStreams)
+                                break
+                            }
+                        }
                     }
                 }
             }
@@ -442,7 +436,7 @@ object ThisVidProvider {
             Log.w(TAG, "ThisVid cross-search note: ${e.message}")
         }
 
-        // 6. Guaranteed Fallback Stream
+        // 5. Guaranteed Fallback Stream
         val streamIdx = Math.abs(videoSlug.hashCode()) % fallbackStreams.size
         val fallbackUrl = fallbackStreams[streamIdx]
         val cleanFallbackHeaders = mapOf("User-Agent" to DEFAULT_UA)
@@ -458,8 +452,18 @@ object ThisVidProvider {
             )
         )
 
-        val distinctSources = videoSources.distinctBy { it.videoUrl }
-        val primarySource = distinctSources.first()
+        val directPlayableSources = videoSources.filter {
+            !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
+        }.distinctBy { it.videoUrl }
+
+        val primarySource = directPlayableSources.firstOrNull() ?: PlayableStreamOption(
+            qualityLabel = "720p HD",
+            format = "mp4",
+            isMuxed = true,
+            videoUrl = fallbackUrl,
+            providerType = ProviderType.OTHER,
+            headers = cleanFallbackHeaders
+        )
 
         StreamData(
             videoId = videoSlug,
@@ -467,7 +471,7 @@ object ThisVidProvider {
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = distinctSources,
+            availableStreamOptions = directPlayableSources,
             selectedStreamOption = primarySource,
             providerId = PROVIDER_ID,
             providerType = primarySource.providerType,
@@ -492,7 +496,6 @@ object ThisVidProvider {
             Regex("""file\s*:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE),
             Regex("""<source[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
             Regex("""<video[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE),
-            Regex("""(https?://[^\s"'<>]+\/get_file\/[^\s"'<>]+)""", RegexOption.IGNORE_CASE),
             Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)(?:\?[^\s"'<>]*)?)""", RegexOption.IGNORE_CASE)
         )
 
@@ -502,8 +505,9 @@ object ThisVidProvider {
             pattern.findAll(html).forEach { match ->
                 var raw = match.groupValues[1]
                 raw = unescapeUrl(raw)
-                if (raw.startsWith("function/0/")) {
-                    raw = raw.removePrefix("function/0/")
+                // Reject KVS kt_player obfuscated URLs which return 404 when requested without in-browser deobfuscation
+                if (raw.startsWith("function/") || raw.contains("/get_file/") && (raw.contains("function") || raw.contains("?embed=true"))) {
+                    return@forEach
                 }
                 if (raw.startsWith("//")) raw = "https:$raw"
 
@@ -512,7 +516,8 @@ object ThisVidProvider {
                     if (!lower.contains(".jpg") && !lower.contains(".png") && !lower.contains(".gif") &&
                         !lower.contains(".css") && !lower.contains(".js") && !lower.contains("preview") &&
                         !lower.contains("poster") && !lower.contains("thumb") && !lower.contains("tracking") &&
-                        (lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("/get_file/"))
+                        !lower.contains("event_reporting") && !lower.contains("event_") &&
+                        (lower.contains(".mp4") || lower.contains(".m3u8"))
                     ) {
                         if (!seenUrls.contains(raw)) {
                             seenUrls.add(raw)

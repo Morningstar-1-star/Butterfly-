@@ -22,7 +22,8 @@ enum class ProviderType {
     DEBRID,
     OTHER,
     VEGA,
-    DECRYPTOR
+    DECRYPTOR,
+    EMBED
 }
 
 enum class ProviderStatusState {

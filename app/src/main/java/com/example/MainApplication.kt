@@ -104,16 +104,16 @@ class MainApplication : Application() {
             }
         })
 
-        // Configure mobile-optimized Coil ImageLoader with sensible concurrency & RAM/disk cache
+        // Configure mobile-optimized Coil ImageLoader with high concurrency & aggressive RAM/disk cache
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
             .dns(com.example.util.SecureDnsManager.appDns)
             .dispatcher(okhttp3.Dispatcher().apply {
-                maxRequests = 16
-                maxRequestsPerHost = 6
+                maxRequests = 32
+                maxRequestsPerHost = 12
             })
-            .connectionPool(okhttp3.ConnectionPool(8, 2, java.util.concurrent.TimeUnit.MINUTES))
-            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(16, 3, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val urlStr = originalRequest.url.toString().lowercase()
@@ -151,8 +151,17 @@ class MainApplication : Application() {
                         requestBuilder.header("Referer", "https://www.4tube.com/")
                         requestBuilder.header("Origin", "https://www.4tube.com")
                     }
-                    urlStr.contains("eporner.com") || urlStr.contains("static-cluster") || urlStr.contains("static-sg-cdn") -> {
+                    urlStr.contains("eporner.com") || urlStr.contains("static-cluster") || urlStr.contains("static-sg-cdn") || urlStr.contains("static-ca-cdn") -> {
                         requestBuilder.header("Referer", "https://www.eporner.com/")
+                    }
+                    urlStr.contains("txxx") || urlStr.contains("ahcdn") || urlStr.contains("tubecdn") -> {
+                        requestBuilder.header("Referer", "https://txxx.com/")
+                        requestBuilder.header("Origin", "https://txxx.com")
+                        requestBuilder.header("Cookie", "age_confirmed=1; age_verified=1; platform=pc; country=US; ft_mature=1; consent=1")
+                    }
+                    urlStr.contains("motherless") || urlStr.contains("motherlessmedia") -> {
+                        requestBuilder.header("Referer", "https://motherless.com/")
+                        requestBuilder.header("Origin", "https://motherless.com")
                     }
                     urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {
                         requestBuilder.header("Referer", "https://www.youporn.com/")

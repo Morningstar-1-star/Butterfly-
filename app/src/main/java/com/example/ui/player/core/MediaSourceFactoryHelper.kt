@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -31,6 +33,7 @@ object MediaSourceFactoryHelper {
     val okHttpClient: OkHttpClient by lazy {
         NetworkManager.mediaClient.newBuilder()
             .addInterceptor(MediaHeaderHelper.mediaHeaderInterceptor)
+            .addNetworkInterceptor(MediaHeaderHelper.networkHeaderInterceptor)
             .build()
     }
 
@@ -133,7 +136,17 @@ object MediaSourceFactoryHelper {
                 when {
                     lowerTarget.contains("dailymotion.com") || lowerTarget.contains("dmcdn.net") || lowerTarget.contains("dai.ly") -> {
                         reqHeaders["Referer"] = "https://www.dailymotion.com/"
-                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://www.dailymotion.com"
+                        reqHeaders.remove("Origin")
+                        reqHeaders.remove("origin")
+                        if (lowerTarget.contains("dmcdn.net")) {
+                            reqHeaders.remove("Cookie")
+                            reqHeaders.remove("cookie")
+                        } else {
+                            val dmCookie = com.example.extractor.DailymotionProvider.lastDmCookies
+                            if (dmCookie.isNotBlank() && !reqHeaders.containsKey("Cookie")) {
+                                reqHeaders["Cookie"] = dmCookie
+                            }
+                        }
                     }
                     lowerTarget.contains("archive.org") || streamData?.providerId == "archive_org" -> {
                         reqHeaders["Referer"] = "https://archive.org/"
@@ -157,10 +170,15 @@ object MediaSourceFactoryHelper {
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://spankbang.com"
                         if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1"
                     }
-                    lowerTarget.contains("motherless") || lowerTarget.contains("motherlessmedia") || streamData?.providerId == "motherless" -> {
+                    (lowerTarget.contains("motherless.com") || lowerTarget.contains("motherlessmedia") || lowerTarget.contains("cdn.motherless") || streamData?.providerId == "motherless") -> {
                         reqHeaders["Referer"] = "https://motherless.com/"
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://motherless.com"
                         if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "content_filter=0; member=1; age_verified=1; country=US; consent=1"
+                    }
+                    (lowerTarget.contains("txxx") || lowerTarget.contains("txxx.com") || lowerTarget.contains("txxx.tube") || lowerTarget.contains("tubecdn.com") || lowerTarget.contains("ahcdn.com") || streamData?.providerId == "txxx") -> {
+                        reqHeaders["Referer"] = "https://txxx.com/"
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://txxx.com"
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_verified=1; platform=pc; country=US; ft_mature=1; consent=1"
                     }
                     lowerTarget.contains("vimeo.com") || (streamData?.providerId == "vimeo" && !isBilibiliStream) -> {
                         reqHeaders["Referer"] = "https://vimeo.com/"
@@ -210,7 +228,7 @@ object MediaSourceFactoryHelper {
     /**
      * Builds an OkHttpDataSource.Factory configured with custom User-Agent and per-request headers.
      */
-    fun createDataSourceFactory(targetUrl: String, streamData: StreamData?, specificHeaders: Map<String, String> = emptyMap()): OkHttpDataSource.Factory {
+    fun createHttpDataSourceFactory(targetUrl: String, streamData: StreamData?, specificHeaders: Map<String, String> = emptyMap()): OkHttpDataSource.Factory {
         val (userAgent, reqHeaders) = resolveRequestHeaders(targetUrl, streamData, specificHeaders)
         val dsFactory = OkHttpDataSource.Factory(okHttpClient)
         userAgent?.let { dsFactory.setUserAgent(it) }
@@ -221,10 +239,29 @@ object MediaSourceFactoryHelper {
     }
 
     /**
-     * Creates a DefaultMediaSourceFactory.
+     * Builds a DataSource.Factory supporting HTTP(S), local file://, content://, and asset:// schemes.
      */
-    fun createMediaSourceFactory(targetUrl: String, streamData: StreamData?, specificHeaders: Map<String, String> = emptyMap()): DefaultMediaSourceFactory {
-        val dsFactory = createDataSourceFactory(targetUrl, streamData, specificHeaders)
+    fun createDataSourceFactory(
+        targetUrl: String,
+        streamData: StreamData?,
+        specificHeaders: Map<String, String> = emptyMap(),
+        context: android.content.Context? = null
+    ): DataSource.Factory {
+        val httpDsFactory = createHttpDataSourceFactory(targetUrl, streamData, specificHeaders)
+        val ctx = context ?: com.example.MainApplication.appContext
+        return DefaultDataSource.Factory(ctx, httpDsFactory)
+    }
+
+    /**
+     * Creates a DefaultMediaSourceFactory supporting HTTP, HTTPS, local file://, content://, and HLS/DASH/MP4.
+     */
+    fun createMediaSourceFactory(
+        targetUrl: String,
+        streamData: StreamData?,
+        specificHeaders: Map<String, String> = emptyMap(),
+        context: android.content.Context? = null
+    ): DefaultMediaSourceFactory {
+        val dsFactory = createDataSourceFactory(targetUrl, streamData, specificHeaders, context)
         return DefaultMediaSourceFactory(dsFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(errorHandlingPolicy)
     }
