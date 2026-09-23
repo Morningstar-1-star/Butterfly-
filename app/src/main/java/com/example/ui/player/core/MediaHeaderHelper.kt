@@ -286,7 +286,7 @@ object MediaHeaderHelper {
                 builder.removeHeader("origin")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1")
             }
-            urlStr.contains("crunchyroll") || urlStr.contains("vrv.co") || urlStr.contains("akamaized.net") -> {
+            urlStr.contains("crunchyroll") || urlStr.contains("vrv.co") || (urlStr.contains("akamaized.net") && urlStr.contains("crunchyroll")) -> {
                 builder.header("Referer", "https://www.crunchyroll.com/")
                 builder.header("Origin", "https://www.crunchyroll.com")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")

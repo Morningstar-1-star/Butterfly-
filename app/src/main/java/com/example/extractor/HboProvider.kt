@@ -105,26 +105,8 @@ object HboProvider {
         val isYouTubeId = clean.length == 11 && !clean.contains("/") && !clean.contains(":") && !clean.contains(".")
         val isYouTubeUrl = clean.contains("youtube.com") || clean.contains("youtu.be")
 
-        // 1. Direct resolution for real 11-char video ID or YouTube link (0 buffering guaranteed)
-        if (isYouTubeId || isYouTubeUrl) {
-            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
-            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
-            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
-                val stream = res.streamData
-                val channel = if (stream.channelName.contains("HBO", ignoreCase = true) || stream.channelName.contains("Max", ignoreCase = true)) {
-                    stream.channelName
-                } else {
-                    "${stream.channelName} • HBO Max"
-                }
-                return@withContext stream.copy(
-                    providerId = PROVIDER_ID,
-                    channelName = channel
-                )
-            }
-        }
-
-        // 2. Direct yt-dlp extraction for external URLs with US Geo-Bypass & XFF headers
-        if (context != null && (clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("hbo:") || clean.startsWith("hbomax:") || clean.startsWith("max:"))) {
+        // 1. Direct yt-dlp extraction for external URLs with US Geo-Bypass & XFF headers
+        if (context != null && !isYouTubeId && !isYouTubeUrl && (clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("hbo:") || clean.startsWith("hbomax:") || clean.startsWith("max:"))) {
             try {
                 val ytdlRes = YtDlpResolver.extractStreamInfo(context, clean)
                 if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
@@ -135,6 +117,19 @@ object HboProvider {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "yt-dlp HBO extraction notice: ${e.message}")
+            }
+        }
+
+        // 2. Direct resolution for real 11-char video ID or YouTube link (0 buffering guaranteed)
+        if (isYouTubeId || isYouTubeUrl) {
+            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
+            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
+            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
+                val stream = res.streamData
+                return@withContext stream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = stream.channelName
+                )
             }
         }
 
@@ -197,11 +192,7 @@ object HboProvider {
                 val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
                 val originalUploader = item.uploaderName ?: "HBO Max"
-                val uploaderName = if (originalUploader.contains("HBO", ignoreCase = true) || originalUploader.contains("Max", ignoreCase = true)) {
-                    originalUploader
-                } else {
-                    "$originalUploader • HBO Max"
-                }
+                val uploaderName = originalUploader
 
                 itemsList.add(
                     VideoItem(

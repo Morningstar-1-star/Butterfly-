@@ -146,7 +146,7 @@ object CrunchyrollProvider {
         val mapped = ytResults.take(limit).map { item ->
             item.copy(
                 providerId = PROVIDER_ID,
-                uploaderName = if (item.uploaderName.contains("Crunchyroll", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • Crunchyroll"
+                uploaderName = item.uploaderName
             )
         }
 
@@ -161,7 +161,7 @@ object CrunchyrollProvider {
             return@withContext fallbackResults.take(limit).map { item ->
                 item.copy(
                     providerId = PROVIDER_ID,
-                    uploaderName = if (item.uploaderName.contains("Crunchyroll", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • Crunchyroll"
+                    uploaderName = item.uploaderName
                 )
             }
         }
@@ -175,7 +175,7 @@ object CrunchyrollProvider {
             searchResults.take(limitPerTopic).map { item ->
                 item.copy(
                     providerId = PROVIDER_ID,
-                    uploaderName = if (item.uploaderName.contains("Crunchyroll", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • Crunchyroll",
+                    uploaderName = item.uploaderName,
                     description = item.description ?: "Crunchyroll Anime Official Stream"
                 )
             }
@@ -247,7 +247,22 @@ object CrunchyrollProvider {
         val isYouTubeId = clean.length == 11 && !clean.contains("/") && !clean.contains(":") && !clean.contains(".")
         val isYouTubeUrl = clean.contains("youtube.com") || clean.contains("youtu.be")
 
-        // 1. Direct YouTube resolution if video originated from official Crunchyroll catalog
+        // 1. Direct native yt-dlp resolution for Crunchyroll URLs (with cookies and referer headers)
+        if (context != null && !isYouTubeId && !isYouTubeUrl && (clean.contains("crunchyroll.com") || clean.startsWith("http"))) {
+            try {
+                val ytdlRes = YtDlpResolver.extractStreamInfo(context, clean)
+                if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
+                    Log.i(TAG, "Successfully extracted real Crunchyroll stream natively via yt-dlp")
+                    return@withContext ytdlRes.streamData.copy(
+                        providerId = PROVIDER_ID
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Direct yt-dlp Crunchyroll extraction notice: ${e.message}")
+            }
+        }
+
+        // 2. Direct YouTube resolution if video originated from official Crunchyroll catalog
         if (isYouTubeId || isYouTubeUrl) {
             val videoId = if (isYouTubeId) clean else clean.substringAfter("v=").substringBefore("&").substringAfterLast("/").substringBefore("?")
             val res = YouTubeExtractorHelper.resolveStream(videoId, context, "youtube")
@@ -266,7 +281,7 @@ object CrunchyrollProvider {
                     providerId = PROVIDER_ID,
                     availableStreamOptions = safeOptions,
                     selectedStreamOption = best,
-                    channelName = if (extracted.channelName.contains("Crunchyroll", ignoreCase = true)) extracted.channelName else "${extracted.channelName} • Crunchyroll",
+                    channelName = extracted.channelName,
                     headers = mapOf("User-Agent" to DEFAULT_UA)
                 )
             }

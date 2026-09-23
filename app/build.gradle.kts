@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.butterfly.youtubeclient"
     minSdk = 28
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 5
+    versionName = "1.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     ndk {
@@ -56,10 +56,7 @@ android {
 
   splits {
     abi {
-      isEnable = true
-      reset()
-      include("arm64-v8a", "x86_64")
-      isUniversalApk = true
+      isEnable = false
     }
   }
 

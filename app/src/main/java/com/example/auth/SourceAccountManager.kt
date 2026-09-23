@@ -95,6 +95,66 @@ enum class SourcePlatform(
         icon = Icons.Outlined.Explore,
         supportsPremiumStream = true
     ),
+    CURIOSITY_STREAM(
+        id = "curiositystream",
+        displayName = "CuriosityStream",
+        subtitle = "Award-winning science, nature, history & tech documentaries",
+        defaultLoginUrl = "https://curiositystream.com/login",
+        primaryDomain = ".curiositystream.com",
+        brandColor = Color(0xFFE50914),
+        icon = Icons.Outlined.Lightbulb,
+        supportsPremiumStream = true
+    ),
+    HBO_MAX(
+        id = "hbomax",
+        displayName = "HBO Max",
+        subtitle = "HBO Originals, Max Exclusives, Warner Bros & DC blockbusters",
+        defaultLoginUrl = "https://play.max.com/login",
+        primaryDomain = ".max.com",
+        brandColor = Color(0xFF5822B4),
+        icon = Icons.Outlined.Movie,
+        supportsPremiumStream = true
+    ),
+    MX_PLAYER(
+        id = "mxplayer",
+        displayName = "MX Player",
+        subtitle = "MX Originals, web series, desi cinema & regional shows",
+        defaultLoginUrl = "https://www.mxplayer.in/login",
+        primaryDomain = ".mxplayer.in",
+        brandColor = Color(0xFF0084FF),
+        icon = Icons.Outlined.PlayCircleOutline,
+        supportsPremiumStream = true
+    ),
+    AMAZON_MINITV(
+        id = "amazonminitv",
+        displayName = "Amazon miniTV",
+        subtitle = "Free web series, romance, comedy & youth originals",
+        defaultLoginUrl = "https://www.amazon.in/minitv",
+        primaryDomain = ".amazon.in",
+        brandColor = Color(0xFFFF9900),
+        icon = Icons.Outlined.Tv,
+        supportsPremiumStream = true
+    ),
+    IMDB(
+        id = "imdb",
+        displayName = "IMDb",
+        subtitle = "Trailers, top rated lists, box office previews & interviews",
+        defaultLoginUrl = "https://www.imdb.com/registration/signin",
+        primaryDomain = ".imdb.com",
+        brandColor = Color(0xFFF5C518),
+        icon = Icons.Outlined.Star,
+        supportsPremiumStream = true
+    ),
+    POPCORN_TV(
+        id = "popcorntv",
+        displayName = "Popcorn TV",
+        subtitle = "Cinematic features, cult classics, open HD releases",
+        defaultLoginUrl = "https://popcorntime.app",
+        primaryDomain = ".popcorntime.app",
+        brandColor = Color(0xFFFF3366),
+        icon = Icons.Outlined.LocalMovies,
+        supportsPremiumStream = true
+    ),
     TENCENT(
         id = "tencent",
         displayName = "Tencent Video",
@@ -278,6 +338,56 @@ object SourceAccountManager {
             return session.cookies
         }
         return null
+    }
+
+    /**
+     * Retrieves cookies matching a target URL or domain.
+     */
+    fun getCookiesForUrl(url: String): String? {
+        val lower = url.lowercase()
+        for (platform in SourcePlatform.entries) {
+            if (lower.contains(platform.id) || lower.contains(platform.primaryDomain.removePrefix("."))) {
+                val cookies = getCookiesForStream(platform.id)
+                if (!cookies.isNullOrBlank()) return cookies
+            }
+        }
+        return null
+    }
+
+    /**
+     * Writes active session cookies to a standard Netscape cookies.txt file for yt-dlp authentication.
+     */
+    fun getNetscapeCookiesFile(context: Context, platformIdOrDomain: String): java.io.File? {
+        val platform = SourcePlatform.fromId(platformIdOrDomain)
+            ?: SourcePlatform.entries.firstOrNull { platformIdOrDomain.lowercase().contains(it.primaryDomain.removePrefix(".")) }
+        val platformId = platform?.id ?: platformIdOrDomain.lowercase()
+        val rawCookies = getCookiesForStream(platformId) ?: getCookiesForUrl(platformIdOrDomain) ?: return null
+        if (rawCookies.isBlank()) return null
+
+        return try {
+            val domain = platform?.primaryDomain ?: if (platformIdOrDomain.startsWith(".")) platformIdOrDomain else ".$platformIdOrDomain"
+            val cookieFile = java.io.File(context.cacheDir, "cookies_${platformId}.txt")
+            val sb = StringBuilder()
+            sb.append("# Netscape HTTP Cookie File\n")
+            sb.append("# Generated for authenticated source extraction\n")
+
+            // Format: domain \t flag \t path \t secure \t expiration \t name \t value
+            val cookiePairs = rawCookies.split(";")
+            for (pair in cookiePairs) {
+                val trimmed = pair.trim()
+                if (trimmed.isEmpty()) continue
+                val equalIndex = trimmed.indexOf('=')
+                if (equalIndex > 0) {
+                    val name = trimmed.substring(0, equalIndex).trim()
+                    val value = trimmed.substring(equalIndex + 1).trim()
+                    sb.append("$domain\tTRUE\t/\tTRUE\t2147483647\t$name\t$value\n")
+                }
+            }
+            cookieFile.writeText(sb.toString())
+            cookieFile
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun isSourceLoggedIn(platformId: String): Boolean {

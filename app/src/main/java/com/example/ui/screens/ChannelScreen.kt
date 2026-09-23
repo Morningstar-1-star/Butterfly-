@@ -152,9 +152,10 @@ fun ChannelScreen(
                                 leadingIcon = { Icon(Icons.Outlined.Share, null) },
                                 onClick = {
                                     showOptionsMenu = false
+                                    val chUrl = if (currentDetails.handle.startsWith("http")) currentDetails.handle else "https://www.youtube.com/${currentDetails.handle}"
                                     val shareIntent = android.content.Intent().apply {
                                         action = android.content.Intent.ACTION_SEND
-                                        putExtra(android.content.Intent.EXTRA_TEXT, "Check out ${currentDetails.name} on YouTube: https://www.youtube.com/${currentDetails.handle}")
+                                        putExtra(android.content.Intent.EXTRA_TEXT, "Check out ${currentDetails.name}: $chUrl")
                                         type = "text/plain"
                                     }
                                     context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Channel"))
@@ -657,9 +658,10 @@ fun ChannelScreen(
                         ChannelAboutSection(
                             details = currentDetails,
                             onShareClick = {
+                                val chUrl = if (currentDetails.handle.startsWith("http")) currentDetails.handle else "https://www.youtube.com/${currentDetails.handle}"
                                 val shareIntent = android.content.Intent().apply {
                                     action = android.content.Intent.ACTION_SEND
-                                    putExtra(android.content.Intent.EXTRA_TEXT, "Check out ${currentDetails.name} on YouTube: https://www.youtube.com/${currentDetails.handle}")
+                                    putExtra(android.content.Intent.EXTRA_TEXT, "Check out ${currentDetails.name}: $chUrl")
                                     type = "text/plain"
                                 }
                                 context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Channel"))

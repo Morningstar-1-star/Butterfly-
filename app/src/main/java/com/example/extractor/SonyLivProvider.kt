@@ -125,7 +125,7 @@ object SonyLivProvider {
         val mapped = ytResults.take(limit).map { item ->
             item.copy(
                 providerId = PROVIDER_ID,
-                uploaderName = if (item.uploaderName.contains("Sony", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • SonyLIV"
+                uploaderName = item.uploaderName
             )
         }
 
@@ -140,7 +140,7 @@ object SonyLivProvider {
             return@withContext fallbackResults.take(limit).map { item ->
                 item.copy(
                     providerId = PROVIDER_ID,
-                    uploaderName = if (item.uploaderName.contains("Sony", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • SonyLIV"
+                    uploaderName = item.uploaderName
                 )
             }
         }
@@ -154,7 +154,7 @@ object SonyLivProvider {
             searchResults.take(limitPerTopic).map { item ->
                 item.copy(
                     providerId = PROVIDER_ID,
-                    uploaderName = if (item.uploaderName.contains("Sony", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • SonyLIV",
+                    uploaderName = item.uploaderName,
                     description = item.description ?: "SonyLIV TV Show / Movie / Sports Stream"
                 )
             }
@@ -222,7 +222,23 @@ object SonyLivProvider {
         val isYouTubeId = clean.length == 11 && !clean.contains("/") && !clean.contains(":") && !clean.contains(".")
         val isYouTubeUrl = clean.contains("youtube.com") || clean.contains("youtu.be")
 
-        // 1. Direct YouTube resolution if video originated from official Sony / SET India catalog
+        // 1. Native Direct yt-dlp resolution for real SonyLIV URLs / IDs with cookies & headers
+        if (context != null && (clean.contains("sonyliv.com") || clean.startsWith("sonyliv:") || clean.startsWith("sonylivseries:"))) {
+            try {
+                val targetUrl = if (clean.startsWith("http")) clean else "https://www.sonyliv.com/${clean.removePrefix("sonyliv:").trimStart('/')}"
+                val ytdlRes = YtDlpResolver.extractStreamInfo(context, targetUrl)
+                if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
+                    Log.i(TAG, "Successfully resolved real SonyLIV stream natively via yt-dlp")
+                    return@withContext ytdlRes.streamData.copy(
+                        providerId = PROVIDER_ID
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Direct yt-dlp SonyLIV extraction notice: ${e.message}")
+            }
+        }
+
+        // 2. Direct YouTube resolution if video originated from official Sony / SET India catalog
         if (isYouTubeId || isYouTubeUrl) {
             val videoId = if (isYouTubeId) clean else clean.substringAfter("v=").substringBefore("&").substringAfterLast("/").substringBefore("?")
             val res = YouTubeExtractorHelper.resolveStream(videoId, context, "youtube")
@@ -241,7 +257,7 @@ object SonyLivProvider {
                     providerId = PROVIDER_ID,
                     availableStreamOptions = safeOptions,
                     selectedStreamOption = best,
-                    channelName = if (extracted.channelName.contains("Sony", ignoreCase = true)) extracted.channelName else "${extracted.channelName} • SonyLIV",
+                    channelName = extracted.channelName,
                     headers = mapOf("User-Agent" to DEFAULT_UA)
                 )
             }

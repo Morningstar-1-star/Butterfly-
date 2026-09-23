@@ -120,29 +120,14 @@ fun VideoCard(
     val context = LocalContext.current
     val effectiveWatchProgress = watchProgressFraction
 
-    var asyncTranslatedTitle by remember(video.id, video.title, video.translatedTitleEN) {
-        mutableStateOf(video.translatedTitleEN)
-    }
-
     val detectedLang = remember(video.title, video.detectedLanguage) {
-        video.detectedLanguage ?: com.example.util.UniversalTranslator.detectLanguage(video.title)
-    }
-
-    LaunchedEffect(video.id, video.title) {
-        if (asyncTranslatedTitle.isNullOrBlank() && detectedLang != "en" && detectedLang != "hi") {
-            try {
-                val res = com.example.util.UniversalTranslator.translateTitle(video.title)
-                if (res.translatedEN.isNotBlank() && !res.translatedEN.equals(video.title, ignoreCase = true)) {
-                    asyncTranslatedTitle = res.translatedEN
-                }
-            } catch (_: Exception) {}
-        }
+        video.detectedLanguage ?: "en"
     }
 
     val effectiveOriginalTitle = video.originalTitle ?: video.title
-    val effectiveTranslatedTitle = asyncTranslatedTitle ?: video.translatedTitleEN
+    val effectiveTranslatedTitle = video.translatedTitleEN
 
-    val activeTitle = remember(video, localShowOriginal, effectiveOriginalTitle, effectiveTranslatedTitle, detectedLang) {
+    val activeTitle = remember(video.id, video.title, localShowOriginal, effectiveOriginalTitle, effectiveTranslatedTitle, detectedLang) {
         if (localShowOriginal || detectedLang == "hi") {
             effectiveOriginalTitle
         } else {
@@ -393,11 +378,9 @@ fun VideoCard(
                         )
                     }
 
-                    var isNon169Ratio by remember(activeImageUrl, isKnownPosterSource, isStandardVideoTube) {
-                        mutableStateOf(if (isStandardVideoTube) false else isKnownPosterSource)
-                    }
+                    val isNon169Ratio = isKnownPosterSource && !isStandardVideoTube
 
-                    if (isNon169Ratio && !isStandardVideoTube) {
+                    if (isNon169Ratio) {
                         // High-contrast clean dark background for poster / non-16:9 media cards
                         Box(
                             modifier = Modifier
@@ -408,14 +391,6 @@ fun VideoCard(
                             model = thumbnailImageRequest,
                             contentDescription = video.title,
                             contentScale = ContentScale.Fit,
-                            onSuccess = { state ->
-                                val w = state.result.drawable.intrinsicWidth
-                                val h = state.result.drawable.intrinsicHeight
-                                if (w > 0 && h > 0) {
-                                    val aspect = w.toFloat() / h.toFloat()
-                                    isNon169Ratio = aspect < 0.9f || aspect > 2.4f
-                                }
-                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -424,18 +399,6 @@ fun VideoCard(
                             model = thumbnailImageRequest,
                             contentDescription = video.title,
                             contentScale = ContentScale.Crop,
-                            onSuccess = { state ->
-                                if (!isStandardVideoTube) {
-                                    val w = state.result.drawable.intrinsicWidth
-                                    val h = state.result.drawable.intrinsicHeight
-                                    if (w > 0 && h > 0) {
-                                        val aspect = w.toFloat() / h.toFloat()
-                                        if (aspect < 0.9f || aspect > 2.4f) {
-                                            isNon169Ratio = true
-                                        }
-                                    }
-                                }
-                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -505,20 +468,33 @@ fun VideoCard(
                 }
 
                 if (showProviderBadge && sourceBadge.name.isNotBlank() && !isPreviewActive && !isPreloadingTeaser) {
-                    Text(
-                        text = sourceBadge.name,
-                        color = sourceBadge.contentColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+                    val isAdult = com.example.util.SourceTagHelper.isAdultSource(video.providerId)
+                    Surface(
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(8.dp)
-                            .background(
-                                color = sourceBadge.backgroundColor.copy(alpha = 0.95f),
-                                shape = RoundedCornerShape(6.dp)
+                            .padding(8.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Black.copy(alpha = 0.82f),
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            SourceBrandLogo(
+                                providerId = video.providerId ?: sourceBadge.name,
+                                size = 13.dp,
+                                isAdultMode = isAdult
                             )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                            Text(
+                                text = sourceBadge.name,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
 
                 // Subtle Teaser Badge indicator when idle (Tap to auto-play teaser frames)
@@ -844,18 +820,25 @@ fun VideoCard(
                     }
 
                     if (!video.recommendationReason.isNullOrBlank()) {
+                        val isFullContent = video.recommendationReason.contains("Full Movie") ||
+                                video.recommendationReason.contains("Full Match") ||
+                                video.recommendationReason.contains("Full Episode") ||
+                                video.recommendationReason.contains("Full Video")
+
                         Spacer(modifier = Modifier.height(3.dp))
                         androidx.compose.material3.Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                            color = if (isFullContent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                            border = if (isFullContent) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)) else null
                         ) {
                             Text(
                                 text = video.recommendationReason,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = if (isFullContent) FontWeight.Bold else FontWeight.SemiBold
                                 ),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                color = if (isFullContent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -986,14 +969,7 @@ fun VideoCard(
                             if (onShare != null) {
                                 onShare.invoke(video)
                             } else {
-                                try {
-                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(android.content.Intent.EXTRA_SUBJECT, video.title)
-                                        putExtra(android.content.Intent.EXTRA_TEXT, "${video.title}\nhttps://youtube.com/watch?v=${video.id}")
-                                    }
-                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share video"))
-                                } catch (e: Exception) {}
+                                com.example.util.VideoShareHelper.shareVideo(context, video)
                             }
                         }
                     }

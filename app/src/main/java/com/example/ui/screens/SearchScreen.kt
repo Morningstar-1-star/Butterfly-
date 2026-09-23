@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Explicit
+import com.example.ui.components.SourceBrandLogo
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -1547,25 +1548,13 @@ private fun ProviderSourceChip(
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .background(
-                        color = if (selected) activeContent.copy(alpha = 0.22f) else data.accentColor.copy(alpha = 0.18f),
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = data.icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(12.dp)
-                )
-            }
+            SourceBrandLogo(
+                providerId = data.id,
+                size = 18.dp
+            )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = data.label,

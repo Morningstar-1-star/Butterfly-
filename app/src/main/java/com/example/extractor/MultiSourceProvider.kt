@@ -153,22 +153,16 @@ object MultiSourceProvider {
     }
 
     // ------------------- BILIBILI -------------------
-    fun getBilibiliHome(page: Int = 1, limit: Int = 20): List<VideoItem> {
-        return kotlinx.coroutines.runBlocking {
-            BilibiliProvider.getHomeVideos(page, limit)
-        }
+    suspend fun getBilibiliHome(page: Int = 1, limit: Int = 20): List<VideoItem> {
+        return BilibiliProvider.getHomeVideos(page, limit)
     }
 
-    fun getBilibiliCategory(category: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
-        return kotlinx.coroutines.runBlocking {
-            BilibiliProvider.fetchCategoryVideos(category, page, limit)
-        }
+    suspend fun getBilibiliCategory(category: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
+        return BilibiliProvider.fetchCategoryVideos(category, page, limit)
     }
 
-    private fun searchBilibili(query: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
-        return kotlinx.coroutines.runBlocking {
-            BilibiliProvider.searchBilibili(query, page, limit)
-        }
+    private suspend fun searchBilibili(query: String, page: Int = 1, limit: Int = 20): List<VideoItem> {
+        return BilibiliProvider.searchBilibili(query, page, limit)
     }
 
     // ------------------- BEEG -------------------

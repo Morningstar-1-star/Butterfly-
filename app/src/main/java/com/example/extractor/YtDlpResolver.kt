@@ -425,11 +425,17 @@ object YtDlpResolver {
                         lowerUrl.startsWith("ss", ignoreCase = true) || lowerUrl.startsWith("md", ignoreCase = true) -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
                     request.addOption("--add-header", "User-Agent: $DEFAULT_USER_AGENT")
+                    request.addOption("--extractor-args", "bilibili:player_client=android,web,tv")
+                    request.addOption("--geo-bypass")
+                    request.addOption("--geo-bypass-country", "CN")
+                    request.addOption("--add-header", "X-Forwarded-For: 114.114.114.114")
                     val biliCookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
                     if (biliCookie.isNotBlank()) {
                         request.addOption("--add-header", "Cookie: $biliCookie")
+                        domainHeaders["Cookie"] = biliCookie
                     }
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
+                    domainHeaders["X-Forwarded-For"] = "114.114.114.114"
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
@@ -620,6 +626,43 @@ object YtDlpResolver {
                     domainHeaders["Referer"] = "https://curiositystream.com/"
                     domainHeaders["Origin"] = "https://curiositystream.com"
                 }
+                lowerUrl.contains("sonyliv.com") || lowerUrl.startsWith("sonyliv:") || lowerUrl.startsWith("sonylivseries:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--geo-bypass-country", "IN")
+                    request.addOption("--add-header", "Referer: https://www.sonyliv.com/")
+                    request.addOption("--add-header", "Origin: https://www.sonyliv.com")
+                    domainHeaders["Referer"] = "https://www.sonyliv.com/"
+                    domainHeaders["Origin"] = "https://www.sonyliv.com"
+                }
+                lowerUrl.contains("mxplayer.in") || lowerUrl.contains("mxplay.com") || lowerUrl.startsWith("mxplayer:") -> {
+                    request.addOption("--add-header", "Referer: https://www.mxplayer.in/")
+                    request.addOption("--add-header", "Origin: https://www.mxplayer.in")
+                    domainHeaders["Referer"] = "https://www.mxplayer.in/"
+                    domainHeaders["Origin"] = "https://www.mxplayer.in"
+                }
+                lowerUrl.contains("crunchyroll.com") || lowerUrl.startsWith("crunchyroll:") -> {
+                    request.addOption("--add-header", "Referer: https://www.crunchyroll.com/")
+                    request.addOption("--add-header", "Origin: https://www.crunchyroll.com")
+                    domainHeaders["Referer"] = "https://www.crunchyroll.com/"
+                    domainHeaders["Origin"] = "https://www.crunchyroll.com"
+                }
+            }
+
+            // User Credentials / Cookies Injection (cookies.txt) for Supported DRM / Authenticated Sites
+            try {
+                val cookieFile = com.example.auth.SourceAccountManager.getNetscapeCookiesFile(ctx, videoUrl)
+                if (cookieFile != null && cookieFile.exists() && cookieFile.length() > 0) {
+                    request.addOption("--cookies", cookieFile.absolutePath)
+                    Log.i(TAG, "Injected authenticated cookies.txt from SourceAccountManager for $videoUrl")
+                } else {
+                    val rawCookie = com.example.auth.SourceAccountManager.getCookiesForUrl(videoUrl)
+                    if (!rawCookie.isNullOrBlank()) {
+                        request.addOption("--add-header", "Cookie: $rawCookie")
+                        domainHeaders["Cookie"] = rawCookie
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed injecting cookies into yt-dlp request: ${e.message}")
             }
 
             val updatedDir = java.io.File(ctx.filesDir, "yt_dlp_updated")

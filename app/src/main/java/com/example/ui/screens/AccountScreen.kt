@@ -83,6 +83,7 @@ fun AccountScreen(
     var showHistorySheet by remember { mutableStateOf(false) }
     var showMoviesAndTvSheet by remember { mutableStateOf(false) }
     var showBadgesSheet by remember { mutableStateOf(false) }
+    var showTimeManagementSheet by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAvatarPickerSheet by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
@@ -472,9 +473,10 @@ fun AccountScreen(
                     )
 
                     AccountMenuListItem(
-                        icon = Icons.Outlined.ContentCut,
-                        title = "Clips",
-                        onClick = { /* Clips list */ }
+                        icon = Icons.Outlined.BarChart,
+                        title = "Time management",
+                        subtitle = "Weekly, monthly stats & data consumption",
+                        onClick = { showTimeManagementSheet = true }
                     )
 
                     AccountMenuListItem(
@@ -1042,6 +1044,22 @@ fun AccountScreen(
                 viewModel = viewModel,
                 onDismiss = { showBadgesSheet = false }
             )
+        }
+
+        // TIME & DATA MANAGEMENT SCREEN
+        if (showTimeManagementSheet) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showTimeManagementSheet = false },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
+            ) {
+                TimeAndDataManagementScreen(
+                    onBackClick = { showTimeManagementSheet = false },
+                    viewModel = viewModel
+                )
+            }
         }
     }
 }

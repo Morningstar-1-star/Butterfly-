@@ -110,13 +110,7 @@ fun HomeScreen(
         isSearchExpanded = isSearchExpandedState
     }
     var activeCategory by remember { mutableStateOf("All") }
-    var isBarsVisible by remember { mutableStateOf(true) }
     val focusManager = LocalFocusManager.current
-
-    var topAppBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var fullHeaderHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var bottomBarHeightPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var scrollOffsetPx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
 
     var currentTabScreen by remember { mutableStateOf(AppScreen.HOME) }
     LaunchedEffect(currentScreen) {
@@ -148,12 +142,6 @@ fun HomeScreen(
                 feedListState.scrollToItem(0)
             } catch (_: Exception) {}
         }
-        scrollOffsetPx = 0f
-        isBarsVisible = true
-    }
-
-    LaunchedEffect(currentScreen, isSearchExpanded) {
-        isBarsVisible = true
     }
 
     LaunchedEffect(feedListState) {
@@ -171,61 +159,11 @@ fun HomeScreen(
         }
     }
 
-    val nestedScrollConnection = remember(isSearchExpanded) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (isSearchExpanded) return Offset.Zero
-                val maxOffset = fullHeaderHeightPx.coerceAtLeast(1f)
-                val delta = available.y
-                val previousOffset = scrollOffsetPx
-                val newOffset = (previousOffset + delta).coerceIn(-maxOffset, 0f)
-                scrollOffsetPx = newOffset
-
-                if (delta < -35f && isBarsVisible) {
-                    isBarsVisible = false
-                } else if (delta > 35f && !isBarsVisible) {
-                    isBarsVisible = true
-                }
-                return Offset.Zero
-            }
-        }
+    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topBarPaddingDp = remember(statusBarTopPadding) {
+        statusBarTopPadding + 56.dp + 44.dp + 6.dp
     }
-
-    LaunchedEffect(feedListState) {
-        androidx.compose.runtime.snapshotFlow {
-            feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset == 0
-        }
-        .distinctUntilChanged()
-        .collect { atTop ->
-            if (atTop) {
-                scrollOffsetPx = 0f
-                isBarsVisible = true
-            }
-        }
-    }
-
-    LaunchedEffect(currentScreen, isSearchExpanded) {
-        scrollOffsetPx = 0f
-        isBarsVisible = true
-    }
-
-    val bottomBarOffsetState = animateFloatAsState(
-        targetValue = if (isBarsVisible || isSearchExpanded) 0f else bottomBarHeightPx.coerceAtLeast(1f),
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "bottom_bar_translation"
-    )
-
-    val density = LocalDensity.current
-    val topBarPaddingDp = remember(fullHeaderHeightPx, density) {
-        if (fullHeaderHeightPx > 0f) {
-            with(density) { fullHeaderHeightPx.toDp() + 12.dp }
-        } else {
-            160.dp
-        }
-    }
-    val bottomBarPaddingDp = remember(bottomBarHeightPx, density) {
-        if (bottomBarHeightPx > 0f) with(density) { bottomBarHeightPx.toDp() } else 80.dp
-    }
+    val bottomBarPaddingDp = 80.dp
 
     val categories = listOf("All", "Tencent Video", "YouTube", "miniTV", "MX Player", "Disney+", "PopcornTV", "IMDb", "Discovery+", "Drive", "Dailymotion", "Gaming", "Podcasts", "Music", "Trending", "News")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
@@ -315,9 +253,7 @@ fun HomeScreen(
     }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(nestedScrollConnection)
+        modifier = modifier.fillMaxSize()
     ) {
         // LAYER 1: SCREEN CONTENT
         Box(
@@ -454,15 +390,7 @@ fun HomeScreen(
 
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
-                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 8)
-                                }
-                            }
-
-                            val firstVisibleIndex by remember { derivedStateOf { feedListState.firstVisibleItemIndex } }
-                            LaunchedEffect(firstVisibleIndex) {
-                                if (feedList.isNotEmpty() && firstVisibleIndex > 0) {
-                                    val ahead = feedList.drop(firstVisibleIndex).take(6)
-                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, ahead, maxCount = 6)
+                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 6)
                                 }
                             }
 
@@ -556,80 +484,11 @@ fun HomeScreen(
                                         }
                                     } else {
                                         val showSearchRecsShelf = searchResults.isEmpty() && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank()
-                                        val shelfInsertIndex = 2.coerceAtMost(feedList.size)
 
-                                        // Render first batch of feed items before the shelf
-                                        items(
-                                            items = feedList.take(shelfInsertIndex),
-                                            key = { "${it.providerId}_${it.id}" },
-                                            contentType = { "video_card" }
-                                        ) { video ->
-                                            VideoCard(
-                                                video = video,
-                                                watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                showProviderBadge = showThumbnailTags,
-                                                onClick = {
-                                                    if (video.id == "bun_tel_meg_help") {
-                                                        showAddCloudDialog = true
-                                                    } else {
-                                                        viewModel.playVideo(video.id, video.providerId)
-                                                    }
-                                                },
-                                                onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
-                                                onAddToQueue = { v -> viewModel.addToQueue(v) },
-                                                onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                                onSaveToPlaylist = { v ->
-                                                    val userPls = viewModel.userPlaylists.value
-                                                    if (userPls.isNotEmpty()) {
-                                                        viewModel.addToPlaylist(userPls.first().id, v)
-                                                    } else {
-                                                        viewModel.createPlaylist("Favorites")
-                                                        val updated = viewModel.userPlaylists.value
-                                                        if (updated.isNotEmpty()) {
-                                                            viewModel.addToPlaylist(updated.first().id, v)
-                                                        }
-                                                    }
-                                                },
-                                                onDownload = { v ->
-                                                    viewModel.showDownloadSheet(v)
-                                                },
-                                                onNotInterested = { v ->
-                                                    viewModel.markNotInterested(v)
-                                                },
-                                                onChannelClick = { ch ->
-                                                    viewModel.openChannel(ch)
-                                                },
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-
-                                        // CONTEXTUAL SEARCH-DRIVEN RECOMMENDATIONS SHELF
-                                        if (showSearchRecsShelf) {
-                                            item(
-                                                key = "search_recommendations_shelf",
-                                                contentType = "search_shelf"
-                                            ) {
-                                                SearchDrivenRecommendationsShelf(
-                                                    searchQuery = latestSearchIntent!!,
-                                                    videos = searchDrivenRecommendations,
-                                                    showProviderBadge = showThumbnailTags,
-                                                    onSelectVideo = { video ->
-                                                        viewModel.playVideo(video.id, video.providerId)
-                                                    },
-                                                    onOpenSearch = { query ->
-                                                        viewModel.updateSearchQuery(query)
-                                                        viewModel.performSearch(query)
-                                                        viewModel.setSearchExpanded(true)
-                                                     },
-                                                    modifier = Modifier.padding(vertical = 12.dp)
-                                                )
-                                            }
-                                        }
-
-                                        // Render remaining feed items after the shelf
-                                        if (feedList.size > shelfInsertIndex) {
+                                        if (!showSearchRecsShelf) {
+                                            // Unified continuous items list for optimal 120fps scrolling
                                             items(
-                                                items = feedList.drop(shelfInsertIndex),
+                                                items = feedList,
                                                 key = { "${it.providerId}_${it.id}" },
                                                 contentType = { "video_card" }
                                             ) { video ->
@@ -670,6 +529,117 @@ fun HomeScreen(
                                                     },
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
+                                            }
+                                        } else {
+                                            val shelfInsertIndex = 2.coerceAtMost(feedList.size)
+                                            items(
+                                                items = feedList.take(shelfInsertIndex),
+                                                key = { "${it.providerId}_${it.id}" },
+                                                contentType = { "video_card" }
+                                            ) { video ->
+                                                VideoCard(
+                                                    video = video,
+                                                    watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                    showProviderBadge = showThumbnailTags,
+                                                    onClick = {
+                                                        if (video.id == "bun_tel_meg_help") {
+                                                            showAddCloudDialog = true
+                                                        } else {
+                                                            viewModel.playVideo(video.id, video.providerId)
+                                                        }
+                                                    },
+                                                    onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                                                    onAddToQueue = { v -> viewModel.addToQueue(v) },
+                                                    onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                                    onSaveToPlaylist = { v ->
+                                                        val userPls = viewModel.userPlaylists.value
+                                                        if (userPls.isNotEmpty()) {
+                                                            viewModel.addToPlaylist(userPls.first().id, v)
+                                                        } else {
+                                                            viewModel.createPlaylist("Favorites")
+                                                            val updated = viewModel.userPlaylists.value
+                                                            if (updated.isNotEmpty()) {
+                                                                viewModel.addToPlaylist(updated.first().id, v)
+                                                            }
+                                                        }
+                                                    },
+                                                    onDownload = { v ->
+                                                        viewModel.showDownloadSheet(v)
+                                                    },
+                                                    onNotInterested = { v ->
+                                                        viewModel.markNotInterested(v)
+                                                    },
+                                                    onChannelClick = { ch ->
+                                                        viewModel.openChannel(ch)
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+
+                                            item(
+                                                key = "search_recommendations_shelf",
+                                                contentType = "search_shelf"
+                                            ) {
+                                                SearchDrivenRecommendationsShelf(
+                                                    searchQuery = latestSearchIntent!!,
+                                                    videos = searchDrivenRecommendations,
+                                                    showProviderBadge = showThumbnailTags,
+                                                    onSelectVideo = { video ->
+                                                        viewModel.playVideo(video.id, video.providerId)
+                                                    },
+                                                    onOpenSearch = { query ->
+                                                        viewModel.updateSearchQuery(query)
+                                                        viewModel.performSearch(query)
+                                                        viewModel.setSearchExpanded(true)
+                                                    },
+                                                    modifier = Modifier.padding(vertical = 12.dp)
+                                                )
+                                            }
+
+                                            if (feedList.size > shelfInsertIndex) {
+                                                items(
+                                                    items = feedList.drop(shelfInsertIndex),
+                                                    key = { "${it.providerId}_${it.id}" },
+                                                    contentType = { "video_card" }
+                                                ) { video ->
+                                                    VideoCard(
+                                                        video = video,
+                                                        watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                        showProviderBadge = showThumbnailTags,
+                                                        onClick = {
+                                                            if (video.id == "bun_tel_meg_help") {
+                                                                showAddCloudDialog = true
+                                                            } else {
+                                                                viewModel.playVideo(video.id, video.providerId)
+                                                            }
+                                                        },
+                                                        onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
+                                                        onAddToQueue = { v -> viewModel.addToQueue(v) },
+                                                        onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
+                                                        onSaveToPlaylist = { v ->
+                                                            val userPls = viewModel.userPlaylists.value
+                                                            if (userPls.isNotEmpty()) {
+                                                                viewModel.addToPlaylist(userPls.first().id, v)
+                                                            } else {
+                                                                viewModel.createPlaylist("Favorites")
+                                                                val updated = viewModel.userPlaylists.value
+                                                                if (updated.isNotEmpty()) {
+                                                                    viewModel.addToPlaylist(updated.first().id, v)
+                                                                }
+                                                            }
+                                                        },
+                                                        onDownload = { v ->
+                                                            viewModel.showDownloadSheet(v)
+                                                        },
+                                                        onNotInterested = { v ->
+                                                            viewModel.markNotInterested(v)
+                                                        },
+                                                        onChannelClick = { ch ->
+                                                            viewModel.openChannel(ch)
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -741,24 +711,18 @@ fun HomeScreen(
             val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
             val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
 
-            // Combined Collapsible Header + Tags Column
+            // Top Header + Tags Column (Stably anchored, zero jank)
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .zIndex(9f)
-                    .graphicsLayer {
-                        translationY = scrollOffsetPx.coerceIn(-fullHeaderHeightPx, 0f)
-                    }
                     .background(MaterialTheme.colorScheme.background)
                     .statusBarsPadding()
-                    .onSizeChanged { fullHeaderHeightPx = it.height.toFloat() }
             ) {
                 // Header Bar (TopAppBar with Logo & Actions)
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onSizeChanged { topAppBarHeightPx = it.height.toFloat() }
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     TopAppBar(
                         windowInsets = WindowInsets(0, 0, 0, 0),
@@ -838,7 +802,7 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // DIRECT SOURCE SELECTOR BUTTON WITH HOMEPAGE DROPDOWN MENU
+                        // DIRECT SOURCE SELECTOR BUTTON WITH MINIMAL COMPACT ICON ONLY
                         item {
                             var isSourceMenuExpanded by remember { mutableStateOf(false) }
                             Box {
@@ -849,27 +813,34 @@ fun HomeScreen(
                                         if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary
                                     } else unselectedChipBg,
                                     contentColor = if (activeProviderId != "all") Color.White else unselectedChipFg,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (activeProviderId != "all") Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    ),
                                     modifier = Modifier.height(32.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Tune,
-                                            contentDescription = "Source Selector",
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Text(
-                                            text = activeProviderName,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        if (activeProviderId != "all") {
+                                            SourceBrandLogo(
+                                                providerId = activeProviderId,
+                                                size = 18.dp,
+                                                isAdultMode = adultContentEnabled
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Tune,
+                                                contentDescription = "Source Selector",
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
                                         Icon(
                                             imageVector = Icons.Default.ArrowDropDown,
                                             contentDescription = "Select Source",
-                                            modifier = Modifier.size(14.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
@@ -878,7 +849,7 @@ fun HomeScreen(
                                     expanded = isSourceMenuExpanded,
                                     onDismissRequest = { isSourceMenuExpanded = false },
                                     modifier = Modifier
-                                        .widthIn(min = 290.dp, max = 350.dp)
+                                        .widthIn(min = 230.dp, max = 270.dp)
                                         .heightIn(max = 480.dp)
                                 ) {
                                     // Mode Switcher Banner at top of Dropdown
@@ -890,9 +861,9 @@ fun HomeScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = if (adultContentEnabled) "Switch to Mainstream / Normal" else "Switch to 18+ Adult Sources",
+                                                    text = if (adultContentEnabled) "Switch to Mainstream" else "Switch to 18+ Mode",
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
+                                                    fontSize = 12.sp,
                                                     color = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63)
                                                 )
                                                 Surface(
@@ -900,12 +871,12 @@ fun HomeScreen(
                                                     color = if (adultContentEnabled) MaterialTheme.colorScheme.primaryContainer else Color(0xFFFFE4EC)
                                                 ) {
                                                     Text(
-                                                        text = if (adultContentEnabled) "OTT / VIDEO" else "18+",
+                                                        text = if (adultContentEnabled) "MAINSTREAM" else "18+",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63),
                                                         fontWeight = FontWeight.Bold,
                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                        fontSize = 9.sp
+                                                        fontSize = 8.5.sp
                                                     )
                                                 }
                                             }
@@ -914,7 +885,8 @@ fun HomeScreen(
                                             Icon(
                                                 imageVector = if (adultContentEnabled) Icons.Default.SwapHoriz else Icons.Default.Explicit,
                                                 contentDescription = null,
-                                                tint = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63)
+                                                tint = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63),
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         },
                                         onClick = {
@@ -925,187 +897,286 @@ fun HomeScreen(
 
                                     HorizontalDivider()
 
-                                    // Top Pinned Sources: Tencent Video, XNXX, HellPorno, Stripchat, and Chaturbate
-                                    val topFiveSources = listOf(
-                                        "tencent" to listOf("Tencent Video (v.qq.com)", "v.qq.com", "Chinese VIP dramas, anime & series"),
-                                        "xnxx" to listOf("XNXX", "HD TUBE", "XNXX HD adult video tube catalog & streaming"),
-                                        "hellporno" to listOf("HellPorno", "HD TUBE", "HellPorno HD adult video streams & categories"),
-                                        "stripchat" to listOf("Stripchat", "● LIVE CAMS", "Live interactive adult webcam rooms & models"),
-                                        "chaturbate" to listOf("Chaturbate", "● LIVE CAMS", "Live interactive adult webcam broadcast shows")
-                                    )
+                                    if (adultContentEnabled) {
+                                        // 18+ ADULT SOURCES ONLY (Strictly segregated - NO Tencent Video)
+                                        Text(
+                                            text = "LIVE WEBCAM ROOMS",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFF5722),
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                            fontSize = 10.sp
+                                        )
 
-                                    topFiveSources.forEach { (id, details) ->
-                                        val (name, badge, desc) = details
-                                        val isSelected = (activeProviderId == id)
-                                        val brandColor = when (id) {
-                                            "tencent" -> Color(0xFF0052D9)
-                                            "xnxx" -> Color(0xFF00B0FF)
-                                            "hellporno" -> Color(0xFFFF1744)
-                                            "stripchat" -> Color(0xFFFF3D00)
-                                            "chaturbate" -> Color(0xFFFF6D00)
-                                            else -> MaterialTheme.colorScheme.primary
-                                        }
-                                        val brandIcon = when (id) {
-                                            "tencent" -> Icons.Default.LiveTv
-                                            "stripchat", "chaturbate" -> Icons.Default.Videocam
-                                            else -> Icons.Default.Explicit
-                                        }
+                                        val adultLiveSources = listOf(
+                                            Pair("stripchat", "Stripchat"),
+                                            Pair("chaturbate", "Chaturbate"),
+                                            Pair("cam4", "CAM4")
+                                        )
 
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
+                                        adultLiveSources.forEach { (id, name) ->
+                                            val isSelected = (activeProviderId == id)
+                                            DropdownMenuItem(
+                                                text = {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                                         Text(
                                                             text = name,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                                             fontSize = 13.sp,
-                                                            color = if (isSelected) brandColor else MaterialTheme.colorScheme.onSurface
+                                                            color = if (isSelected) Color(0xFFFF3D00) else MaterialTheme.colorScheme.onSurface
                                                         )
                                                         Spacer(modifier = Modifier.width(6.dp))
                                                         Surface(
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            color = brandColor
+                                                            shape = RoundedCornerShape(3.dp),
+                                                            color = Color(0xFFFF3D00)
                                                         ) {
                                                             Text(
-                                                                text = badge,
-                                                                style = MaterialTheme.typography.labelSmall,
+                                                                text = "LIVE",
                                                                 color = Color.White,
                                                                 fontWeight = FontWeight.Bold,
-                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                                fontSize = 9.sp
+                                                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                                fontSize = 8.sp
                                                             )
                                                         }
                                                     }
-                                                    Text(
-                                                        text = desc,
-                                                        fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
+                                                },
+                                                leadingIcon = {
+                                                    SourceBrandLogo(
+                                                        providerId = id,
+                                                        size = 22.dp,
+                                                        isAdultMode = true
                                                     )
+                                                },
+                                                trailingIcon = {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFFF3D00),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                },
+                                                onClick = {
+                                                    isSourceMenuExpanded = false
+                                                    viewModel.setActiveProvider(id)
                                                 }
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = brandIcon,
-                                                    contentDescription = name,
-                                                    tint = brandColor,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            },
-                                            trailingIcon = {
-                                                if (isSelected) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Check,
-                                                        contentDescription = null,
-                                                        tint = brandColor,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                isSourceMenuExpanded = false
-                                                if (id == "tencent") {
-                                                    viewModel.setAdultContentEnabled(false)
-                                                } else {
-                                                    viewModel.setAdultContentEnabled(true)
-                                                }
-                                                viewModel.setActiveProvider(id)
-                                            }
+                                            )
+                                        }
+
+                                        HorizontalDivider()
+
+                                        Text(
+                                            text = "ADULT VIDEO TUBES & CATALOGS",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFE91E63),
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                            fontSize = 10.sp
                                         )
-                                    }
 
-                                    HorizontalDivider()
+                                        val adultTubeSources = listOf(
+                                            Pair("all", "All 18+ Sources"),
+                                            Pair("xnxx", "XNXX"),
+                                            Pair("hellporno", "HellPorno"),
+                                            Pair("supjav", "SupJav"),
+                                            Pair("123av", "123AV"),
+                                            Pair("pornhub", "Pornhub"),
+                                            Pair("xvideos", "XVideos"),
+                                            Pair("spankbang", "SpankBang")
+                                        )
 
-                                    // Other available sources for current mode (excluding the top 5 already shown above)
-                                    val topFiveIds = setOf("tencent", "xnxx", "hellporno", "stripchat", "chaturbate")
-                                    val otherSources = availableProviders.filter { !topFiveIds.contains(it.id) }
-
-                                    otherSources.forEach { provider ->
-                                        val isSelected = (activeProviderId == provider.id)
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
+                                        adultTubeSources.forEach { (id, name) ->
+                                            val isSelected = (activeProviderId == id)
+                                            DropdownMenuItem(
+                                                text = {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                                         Text(
-                                                            text = provider.name,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                            text = name,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                                             fontSize = 13.sp,
-                                                            color = if (isSelected) {
-                                                                if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary
-                                                            } else MaterialTheme.colorScheme.onSurface
+                                                            color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
                                                         )
-                                                        if (provider.id == "all") {
+                                                        if (id == "all") {
                                                             Spacer(modifier = Modifier.width(6.dp))
                                                             Surface(
-                                                                shape = RoundedCornerShape(4.dp),
-                                                                color = if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary
+                                                                shape = RoundedCornerShape(3.dp),
+                                                                color = Color(0xFFE91E63)
                                                             ) {
                                                                 Text(
-                                                                    text = "ALL-IN-ONE",
-                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    text = "ALL",
                                                                     color = Color.White,
                                                                     fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                                    fontSize = 9.sp
+                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                                    fontSize = 8.sp
                                                                 )
                                                             }
                                                         }
                                                     }
-                                                    if (provider.description.isNotBlank()) {
-                                                        Text(
-                                                            text = provider.description,
-                                                            fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
+                                                },
+                                                leadingIcon = {
+                                                    SourceBrandLogo(
+                                                        providerId = id,
+                                                        size = 22.dp,
+                                                        isAdultMode = true
+                                                    )
+                                                },
+                                                trailingIcon = {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFE91E63),
+                                                            modifier = Modifier.size(16.dp)
                                                         )
                                                     }
+                                                },
+                                                onClick = {
+                                                    isSourceMenuExpanded = false
+                                                    viewModel.setActiveProvider(id)
                                                 }
-                                            },
-                                            leadingIcon = {
-                                                val iconColor = when (provider.id) {
-                                                    "sextb" -> Color(0xFFE91E63)
-                                                    "supjav" -> Color(0xFFFF4081)
-                                                    "123av" -> Color(0xFFD81B60)
-                                                    "youtube" -> Color(0xFFFF0000)
-                                                    "sonyliv" -> Color(0xFF003087)
-                                                    "hotstar" -> Color(0xFF001435)
-                                                    "amazonminitv" -> Color(0xFFFF9900)
-                                                    "crunchyroll" -> Color(0xFFF47521)
-                                                    "bilibili" -> Color(0xFF00A1D6)
-                                                    else -> if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary
-                                                }
-                                                val iconVector = when (provider.id) {
-                                                    "cam4", "cammodels" -> Icons.Default.Videocam
-                                                    "sextb", "supjav", "123av", "pornhub", "xvideos" -> Icons.Default.Explicit
-                                                    "youtube" -> Icons.Default.VideoLibrary
-                                                    "torrent" -> Icons.Default.Download
-                                                    "bun-tel-meg" -> Icons.Default.Cloud
-                                                    else -> Icons.Default.PlayCircle
-                                                }
-                                                Icon(
-                                                    imageVector = iconVector,
-                                                    contentDescription = null,
-                                                    tint = iconColor,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            },
-                                            trailingIcon = {
-                                                if (isSelected) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Check,
-                                                        contentDescription = null,
-                                                        tint = if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                viewModel.setActiveProvider(provider.id)
-                                                isSourceMenuExpanded = false
-                                            }
+                                            )
+                                        }
+                                    } else {
+                                        // MAINSTREAM / NORMAL SOURCES ONLY (Includes Tencent Video, strictly NO adult sources)
+                                        Text(
+                                            text = "FEATURED PLATFORMS",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                            fontSize = 10.sp
                                         )
+
+                                        val mainstreamFeatured = listOf(
+                                            Pair("all", "All Sources"),
+                                            Pair("youtube", "YouTube"),
+                                            Pair("tencent", "Tencent Video"),
+                                            Pair("bilibili", "Bilibili"),
+                                            Pair("twitch", "Twitch"),
+                                            Pair("dailymotion", "Dailymotion")
+                                        )
+
+                                        mainstreamFeatured.forEach { (id, name) ->
+                                            val isSelected = (activeProviderId == id)
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = name,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                            fontSize = 13.sp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        if (id == "tencent") {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(3.dp),
+                                                                color = Color(0xFF0052D9)
+                                                            ) {
+                                                                Text(
+                                                                    text = "v.qq.com",
+                                                                    color = Color.White,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                                    fontSize = 8.sp
+                                                                )
+                                                            }
+                                                        } else if (id == "all") {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(3.dp),
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            ) {
+                                                                Text(
+                                                                    text = "ALL",
+                                                                    color = Color.White,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                                    fontSize = 8.sp
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                leadingIcon = {
+                                                    SourceBrandLogo(
+                                                        providerId = id,
+                                                        size = 22.dp,
+                                                        isAdultMode = false
+                                                    )
+                                                },
+                                                trailingIcon = {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                },
+                                                onClick = {
+                                                    isSourceMenuExpanded = false
+                                                    viewModel.setActiveProvider(id)
+                                                }
+                                            )
+                                        }
+
+                                        HorizontalDivider()
+
+                                        Text(
+                                            text = "OTT STREAMING & CINEMA",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                            fontSize = 10.sp
+                                        )
+
+                                        val ottCinemaSources = listOf(
+                                            Pair("sonyliv", "SonyLIV"),
+                                            Pair("hotstar", "Disney+ Hotstar"),
+                                            Pair("amazonminitv", "Amazon miniTV"),
+                                            Pair("crunchyroll", "Crunchyroll"),
+                                            Pair("disney", "Disney+"),
+                                            Pair("popcorntv", "PopcornTV")
+                                        )
+
+                                        ottCinemaSources.forEach { (id, name) ->
+                                            val isSelected = (activeProviderId == id)
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        text = name,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        fontSize = 13.sp,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    SourceBrandLogo(
+                                                        providerId = id,
+                                                        size = 22.dp,
+                                                        isAdultMode = false
+                                                    )
+                                                },
+                                                trailingIcon = {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                },
+                                                onClick = {
+                                                    isSourceMenuExpanded = false
+                                                    viewModel.setActiveProvider(id)
+                                                }
+                                            )
+                                        }
                                     }
 
                                     HorizontalDivider()
@@ -1114,7 +1185,7 @@ fun HomeScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                text = "Source Explorer & Search Sheet...",
+                                                text = "Source Explorer & Search...",
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.primary
@@ -1137,11 +1208,9 @@ fun HomeScreen(
                             }
                         }
 
-                        // DEDICATED QUICK SOURCE CHIPS
+                        // DEDICATED QUICK SOURCE CHIPS (Without "all" or "tencent" chips)
                         if (adultContentEnabled) {
                             val adultQuickSources = listOf(
-                                "all" to ("All 18+" to Color(0xFFE91E63)),
-                                "tencent" to ("Tencent Video (v.qq.com)" to Color(0xFF0052D9)),
                                 "xnxx" to ("XNXX" to Color(0xFF00B0FF)),
                                 "hellporno" to ("HellPorno" to Color(0xFFFF1744)),
                                 "stripchat" to ("Stripchat Live" to Color(0xFFFF3D00)),
@@ -1158,41 +1227,39 @@ fun HomeScreen(
                                 Surface(
                                     onClick = { viewModel.setActiveProvider(id) },
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (isActive) color else if (id == "tencent") Color(0xFF0052D9).copy(alpha = 0.2f) else color.copy(alpha = 0.12f),
+                                    color = if (isActive) color else color.copy(alpha = 0.12f),
                                     contentColor = if (isActive) Color.White else color,
-                                    border = if (id == "tencent" && !isActive) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF0052D9).copy(alpha = 0.5f)) else null,
                                     modifier = Modifier.height(32.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
-                                        if (id == "tencent") {
-                                            Icon(
-                                                imageVector = Icons.Default.LiveTv,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = if (isActive) Color.White else Color(0xFF0052D9)
-                                            )
-                                        }
+                                        SourceBrandLogo(
+                                            providerId = id,
+                                            size = 16.dp,
+                                            isAdultMode = true
+                                        )
                                         Text(
                                             text = label,
                                             fontSize = 12.sp,
-                                            fontWeight = if (isActive || id == "tencent") FontWeight.Bold else FontWeight.Medium
+                                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
                                 }
                             }
                         } else {
                             val normalQuickSources = listOf(
-                                "all" to ("All Sources" to Color(0xFF6200EE)),
-                                "tencent" to ("Tencent Video (v.qq.com)" to Color(0xFF0052D9)),
+                                "youtube" to ("YouTube" to Color(0xFFFF0000)),
+                                "tencent" to ("Tencent Video" to Color(0xFF0052D9)),
                                 "sonyliv" to ("SonyLIV" to Color(0xFF003087)),
                                 "hotstar" to ("Hotstar" to Color(0xFF001435)),
                                 "amazonminitv" to ("miniTV" to Color(0xFFFF9900)),
                                 "crunchyroll" to ("Crunchyroll" to Color(0xFFF47521)),
                                 "bilibili" to ("Bilibili" to Color(0xFF00A1D6)),
+                                "twitch" to ("Twitch" to Color(0xFF9146FF)),
+                                "dailymotion" to ("Dailymotion" to Color(0xFF0066DC)),
                                 "disney" to ("Disney+" to Color(0xFF113CCF)),
                                 "popcorntv" to ("PopcornTV" to Color(0xFFFF3366))
                             )
@@ -1202,36 +1269,24 @@ fun HomeScreen(
                                 Surface(
                                     onClick = { viewModel.setActiveProvider(id) },
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (isActive) {
-                                        if (id == "tencent") Color(0xFF0052D9) else selectedChipBg
-                                    } else {
-                                        if (id == "tencent") Color(0xFF0052D9).copy(alpha = 0.15f) else unselectedChipBg
-                                    },
-                                    contentColor = if (isActive) {
-                                        if (id == "tencent") Color.White else selectedChipFg
-                                    } else {
-                                        if (id == "tencent") Color(0xFF0052D9) else unselectedChipFg
-                                    },
-                                    border = if (id == "tencent" && !isActive) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF0052D9).copy(alpha = 0.6f)) else null,
+                                    color = if (isActive) selectedChipBg else unselectedChipBg,
+                                    contentColor = if (isActive) selectedChipFg else unselectedChipFg,
                                     modifier = Modifier.height(32.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
-                                        if (id == "tencent") {
-                                            Icon(
-                                                imageVector = Icons.Default.LiveTv,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = if (isActive) Color.White else Color(0xFF0052D9)
-                                            )
-                                        }
+                                        SourceBrandLogo(
+                                            providerId = id,
+                                            size = 16.dp,
+                                            isAdultMode = false
+                                        )
                                         Text(
                                             text = label,
                                             fontSize = 12.sp,
-                                            fontWeight = if (isActive || id == "tencent") FontWeight.Bold else FontWeight.Medium
+                                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
                                 }
@@ -1364,10 +1419,6 @@ fun HomeScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .onSizeChanged { bottomBarHeightPx = it.height.toFloat() }
-                    .graphicsLayer {
-                        translationY = bottomBarOffsetState.value
-                    }
             ) {
                 LiquidGlassNavBar(
                     currentScreen = currentScreen,

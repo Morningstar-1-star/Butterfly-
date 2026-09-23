@@ -119,91 +119,88 @@ object MxPlayerProvider {
         val isYouTubeId = clean.length == 11 && !clean.contains("/") && !clean.contains(":") && !clean.contains(".")
         val isYouTubeUrl = clean.contains("youtube.com") || clean.contains("youtu.be")
 
-        // 1. Direct resolution for real 11-char video ID or YouTube link
-        if (isYouTubeId || isYouTubeUrl) {
-            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
-            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
-            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
-                val stream = res.streamData
-                val channel = if (stream.channelName.contains("MX Player", ignoreCase = true)) {
-                    stream.channelName
-                } else {
-                    "${stream.channelName} • MX Player"
-                }
-                return@withContext stream.copy(
-                    providerId = PROVIDER_ID,
-                    channelName = channel
-                )
-            }
-        }
-
-        // 2. Direct MX Player web detail video API to extract HLS mainUrl directly
+        // 1. Direct MX Player web detail video API to extract real HLS mainUrl directly
         val videoId = when {
             clean.contains("-") && clean.length > 20 -> clean.substringAfterLast("-")
             clean.contains("/") -> clean.substringAfterLast("/").substringBefore("?")
             else -> clean
         }
 
-        try {
-            val detailUrl = "$API_BASE/detail/video?type=episode&id=$videoId"
-            val req = Request.Builder()
-                .url(detailUrl)
-                .headers(okhttp3.Headers.Builder().apply { defaultHeaders.forEach { (k, v) -> add(k, v) } }.build())
-                .build()
-
-            val jsonStr = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
-
-            if (!jsonStr.isNullOrBlank()) {
-                val root = JSONObject(jsonStr)
-                val streamObj = root.optJSONObject("stream")
-                val hlsObj = streamObj?.optJSONObject("hls")
-                val streamUrl = hlsObj?.optString("mainUrl", "") ?: hlsObj?.optString("highUrl", "")
-                val title = root.optString("title", "MX Player Video")
-                val imagePath = root.optString("image", "")
-                val thumb = if (imagePath.startsWith("http")) imagePath else "$IMAGE_CDN$imagePath"
-
-                if (!streamUrl.isNullOrBlank() && streamUrl.startsWith("http")) {
-                    val opt = PlayableStreamOption(
-                        qualityLabel = "MX Player 1080p HLS Stream",
-                        format = "m3u8",
-                        isMuxed = true,
-                        videoUrl = streamUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = defaultHeaders
-                    )
-                    return@withContext StreamData(
-                        videoId = clean,
-                        videoUrl = streamUrl,
-                        title = title,
-                        channelName = "MX Player Originals",
-                        thumbnailUrl = thumb,
-                        availableStreamOptions = listOf(opt),
-                        selectedStreamOption = opt,
-                        hlsUrl = streamUrl,
-                        providerId = PROVIDER_ID,
-                        providerType = ProviderType.DIRECT,
-                        headers = defaultHeaders
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "MX Player stream API extract notice: ${e.message}")
-        }
-
-        // 3. Direct yt-dlp extraction for MX Player URLs
-        if (context != null && (clean.contains("mxplayer") || clean.contains("mxplay") || clean.startsWith("http"))) {
+        if (!isYouTubeId && !isYouTubeUrl) {
             try {
-                val ytdlRes = YtDlpResolver.extractStreamInfo(context, clean)
-                if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
-                    return@withContext ytdlRes.streamData.copy(
-                        providerId = PROVIDER_ID,
-                        headers = defaultHeaders
-                    )
+                val detailUrl = "$API_BASE/detail/video?type=episode&id=$videoId"
+                val req = Request.Builder()
+                    .url(detailUrl)
+                    .headers(okhttp3.Headers.Builder().apply { defaultHeaders.forEach { (k, v) -> add(k, v) } }.build())
+                    .build()
+
+                val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+
+                if (!jsonStr.isNullOrBlank()) {
+                    val root = JSONObject(jsonStr)
+                    val streamObj = root.optJSONObject("stream")
+                    val hlsObj = streamObj?.optJSONObject("hls")
+                    val streamUrl = hlsObj?.optString("mainUrl", "") ?: hlsObj?.optString("highUrl", "")
+                    val title = root.optString("title", "MX Player Video")
+                    val imagePath = root.optString("image", "")
+                    val thumb = if (imagePath.startsWith("http")) imagePath else "$IMAGE_CDN$imagePath"
+
+                    if (!streamUrl.isNullOrBlank() && streamUrl.startsWith("http")) {
+                        val opt = PlayableStreamOption(
+                            qualityLabel = "MX Player 1080p HLS Stream",
+                            format = "m3u8",
+                            isMuxed = true,
+                            videoUrl = streamUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = defaultHeaders
+                        )
+                        return@withContext StreamData(
+                            videoId = clean,
+                            videoUrl = streamUrl,
+                            title = title,
+                            channelName = "MX Player Originals",
+                            thumbnailUrl = thumb,
+                            availableStreamOptions = listOf(opt),
+                            selectedStreamOption = opt,
+                            hlsUrl = streamUrl,
+                            providerId = PROVIDER_ID,
+                            providerType = ProviderType.DIRECT,
+                            headers = defaultHeaders
+                        )
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "yt-dlp MX Player extraction notice: ${e.message}")
+                Log.w(TAG, "MX Player stream API extract notice: ${e.message}")
+            }
+
+            // 2. Direct yt-dlp extraction for MX Player URLs
+            if (context != null && (clean.contains("mxplayer") || clean.contains("mxplay") || clean.startsWith("http"))) {
+                try {
+                    val ytdlRes = YtDlpResolver.extractStreamInfo(context, clean)
+                    if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
+                        return@withContext ytdlRes.streamData.copy(
+                            providerId = PROVIDER_ID,
+                            headers = defaultHeaders
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "yt-dlp MX Player extraction notice: ${e.message}")
+                }
+            }
+        }
+
+        // 3. Direct resolution for real 11-char video ID or YouTube link
+        if (isYouTubeId || isYouTubeUrl) {
+            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
+            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
+            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
+                val stream = res.streamData
+                return@withContext stream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = stream.channelName
+                )
             }
         }
 
@@ -266,11 +263,7 @@ object MxPlayerProvider {
                 val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
                 val originalUploader = item.uploaderName ?: "MX Player"
-                val uploaderName = if (originalUploader.contains("MX Player", ignoreCase = true)) {
-                    originalUploader
-                } else {
-                    "$originalUploader • MX Player"
-                }
+                val uploaderName = originalUploader
 
                 itemsList.add(
                     VideoItem(

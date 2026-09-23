@@ -314,4 +314,16 @@ object SourceTagHelper {
         }
         return false
     }
+
+    fun isAdultSource(providerId: String?): Boolean {
+        val pid = (providerId ?: "").trim().lowercase(java.util.Locale.ROOT)
+        return pid in setOf(
+            "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "xhamster",
+            "redtube", "youporn", "eporner", "spankbang", "motherless", "playvid",
+            "tnaflix", "txxx", "thisvid", "noodlemagazine", "noodlemag", "cam4",
+            "cammodels", "chaturbate", "hanime1", "hanime", "hqporner", "hqplayer",
+            "beeg", "4tube", "rule34video", "123av", "javplayer", "javtiful",
+            "jav_all", "all_jav", "javbus", "javapi", "javdex", "sextb", "supjav"
+        )
+    }
 }

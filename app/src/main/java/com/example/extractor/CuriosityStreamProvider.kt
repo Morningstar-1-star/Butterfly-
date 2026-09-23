@@ -109,28 +109,11 @@ object CuriosityStreamProvider {
         val isYouTubeId = clean.length == 11 && !clean.contains("/") && !clean.contains(":") && !clean.contains(".")
         val isYouTubeUrl = clean.contains("youtube.com") || clean.contains("youtu.be")
 
-        // 1. Direct resolution for real 11-char video ID or YouTube link (0 buffering guaranteed)
-        if (isYouTubeId || isYouTubeUrl) {
-            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
-            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
-            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
-                val stream = res.streamData
-                val channel = if (stream.channelName.contains("CuriosityStream", ignoreCase = true) || stream.channelName.contains("Curiosity", ignoreCase = true)) {
-                    stream.channelName
-                } else {
-                    "${stream.channelName} • CuriosityStream"
-                }
-                return@withContext stream.copy(
-                    providerId = PROVIDER_ID,
-                    channelName = channel
-                )
-            }
-        }
-
-        // 2. Direct yt-dlp extraction for external URLs (curiositystream: / curiositystream.com)
-        if (context != null && (clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("curiositystream:") || clean.startsWith("curiosity:"))) {
+        // 1. Direct yt-dlp extraction for external URLs (curiositystream: / curiositystream.com)
+        if (context != null && !isYouTubeId && !isYouTubeUrl && (clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("curiositystream:") || clean.startsWith("curiosity:"))) {
             try {
-                val ytdlRes = YtDlpResolver.extractStreamInfo(context, clean)
+                val target = if (clean.startsWith("http")) clean else "https://curiositystream.com/video/${clean.removePrefix("curiositystream:").removePrefix("curiosity:")}"
+                val ytdlRes = YtDlpResolver.extractStreamInfo(context, target)
                 if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
                     return@withContext ytdlRes.streamData.copy(
                         providerId = PROVIDER_ID,
@@ -139,6 +122,19 @@ object CuriosityStreamProvider {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "yt-dlp CuriosityStream extraction notice: ${e.message}")
+            }
+        }
+
+        // 2. Direct resolution for real 11-char video ID or YouTube link (0 buffering guaranteed)
+        if (isYouTubeId || isYouTubeUrl) {
+            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
+            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
+            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
+                val stream = res.streamData
+                return@withContext stream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = stream.channelName
+                )
             }
         }
 
@@ -202,11 +198,7 @@ object CuriosityStreamProvider {
                 val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
                 val originalUploader = item.uploaderName ?: "CuriosityStream"
-                val uploaderName = if (originalUploader.contains("Curiosity", ignoreCase = true)) {
-                    originalUploader
-                } else {
-                    "$originalUploader • CuriosityStream"
-                }
+                val uploaderName = originalUploader
 
                 itemsList.add(
                     VideoItem(

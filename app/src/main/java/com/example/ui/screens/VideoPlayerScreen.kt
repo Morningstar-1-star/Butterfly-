@@ -139,10 +139,12 @@ fun VideoPlayerScreen(
     val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
     val videoComments by viewModel.videoComments.collectAsState()
     val isCommentsLoading by viewModel.isCommentsLoading.collectAsState()
+    val videoReactions by viewModel.videoReactions.collectAsState()
+    val isReactionsLoading by viewModel.isReactionsLoading.collectAsState()
     val tvSeasons by viewModel.tvSeasons.collectAsState()
     val isSeasonsLoading by viewModel.isSeasonsLoading.collectAsState()
     var selectedSeasonNumber by remember { mutableStateOf(1) }
-    var selectedPillTab by remember { mutableStateOf("RELATED") } // "EPISODES", "RELATED", "COMMENTS"
+    var selectedPillTab by remember { mutableStateOf("RELATED") } // "EPISODES", "RELATED", "REACTIONS", "COMMENTS"
 
     LaunchedEffect(tvSeasons) {
         if (tvSeasons.isNotEmpty()) {
@@ -152,7 +154,7 @@ fun VideoPlayerScreen(
             if (selectedPillTab == "RELATED") {
                 selectedPillTab = "EPISODES"
             }
-        } else {
+        } else if (selectedPillTab == "EPISODES") {
             selectedPillTab = "RELATED"
         }
     }
@@ -206,7 +208,16 @@ fun VideoPlayerScreen(
             .filterNot { viewModel.isBlockedVideo(it) }
         relatedContent = pool.take(15)
         withContext(Dispatchers.Default) {
-            val ranked = viewModel.rankFallbackRelated(pool, activeVideoId)
+            val activeItem = currentVideoItem ?: currentStreamData?.let {
+                com.example.model.VideoItem(
+                    id = it.videoId,
+                    title = it.title,
+                    uploaderName = it.channelName,
+                    tags = it.tags,
+                    durationSeconds = currentVideoItem?.durationSeconds ?: 0
+                )
+            }
+            val ranked = viewModel.rankFallbackRelated(pool, activeVideoId, activeItem)
             withContext(Dispatchers.Main) {
                 relatedContent = ranked
             }
@@ -396,6 +407,9 @@ fun VideoPlayerScreen(
                 providerId = pId,
                 videoTitle = title
             )
+        } else if (selectedPillTab == "REACTIONS") {
+            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+            viewModel.loadVideoReactions(title, vid)
         }
     }
 
@@ -839,21 +853,12 @@ fun VideoPlayerScreen(
                                 },
                                 onSaveLongClick = { showSaveToPlaylistSheet = true },
                                 onShareClick = {
-                                    val shareUrl = currentStreamData?.videoUrl?.takeIf { it.isNotBlank() }
-                                        ?: (if (!activeVideoId.isNullOrBlank() && activeVideoId!!.length == 11) "https://youtu.be/$activeVideoId" else "")
-                                    try {
-                                        val sendIntent = android.content.Intent().apply {
-                                            action = android.content.Intent.ACTION_SEND
-                                            putExtra(android.content.Intent.EXTRA_TEXT, if (displayTitle.isNotBlank()) "$displayTitle\n$shareUrl" else shareUrl)
-                                            type = "text/plain"
-                                        }
-                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Share video via")
-                                        context.startActivity(shareIntent)
-                                    } catch (e: Exception) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Video link copied to clipboard")
-                                        }
-                                    }
+                                    com.example.util.VideoShareHelper.shareStream(
+                                        context = context,
+                                        streamData = currentStreamData,
+                                        displayTitle = displayTitle,
+                                        activeVideoId = activeVideoId
+                                    )
                                 },
                                 onCommentsClick = { selectedPillTab = "COMMENTS" },
                                 onChannelClick = { channelName ->
@@ -1036,6 +1041,38 @@ fun VideoPlayerScreen(
                                             shape = RoundedCornerShape(20.dp)
                                         )
                                     }
+                                }
+
+                                item {
+                                    FilterChip(
+                                        selected = selectedPillTab == "REACTIONS",
+                                        onClick = {
+                                            selectedPillTab = "REACTIONS"
+                                            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                                            viewModel.loadVideoReactions(title, activeVideoId)
+                                        },
+                                        label = {
+                                            Text(
+                                                text = if (videoReactions.isNotEmpty()) "Reactions (${videoReactions.size})" else "Reactions",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.RateReview,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        ),
+                                        shape = RoundedCornerShape(20.dp)
+                                    )
                                 }
 
                                 item {
@@ -1410,8 +1447,132 @@ fun VideoPlayerScreen(
                                     }
                                 )
                             }
+                        } else if (selectedPillTab == "REACTIONS") {
+                            item(key = "reactions_tab_content") {
+                                com.example.ui.components.VideoReactionsSection(
+                                    reactions = videoReactions,
+                                    isLoading = isReactionsLoading,
+                                    onReactionClick = { reactionVideo ->
+                                        viewModel.playVideo(reactionVideo.id, reactionVideo.providerId)
+                                    },
+                                    onRefresh = {
+                                        val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                                        viewModel.loadVideoReactions(title, activeVideoId)
+                                    }
+                                )
+                            }
                         } else {
                             // Related Videos List
+                            val topFullVideo = relatedContent.firstOrNull {
+                                val r = it.recommendationReason
+                                r?.contains("Full Movie") == true ||
+                                r?.contains("Full Match") == true ||
+                                r?.contains("Full Episode") == true ||
+                                r?.contains("Next Part") == true ||
+                                r?.contains("Uncut Reaction") == true ||
+                                r?.contains("Full Video") == true
+                            }
+
+                            if (topFullVideo != null) {
+                                val reason = topFullVideo.recommendationReason ?: ""
+                                val isMovie = reason.contains("Full Movie")
+                                val isMatch = reason.contains("Full Match")
+                                val isEpisode = reason.contains("Full Episode")
+                                val isNextPart = reason.contains("Next Part")
+                                val isUncut = reason.contains("Uncut Reaction")
+
+                                val bannerIcon = when {
+                                    isMovie -> Icons.Default.Movie
+                                    isMatch -> Icons.Default.SportsSoccer
+                                    isEpisode -> Icons.Default.Tv
+                                    isNextPart -> Icons.Default.SkipNext
+                                    isUncut -> Icons.Default.RateReview
+                                    else -> Icons.Default.PlayCircle
+                                }
+
+                                val bannerSubtitle = when {
+                                    isMovie -> "Watching a clip? Tap to switch to the complete full movie"
+                                    isMatch -> "Watching highlights? Tap to watch the complete full match replay"
+                                    isEpisode -> "Watching an excerpt? Tap to watch the full episode"
+                                    isNextPart -> "Finished this part? Continue watching the next reaction part"
+                                    isUncut -> "Enjoying this reaction? Tap to watch the full uncut version"
+                                    else -> "Watching a clip? Tap to switch to the complete full video"
+                                }
+
+                                val bannerButtonText = when {
+                                    isMovie -> "Full Movie"
+                                    isMatch -> "Full Match"
+                                    isEpisode -> "Full Episode"
+                                    isNextPart -> "Next Part"
+                                    isUncut -> "Watch Uncut"
+                                    else -> "Watch Full"
+                                }
+
+                                item(key = "spotlight_full_video") {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                                            .clickable {
+                                                viewModel.playVideo(topFullVideo.id, topFullVideo.providerId)
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(42.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = bannerIcon,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = topFullVideo.recommendationReason ?: "Full Version Available",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = topFullVideo.title,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = bannerSubtitle,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            FilledTonalButton(
+                                                onClick = { viewModel.playVideo(topFullVideo.id, topFullVideo.providerId) },
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Text(bannerButtonText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             if (relatedContent.isNotEmpty()) {
                                 items(
                                     items = relatedContent,

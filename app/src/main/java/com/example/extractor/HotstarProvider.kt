@@ -194,13 +194,12 @@ object HotstarProvider {
                 val rawThumb = item.thumbnails?.firstOrNull()?.url
                 val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
-                val originalUploader = item.uploaderName ?: "JioHotstar"
+                val originalUploader = item.uploaderName ?: "Disney+ Hotstar"
                 val uploaderName = when {
                     originalUploader.contains("Disney", ignoreCase = true) -> "Disney+ Hotstar"
-                    originalUploader.contains("StarPlus", ignoreCase = true) -> "StarPlus • Hotstar"
-                    originalUploader.contains("Star Bharat", ignoreCase = true) -> "Star Bharat • Hotstar"
-                    originalUploader.contains("Star", ignoreCase = true) -> "$originalUploader • Hotstar"
-                    else -> if (originalUploader.contains("Hotstar", ignoreCase = true)) originalUploader else "$originalUploader • Hotstar"
+                    originalUploader.contains("StarPlus", ignoreCase = true) -> "StarPlus"
+                    originalUploader.contains("Star Bharat", ignoreCase = true) -> "Star Bharat"
+                    else -> originalUploader
                 }
 
                 itemsList.add(
@@ -232,40 +231,39 @@ object HotstarProvider {
         val isYouTubeId = cleanId.length == 11 && !cleanId.startsWith("http") && !cleanId.all { it.isDigit() }
         val isYouTubeUrl = cleanId.contains("youtube.com") || cleanId.contains("youtu.be")
 
-        // 1. If it's a YouTube-backed video item (from Hotstar catalog/feed), use YouTubeExtractorHelper's robust engine
+        val targetUrl = when {
+            cleanId.startsWith("http://") || cleanId.startsWith("https://") -> cleanId
+            cleanId.all { it.isDigit() } -> "https://www.hotstar.com/in/movies/$cleanId"
+            cleanId.startsWith("hotstar:") -> "https://www.hotstar.com/in/${cleanId.removePrefix("hotstar:")}"
+            else -> "https://www.hotstar.com/in/$cleanId"
+        }
+
+        // 1. Native direct yt-dlp extraction with cookies & headers for real Hotstar URLs
+        if (context != null && !isYouTubeId && !isYouTubeUrl) {
+            try {
+                val result = YtDlpResolver.extractStreamInfo(context, targetUrl)
+                if (result is YouTubeExtractorHelper.ExtractionResult.Success && result.streamData.availableStreamOptions.isNotEmpty()) {
+                    Log.i(TAG, "Resolved real Hotstar stream natively via yt-dlp")
+                    return@withContext result.streamData.copy(
+                        providerId = PROVIDER_ID,
+                        channelName = result.streamData.channelName
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "YtDlpResolver direct extraction failed for Hotstar: ${e.message}")
+            }
+        }
+
+        // 2. Direct YouTube resolution if video item is from catalog feed
         if (isYouTubeId || isYouTubeUrl) {
             val ytTarget = if (isYouTubeId) "https://www.youtube.com/watch?v=$cleanId" else cleanId
             val extResult = YouTubeExtractorHelper.resolveStream(ytTarget, context, "youtube")
             if (extResult is YouTubeExtractorHelper.ExtractionResult.Success) {
                 val stream = extResult.streamData
-                val cleanChannel = if (stream.channelName.contains("Hotstar", ignoreCase = true)) stream.channelName else "${stream.channelName} • Hotstar"
                 return@withContext stream.copy(
                     providerId = PROVIDER_ID,
-                    channelName = cleanChannel
+                    channelName = stream.channelName
                 )
-            }
-        }
-
-        val targetUrl = when {
-            cleanId.startsWith("http://") || cleanId.startsWith("https://") -> cleanId
-            cleanId.all { it.isDigit() } -> "https://www.hotstar.com/in/movies/$cleanId"
-            else -> "https://www.hotstar.com/in/$cleanId"
-        }
-
-        // 2. Direct yt-dlp extraction for Hotstar / JioHotstar URLs
-        if (context != null) {
-            try {
-                val result = YtDlpResolver.extractStreamInfo(context, targetUrl)
-                if (result is YouTubeExtractorHelper.ExtractionResult.Success && result.streamData.availableStreamOptions.isNotEmpty()) {
-                    val stream = result.streamData
-                    val cleanChannel = if (stream.channelName.contains("Hotstar", ignoreCase = true)) stream.channelName else "${stream.channelName} • Hotstar"
-                    return@withContext stream.copy(
-                        providerId = PROVIDER_ID,
-                        channelName = cleanChannel
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "YtDlpResolver direct extraction failed for Hotstar: ${e.message}")
             }
         }
 

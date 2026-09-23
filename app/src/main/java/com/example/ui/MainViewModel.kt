@@ -442,6 +442,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         com.example.recommendation.UserActivityMemory.init(application)
+        com.example.util.TimeAndDataManager.init(application)
         viewModelScope.launch(Dispatchers.IO) {
             _appCacheSizeBytes.value = batterySaverManager.calculateCacheSizeBytes()
         }
@@ -521,6 +522,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isCommentsLoading = MutableStateFlow(false)
     val isCommentsLoading: StateFlow<Boolean> = _isCommentsLoading.asStateFlow()
+
+    private val _videoReactions = MutableStateFlow<List<VideoItem>>(emptyList())
+    val videoReactions: StateFlow<List<VideoItem>> = _videoReactions.asStateFlow()
+
+    private val _isReactionsLoading = MutableStateFlow(false)
+    val isReactionsLoading: StateFlow<Boolean> = _isReactionsLoading.asStateFlow()
+
+    private var reactionsJob: Job? = null
+    private var lastReactionTitle: String? = null
+    fun loadVideoReactions(videoTitle: String?, videoId: String? = null, forceRefresh: Boolean = false) {
+        val title = videoTitle?.trim() ?: ""
+        if (title.isBlank() || title == "Loading video...") return
+        if (!forceRefresh && title == lastReactionTitle && _videoReactions.value.isNotEmpty()) return
+
+        lastReactionTitle = title
+        reactionsJob?.cancel()
+        reactionsJob = viewModelScope.launch(Dispatchers.IO) {
+            _isReactionsLoading.value = true
+            try {
+                val queries = com.example.util.ReactionHelper.buildReactionSearchQueries(title)
+                val discovered = mutableListOf<VideoItem>()
+
+                for (query in queries.take(3)) {
+                    when (val res = YouTubeExtractorHelper.searchVideos(query, getApplication())) {
+                        is com.example.model.FeedResult.Success -> {
+                            val items = res.items.filter { it.id != videoId && com.example.util.ReactionHelper.isReactionVideo(it) }
+                            discovered.addAll(items)
+                        }
+                        else -> {}
+                    }
+                    if (discovered.size >= 25) break
+                }
+
+                if (discovered.isEmpty() && queries.isNotEmpty()) {
+                    for (q in queries.take(2)) {
+                        when (val fallbackRes = YouTubeExtractorHelper.searchVideos(q, getApplication())) {
+                            is com.example.model.FeedResult.Success -> {
+                                discovered.addAll(fallbackRes.items.filter { it.id != videoId })
+                            }
+                            else -> {}
+                        }
+                        if (discovered.isNotEmpty()) break
+                    }
+                }
+
+                _videoReactions.value = discovered.distinctBy { it.id }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "loadVideoReactions error: ${e.message}")
+            } finally {
+                _isReactionsLoading.value = false
+            }
+        }
+    }
 
     private var commentsJob: Job? = null
     fun loadVideoComments(videoId: String, providerId: String? = null, videoTitle: String? = null) {
@@ -1370,8 +1424,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (totalDurationMs <= 0L) {
             if (matchingItem != null && elapsedWallClockMs in 1000L..10000L) {
                 com.example.recommendation.UserActivityMemory.recordDwellTime(matchingItem, elapsedWallClockMs, currentPositionMs, 0L, getApplication())
+                com.example.util.TimeAndDataManager.recordWatchTime(elapsedWallClockMs / 1000L, matchingItem.providerId)
             }
             return
+        }
+
+        if (elapsedWallClockMs in 1000L..10000L) {
+            com.example.util.TimeAndDataManager.recordWatchTime(elapsedWallClockMs / 1000L, matchingItem?.providerId)
         }
 
         val fraction = (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -2698,12 +2757,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val enabledSet = _enabledProviderIds.value.toMutableSet()
 
         // Ensure user-requested core providers are always enabled
-        val coreAlways = listOf("all", "tencent", "xnxx", "hellporno", "stripchat", "chaturbate")
         var coreChanged = false
-        for (p in coreAlways) {
-            if (!enabledSet.contains(p)) {
-                enabledSet.add(p)
-                coreChanged = true
+        if (adultEnabled) {
+            val coreAlways = listOf("all", "xnxx", "hellporno", "stripchat", "chaturbate")
+            for (p in coreAlways) {
+                if (!enabledSet.contains(p)) {
+                    enabledSet.add(p)
+                    coreChanged = true
+                }
+            }
+        } else {
+            val coreAlways = listOf("all", "youtube", "tencent")
+            for (p in coreAlways) {
+                if (!enabledSet.contains(p)) {
+                    enabledSet.add(p)
+                    coreChanged = true
+                }
             }
         }
         if (adultEnabled) {
@@ -2739,17 +2808,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = "18+",
                     isEnabled = enabledSet.contains("all"),
                     isDefault = (activeId == "all")
-                )
-            )
-            // Include Tencent Video so it's always accessible in adult mode too
-            uiList.add(
-                ProviderUiItem(
-                    id = "tencent",
-                    name = "Tencent Video (v.qq.com)",
-                    description = "Tencent Video (v.qq.com) Chinese dramas, anime, movies & series",
-                    category = "Video/Cinema",
-                    isEnabled = enabledSet.contains("tencent"),
-                    isDefault = (activeId == "tencent")
                 )
             )
             val adultProviders = listOf(
@@ -2815,46 +2873,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = "Video/Cinema",
                     isEnabled = enabledSet.contains("tencent"),
                     isDefault = (activeId == "tencent")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "xnxx",
-                    name = "XNXX",
-                    description = "XNXX HD adult video tube catalog & high-speed streaming",
-                    category = "18+",
-                    isEnabled = enabledSet.contains("xnxx"),
-                    isDefault = (activeId == "xnxx")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "hellporno",
-                    name = "HellPorno",
-                    description = "HellPorno HD adult video streams & categories",
-                    category = "18+",
-                    isEnabled = enabledSet.contains("hellporno"),
-                    isDefault = (activeId == "hellporno")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "stripchat",
-                    name = "Stripchat (Live Cams)",
-                    description = "Live interactive adult webcam broadcast rooms & models",
-                    category = "18+",
-                    isEnabled = enabledSet.contains("stripchat"),
-                    isDefault = (activeId == "stripchat")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "chaturbate",
-                    name = "Chaturbate (Live Cams)",
-                    description = "Live interactive adult webcam rooms & broadcast shows",
-                    category = "18+",
-                    isEnabled = enabledSet.contains("chaturbate"),
-                    isDefault = (activeId == "chaturbate")
                 )
             )
             uiList.add(
@@ -3942,7 +3960,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (activeProv != "all") {
                                 com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                             } else {
-                                adultEnabled || !isAdultVideoItem(it)
+                                if (adultEnabled) {
+                                    isAdultVideoItem(it) && !isNormalProvider(it.providerId)
+                                } else {
+                                    !isAdultVideoItem(it) && !isAdultProviderId(it.providerId)
+                                }
                             }
                         }
 
@@ -4028,8 +4050,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // === PRIORITY 1: FAST PRIMARY ESSENTIAL PROVIDERS ===
                 supervisorScope {
-                    // 1. YouTube (Instant dispatch)
-                    if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
+                    // 1. YouTube (Instant dispatch - Mainstream only)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                         launch(Dispatchers.IO) {
                             val ytItems = fetchSafely("youtube", 3500L) {
                                 com.example.extractor.YouTubeExtractorHelper.fetchYouTubeTrending(getApplication(), targetPage, forceRefresh)
@@ -4040,8 +4062,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 2. Archive.org
-                    if ((activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
+                    // 2. Archive.org (Mainstream only)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "archive_org") && enabledSet.contains("archive_org")) {
                         launch(Dispatchers.IO) {
                             val arcItems = fetchSafely("archive_org", 3500L) {
                                 com.example.extractor.ArchiveOrgProvider.getHome(targetPage)
@@ -4052,8 +4074,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 3. Dailymotion
-                    if ((activeProv == "all" || activeProv == "dailymotion") && enabledSet.contains("dailymotion")) {
+                    // 3. Dailymotion (Mainstream only)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "dailymotion") && enabledSet.contains("dailymotion")) {
                         launch(Dispatchers.IO) {
                             val dmItems = fetchSafely("dailymotion", 3500L) {
                                 com.example.extractor.MultiSourceProvider.getHome(getApplication(), "dailymotion", provLimit, targetPage)
@@ -4064,10 +4086,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 4. Bilibili
-                    if ((activeProv == "all" || activeProv == "bilibili") && enabledSet.contains("bilibili")) {
+                    // 4. Bilibili (Mainstream only)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "bilibili") && enabledSet.contains("bilibili")) {
                         launch(Dispatchers.IO) {
-                            val biliItems = fetchSafely("bilibili", 3500L) {
+                            val biliItems = fetchSafely("bilibili", if (activeProv == "bilibili") 12000L else 4000L) {
                                 com.example.extractor.BilibiliProvider.getHomeVideos(targetPage, provLimit)
                             }
                             if (biliItems.isNotEmpty()) {
@@ -4076,8 +4098,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 5. Vimeo
-                    if ((activeProv == "all" || activeProv == "vimeo") && enabledSet.contains("vimeo")) {
+                    // 5. Vimeo (Mainstream only)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "vimeo") && enabledSet.contains("vimeo")) {
                         launch(Dispatchers.IO) {
                             val vimItems = fetchSafely("vimeo", 3500L) {
                                 com.example.extractor.MultiSourceProvider.getHome(getApplication(), "vimeo", provLimit, targetPage)
@@ -4089,13 +4111,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 6. Eporner (if adult content enabled)
-                    if (((activeProv == "all" && adultEnabled) || activeProv == "eporner") && enabledSet.contains("eporner")) {
+                    if (adultEnabled && (activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         launch(Dispatchers.IO) {
                             val epItems = fetchSafely("eporner", 3500L) {
                                 com.example.extractor.EpornerProvider.getHome(provLimit, targetPage)
                             }
                             if (epItems.isNotEmpty()) {
                                 updateFeedProgressively(epItems)
+                            }
+                        }
+                    }
+
+                    // 7. XNXX (if adult content enabled)
+                    if (adultEnabled && (activeProv == "all" || activeProv == "xnxx") && enabledSet.contains("xnxx")) {
+                        launch(Dispatchers.IO) {
+                            val xnxxItems = fetchSafely("xnxx", 3500L) {
+                                com.example.extractor.MultiSourceProvider.getHome(getApplication(), "xnxx", provLimit, targetPage)
+                            }
+                            if (xnxxItems.isNotEmpty()) {
+                                updateFeedProgressively(xnxxItems)
                             }
                         }
                     }
@@ -4108,21 +4142,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!isActive) return@launch
 
                 // === PRIORITY 2: SECONDARY FAST MULTISOURCE PROVIDERS ===
-                val fastMultiSources = if (activeProv == "all") {
-                    listOf("tencent", "hotstar", "twitch", "bigo", "bun-tel-meg")
+                val fastMultiSources = if (adultEnabled) {
+                    if (activeProv == "all") {
+                        listOf("hellporno", "stripchat", "chaturbate", "supjav", "123av", "pornhub", "xvideos", "spankbang")
+                    } else {
+                        listOf(
+                            "sextb", "123av", "javtiful", "jav_all",
+                            "hanime1", "hqporner", "pornhub", "beeg",
+                            "cam4", "cammodels", "chaturbate", "stripchat", "noodlemagazine", "thisvid", "tnaflix",
+                            "spankbang", "motherless", "playvid", "txxx", "xnxx", "hellporno"
+                        )
+                    }
                 } else {
-                    listOf(
-                        "tencent", "hotstar", "twitch", "bigo", "bun-tel-meg",
-                        "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
-                        "crunchyroll", "sonyliv", "decryptor", "vidsrc",
-                        "sextb", "123av", "javtiful", "jav_all",
-                        "hanime1", "hqporner", "pornhub", "beeg",
-                        "cam4", "cammodels", "chaturbate", "stripchat", "noodlemagazine", "thisvid", "tnaflix",
-                        "spankbang", "motherless", "playvid", "txxx", "xnxx", "hellporno"
-                    )
+                    if (activeProv == "all") {
+                        listOf("tencent", "hotstar", "twitch", "bigo", "bun-tel-meg")
+                    } else {
+                        listOf(
+                            "tencent", "hotstar", "twitch", "bigo", "bun-tel-meg",
+                            "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
+                            "crunchyroll", "sonyliv", "decryptor", "vidsrc"
+                        )
+                    }
                 }
                 val targetFastSources = when {
-                    activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (adultEnabled || !isAdultProviderId(it)) }
+                    activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (if (adultEnabled) isAdultProviderId(it) && !isNormalProvider(it) else !isAdultProviderId(it)) }
                     else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
                 }
 
@@ -4381,6 +4424,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     discovered.addAll(streamData.relatedVideos.filter { it.id != vid })
                 }
 
+                // 1b. Proactive Clip-to-Full Content Discovery (Full Movie, Full Match, Full Episode, Reaction Next Part)
+                val activeItem = _activeVideoItem.value ?: streamData?.let {
+                    VideoItem(
+                        id = it.videoId,
+                        title = it.title,
+                        uploaderName = it.channelName,
+                        tags = it.tags,
+                        durationSeconds = _activeVideoItem.value?.durationSeconds ?: 0
+                    )
+                }
+                if (activeItem != null) {
+                    val clipAnalysis = com.example.recommendation.ClipToFullContentHelper.analyzeVideo(activeItem)
+                    if (clipAnalysis.type != com.example.recommendation.ClipToFullContentHelper.ClipType.NOT_A_CLIP && clipAnalysis.searchQueries.isNotEmpty()) {
+                        for (fullQ in clipAnalysis.searchQueries.take(3)) {
+                            try {
+                                when (val fullRes = YouTubeExtractorHelper.searchVideos(fullQ, getApplication())) {
+                                    is com.example.model.FeedResult.Success -> {
+                                        discovered.addAll(fullRes.items.filter { it.id != vid })
+                                    }
+                                    else -> {}
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    // Proactively load reactions in the background so the Reactions tab is instantly populated!
+                    loadVideoReactions(activeItem.title, activeItem.id)
+                }
+
                 // 2. Build rich search terms from title, channel, and keywords
                 val cleanWords = title
                     .replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)|-|_|\\||#\\S+|official|trailer|video|hd|4k|1080p|full movie|season|episode"), " ")
@@ -4458,7 +4530,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val tasteVector = getLiveTasteVector(candidatePool = discovered)
                 val currentPlaying = _activeVideoItem.value ?: streamData?.let {
-                    VideoItem(id = it.videoId, title = it.title, uploaderName = it.channelName, tags = it.tags)
+                    VideoItem(
+                        id = it.videoId,
+                        title = it.title,
+                        uploaderName = it.channelName,
+                        tags = it.tags,
+                        durationSeconds = _activeVideoItem.value?.durationSeconds ?: 0
+                    )
                 }
 
                 val rankedDiscovered = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
@@ -4470,10 +4548,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
 
                 val current = _playerRecommendations.value
-                val combined = (current + rankedDiscovered)
+                val combined = (rankedDiscovered + current)
                     .distinctBy { it.id }
                     .filterNot { isBlockedVideo(it) }
-                _playerRecommendations.value = combined
+
+                // Pin any confirmed Full Movie, Full Match, Full Episode or Reaction Next Part to the top (#1 spot)
+                val sortedCombined = if (currentPlaying != null) {
+                    combined.sortedByDescending { item ->
+                        if (com.example.recommendation.ClipToFullContentHelper.evaluateFullCounterpart(currentPlaying, item).first) {
+                            1000f
+                        } else 0f
+                    }
+                } else combined
+
+                _playerRecommendations.value = sortedCombined
 
                 // Ensure home feed keeps filling up as well
                 if (_trendingVideos.value.size < 60) {
@@ -4487,16 +4575,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun rankFallbackRelated(pool: List<VideoItem>, activeId: String? = null): List<VideoItem> {
+    fun rankFallbackRelated(pool: List<VideoItem>, activeId: String? = null, activeVideo: VideoItem? = null): List<VideoItem> {
         val cleanPool = pool.filter { it.id != activeId && !isBlockedVideo(it) }
         val tasteVector = getLiveTasteVector(candidatePool = cleanPool)
-        return com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+        val currentPlaying: VideoItem? = activeVideo ?: _activeVideoItem.value ?: com.example.ui.player.GlobalPlayerManager.activeStreamData.value?.let {
+            VideoItem(
+                id = it.videoId,
+                title = it.title,
+                uploaderName = it.channelName,
+                tags = it.tags,
+                durationSeconds = _activeVideoItem.value?.durationSeconds ?: 0
+            )
+        }
+        val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
             candidates = cleanPool,
             tasteVector = tasteVector,
-            activeVideo = _activeVideoItem.value,
+            activeVideo = currentPlaying,
             blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value + _dislikedVideoIds.value + com.example.recommendation.UserActivityMemory.getDislikedVideoIds(),
             blockedChannels = _notInterestedChannels.value + com.example.recommendation.UserActivityMemory.getDislikedChannels()
         )
+        return if (currentPlaying != null) {
+            ranked.sortedByDescending { item ->
+                if (com.example.recommendation.ClipToFullContentHelper.evaluateFullCounterpart(currentPlaying, item).first) {
+                    1000f
+                } else 0f
+            }
+        } else {
+            ranked
+        }
     }
 
     fun playVideo(videoIdOrUrl: String, providerIdHint: String? = null) {
@@ -4505,6 +4611,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         playerRecsPage = 1
         _playerRecommendations.value = emptyList()
+        _videoReactions.value = emptyList()
 
         // Cancel background feed loading immediately to free up all CPU, thread & network resources for instant playback
         feedLoadingJob?.cancel()

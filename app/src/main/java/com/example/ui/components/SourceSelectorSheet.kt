@@ -39,11 +39,18 @@ fun SourceSelectorSheet(
     var searchQuery by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filteredProviders = remember(availableProviders, searchQuery) {
+    val filteredProviders = remember(availableProviders, searchQuery, adultContentEnabled) {
+        val baseList = availableProviders.filter { provider ->
+            if (adultContentEnabled) {
+                provider.id != "tencent" && (provider.id == "all" || viewModel.isAdultProviderId(provider.id))
+            } else {
+                !viewModel.isAdultProviderId(provider.id)
+            }
+        }
         if (searchQuery.isBlank()) {
-            availableProviders
+            baseList
         } else {
-            availableProviders.filter {
+            baseList.filter {
                 it.name.contains(searchQuery, ignoreCase = true) ||
                 it.id.contains(searchQuery, ignoreCase = true) ||
                 it.description.contains(searchQuery, ignoreCase = true) ||
@@ -190,20 +197,11 @@ fun SourceSelectorSheet(
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(brandColor.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = getProviderIcon(provider.id),
-                                    contentDescription = null,
-                                    tint = brandColor,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            SourceBrandLogo(
+                                providerId = provider.id,
+                                size = 36.dp,
+                                isAdultMode = adultContentEnabled
+                            )
 
                             Spacer(modifier = Modifier.width(12.dp))
 

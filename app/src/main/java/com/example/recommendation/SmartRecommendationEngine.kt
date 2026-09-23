@@ -633,6 +633,17 @@ object SmartRecommendationEngine {
             }
         }
 
+        // J. High-Precision Clip-to-Full Content Up-Ranking (Full Movie, Full Match, Full Episode, Reaction Next Part)
+        var fullCounterpartExplanation: String? = null
+        if (activeVideo != null) {
+            val (isFull, fullBadge) = ClipToFullContentHelper.evaluateFullCounterpart(activeVideo, video)
+            if (isFull && fullBadge != null) {
+                score += 500.0f // Top priority elevation to #1 recommended spot!
+                fullCounterpartExplanation = fullBadge
+                isContextualRelated = true
+            }
+        }
+
         // Build Intelligent Explanation Badge
         val timeLabel = when (hourOfDay) {
             in 5..11 -> "Morning"
@@ -641,6 +652,8 @@ object SmartRecommendationEngine {
             else -> "Night"
         }
         val explanation = when {
+            fullCounterpartExplanation != null ->
+                fullCounterpartExplanation
             channel.isNotBlank() && tasteVector.favoriteChannels.contains(channel) ->
                 "❤️ From your favorite creator ${video.uploaderName}"
             activeVideo != null && activeVideo.uploaderName.lowercase(Locale.ROOT).trim() == channel ->

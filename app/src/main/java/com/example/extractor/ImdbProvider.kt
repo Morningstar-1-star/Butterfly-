@@ -97,28 +97,11 @@ object ImdbProvider {
         val isYouTubeId = clean.length == 11 && !clean.contains("/") && !clean.contains(":") && !clean.contains(".")
         val isYouTubeUrl = clean.contains("youtube.com") || clean.contains("youtu.be")
 
-        // 1. Direct resolution for real 11-char video ID or YouTube link
-        if (isYouTubeId || isYouTubeUrl) {
-            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
-            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
-            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
-                val stream = res.streamData
-                val channel = if (stream.channelName.contains("IMDb", ignoreCase = true)) {
-                    stream.channelName
-                } else {
-                    "${stream.channelName} • IMDb"
-                }
-                return@withContext stream.copy(
-                    providerId = PROVIDER_ID,
-                    channelName = channel
-                )
-            }
-        }
-
-        // 2. Direct yt-dlp extraction for external IMDb URLs
-        if (context != null && (clean.startsWith("http://") || clean.startsWith("https://"))) {
+        // 1. Direct yt-dlp extraction for external IMDb URLs
+        if (context != null && !isYouTubeId && !isYouTubeUrl && (clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("imdb:"))) {
             try {
-                val ytdlRes = YtDlpResolver.extractStreamInfo(context, clean)
+                val target = if (clean.startsWith("http")) clean else "https://www.imdb.com/video/${clean.removePrefix("imdb:")}"
+                val ytdlRes = YtDlpResolver.extractStreamInfo(context, target)
                 if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
                     return@withContext ytdlRes.streamData.copy(
                         providerId = PROVIDER_ID,
@@ -127,6 +110,19 @@ object ImdbProvider {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "yt-dlp IMDb extraction notice: ${e.message}")
+            }
+        }
+
+        // 2. Direct resolution for real 11-char video ID or YouTube link
+        if (isYouTubeId || isYouTubeUrl) {
+            val target = if (isYouTubeId) "https://www.youtube.com/watch?v=$clean" else clean
+            val res = YouTubeExtractorHelper.resolveStream(target, context, "youtube")
+            if (res is YouTubeExtractorHelper.ExtractionResult.Success) {
+                val stream = res.streamData
+                return@withContext stream.copy(
+                    providerId = PROVIDER_ID,
+                    channelName = stream.channelName
+                )
             }
         }
 
@@ -187,11 +183,7 @@ object ImdbProvider {
                 val thumb = if (!rawThumb.isNullOrBlank()) rawThumb else "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
                 val originalUploader = item.uploaderName ?: "IMDb"
-                val uploaderName = if (originalUploader.contains("IMDb", ignoreCase = true)) {
-                    originalUploader
-                } else {
-                    "$originalUploader • IMDb"
-                }
+                val uploaderName = originalUploader
 
                 itemsList.add(
                     VideoItem(

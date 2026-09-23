@@ -839,6 +839,65 @@ fun VideoDetailsSection(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                // Verified Source Origin Badge & Direct Link Inspector
+                val originInfo = remember(streamData?.videoId, streamData?.videoUrl, streamData?.providerId, previewItem?.id) {
+                    com.example.util.VideoShareHelper.resolveOriginInfo(
+                        streamData = streamData,
+                        fallbackVideoId = previewItem?.id,
+                        fallbackTitle = previewItem?.title
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    border = androidx.compose.foundation.BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Origin Link", originInfo.webUrl))
+                                android.widget.Toast.makeText(context, "Copied original link: ${originInfo.webUrl}", android.widget.Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {}
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = "Source Link",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = originInfo.platformName,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = originInfo.domain,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = "Copy link",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+
                 // Top Cast / Featured Performers (Always visible directly in description)
                 val castList = remember(mediaDetails, streamData) {
                     if (streamData?.cast?.isNotEmpty() == true) {
