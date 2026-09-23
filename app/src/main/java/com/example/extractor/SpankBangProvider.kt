@@ -452,27 +452,34 @@ object SpankBangProvider {
             }
         }
 
-        // 3. Resilient Direct Media Stream Option (Guarantee playable stream with SpankBang metadata)
-        val fallbackDirectStream = PlayableStreamOption(
-            qualityLabel = "1080p Ultra HD",
-            format = "mp4",
+        // 3. Fallback to SpankBang Web Embed Player
+        val embedCleanId = urlOrId.removePrefix("spankbang:").substringBefore("?").trim('/')
+        val embedUrl = if (embedCleanId.startsWith("http")) {
+            if (embedCleanId.contains("/embed/")) embedCleanId else "$embedCleanId/embed/"
+        } else {
+            "https://spankbang.com/$embedCleanId/embed/"
+        }
+
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "SpankBang Web Player (HD)",
+            format = "embed",
             isMuxed = true,
-            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            providerType = ProviderType.DIRECT,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
             headers = defaultHeaders,
             qualityCategory = "1080p"
         )
 
         StreamData(
             videoId = urlOrId,
-            videoUrl = fallbackDirectStream.videoUrl ?: "",
+            videoUrl = embedUrl,
             title = directTitle,
             channelName = "SpankBang HD",
             thumbnailUrl = directThumb ?: "https://sb-cd.com/t/9920000/9920100/1000/1.jpg",
             providerId = PROVIDER_ID,
-            providerType = ProviderType.DIRECT,
-            availableStreamOptions = listOf(fallbackDirectStream),
-            selectedStreamOption = fallbackDirectStream,
+            providerType = ProviderType.EMBED,
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption,
             headers = defaultHeaders
         )
     }

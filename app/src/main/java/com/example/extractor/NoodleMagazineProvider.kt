@@ -55,17 +55,6 @@ object NoodleMagazineProvider {
         "Cookie" to "lang=en; hl=en; language=en; remixlang=3; age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1"
     )
 
-    private val fallbackStreams = listOf(
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-    )
-
     fun cleanAndTranslateNoodleTitle(rawTitle: String, fallbackSlug: String = ""): String {
         if (rawTitle.isBlank() && fallbackSlug.isBlank()) return "NoodleMagazine Exclusive HD"
 
@@ -490,36 +479,18 @@ object NoodleMagazineProvider {
             Log.w(TAG, "Direct NoodleMagazine extraction error: ${e.message}")
         }
 
-        val directPlayableSources = videoSources.filter {
-            !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
-        }.distinctBy { it.videoUrl }
+        val directPlayableSources = videoSources.distinctBy { it.videoUrl }
 
         if (directPlayableSources.isNotEmpty()) {
             Log.i(TAG, "Successfully extracted ${directPlayableSources.size} streams from NoodleMagazine HTML")
-            val combinedSources = mutableListOf<PlayableStreamOption>()
-            combinedSources.addAll(directPlayableSources)
-
-            val streamIdx = Math.abs(videoId.hashCode()) % fallbackStreams.size
-            val fallbackUrl = fallbackStreams[streamIdx]
-            combinedSources.add(
-                PlayableStreamOption(
-                    qualityLabel = "Auto Backup HD",
-                    format = "mp4",
-                    isMuxed = true,
-                    videoUrl = fallbackUrl,
-                    providerType = ProviderType.OTHER,
-                    headers = mapOf("User-Agent" to DEFAULT_UA)
-                )
-            )
-
-            val bestOption = combinedSources.first()
+            val bestOption = directPlayableSources.first()
             return@withContext StreamData(
                 videoId = videoId,
                 videoUrl = bestOption.videoUrl ?: "",
                 title = resolvedTitle,
                 channelName = resolvedChannel,
                 thumbnailUrl = resolvedThumbnail,
-                availableStreamOptions = combinedSources,
+                availableStreamOptions = directPlayableSources,
                 selectedStreamOption = bestOption,
                 providerId = PROVIDER_ID,
                 headers = bestOption.headers
@@ -555,7 +526,7 @@ object NoodleMagazineProvider {
                         val streamData = EpornerProvider.getStreamData(searchItem.id, context)
                         if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
                             val directEpSources = streamData.availableStreamOptions.filter {
-                                !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
+                                !it.videoUrl.isNullOrBlank()
                             }
                             if (directEpSources.isNotEmpty()) {
                                 Log.i(TAG, "Successfully matched NoodleMagazine video to high-speed stream for '$cleanQuery'")
@@ -578,40 +549,28 @@ object NoodleMagazineProvider {
             Log.w(TAG, "NoodleMagazine fallback search note: ${e.message}")
         }
 
-        // 4. Guaranteed High-Speed Playback Fallback Stream with clean public headers
-        val streamIdx = Math.abs(videoId.hashCode()) % fallbackStreams.size
-        val fallbackUrl = fallbackStreams[streamIdx]
-        val cleanFallbackHeaders = mapOf("User-Agent" to DEFAULT_UA)
-
-        val options = listOf(
-            PlayableStreamOption(
-                qualityLabel = "1080p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = cleanFallbackHeaders
-            ),
-            PlayableStreamOption(
-                qualityLabel = "720p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = cleanFallbackHeaders
-            )
+        // 4. Fallback to NoodleMagazine Web Embed Player
+        val embedUrl = if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$videoId"
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "NoodleMagazine Web Player (HD)",
+            format = "embed",
+            isMuxed = true,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
+            headers = mapOf("User-Agent" to DEFAULT_UA, "Referer" to "$BASE_URL/")
         )
 
         StreamData(
             videoId = videoId,
-            videoUrl = fallbackUrl,
+            videoUrl = embedUrl,
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = options,
-            selectedStreamOption = options.first(),
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption,
             providerId = PROVIDER_ID,
-            headers = cleanFallbackHeaders
+            providerType = ProviderType.EMBED,
+            headers = embedOption.headers
         )
     }
 

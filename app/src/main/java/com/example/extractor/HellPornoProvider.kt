@@ -220,6 +220,34 @@ object HellPornoProvider {
             }
         }
 
-        return@withContext null
+        // 3. Fallback to HellPorno Web Embed Player
+        val cleanHpId = targetUrl.substringAfter("/videos/").substringBefore("/").substringBefore("?")
+        val embedUrl = if (cleanHpId.isNotBlank() && !cleanHpId.startsWith("http")) {
+            "$BASE_URL/embed/$cleanHpId/"
+        } else {
+            targetUrl
+        }
+
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "HellPorno Web Player (HD)",
+            format = "embed",
+            isMuxed = true,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
+            headers = mapOf("User-Agent" to DEFAULT_USER_AGENT, "Referer" to "$BASE_URL/")
+        )
+
+        return@withContext StreamData(
+            videoId = targetUrl,
+            videoUrl = embedUrl,
+            title = "HellPorno Stream",
+            channelName = "HellPorno",
+            description = "HellPorno Stream",
+            thumbnailUrl = null,
+            providerId = PROVIDER_ID,
+            providerType = ProviderType.EMBED,
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption
+        )
     }
 }

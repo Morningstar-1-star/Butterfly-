@@ -73,17 +73,6 @@ object HQPornerProvider {
     private val streamCache = ConcurrentHashMap<String, Pair<Long, StreamData>>()
     private const val STREAM_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes
 
-    private val fallback4KStreams = listOf(
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-    )
-
     fun extractVideoId(raw: String): String {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return ""
@@ -542,38 +531,27 @@ object HQPornerProvider {
             Log.d(TAG, "Cross provider resolution note: ${e.message}")
         }
 
-        // 4. Guaranteed High-Bitrate 4K / 1080p Stream Fallback
-        val streamIdx = Math.abs(videoSlug.hashCode()) % fallback4KStreams.size
-        val fallbackUrl = fallback4KStreams[streamIdx]
-
-        val fallbackOptions = listOf(
-            PlayableStreamOption(
-                qualityLabel = "4K 2160p UHD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = defaultHeaders
-            ),
-            PlayableStreamOption(
-                qualityLabel = "1080p Full HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = defaultHeaders
-            )
+        // 4. Fallback to HQPorner Web Embed Player
+        val embedUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hqporner.com/hdporn/$videoSlug.html"
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "HQPorner Web Player (HD)",
+            format = "embed",
+            isMuxed = true,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
+            headers = defaultHeaders
         )
 
         val finalStream = StreamData(
             videoId = videoSlug,
-            videoUrl = fallbackUrl,
+            videoUrl = embedUrl,
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = fallbackOptions,
-            selectedStreamOption = fallbackOptions.first(),
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption,
             providerId = PROVIDER_ID,
+            providerType = ProviderType.EMBED,
             headers = defaultHeaders
         )
         streamCache[cacheKey] = Pair(System.currentTimeMillis(), finalStream)

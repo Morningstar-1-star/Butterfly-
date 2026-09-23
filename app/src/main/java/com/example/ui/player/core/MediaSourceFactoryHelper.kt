@@ -119,8 +119,14 @@ object MediaSourceFactoryHelper {
             reqHeaders.remove("Origin")
             reqHeaders.remove("Cookie")
         } else if (isBilibiliStream) {
-            reqHeaders["Referer"] = "https://www.bilibili.com/"
-            customUserAgent = NetworkManager.DEFAULT_USER_AGENT
+            // Preserve extractor-supplied Bilibili headers. The CDN may bind the
+            // signed media URL to the Referer/UA used during extraction.
+            if (reqHeaders.keys.none { it.equals("Referer", ignoreCase = true) }) {
+                reqHeaders["Referer"] = "https://www.bilibili.com/"
+            }
+            if (customUserAgent == null) {
+                customUserAgent = NetworkManager.DEFAULT_USER_AGENT
+            }
             reqHeaders["Accept"] = "*/*"
             reqHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
             reqHeaders.remove("Sec-Fetch-Mode")

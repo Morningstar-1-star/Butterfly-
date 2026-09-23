@@ -92,11 +92,13 @@ object BilibiliProvider {
     }
 
     suspend fun ensureCookieValid() = withContext(Dispatchers.IO) {
-        if (!cachedCookie.contains("infoc")) return@withContext
+        val currentCookie = cachedCookie
+        if (!currentCookie.contains("infoc") && currentCookie.contains("b_3")) return@withContext
         try {
             val req = Request.Builder()
                 .url("https://api.bilibili.com/x/frontend/finger/spi")
                 .header("User-Agent", USER_AGENT)
+                .header("Referer", REFERER)
                 .build()
             httpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
@@ -113,7 +115,9 @@ object BilibiliProvider {
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed updating Bilibili finger spi cookie: ${e.message}")
+        }
     }
 
     fun refreshBilibiliCookieAsync() {
@@ -288,6 +292,27 @@ object BilibiliProvider {
             return@withContext null
         }
 
+        // Bilibili's signed CDN/API behavior changes frequently. Use the bundled
+        // current yt-dlp engine first for standard videos so the extractor and
+        // the playback URL/headers stay in sync. Keep the native API extractor
+        // as a fallback for cases yt-dlp cannot resolve.
+        if (context != null) {
+            try {
+                val fullBiliUrl = if (targetUrl.startsWith("http", ignoreCase = true)) {
+                    targetUrl
+                } else {
+                    "https://www.bilibili.com/video/${bvid.ifBlank { "av$aid" }}"
+                }
+                val ytRes = YtDlpResolver.extractStreamInfo(context, fullBiliUrl)
+                if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success &&
+                    ytRes.streamData.availableStreamOptions.isNotEmpty()) {
+                    return@withContext ytRes.streamData.copy(providerId = PROVIDER_ID)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "yt-dlp-first Bilibili extraction failed; using native fallback: ${e.message}")
+            }
+        }
+
         fetchVideoStreamData(bvid = bvid, aid = aid, context = context)
     }
 
@@ -422,7 +447,8 @@ object BilibiliProvider {
 
         val biliHeaders = mapOf(
             "User-Agent" to USER_AGENT,
-            "Referer" to REFERER,
+            // Use the canonical video URL as Referer for CDN playback.
+            "Referer" to "https://www.bilibili.com/video/$resolvedBvid",
             "Cookie" to biliCookie
         )
 
@@ -844,9 +870,9 @@ object BilibiliProvider {
 
         val rawLower = cleanUrl.lowercase()
         val isProblematic = rawLower.contains("mcdn") || rawLower.contains("p2p") ||
-                rawLower.contains("szbdyd") || rawLower.contains(":4483") ||
-                rawLower.contains(":8080") || rawLower.contains(":8000") ||
-                rawLower.contains(":8443") || rawLower.contains(":51056")
+                rawLower.contains("szbdyd") || rawLower.contains("bcache") ||
+                rawLower.contains(":4483") || rawLower.contains(":8080") ||
+                rawLower.contains(":8000") || rawLower.contains(":8443") || rawLower.contains(":51056")
 
         // If primary URL is problematic, check if backupArr has a clean overseas/akamai/ali/tencent mirror
         if (isProblematic && backupArr != null && backupArr.length() > 0) {
@@ -855,9 +881,9 @@ object BilibiliProvider {
                 if (cand.isNotBlank()) {
                     val lower = cand.lowercase()
                     if ((lower.contains("mirrorakam") || lower.contains("akamaized") ||
-                        lower.contains("mirrorali") || lower.contains("mirrorcosov") ||
-                        lower.contains("mirror08c") || lower.contains("mirrorcos") ||
-                        lower.contains("mirrorhw") || lower.contains("bilivideo.com") || lower.contains("hdslb.com")) &&
+                        lower.contains("mirrorali") || lower.contains("mirrorcos") ||
+                        lower.contains("mirror08c") || lower.contains("mirrorhw") ||
+                        lower.contains("staticak") || lower.contains("bilivideo.com") || lower.contains("hdslb.com")) &&
                         !lower.contains("mcdn") && !lower.contains("p2p") && !lower.contains("szbdyd") &&
                         !lower.contains(":4483") && !lower.contains(":8080") && !lower.contains(":8000") && !lower.contains(":8443")
                     ) {
@@ -870,6 +896,22 @@ object BilibiliProvider {
 
         if (cleanUrl.startsWith("http://", ignoreCase = true)) {
             cleanUrl = "https://" + cleanUrl.substring(7)
+        }
+
+        // Fallback Host replacement if URL still contains problematic P2P/mcdn domains or non-standard ports
+        val lower = cleanUrl.lowercase()
+        if (lower.contains("mcdn") || lower.contains("p2p") || lower.contains("szbdyd") || lower.contains("bcache") ||
+            cleanUrl.matches(Regex(".*:[0-9]{4,5}/.*"))
+        ) {
+            try {
+                val uri = java.net.URI(cleanUrl)
+                val rawPath = uri.rawPath ?: ""
+                val rawQuery = uri.rawQuery
+                val pathAndQuery = rawPath + if (rawQuery != null) "?$rawQuery" else ""
+                cleanUrl = "https://upos-sz-mirrorali.bilivideo.com$pathAndQuery"
+            } catch (e: Exception) {
+                cleanUrl = cleanUrl.replace(Regex("https?://[^/]+"), "https://upos-sz-mirrorali.bilivideo.com")
+            }
         }
 
         return cleanUrl
@@ -1119,6 +1161,20 @@ object BilibiliProvider {
             }
             return sb.toString()
         }
+
+        fun signTvParams(params: Map<String, Any>): String {
+            val appKey = "4409e2ce8ffd12b8"
+            val appSecret = "59b41e014c1972007135612259b13cc5"
+            val sorted = java.util.TreeMap<String, String>()
+            params.forEach { (k, v) -> sorted[k] = v.toString() }
+            sorted["appkey"] = appKey
+            val rawToHash = sorted.entries.joinToString("&") { "${it.key}=${it.value}" } + appSecret
+            val md5 = java.security.MessageDigest.getInstance("MD5")
+                .digest(rawToHash.toByteArray(Charsets.UTF_8))
+                .joinToString("") { String.format("%02x", it) }
+            val query = sorted.entries.joinToString("&") { "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
+            return "$query&sign=$md5"
+        }
     }
 
     private suspend fun fetchPlayurlStreams(
@@ -1129,13 +1185,23 @@ object BilibiliProvider {
         val streamOptions = mutableListOf<PlayableStreamOption>()
         ensureCookieValid()
 
-        // 1. Official TV UGC direct playurl (Highly reliable, unthrottled direct progressive MP4)
+        // 1. Official TV UGC direct playurl (Signed TV AppKey, unthrottled direct progressive MP4)
         val tvUgcDeferred = async(Dispatchers.IO) {
             try {
-                val tvUrl = "https://api.bilibili.com/x/tv/ugc/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=0&fnver=0&fourk=1&platform=android"
+                val tvParams = mapOf(
+                    "bvid" to resolvedBvid,
+                    "cid" to cid,
+                    "qn" to 80,
+                    "fnval" to 0,
+                    "fnver" to 0,
+                    "fourk" to 1,
+                    "platform" to "android"
+                )
+                val tvQuery = BilibiliWbiHelper.signTvParams(tvParams)
+                val tvUrl = "https://api.bilibili.com/x/tv/ugc/playurl?$tvQuery"
                 val tvReq = Request.Builder()
                     .url(tvUrl)
-                    .header("User-Agent", "Bilibili/1.1.2 (Android;)")
+                    .header("User-Agent", "Bilibili Freediff/7.64.0 (Android; Palm)")
                     .header("Referer", REFERER)
                     .header("Cookie", getBilibiliCookie())
                     .build()
@@ -1145,6 +1211,38 @@ object BilibiliProvider {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error fetching TV UGC playurl: ${e.message}")
+                null
+            }
+        }
+
+        // 2. WBI-signed Progressive Direct MP4 (fnval=0: unblocked single-file muxed video+audio)
+        val wbiProgDeferred = async(Dispatchers.IO) {
+            try {
+                val mixinKey = BilibiliWbiHelper.getMixinKey()
+                if (mixinKey != null) {
+                    val params = mapOf(
+                        "bvid" to resolvedBvid,
+                        "cid" to cid,
+                        "qn" to 80,
+                        "fnval" to 0,
+                        "fnver" to 0,
+                        "high_quality" to 1
+                    )
+                    val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
+                    val wbiUrl = "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
+                    val wbiReq = Request.Builder()
+                        .url(wbiUrl)
+                        .header("User-Agent", USER_AGENT)
+                        .header("Referer", REFERER)
+                        .header("Cookie", getBilibiliCookie())
+                        .build()
+
+                    httpClient.newCall(wbiReq).execute().use { resp ->
+                        if (resp.isSuccessful) resp.body?.string() else null
+                    }
+                } else null
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching WBI progressive playurl: ${e.message}")
                 null
             }
         }
@@ -1262,14 +1360,15 @@ object BilibiliProvider {
         }
 
         val tvUgcJsonStr = tvUgcDeferred.await()
+        val wbiProgJsonStr = wbiProgDeferred.await()
         val progMp4JsonStr = progMp4Deferred.await()
         val wbiDashJsonStr = wbiDashDeferred.await()
         val progJsonStr = progDeferred.await()
         val dashCompatJsonStr = dashCompatDeferred.await()
         val dashFullJsonStr = dashFullDeferred.await()
 
-        // Process Progressive Muxed Streams (tvUgc, progMp4, prog, wbi)
-        val progressiveJsonList = listOfNotNull(tvUgcJsonStr, progMp4JsonStr, progJsonStr, wbiDashJsonStr)
+        // Process Progressive Muxed Streams (tvUgc, wbiProg, progMp4, prog, wbi)
+        val progressiveJsonList = listOfNotNull(tvUgcJsonStr, wbiProgJsonStr, progMp4JsonStr, progJsonStr, wbiDashJsonStr)
         for (pJsonStr in progressiveJsonList) {
             try {
                 val playJson = JSONObject(pJsonStr)

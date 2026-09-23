@@ -54,8 +54,12 @@ object MediaHeaderHelper {
                     urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
                     urlStr.contains("biliintl") -> {
                 val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-                builder.header("Referer", biliReferer)
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                if (request.header("Referer").isNullOrBlank()) {
+                    builder.header("Referer", biliReferer)
+                }
+                if (request.header("User-Agent").isNullOrBlank()) {
+                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                }
                 builder.header("Accept", "*/*")
                 builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
                 builder.removeHeader("Sec-Fetch-Mode")

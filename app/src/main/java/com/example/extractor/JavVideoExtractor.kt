@@ -541,47 +541,28 @@ object JavVideoExtractor {
             }
         }
 
-        // 5. High-speed resilient MP4 stream fallback so playback never hangs
-        val fallbackPool = listOf(
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
-        )
-        val streamIdx = Math.abs(videoIdOrUrl.hashCode()) % fallbackPool.size
-        val fallbackUrl = fallbackPool[streamIdx]
-        val cleanHeaders = mapOf("User-Agent" to userAgent)
-
-        val options = listOf(
-            PlayableStreamOption(
-                qualityLabel = "1080p Full HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.DIRECT,
-                headers = cleanHeaders
-            ),
-            PlayableStreamOption(
-                qualityLabel = "720p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.DIRECT,
-                headers = cleanHeaders
-            )
+        // 5. Fallback to Web Embed Player
+        val embedUrl = if (videoIdOrUrl.startsWith("http")) videoIdOrUrl else "https://missav.ws/v/$javCode"
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "JAV Web Player (HD)",
+            format = "embed",
+            isMuxed = true,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
+            headers = mapOf("User-Agent" to userAgent)
         )
 
         StreamData(
             videoId = videoIdOrUrl,
-            videoUrl = fallbackUrl,
+            videoUrl = embedUrl,
             title = JavEnglishTitleHelper.toEnglishTitle(videoIdOrUrl, javCode),
             channelName = if (javCode.isNotBlank()) "JAV Studio • $javCode" else "Japanese Adult Video HD",
             description = "High Definition Japanese Adult Video Stream",
-            availableStreamOptions = options,
-            selectedStreamOption = options.first(),
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption,
             providerId = "jav_all",
-            providerType = ProviderType.DIRECT,
-            headers = cleanHeaders
+            providerType = ProviderType.EMBED,
+            headers = mapOf("User-Agent" to userAgent)
         )
     }
 

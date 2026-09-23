@@ -70,17 +70,6 @@ object Hanime1Provider {
     private val streamCache = ConcurrentHashMap<String, Pair<Long, StreamData>>()
     private const val STREAM_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes
 
-    private val fallbackAnimeStreams = listOf(
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-    )
-
     fun cleanHanimeTitle(rawTitle: String, slugOrId: String = ""): String {
         if (rawTitle.isBlank() && slugOrId.isBlank()) return "Hanime Anime OVA (1080p HD)"
 
@@ -589,20 +578,6 @@ object Hanime1Provider {
                         }
 
                         if (options.isNotEmpty()) {
-                            // Always add resilient fallback option so stream never hits a dead end
-                            val streamIdx = Math.abs(videoId.hashCode()) % fallbackAnimeStreams.size
-                            val fallbackUrl = fallbackAnimeStreams[streamIdx]
-                            options.add(
-                                PlayableStreamOption(
-                                    qualityLabel = "Auto Backup Stream",
-                                    format = "mp4",
-                                    isMuxed = true,
-                                    videoUrl = fallbackUrl,
-                                    providerType = ProviderType.OTHER,
-                                    headers = defaultHeaders
-                                )
-                            )
-
                             val selected = options.maxByOrNull { parseQualityScore(it.qualityLabel) } ?: options.first()
                             StreamData(
                                 videoId = videoId,
@@ -651,38 +626,27 @@ object Hanime1Provider {
             }
         }
 
-        // 3. Fallback High-Speed Anime Video Stream with valid headers
-        val streamIdx = Math.abs(videoId.hashCode()) % fallbackAnimeStreams.size
-        val fallbackUrl = fallbackAnimeStreams[streamIdx]
-
-        val options = listOf(
-            PlayableStreamOption(
-                qualityLabel = "1080p FHD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = defaultHeaders
-            ),
-            PlayableStreamOption(
-                qualityLabel = "720p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = defaultHeaders
-            )
+        // 3. Fallback to Hanime1 Web Embed Player
+        val embedUrl = if (clean.startsWith("http")) clean else "https://hanime1.me/embed/$videoId"
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "Hanime1 Web Player (HD)",
+            format = "embed",
+            isMuxed = true,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
+            headers = defaultHeaders
         )
 
         val fallbackStreamData = StreamData(
             videoId = videoId,
-            videoUrl = fallbackUrl,
+            videoUrl = embedUrl,
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = options,
-            selectedStreamOption = options.first(),
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption,
             providerId = PROVIDER_ID,
+            providerType = ProviderType.EMBED,
             headers = defaultHeaders
         )
         streamCache[cacheKey] = Pair(System.currentTimeMillis(), fallbackStreamData)

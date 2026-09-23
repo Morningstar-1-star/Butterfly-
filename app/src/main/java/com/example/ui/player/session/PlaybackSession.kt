@@ -228,33 +228,17 @@ class PlaybackSession(private val appContext: Context) {
                 return
             }
 
-            // Universal Auto-Recovery Fallback: If all provider streams fail or return 403, seamlessly recover
-            val sampleStreams = listOf(
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
-            )
-            val recoveryUrl = sampleStreams[kotlin.math.abs((activeData?.videoId ?: "fallback").hashCode()) % sampleStreams.size]
-            if (activeData != null && !recoveryManager.isStreamFailed(recoveryUrl)) {
-                recoveryManager.markStreamFailed(recoveryUrl)
-                val fallbackOption = com.example.model.PlayableStreamOption(
-                    qualityLabel = "Auto Recovered Stream",
-                    format = "mp4",
-                    isMuxed = true,
-                    videoUrl = recoveryUrl,
-                    providerType = com.example.model.ProviderType.OTHER,
-                    headers = mapOf("User-Agent" to com.example.util.NetworkManager.DEFAULT_USER_AGENT)
-                )
-                Log.i("PlaybackSession", "Triggering resilient auto-recovery stream for ${activeData.videoId}")
-                _playerError.value = null
-                val updatedData = activeData.copy(
-                    availableStreamOptions = activeData.availableStreamOptions + fallbackOption,
-                    selectedStreamOption = fallbackOption
-                )
-                prepareAndPlay(appContext, updatedData, fallbackOption)
-                return
+            // Auto-Recovery Fallback to Web/Embed Player if direct stream fails
+            if (activeData != null) {
+                val embedOption = activeData.availableStreamOptions.firstOrNull { it.format.equals("embed", true) }
+                if (embedOption != null && !recoveryManager.isStreamFailed(embedOption.videoUrl)) {
+                    recoveryManager.markStreamFailed(embedOption.videoUrl)
+                    Log.i("PlaybackSession", "Switching to web embed player for ${activeData.videoId}")
+                    _playerError.value = null
+                    val updatedData = activeData.copy(selectedStreamOption = embedOption)
+                    prepareAndPlay(appContext, updatedData, embedOption)
+                    return
+                }
             }
 
             _playerError.value = diagnostics

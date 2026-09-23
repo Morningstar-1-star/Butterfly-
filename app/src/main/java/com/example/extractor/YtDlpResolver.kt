@@ -425,17 +425,14 @@ object YtDlpResolver {
                         lowerUrl.startsWith("ss", ignoreCase = true) || lowerUrl.startsWith("md", ignoreCase = true) -> {
                     request.addOption("--add-header", "Referer: https://www.bilibili.com/")
                     request.addOption("--add-header", "User-Agent: $DEFAULT_USER_AGENT")
-                    request.addOption("--extractor-args", "bilibili:player_client=android,web,tv")
-                    request.addOption("--geo-bypass")
-                    request.addOption("--geo-bypass-country", "CN")
-                    request.addOption("--add-header", "X-Forwarded-For: 114.114.114.114")
+                    // Let current yt-dlp choose Bilibili's supported client/API flow.
+                    // Do not spoof a mainland-China source IP: CDN URLs can be geo-bound.
                     val biliCookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
                     if (biliCookie.isNotBlank()) {
                         request.addOption("--add-header", "Cookie: $biliCookie")
                         domainHeaders["Cookie"] = biliCookie
                     }
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
-                    domainHeaders["X-Forwarded-For"] = "114.114.114.114"
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
@@ -780,7 +777,11 @@ object YtDlpResolver {
                     if (isBili) {
                         fmtHeaders.remove("Origin")
                         fmtHeaders.remove("origin")
-                        fmtHeaders["Referer"] = "https://www.bilibili.com/"
+                        // Preserve yt-dlp's exact Bilibili Referer when supplied. Bilibili CDN
+                        // requests can be sensitive to the Referer used during extraction.
+                        if (fmtHeaders.keys.none { it.equals("Referer", ignoreCase = true) }) {
+                            fmtHeaders["Referer"] = videoUrl
+                        }
                         val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
                         if (cookie.isNotBlank() && !fmtHeaders.containsKey("Cookie")) {
                             fmtHeaders["Cookie"] = cookie

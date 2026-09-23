@@ -287,33 +287,27 @@ object PlayvidProvider {
         }
 
         // 3. Resilient HD stream resolution
-        val fallbackPool = listOf(
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-        )
-        val streamIdx = Math.abs(urlOrId.hashCode()) % fallbackPool.size
-        val fallbackUrl = fallbackPool[streamIdx]
-
-        val streamOption = PlayableStreamOption(
-            qualityLabel = "1080p HD",
-            format = "mp4",
+        // 3. Fallback to Playvid Web Embed Player
+        val embedUrl = if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$cleanId"
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "Playvid Web Player (HD)",
+            format = "embed",
             isMuxed = true,
-            videoUrl = fallbackUrl,
-            providerType = ProviderType.DIRECT,
+            videoUrl = embedUrl,
+            providerType = ProviderType.EMBED,
             headers = defaultHeaders,
             qualityCategory = "1080p"
         )
 
         StreamData(
             videoId = urlOrId,
-            videoUrl = fallbackUrl,
+            videoUrl = embedUrl,
             title = directTitle,
             channelName = "Playvid HD",
             providerId = PROVIDER_ID,
-            providerType = ProviderType.DIRECT,
-            availableStreamOptions = listOf(streamOption),
-            selectedStreamOption = streamOption,
+            providerType = ProviderType.EMBED,
+            availableStreamOptions = listOf(embedOption),
+            selectedStreamOption = embedOption,
             headers = defaultHeaders
         )
     }

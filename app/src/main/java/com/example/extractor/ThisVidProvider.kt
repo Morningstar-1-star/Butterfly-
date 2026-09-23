@@ -51,17 +51,6 @@ object ThisVidProvider {
         "Cookie" to "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1"
     )
 
-    private val fallbackStreams = listOf(
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-    )
-
     suspend fun getHome(limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val safePage = if (page < 1) 1 else page
         val urls = listOf(
@@ -436,42 +425,30 @@ object ThisVidProvider {
             Log.w(TAG, "ThisVid cross-search note: ${e.message}")
         }
 
-        // 5. Guaranteed Fallback Stream
-        val streamIdx = Math.abs(videoSlug.hashCode()) % fallbackStreams.size
-        val fallbackUrl = fallbackStreams[streamIdx]
-        val cleanFallbackHeaders = mapOf("User-Agent" to DEFAULT_UA)
-
-        videoSources.add(
-            PlayableStreamOption(
-                qualityLabel = "720p HD",
-                format = "mp4",
-                isMuxed = true,
-                videoUrl = fallbackUrl,
-                providerType = ProviderType.OTHER,
-                headers = cleanFallbackHeaders
-            )
-        )
-
-        val directPlayableSources = videoSources.filter {
-            !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
-        }.distinctBy { it.videoUrl }
-
-        val primarySource = directPlayableSources.firstOrNull() ?: PlayableStreamOption(
-            qualityLabel = "720p HD",
-            format = "mp4",
+        // 5. Fallback to ThisVid Web Embed Player
+        val finalEmbedUrl = if (embedUrl.isNotBlank()) embedUrl else if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$videoSlug"
+        val embedOption = PlayableStreamOption(
+            qualityLabel = "ThisVid Web Player (HD)",
+            format = "embed",
             isMuxed = true,
-            videoUrl = fallbackUrl,
-            providerType = ProviderType.OTHER,
-            headers = cleanFallbackHeaders
+            videoUrl = finalEmbedUrl,
+            providerType = ProviderType.EMBED,
+            headers = mapOf("User-Agent" to DEFAULT_UA, "Referer" to "$BASE_URL/")
         )
+
+        val directPlayableSources = videoSources.distinctBy { it.videoUrl }
+
+        val primarySource = directPlayableSources.firstOrNull() ?: embedOption
+
+        val optionsList = if (directPlayableSources.isNotEmpty()) directPlayableSources else listOf(embedOption)
 
         StreamData(
             videoId = videoSlug,
-            videoUrl = primarySource.videoUrl ?: fallbackUrl,
+            videoUrl = primarySource.videoUrl ?: embedUrl,
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = directPlayableSources,
+            availableStreamOptions = optionsList,
             selectedStreamOption = primarySource,
             providerId = PROVIDER_ID,
             providerType = primarySource.providerType,
