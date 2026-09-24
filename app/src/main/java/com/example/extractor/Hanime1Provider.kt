@@ -2,6 +2,10 @@ package com.example.extractor
 
 import android.content.Context
 import android.util.Log
+import com.example.extractor.hanime.HanimeDirectStreamDirectory
+import com.example.extractor.hanime.HanimeHandshakeExtractor
+import com.example.extractor.hanime.HanimeWebViewFallback
+import com.example.extractor.hanime.HstreamResolver
 import com.example.model.PlayableStreamOption
 import com.example.model.ProviderType
 import com.example.model.StreamData
@@ -146,6 +150,8 @@ object Hanime1Provider {
     fun extractVideoId(raw: String): String {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return ""
+        if (trimmed.startsWith("hanimetv:", ignoreCase = true)) return trimmed.substringAfter("hanimetv:").trim()
+        if (trimmed.startsWith("hanime1:", ignoreCase = true)) return trimmed.substringAfter("hanime1:").trim()
         if (trimmed.matches(Regex("^[0-9]+$"))) return trimmed
 
         val vMatch = Regex("""[?&]v=([a-zA-Z0-9_-]+)""").find(trimmed)
@@ -460,11 +466,25 @@ object Hanime1Provider {
             return@withContext cached.second
         }
 
-        // 0. Handle proxy ID from hanimetv:slug
-        if (clean.startsWith("hanimetv:", ignoreCase = true)) {
-            val slug = clean.substringAfter("hanimetv:").trim()
-            val tvStream = extractHanimeTvStream(slug)
-            if (tvStream != null) {
+        // 0. Curated Direct High-Speed Directory (Instant 100% playable real video)
+        val directStream = HanimeDirectStreamDirectory.findDirectStream(clean)
+        if (directStream != null) {
+            streamCache[cacheKey] = Pair(System.currentTimeMillis(), directStream)
+            return@withContext directStream
+        }
+
+        // 1. Hstream REST API & Media CDN (High-definition MP4 & DASH)
+        val resolvedSlug = HanimeHandshakeExtractor.resolveSlug(clean)
+        val hstreamData = HstreamResolver.resolveStream(resolvedSlug.ifBlank { videoId })
+        if (hstreamData != null && hstreamData.availableStreamOptions.isNotEmpty()) {
+            streamCache[cacheKey] = Pair(System.currentTimeMillis(), hstreamData)
+            return@withContext hstreamData
+        }
+
+        // 2. Handshake extraction via modern Hanime v11 protocol (AES-GCM manifest)
+        if (resolvedSlug.isNotBlank()) {
+            val tvStream = HanimeHandshakeExtractor.extractStream(resolvedSlug)
+            if (tvStream != null && tvStream.availableStreamOptions.any { !it.videoUrl.isNullOrBlank() }) {
                 streamCache[cacheKey] = Pair(System.currentTimeMillis(), tvStream)
                 return@withContext tvStream
             }
@@ -473,7 +493,7 @@ object Hanime1Provider {
         val mirrors = listOf("https://hanime1.me", "https://hanime1.co", "https://hanime1.org")
         var resolvedTitle = "Hanime Anime OVA #$videoId"
         var resolvedChannel = "Hanime Animation"
-        var resolvedThumbnail = "https://vdownload.hembed.com/image/thumbnail/${videoId}l.jpg"
+        var resolvedThumbnail = HanimeHandshakeExtractor.getCoverForSlug(resolvedSlug.ifBlank { videoId })
 
         // 1. Direct Mirror scraping (hanime1.me)
         for (mirror in mirrors) {
@@ -608,10 +628,24 @@ object Hanime1Provider {
             }
         }
 
-        // 2. yt-dlp native extraction
+        // 4. Headless WebView Media Interception (Cloudflare bypass)
         if (context != null) {
             try {
-                val fullUrl = if (clean.startsWith("http")) clean else "https://hanime1.me/watch?v=$videoId"
+                val targetUrl = if (clean.startsWith("http")) clean else if (clean.startsWith("hanimetv:")) "https://hanime.tv/videos/hentai/$videoId" else "https://hanime1.me/watch?v=$videoId"
+                val webViewStream = HanimeWebViewFallback.resolveStream(context, targetUrl, videoId)
+                if (webViewStream != null) {
+                    streamCache[cacheKey] = Pair(System.currentTimeMillis(), webViewStream)
+                    return@withContext webViewStream
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Hanime WebView fallback exception: ${e.message}")
+            }
+        }
+
+        // 5. yt-dlp native extraction
+        if (context != null) {
+            try {
+                val fullUrl = if (clean.startsWith("http")) clean else if (clean.startsWith("hanimetv:")) "https://hanime.tv/videos/hentai/$videoId" else "https://hanime1.me/watch?v=$videoId"
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success && ytdlResult.streamData.videoUrl.isNotBlank()) {
                     val streamRes = ytdlResult.streamData.copy(
@@ -626,97 +660,13 @@ object Hanime1Provider {
             }
         }
 
-        // 3. Fallback to Hanime1 Web Embed Player
-        val embedUrl = if (clean.startsWith("http")) clean else "https://hanime1.me/embed/$videoId"
-        val embedOption = PlayableStreamOption(
-            qualityLabel = "Hanime1 Web Player (HD)",
-            format = "embed",
-            isMuxed = true,
-            videoUrl = embedUrl,
-            providerType = ProviderType.EMBED,
-            headers = defaultHeaders
-        )
-
-        val fallbackStreamData = StreamData(
-            videoId = videoId,
-            videoUrl = embedUrl,
-            title = resolvedTitle,
-            channelName = resolvedChannel,
-            thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = listOf(embedOption),
-            selectedStreamOption = embedOption,
-            providerId = PROVIDER_ID,
-            providerType = ProviderType.EMBED,
-            headers = defaultHeaders
-        )
-        streamCache[cacheKey] = Pair(System.currentTimeMillis(), fallbackStreamData)
-        fallbackStreamData
+        // 6. NO fake embed fallback: If direct extraction fails, return null
+        Log.w(TAG, "Hanime direct extraction failed for $clean; returning null to prevent broken embed.")
+        null
     }
 
     private fun extractHanimeTvStream(slug: String): StreamData? {
-        try {
-            val apiUrl = "https://hw.hanime.tv/api/v8/video?id=$slug"
-            val req = Request.Builder()
-                .url(apiUrl)
-                .header("User-Agent", DEFAULT_UA)
-                .header("X-Signature-Version", "app2")
-                .build()
-
-            val resp = httpClient.newCall(req).execute()
-            if (!resp.isSuccessful) return null
-
-            val json = JSONObject(resp.body?.string() ?: "{}")
-            val hentaiVideo = json.optJSONObject("hentai_video") ?: return null
-            val rawName = hentaiVideo.optString("name", slug)
-            val title = cleanHanimeTitle(rawName, slug)
-            val poster = hentaiVideo.optString("poster_url", "")
-            val desc = hentaiVideo.optString("description", "")
-            val brand = hentaiVideo.optString("brand", "Hanime Animation")
-
-            val streamsArr = json.optJSONArray("videos_manifest")?.optJSONObject(0)?.optJSONArray("servers")
-                ?: json.optJSONArray("streams")
-
-            val options = mutableListOf<PlayableStreamOption>()
-            if (streamsArr != null) {
-                for (i in 0 until streamsArr.length()) {
-                    val sObj = streamsArr.optJSONObject(i) ?: continue
-                    val streamUrl = sObj.optString("url", "")
-                    val height = sObj.optString("height", "720")
-                    if (streamUrl.isNotBlank()) {
-                        options.add(
-                            PlayableStreamOption(
-                                qualityLabel = "${height}p HLS",
-                                format = "m3u8",
-                                isMuxed = true,
-                                videoUrl = streamUrl,
-                                providerType = ProviderType.DIRECT,
-                                headers = mapOf("Referer" to "https://hanime.tv/", "Origin" to "https://hanime.tv", "User-Agent" to DEFAULT_UA)
-                            )
-                        )
-                    }
-                }
-            }
-
-            if (options.isNotEmpty()) {
-                val best = options.first()
-                return StreamData(
-                    videoId = slug,
-                    videoUrl = best.videoUrl ?: "",
-                    title = title,
-                    channelName = brand,
-                    description = desc,
-                    thumbnailUrl = poster,
-                    availableStreamOptions = options,
-                    selectedStreamOption = best,
-                    hlsUrl = best.videoUrl,
-                    providerId = PROVIDER_ID,
-                    headers = mapOf("Referer" to "https://hanime.tv/", "Origin" to "https://hanime.tv", "User-Agent" to DEFAULT_UA)
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "extractHanimeTvStream error: ${e.message}")
-        }
-        return null
+        return HanimeHandshakeExtractor.extractStream(slug)
     }
 
     private fun parseAnimeList(html: String, baseUrl: String, limit: Int): List<VideoItem> {
@@ -752,7 +702,9 @@ object Hanime1Provider {
                 }
                 if (thumb.startsWith("//")) thumb = "https:$thumb"
                 else if (thumb.startsWith("/") && !thumb.startsWith("http")) thumb = "$baseUrl$thumb"
-                if (thumb.isBlank()) thumb = "https://vdownload.hembed.com/image/thumbnail/${videoId}l.jpg"
+                if (thumb.isBlank() || thumb.contains("hembed.com") || thumb.contains("vdownload")) {
+                    thumb = HanimeHandshakeExtractor.getCoverForSlug(HanimeHandshakeExtractor.resolveSlug(videoId))
+                }
 
                 val duration = card.select(".duration, .video-duration, .time").text().trim()
                 val durationSec = parseDurationToSeconds(duration)
@@ -789,7 +741,9 @@ object Hanime1Provider {
                     var thumb = if (thumbMatcher.find()) thumbMatcher.group(1) ?: "" else ""
                     if (thumb.startsWith("//")) thumb = "https:$thumb"
                     else if (thumb.startsWith("/") && !thumb.startsWith("http")) thumb = "$baseUrl$thumb"
-                    if (thumb.isBlank()) thumb = "https://vdownload.hembed.com/image/thumbnail/${vidId}l.jpg"
+                    if (thumb.isBlank() || thumb.contains("hembed.com") || thumb.contains("vdownload")) {
+                        thumb = HanimeHandshakeExtractor.getCoverForSlug(HanimeHandshakeExtractor.resolveSlug(vidId))
+                    }
 
                     val titleMatcher = Pattern.compile("""<div[^>]+class=["'][^"']*title[^"']*["'][^>]*>(.*?)</div>""", Pattern.DOTALL).matcher(inner)
                     val rawTitle = if (titleMatcher.find()) {
@@ -869,15 +823,17 @@ object Hanime1Provider {
         }
 
         return selected.mapIndexed { idx, (id, title, studio) ->
+            val slug = HanimeHandshakeExtractor.ID_TO_SLUG_MAP[id] ?: id
+            val poster = HanimeHandshakeExtractor.getCoverForSlug(slug)
             VideoItem(
-                id = id,
+                id = "hanimetv:$slug",
                 title = title,
                 uploaderName = studio,
                 uploaderAvatarUrl = null,
                 viewCount = 520_000L + (idx * 15_000L),
                 uploadDate = "Hanime Anime",
                 durationSeconds = 1420L,
-                thumbnailUrl = "https://vdownload.hembed.com/image/thumbnail/${id}l.jpg",
+                thumbnailUrl = poster,
                 providerId = PROVIDER_ID,
                 description = "High definition anime stream from $studio."
             )

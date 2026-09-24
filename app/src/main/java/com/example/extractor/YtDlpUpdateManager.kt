@@ -78,6 +78,34 @@ object YtDlpUpdateManager {
                 }
                 Log.i(TAG, "Active OTA updated yt-dlp package verified at ${targetDir.absolutePath}")
             }
+
+            // Sync plugin extractors (like noodlemagazine.py) from assets into yt_dlp directories
+            try {
+                val assetMgr = context.assets
+                val pluginFiles = assetMgr.list("yt_plugins/yt_dlp_plugins/extractor") ?: emptyArray()
+                if (pluginFiles.isNotEmpty()) {
+                    val searchRoots = listOfNotNull(context.filesDir, context.noBackupFilesDir)
+                    for (root in searchRoots) {
+                        val extractorDirs = root.walkTopDown()
+                            .maxDepth(6)
+                            .filter { it.isDirectory && it.name == "extractor" && it.parentFile?.name == "yt_dlp" }
+                            .toList()
+                        for (ed in extractorDirs) {
+                            for (pName in pluginFiles) {
+                                if (pName.endsWith(".py")) {
+                                    val destPy = File(ed, pName)
+                                    assetMgr.open("yt_plugins/yt_dlp_plugins/extractor/$pName").use { input ->
+                                        FileOutputStream(destPy).use { out -> input.copyTo(out) }
+                                    }
+                                    Log.i(TAG, "Synced asset extractor plugin $pName to ${destPy.absolutePath}")
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.d(TAG, "Plugin extractor injection note: ${e.message}")
+            }
         } catch (e: Throwable) {
             Log.d(TAG, "OTA update path note: ${e.message}")
         }

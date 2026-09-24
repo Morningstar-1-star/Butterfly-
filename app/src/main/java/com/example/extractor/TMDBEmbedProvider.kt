@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.extractor.tmdbembed.TMDBEmbedConfig
 import com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine
+import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
 import com.example.model.CaptionOption
 import com.example.model.PlayableStreamOption
@@ -32,7 +33,12 @@ object TMDBEmbedProvider {
             .build()
     }
 
-    suspend fun getHome(page: Int = 1, limit: Int = 25): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun getHome(
+        page: Int = 1,
+        limit: Int = 25,
+        specificSource: TMDBEmbedSource? = null,
+        context: Context? = null
+    ): List<VideoItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<VideoItem>()
         try {
             val apiKey = AppConfig.TMDB_API_KEY
@@ -41,6 +47,10 @@ object TMDBEmbedProvider {
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
+
+            val activeSource = specificSource ?: (context?.let { TMDBEmbedConfig.getDefaultSource(it) } ?: TMDBEmbedSource.fromId(TMDBEmbedConfig.cachedDefaultSourceName) ?: TMDBEmbedSource.VIXSRC)
+            val currentProviderId = if (specificSource != null) "tmdb_${specificSource.id}" else PROVIDER_ID
+            val sourceName = activeSource.displayName
 
             val resp = httpClient.newCall(req).execute()
             val body = resp.body?.string()
@@ -66,18 +76,21 @@ object TMDBEmbedProvider {
                             else -> "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800"
                         }
 
+                        val itemId = "$currentProviderId:$mediaType:$tmdbId"
+                        val uploader = if (year.isNotBlank()) "$sourceName • $year" else sourceName
+
                         items.add(
                             VideoItem(
-                                id = "$PROVIDER_ID:$mediaType:$tmdbId",
+                                id = itemId,
                                 title = title,
-                                uploaderName = if (year.isNotBlank()) "TMDB Embed • $year" else "TMDB Embed Multi-Source",
+                                uploaderName = uploader,
                                 durationSeconds = -1L,
                                 viewCount = (obj.optInt("vote_count", 0) * 100L).coerceAtLeast(1000L),
                                 uploadDate = year,
                                 thumbnailUrl = thumbUrl,
                                 description = overview,
-                                tags = listOf("TMDB Embed", if (mediaType == "tv") "series" else "movie", "cinema", "hls"),
-                                providerId = PROVIDER_ID
+                                tags = listOf(sourceName, "TMDB", if (mediaType == "tv") "series" else "movie", "cinema", "hls"),
+                                providerId = currentProviderId
                             )
                         )
                         if (items.size >= limit) break
@@ -90,12 +103,29 @@ object TMDBEmbedProvider {
         items
     }
 
-    suspend fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun search(
+        query: String,
+        limit: Int = 20,
+        page: Int = 1,
+        specificSource: TMDBEmbedSource? = null,
+        context: Context? = null
+    ): List<VideoItem> = withContext(Dispatchers.IO) {
         val clean = query.replace("$PROVIDER_ID:", "", ignoreCase = true)
             .replace("tmdb_embed:", "", ignoreCase = true)
             .replace("tmdb:", "", ignoreCase = true)
+            .let { q ->
+                var res = q
+                for (s in TMDBEmbedSource.allSources) {
+                    res = res.replace("tmdb_${s.id}:", "", ignoreCase = true)
+                }
+                res
+            }
             .trim()
         if (clean.isBlank()) return@withContext emptyList()
+
+        val activeSource = specificSource ?: (context?.let { TMDBEmbedConfig.getDefaultSource(it) } ?: TMDBEmbedSource.fromId(TMDBEmbedConfig.cachedDefaultSourceName) ?: TMDBEmbedSource.VIXSRC)
+        val currentProviderId = if (specificSource != null) "tmdb_${specificSource.id}" else PROVIDER_ID
+        val sourceName = activeSource.displayName
 
         val items = mutableListOf<VideoItem>()
         try {
@@ -133,18 +163,21 @@ object TMDBEmbedProvider {
                             else -> "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800"
                         }
 
+                        val itemId = "$currentProviderId:$mediaType:$tmdbId"
+                        val uploader = if (year.isNotBlank()) "$sourceName • $year" else sourceName
+
                         items.add(
                             VideoItem(
-                                id = "$PROVIDER_ID:$mediaType:$tmdbId",
+                                id = itemId,
                                 title = title,
-                                uploaderName = if (year.isNotBlank()) "TMDB Embed • $year" else "TMDB Embed Multi-Source",
+                                uploaderName = uploader,
                                 durationSeconds = -1L,
                                 viewCount = (obj.optInt("vote_count", 0) * 100L).coerceAtLeast(1000L),
                                 uploadDate = year,
                                 thumbnailUrl = thumbUrl,
                                 description = overview,
-                                tags = listOf("TMDB Embed", if (mediaType == "tv") "series" else "movie", "cinema", "hls"),
-                                providerId = PROVIDER_ID
+                                tags = listOf(sourceName, "TMDB", if (mediaType == "tv") "series" else "movie", "cinema", "hls"),
+                                providerId = currentProviderId
                             )
                         )
                         if (items.size >= limit) break
@@ -157,11 +190,12 @@ object TMDBEmbedProvider {
         items
     }
 
-    suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
+    suspend fun getStreamData(urlOrId: String, context: Context?, specificSource: TMDBEmbedSource? = null): StreamData? = withContext(Dispatchers.IO) {
         val appContext = context ?: return@withContext null
         try {
             // Parse TMDB ID and media info
             // Formats:
+            // "tmdb_vixsrc:movie:550"
             // "tmdb_embed:movie:550"
             // "tmdb_embed:tv:1399:1:1"
             // "550"
@@ -170,7 +204,21 @@ object TMDBEmbedProvider {
             var season = 1
             var episode = 1
 
-            val clean = urlOrId.removePrefix("tmdb_embed:").removePrefix("tmdb:")
+            var detectedSource = specificSource
+            if (detectedSource == null) {
+                for (s in TMDBEmbedSource.allSources) {
+                    if (urlOrId.startsWith("tmdb_${s.id}:", ignoreCase = true)) {
+                        detectedSource = s
+                        break
+                    }
+                }
+            }
+
+            var clean = urlOrId
+            for (s in TMDBEmbedSource.allSources) {
+                clean = clean.removePrefix("tmdb_${s.id}:")
+            }
+            clean = clean.removePrefix("tmdb_embed:").removePrefix("tmdb:")
             val parts = clean.split(":")
 
             when {
@@ -254,7 +302,11 @@ object TMDBEmbedProvider {
             )
 
             // Resolve streams through TMDBEmbedExtractorEngine
-            val streamOptions = TMDBEmbedExtractorEngine.resolveStreamOptions(appContext, request)
+            val streamOptions = TMDBEmbedExtractorEngine.resolveStreamOptions(
+                context = appContext,
+                request = request,
+                specificSource = detectedSource
+            )
             if (streamOptions.isEmpty()) {
                 Log.w(TAG, "No playable streams found for $title across TMDB Embed sources")
                 return@withContext null
@@ -270,21 +322,24 @@ object TMDBEmbedProvider {
                 }
             }
 
+            val effectiveProviderId = if (detectedSource != null) "tmdb_${detectedSource.id}" else PROVIDER_ID
+            val sourceLabel = if (primaryOption.detectedSourceName.isNotBlank()) primaryOption.detectedSourceName else (detectedSource?.displayName ?: "TMDB Embed")
+
             StreamData(
                 videoId = urlOrId,
                 videoUrl = primaryOption.videoUrl ?: "",
                 title = if (mediaType == "tv") "$title S${season}E${episode}" else title,
-                channelName = "TMDB Embed (${primaryOption.detectedSourceName})",
+                channelName = sourceLabel,
                 thumbnailUrl = backdropUrl,
                 description = overview,
                 availableStreamOptions = streamOptions,
                 selectedStreamOption = primaryOption,
                 hlsUrl = if (primaryOption.format.equals("hls", ignoreCase = true)) primaryOption.videoUrl else null,
                 captionOptions = allCaptions,
-                providerId = PROVIDER_ID,
+                providerId = effectiveProviderId,
                 providerType = ProviderType.TMDB_EMBED,
                 headers = primaryOption.headers,
-                tags = listOf("tmdb_embed", mediaType, "cinema", "multi-source")
+                tags = listOf(sourceLabel, "TMDB", mediaType, "cinema")
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error in getStreamData: ${e.message}", e)

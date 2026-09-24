@@ -373,10 +373,17 @@ object BilibiliProvider {
             return@withContext null
         }
 
-        // Bilibili's signed CDN/API behavior changes frequently. Use the bundled
-        // current yt-dlp engine first for standard videos so the extractor and
-        // the playback URL/headers stay in sync. Keep the native API extractor
-        // as a fallback for cases yt-dlp cannot resolve.
+        // STEP 1: Direct native Bilibili API resolution first!
+        // This queries the official Bilibili HTML5/Web API endpoints directly and obtains
+        // the high-speed, verified "720p / 1080p Progressive (MP4 Direct)" stream.
+        // It avoids yt-dlp DASH fragmentation, requires no subprocess overhead, and plays
+        // instantly with native ExoPlayer controls.
+        val nativeData = fetchVideoStreamData(bvid = bvid, aid = aid, context = context)
+        if (nativeData != null && nativeData.availableStreamOptions.isNotEmpty()) {
+            return@withContext nativeData
+        }
+
+        // STEP 2: Fallback to yt-dlp if native API returned empty or restricted
         if (context != null) {
             try {
                 val fullBiliUrl = if (targetUrl.startsWith("http", ignoreCase = true)) {
@@ -390,11 +397,11 @@ object BilibiliProvider {
                     return@withContext ytRes.streamData.copy(providerId = PROVIDER_ID)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "yt-dlp-first Bilibili extraction failed; using native fallback: ${e.message}")
+                Log.w(TAG, "yt-dlp Bilibili extraction fallback failed: ${e.message}")
             }
         }
 
-        fetchVideoStreamData(bvid = bvid, aid = aid, context = context)
+        null
     }
 
     private suspend fun fetchVideoStreamData(
@@ -528,9 +535,7 @@ object BilibiliProvider {
 
         val biliHeaders = mapOf(
             "User-Agent" to USER_AGENT,
-            // Use the canonical video URL as Referer for CDN playback.
-            "Referer" to "https://www.bilibili.com/video/$resolvedBvid",
-            "Cookie" to biliCookie
+            "Referer" to REFERER
         )
 
         // Stream options logic: try Bangumi/PGC endpoints if redirect_url exists or UGC returns empty
@@ -578,13 +583,16 @@ object BilibiliProvider {
         }
 
         val distinctOptions = streamOptions.distinctBy { it.qualityLabel }
-        val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
+        val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && it.qualityLabel.contains("MP4 Direct") }
+            ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && it.qualityLabel.contains("MP4 Direct") }
+            ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("MP4 Direct") }
             ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") }
+            ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
             ?: distinctOptions.firstOrNull { it.isMuxed }
-            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") && it.qualityLabel.contains("H.264") }
             ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") && it.qualityLabel.contains("H.264") }
-            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
+            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") && it.qualityLabel.contains("H.264") }
             ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") }
+            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
             ?: distinctOptions.first()
 
         StreamData(
@@ -675,19 +683,21 @@ object BilibiliProvider {
 
             val biliHeaders = mapOf(
                 "User-Agent" to USER_AGENT,
-                "Referer" to REFERER,
-                "Cookie" to getBilibiliCookie()
+                "Referer" to REFERER
             )
 
             // Try PGC playurl first
             val pgcStreams = fetchBangumiPlayurlStreams(resolvedEpId, bvid, cid, biliHeaders)
             if (pgcStreams.isNotEmpty()) {
                 val distinctOptions = pgcStreams.distinctBy { it.qualityLabel }
-                val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
+                val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && it.qualityLabel.contains("MP4 Direct") }
+                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && it.qualityLabel.contains("MP4 Direct") }
+                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("MP4 Direct") }
                     ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") }
+                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
                     ?: distinctOptions.firstOrNull { it.isMuxed }
-                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
                     ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
                     ?: distinctOptions.first()
 
                 return@withContext StreamData(
@@ -975,10 +985,8 @@ object BilibiliProvider {
             }
         }
 
-        if (cleanUrl.startsWith("http://", ignoreCase = true)) {
-            cleanUrl = "https://" + cleanUrl.substring(7)
-        }
-
+        // Do NOT force rewrite http:// to https://: Bilibili CDN signed URLs
+        // have security signatures/tokens bound to the original URL protocol.
         return cleanUrl
     }
 

@@ -87,11 +87,29 @@ object MediaSourceFactoryHelper {
         }
 
         val lowerTarget = targetUrl.lowercase()
-        val isGoogleStorageOrPublic = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") ||
-                lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com") ||
-                lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") ||
-                lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") ||
-                lowerTarget.contains("githubusercontent") || lowerTarget.contains("cloudflarestream")
+        val isNoodleMagazineStream = streamData?.providerId == "noodlemagazine" ||
+                lowerTarget.contains("pvvstream.pro") ||
+                lowerTarget.contains("noodlemagazine.com")
+        if (isNoodleMagazineStream) {
+            // Requirement: When yt-dlp returns a format for NoodleMagazine, pass BOTH url and its
+            // http_headers untouched to Media3. Do not add/replace Referer, Origin, cookies, UA, or CDN URL.
+            val untouchedHeaders = mutableMapOf<String, String>()
+            streamData?.headers?.forEach { (k, v) ->
+                if (k.equals("User-Agent", ignoreCase = true)) {
+                    customUserAgent = v
+                } else {
+                    untouchedHeaders[k] = v
+                }
+            }
+            specificHeaders.forEach { (k, v) ->
+                if (k.equals("User-Agent", ignoreCase = true)) {
+                    customUserAgent = v
+                } else {
+                    untouchedHeaders[k] = v
+                }
+            }
+            return Pair(customUserAgent, untouchedHeaders)
+        }
 
         val isBilibiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") ||
                 lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") || lowerTarget.contains("szbdyd") ||
@@ -101,6 +119,26 @@ object MediaSourceFactoryHelper {
                 lowerTarget.contains("mirrorbos") || lowerTarget.contains("mirror08c") || lowerTarget.contains("mirrorakam") ||
                 lowerTarget.contains("bstar") || lowerTarget.contains("biliintl") ||
                 streamData?.providerId == "bilibili"
+        if (isBilibiliStream) {
+            // Bilibili CDN hotlink protection rules:
+            // 1. Canonical Referer MUST be "https://www.bilibili.com/"
+            // 2. Do NOT send fake cookies or origin to media CDN chunks (causes 403 Forbidden)
+            // 3. Keep standard browser User-Agent
+            val biliCleanHeaders = mutableMapOf<String, String>()
+            biliCleanHeaders["Referer"] = "https://www.bilibili.com/"
+            biliCleanHeaders["Accept"] = "*/*"
+            biliCleanHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
+            val ua = specificHeaders["User-Agent"]
+                ?: streamData?.headers?.get("User-Agent")
+                ?: NetworkManager.DEFAULT_USER_AGENT
+            return Pair(ua, biliCleanHeaders)
+        }
+
+        val isGoogleStorageOrPublic = lowerTarget.contains("googlevideo.com") || lowerTarget.contains("youtube.com") ||
+                lowerTarget.contains("youtu.be") || lowerTarget.contains("ytimg.com") ||
+                lowerTarget.contains("googleapis.com") || lowerTarget.contains("storage.googleapis") ||
+                lowerTarget.contains("commondatastorage") || lowerTarget.contains("w3schools") ||
+                lowerTarget.contains("githubusercontent") || lowerTarget.contains("cloudflarestream")
 
         val isVkStream = lowerTarget.contains("vk.com") || lowerTarget.contains("vkvideo") ||
                 lowerTarget.contains("vkuser") || lowerTarget.contains("mycdn") || lowerTarget.contains("vk-cdn") ||
@@ -118,22 +156,6 @@ object MediaSourceFactoryHelper {
             customUserAgent = NetworkManager.DEFAULT_USER_AGENT
             reqHeaders.remove("Origin")
             reqHeaders.remove("Cookie")
-        } else if (isBilibiliStream) {
-            // Preserve extractor-supplied Bilibili headers. The CDN may bind the
-            // signed media URL to the Referer/UA used during extraction.
-            if (reqHeaders.keys.none { it.equals("Referer", ignoreCase = true) }) {
-                reqHeaders["Referer"] = "https://www.bilibili.com/"
-            }
-            if (customUserAgent == null) {
-                customUserAgent = NetworkManager.DEFAULT_USER_AGENT
-            }
-            reqHeaders["Accept"] = "*/*"
-            reqHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
-            reqHeaders.remove("Sec-Fetch-Mode")
-            reqHeaders.remove("Sec-Fetch-Site")
-            reqHeaders.remove("Origin")
-            reqHeaders.remove("Cookie")
-            reqHeaders.remove("cookie")
         } else {
             val hasReferer = reqHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
             if (!hasReferer) {
@@ -163,6 +185,12 @@ object MediaSourceFactoryHelper {
                     lowerTarget.contains("eporner") || streamData?.providerId == "eporner" -> {
                         reqHeaders["Referer"] = "https://www.eporner.com/"
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://www.eporner.com"
+                    }
+                    lowerTarget.contains("hanime") || lowerTarget.contains("hanime1") || lowerTarget.contains("hanime.tv") || streamData?.providerId == "hanime1" || streamData?.providerId == "hanime" -> {
+                        val ref = if (lowerTarget.contains("hanime1")) "https://hanime1.me/" else "https://hanime.tv/"
+                        reqHeaders["Referer"] = ref
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = ref.trimEnd('/')
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_verified=1; country=US; language=en; ft_mature=1; consent=1"
                     }
                     lowerTarget.contains("hqporner") || lowerTarget.contains("hqplayer") || streamData?.providerId == "hqporner" || streamData?.providerId == "hqplayer" -> {
                         reqHeaders["Referer"] = "https://hqporner.com/"

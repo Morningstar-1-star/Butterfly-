@@ -77,14 +77,40 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         val currentPos = initialPosOverride ?: GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
         val currentSpeed = GlobalPlayerManager.getExoPlayer(context).playbackParameters.speed
 
-        val isEmbed = candidate.type == SourceStreamType.EMBED_WEBVIEW ||
-                candidate.urlOrMagnet.contains("/embed/", ignoreCase = true) ||
-                candidate.urlOrMagnet.contains("vidsrc.", ignoreCase = true) ||
-                candidate.urlOrMagnet.contains("vidrock.", ignoreCase = true) ||
-                candidate.urlOrMagnet.contains("vidlink.", ignoreCase = true) ||
-                candidate.urlOrMagnet.contains("2embed.", ignoreCase = true)
+        val isHanime = candidate.urlOrMagnet.contains("hanime", ignoreCase = true)
+        val initialCandidate = if (isHanime && !candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true) && !candidate.urlOrMagnet.contains(".mp4", ignoreCase = true)) {
+            onStatus("Resolving direct anime media stream...")
+            val stream = try {
+                withContext(Dispatchers.IO) {
+                    com.example.extractor.Hanime1Provider.getStreamData(candidate.urlOrMagnet, context)
+                }
+            } catch (e: Exception) {
+                null
+            }
+            if (stream != null && stream.availableStreamOptions.isNotEmpty()) {
+                val best = stream.selectedStreamOption ?: stream.availableStreamOptions.first()
+                val isHls = best.format.equals("m3u8", ignoreCase = true)
+                candidate.copy(
+                    type = if (isHls) SourceStreamType.HLS else SourceStreamType.DIRECT,
+                    urlOrMagnet = best.videoUrl.orEmpty(),
+                    format = best.format ?: "mp4",
+                    headers = best.headers
+                )
+            } else {
+                candidate
+            }
+        } else {
+            candidate
+        }
 
-        val effectiveCandidate = if (isEmbed && !candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true) && !candidate.urlOrMagnet.contains(".mp4", ignoreCase = true)) {
+        val isEmbed = initialCandidate.type == SourceStreamType.EMBED_WEBVIEW ||
+                initialCandidate.urlOrMagnet.contains("/embed/", ignoreCase = true) ||
+                initialCandidate.urlOrMagnet.contains("vidsrc.", ignoreCase = true) ||
+                initialCandidate.urlOrMagnet.contains("vidrock.", ignoreCase = true) ||
+                initialCandidate.urlOrMagnet.contains("vidlink.", ignoreCase = true) ||
+                initialCandidate.urlOrMagnet.contains("2embed.", ignoreCase = true)
+
+        val effectiveCandidate = if (isEmbed && !initialCandidate.urlOrMagnet.contains(".m3u8", ignoreCase = true) && !initialCandidate.urlOrMagnet.contains(".mp4", ignoreCase = true)) {
             onStatus("Extracting native video stream from ${candidate.serverName}...")
             val tmdbId = Regex("""\d+""").find(candidate.urlOrMagnet)?.value ?: ""
             val isTv = candidate.urlOrMagnet.contains("/tv") || candidate.urlOrMagnet.contains("tv=")
@@ -104,7 +130,7 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
 
             if (directStreams.isNotEmpty() && !directStreams.first().videoUrl.isNullOrBlank()) {
                 val primary = directStreams.first()
-                candidate.copy(
+                initialCandidate.copy(
                     type = SourceStreamType.HLS,
                     urlOrMagnet = primary.videoUrl.orEmpty(),
                     format = primary.format ?: "m3u8",
@@ -113,30 +139,30 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             } else {
                 val sniffed = try {
                     withContext(Dispatchers.Main) {
-                        com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(context, candidate.urlOrMagnet)
+                        com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(context, initialCandidate.urlOrMagnet)
                     }
                 } catch (e: Exception) {
                     null
                 }
                 if (sniffed != null && !sniffed.videoUrl.isNullOrBlank() && !sniffed.videoUrl.contains("/embed/")) {
-                    candidate.copy(
+                    initialCandidate.copy(
                         type = SourceStreamType.HLS,
                         urlOrMagnet = sniffed.videoUrl.orEmpty(),
                         format = sniffed.format ?: "m3u8",
                         headers = sniffed.headers
                     )
                 } else {
-                    Log.w(TAG, "Failed to resolve live media stream for embed: ${candidate.urlOrMagnet}")
-                    onStatus("Failed to resolve playable media for ${candidate.serverName}")
+                    Log.w(TAG, "Failed to resolve live media stream for embed: ${initialCandidate.urlOrMagnet}")
+                    onStatus("Failed to resolve playable media for ${initialCandidate.serverName}")
                     _isResolving.value = false
                     return@withContext false
                 }
             }
         } else {
-            if (candidate.type == SourceStreamType.EMBED_WEBVIEW) {
-                candidate.copy(type = SourceStreamType.HLS, format = "m3u8")
+            if (initialCandidate.type == SourceStreamType.EMBED_WEBVIEW) {
+                initialCandidate.copy(type = SourceStreamType.HLS, format = "m3u8")
             } else {
-                candidate
+                initialCandidate
             }
         }
 

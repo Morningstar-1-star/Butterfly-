@@ -31,8 +31,14 @@ object TMDBEmbedConfig {
 
     private val healthMap = ConcurrentHashMap<TMDBEmbedSource, TMDBSourceHealth>()
 
+    @Volatile
+    var cachedDefaultSourceName: String = "VixSrc"
+
     private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val def = prefs.getString(KEY_DEFAULT_SOURCE, "vixsrc")
+        cachedDefaultSourceName = TMDBEmbedSource.fromId(def ?: "vixsrc")?.displayName ?: "VixSrc"
+        return prefs
     }
 
     fun isMasterEnabled(context: Context): Boolean {
@@ -53,11 +59,17 @@ object TMDBEmbedConfig {
 
     fun getDefaultSource(context: Context): TMDBEmbedSource {
         val stored = getPrefs(context).getString(KEY_DEFAULT_SOURCE, null)
-        return stored?.let { TMDBEmbedSource.fromId(it) } ?: TMDBEmbedSource.VIXSRC
+        val src = stored?.let { TMDBEmbedSource.fromId(it) } ?: TMDBEmbedSource.VIXSRC
+        cachedDefaultSourceName = src.displayName
+        return src
     }
 
     fun setDefaultSource(context: Context, source: TMDBEmbedSource) {
-        getPrefs(context).edit().putString(KEY_DEFAULT_SOURCE, source.id).apply()
+        cachedDefaultSourceName = source.displayName
+        getPrefs(context).edit()
+            .putString(KEY_DEFAULT_SOURCE, source.id)
+            .putBoolean(PREFIX_SOURCE_ENABLED + source.id, true)
+            .apply()
     }
 
     fun isFallbackEnabled(context: Context): Boolean {

@@ -731,9 +731,19 @@ object YouTubeExtractorHelper {
                 urlOrId.startsWith("noodlemagazine:", ignoreCase = true) || urlOrId.startsWith("noodlemag:", ignoreCase = true)
         if (isNoodleMagazine) {
             val nmData = NoodleMagazineProvider.getStreamData(urlOrId, context)
-            if (nmData != null) {
+            if (nmData != null && nmData.availableStreamOptions.any { !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true) }) {
                 Log.i(TAG, "Resolved via NoodleMagazineProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(nmData)
+            } else {
+                return@withContext ExtractionResult.Error(
+                    ExtractorErrorDetails(
+                        errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                        message = "NoodleMagazine video could not be resolved. yt-dlp reported 403 anti-bot or no available formats for this video.",
+                        rawExceptionName = "NoodleExtractionException",
+                        fullStackTrace = "No direct stream formats available from yt-dlp",
+                        urlOrId = urlOrId
+                    )
+                )
             }
         }
 
@@ -873,11 +883,17 @@ object YouTubeExtractorHelper {
         }
 
         val isTMDBEmbed = providerId == "tmdb_embed" || providerId == "tmdbembed" || providerId == "tmdb" ||
-                urlOrId.startsWith("tmdb_embed:") || urlOrId.startsWith("tmdb:")
+                providerId?.startsWith("tmdb_") == true ||
+                urlOrId.startsWith("tmdb_embed:") || urlOrId.startsWith("tmdb:") || urlOrId.startsWith("tmdb_")
         if (isTMDBEmbed) {
-            val tmdbData = TMDBEmbedProvider.getStreamData(urlOrId, context)
+            val specificSource = when {
+                providerId?.startsWith("tmdb_") == true && providerId != "tmdb_embed" ->
+                    com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(providerId.removePrefix("tmdb_"))
+                else -> com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.firstOrNull { urlOrId.startsWith("tmdb_${it.id}:") }
+            }
+            val tmdbData = TMDBEmbedProvider.getStreamData(urlOrId, context, specificSource = specificSource)
             if (tmdbData != null) {
-                Log.i(TAG, "Resolved via TMDBEmbedProvider for $urlOrId")
+                Log.i(TAG, "Resolved via TMDBEmbedProvider (${specificSource?.displayName ?: "Auto"}) for $urlOrId")
                 return@withContext ExtractionResult.Success(tmdbData)
             }
         }
@@ -1008,7 +1024,7 @@ object YouTubeExtractorHelper {
         }
 
         val isHanime1 = providerId == "hanime1" || providerId == "hanime" || urlOrId.contains("hanime1") || urlOrId.contains("hanime.tv") ||
-                urlOrId.startsWith("hanime1:", ignoreCase = true) || urlOrId.startsWith("hanime:", ignoreCase = true)
+                urlOrId.startsWith("hanimetv:", ignoreCase = true) || urlOrId.startsWith("hanime1:", ignoreCase = true) || urlOrId.startsWith("hanime:", ignoreCase = true)
         if (isHanime1) {
             val h1Data = Hanime1Provider.getStreamData(urlOrId, context)
             if (h1Data != null) {
@@ -1016,7 +1032,11 @@ object YouTubeExtractorHelper {
                 return@withContext ExtractionResult.Success(h1Data)
             } else if (context != null) {
                 val videoId = Hanime1Provider.extractVideoId(urlOrId)
-                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hanime1.com/watch?v=$videoId"
+                val fullUrl = when {
+                    urlOrId.startsWith("http") -> urlOrId
+                    urlOrId.startsWith("hanimetv:", ignoreCase = true) -> "https://hanime.tv/videos/hentai/$videoId"
+                    else -> "https://hanime1.me/watch?v=$videoId"
+                }
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
                 if (ytdlResult is ExtractionResult.Success) {
                     return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hanime1"))

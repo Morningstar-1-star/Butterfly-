@@ -387,11 +387,11 @@ object NoodleMagazineProvider {
         val clean = urlOrId.trim()
         val videoId = extractVideoId(clean)
 
-        // 0. Check if this is a mapped proxy ID (e.g. noodlemagazine:eporner_... or noodlemagazine:http...)
+        // 0. Handle mapped proxy ID if applicable
         if (clean.startsWith("noodlemagazine:", ignoreCase = true) || clean.startsWith("noodlemag:", ignoreCase = true)) {
             val innerId = clean.replace(Regex("(?i)^(noodlemagazine:|noodlemag:)"), "").trim()
             try {
-                if (innerId.contains("eporner") || innerId.startsWith("http") || innerId.length in 4..15) {
+                if (innerId.contains("eporner") || (innerId.length in 4..15 && !innerId.contains("_"))) {
                     val epData = EpornerProvider.getStreamData(innerId, context)
                     if (epData != null && epData.availableStreamOptions.isNotEmpty()) {
                         Log.i(TAG, "NoodleMagazine successfully resolved mapped Eporner stream for $innerId")
@@ -407,15 +407,56 @@ object NoodleMagazineProvider {
             }
         }
 
-        val targetUrl = if (clean.startsWith("http")) clean else "$BASE_URL/watch/$videoId"
+        // Canonical original NoodleMagazine URL
+        val targetUrl = when {
+            clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true) -> clean
+            clean.startsWith("watch/", ignoreCase = true) -> "$BASE_URL/$clean"
+            clean.startsWith("noodlemagazine:", ignoreCase = true) || clean.startsWith("noodlemag:", ignoreCase = true) -> {
+                val inner = clean.replace(Regex("(?i)^(noodlemagazine:|noodlemag:)"), "").trim()
+                if (inner.startsWith("http://", ignoreCase = true) || inner.startsWith("https://", ignoreCase = true)) {
+                    inner
+                } else if (inner.startsWith("watch/", ignoreCase = true)) {
+                    "$BASE_URL/$inner"
+                } else {
+                    "$BASE_URL/watch/$inner"
+                }
+            }
+            else -> "$BASE_URL/watch/$videoId"
+        }
 
-        var resolvedTitle = "NoodleMagazine Video"
-        var resolvedThumbnail = ""
-        var resolvedChannel = "NoodleMagazine"
+        Log.i(TAG, "Resolving NoodleMagazine stream for canonical URL: $targetUrl")
 
-        val videoSources = mutableListOf<PlayableStreamOption>()
+        // 1. PRIMARY PATH: Pass original Noodle URL directly to YtDlpResolver
+        if (context != null) {
+            try {
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
+                if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    val streamData = ytdlResult.streamData
+                    val validStreams = streamData.availableStreamOptions.filter {
+                        !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", ignoreCase = true)
+                    }
+                    if (validStreams.isNotEmpty()) {
+                        Log.i(TAG, "yt-dlp successfully resolved ${validStreams.size} direct streams for NoodleMagazine: $targetUrl")
+                        val primaryStream = validStreams.first()
+                        return@withContext streamData.copy(
+                            videoId = videoId,
+                            providerId = PROVIDER_ID,
+                            channelName = streamData.channelName.ifBlank { "NoodleMagazine" },
+                            availableStreamOptions = validStreams,
+                            selectedStreamOption = primaryStream,
+                            headers = primaryStream.headers
+                        )
+                    }
+                } else if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Error) {
+                    Log.w(TAG, "yt-dlp returned error for NoodleMagazine: ${ytdlResult.errorDetails.message}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "yt-dlp primary extraction exception: ${e.message}")
+            }
+        }
 
-        // 1. Direct HTML & Iframe Player Extraction
+        // 2. Direct fallback ONLY if yt-dlp did not return formats:
+        // Extract real window.playlist sources from the webpage directly (same structure yt-dlp parses)
         try {
             val req = Request.Builder()
                 .url(targetUrl)
@@ -430,148 +471,73 @@ object NoodleMagazineProvider {
                 val doc = Jsoup.parse(html)
                 val ogTitle = doc.select("meta[property=og:title]").attr("content").trim()
                 val pageTitle = doc.select("title, h1, .video_title, .title").firstOrNull()?.text()?.trim() ?: ""
-                val rawTitleStr = if (ogTitle.isNotBlank()) ogTitle else pageTitle
-                if (rawTitleStr.isNotBlank()) {
-                    resolvedTitle = cleanAndTranslateNoodleTitle(rawTitleStr)
-                }
+                val resolvedTitle = cleanAndTranslateNoodleTitle(ogTitle.ifBlank { pageTitle })
 
                 val thumb = doc.select("meta[property=og:image]").attr("content").ifBlank {
                     doc.select(".player img, .poster img").attr("src")
                 }
-                if (thumb.isNotBlank()) resolvedThumbnail = if (thumb.startsWith("//")) "https:$thumb" else thumb
+                val resolvedThumbnail = if (thumb.startsWith("//")) "https:$thumb" else thumb
 
                 val author = doc.select(".channel, .author, .user, .uploader, .channel_name, a[href*='/channel/']").firstOrNull()?.text()?.trim()
-                if (!author.isNullOrBlank()) resolvedChannel = author
+                val resolvedChannel = author?.ifBlank { "NoodleMagazine" } ?: "NoodleMagazine"
 
-                // A. Parse direct video streams from script configs & JSON in page
-                extractDirectScriptStreams(html, videoSources)
-
-                // B. Parse iframe embeds (e.g. VK, OK.ru, Streamtape, Dood)
-                val iframes = doc.select("iframe[src], iframe[data-src]")
-                for (iframe in iframes) {
-                    var iframeSrc = iframe.attr("src").ifBlank { iframe.attr("data-src") }.trim()
-                    if (iframeSrc.startsWith("//")) iframeSrc = "https:$iframeSrc"
-                    if (iframeSrc.isNotBlank()) {
-                        extractIframeStreams(iframeSrc, videoSources)
-                    }
-                }
-
-                // C. Parse HTML5 video and source tags
-                doc.select("video source[src], video[src]").forEach { el ->
-                    var src = el.attr("src").trim()
-                    if (src.startsWith("//")) src = "https:$src"
-                    if (src.startsWith("http")) {
-                        val isHls = src.contains(".m3u8")
-                        videoSources.add(
-                            PlayableStreamOption(
-                                qualityLabel = if (isHls) "HLS Stream" else "HTML5 MP4",
-                                format = if (isHls) "m3u8" else "mp4",
-                                isMuxed = true,
-                                videoUrl = src,
-                                providerType = ProviderType.OTHER,
-                                headers = mapOf("User-Agent" to DEFAULT_UA, "Referer" to "$BASE_URL/")
-                            )
-                        )
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Direct NoodleMagazine extraction error: ${e.message}")
-        }
-
-        val directPlayableSources = videoSources.distinctBy { it.videoUrl }
-
-        if (directPlayableSources.isNotEmpty()) {
-            Log.i(TAG, "Successfully extracted ${directPlayableSources.size} streams from NoodleMagazine HTML")
-            val bestOption = directPlayableSources.first()
-            return@withContext StreamData(
-                videoId = videoId,
-                videoUrl = bestOption.videoUrl ?: "",
-                title = resolvedTitle,
-                channelName = resolvedChannel,
-                thumbnailUrl = resolvedThumbnail,
-                availableStreamOptions = directPlayableSources,
-                selectedStreamOption = bestOption,
-                providerId = PROVIDER_ID,
-                headers = bestOption.headers
-            )
-        }
-
-        // 2. Try yt-dlp native extraction
-        if (context != null) {
-            try {
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
-                if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success && ytdlResult.streamData.videoUrl.isNotBlank()) {
-                    Log.i(TAG, "yt-dlp successfully resolved NoodleMagazine stream for $targetUrl")
-                    return@withContext ytdlResult.streamData.copy(
-                        providerId = PROVIDER_ID
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "yt-dlp NoodleMagazine extraction: ${e.message}")
-            }
-        }
-
-        // 3. Intelligent Cross-Provider Stream Matcher (Search for matching video stream by title)
-        try {
-            val candidateTitle = if (resolvedTitle != "NoodleMagazine Video") resolvedTitle else clean.substringAfterLast("/").substringBefore("?")
-            val cleanQuery = candidateTitle
-                .replace(Regex("""(?i)(?:noodlemagazine|watch|video|\.html|\d{5,}|[-_])"""), " ")
-                .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
-                .trim()
-            if (cleanQuery.isNotBlank() && cleanQuery.length > 2) {
-                val epSearch = EpornerProvider.search(cleanQuery, limit = 4, page = 1)
-                if (epSearch.isNotEmpty()) {
-                    for (searchItem in epSearch) {
-                        val streamData = EpornerProvider.getStreamData(searchItem.id, context)
-                        if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                            val directEpSources = streamData.availableStreamOptions.filter {
-                                !it.videoUrl.isNullOrBlank()
-                            }
-                            if (directEpSources.isNotEmpty()) {
-                                Log.i(TAG, "Successfully matched NoodleMagazine video to high-speed stream for '$cleanQuery'")
-                                return@withContext streamData.copy(
-                                    videoId = videoId,
-                                    title = resolvedTitle.ifBlank { streamData.title },
-                                    channelName = resolvedChannel.ifBlank { "NoodleMagazine HD" },
-                                    thumbnailUrl = resolvedThumbnail.ifBlank { streamData.thumbnailUrl },
-                                    availableStreamOptions = directEpSources,
-                                    selectedStreamOption = directEpSources.first(),
-                                    providerId = PROVIDER_ID,
-                                    headers = directEpSources.first().headers
-                                )
+                val directSources = mutableListOf<PlayableStreamOption>()
+                val playlistPattern = Pattern.compile("""window\.playlist\s*=\s*(\{.+?\});""", Pattern.DOTALL)
+                val plMatcher = playlistPattern.matcher(html)
+                if (plMatcher.find()) {
+                    val plJsonStr = plMatcher.group(1)
+                    try {
+                        val plJson = JSONObject(plJsonStr)
+                        val sourcesArr = plJson.optJSONArray("sources")
+                        if (sourcesArr != null) {
+                            for (sIdx in 0 until sourcesArr.length()) {
+                                val sObj = sourcesArr.getJSONObject(sIdx)
+                                val fUrl = sObj.optString("file", "")
+                                val label = sObj.optString("label", "HD")
+                                val type = sObj.optString("type", "mp4")
+                                if (fUrl.isNotBlank()) {
+                                    val fullUrl = if (fUrl.startsWith("http")) fUrl else "https://adult.noodlemagazine.com$fUrl"
+                                    directSources.add(
+                                        PlayableStreamOption(
+                                            qualityLabel = "${label}p Direct",
+                                            format = type,
+                                            isMuxed = true,
+                                            videoUrl = fullUrl,
+                                            providerType = ProviderType.DIRECT,
+                                            headers = emptyMap()
+                                        )
+                                    )
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Parsing fallback window.playlist error: ${e.message}")
                     }
+                }
+
+                if (directSources.isNotEmpty()) {
+                    val best = directSources.first()
+                    return@withContext StreamData(
+                        videoId = videoId,
+                        videoUrl = best.videoUrl ?: "",
+                        title = resolvedTitle,
+                        channelName = resolvedChannel,
+                        thumbnailUrl = resolvedThumbnail,
+                        availableStreamOptions = directSources,
+                        selectedStreamOption = best,
+                        providerId = PROVIDER_ID,
+                        headers = best.headers
+                    )
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "NoodleMagazine fallback search note: ${e.message}")
+            Log.w(TAG, "NoodleMagazine direct HTML check error: ${e.message}")
         }
 
-        // 4. Fallback to NoodleMagazine Web Embed Player
-        val embedUrl = if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$videoId"
-        val embedOption = PlayableStreamOption(
-            qualityLabel = "NoodleMagazine Web Player (HD)",
-            format = "embed",
-            isMuxed = true,
-            videoUrl = embedUrl,
-            providerType = ProviderType.EMBED,
-            headers = mapOf("User-Agent" to DEFAULT_UA, "Referer" to "$BASE_URL/")
-        )
-
-        StreamData(
-            videoId = videoId,
-            videoUrl = embedUrl,
-            title = resolvedTitle,
-            channelName = resolvedChannel,
-            thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = listOf(embedOption),
-            selectedStreamOption = embedOption,
-            providerId = PROVIDER_ID,
-            providerType = ProviderType.EMBED,
-            headers = embedOption.headers
-        )
+        // 3. DO NOT MANUFACTURE an ExoPlayer URL (do not pass embed HTML URL to ExoPlayer)
+        // If yt-dlp and direct playlist failed, return null to show error/failure state
+        Log.w(TAG, "No playable streams found for NoodleMagazine: $targetUrl. Returning null.")
+        null
     }
 
     private fun extractDirectScriptStreams(html: String, sources: MutableList<PlayableStreamOption>) {

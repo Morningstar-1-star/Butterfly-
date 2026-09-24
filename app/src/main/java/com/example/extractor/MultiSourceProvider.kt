@@ -35,6 +35,12 @@ object MultiSourceProvider {
     suspend fun getHome(context: Context, providerId: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val pid = providerId.lowercase()
 
+        if (pid.startsWith("tmdb_") && pid != "tmdb_embed") {
+            val sub = pid.removePrefix("tmdb_")
+            val src = com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
+            return@withContext TMDBEmbedProvider.getHome(page, limit, specificSource = src, context = context)
+        }
+
         // 1. Try custom scrapers / APIs first
         val customItems = when (pid) {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> getCloudSocialHome(context, pid, limit, page)
@@ -73,7 +79,7 @@ object MultiSourceProvider {
             "mxplayer" -> MxPlayerProvider.getHome(limit, page)
             "popcorntv", "popcorn" -> PopcornTvProvider.getHome(page, limit)
             "decryptor" -> DecryptorProvider.getHome(page, limit)
-            "tmdb_embed", "tmdbembed", "tmdb" -> TMDBEmbedProvider.getHome(page, limit)
+            "tmdb_embed", "tmdbembed", "tmdb" -> TMDBEmbedProvider.getHome(page, limit, context = context)
             "vidsrc" -> VidSrcProvider.getHome(page, limit)
             "beeg" -> BeegProvider.getHome(limit, page)
             "4tube" -> FourTubeProvider.getHome(page, limit)
@@ -97,6 +103,12 @@ object MultiSourceProvider {
     suspend fun search(context: Context, providerId: String, query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val pid = providerId.lowercase()
+
+        if (pid.startsWith("tmdb_") && pid != "tmdb_embed") {
+            val sub = pid.removePrefix("tmdb_")
+            val src = com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
+            return@withContext TMDBEmbedProvider.search(query, limit, page, specificSource = src, context = context)
+        }
 
         when (pid) {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> searchCloudSocial(context, pid, query, limit, page)
@@ -135,7 +147,7 @@ object MultiSourceProvider {
             "mxplayer" -> MxPlayerProvider.search(query, limit, page)
             "popcorntv", "popcorn" -> PopcornTvProvider.search(query, limit, page)
             "decryptor" -> DecryptorProvider.search(query, limit, page)
-            "tmdb_embed", "tmdbembed", "tmdb" -> TMDBEmbedProvider.search(query, limit, page)
+            "tmdb_embed", "tmdbembed", "tmdb" -> TMDBEmbedProvider.search(query, limit, page, context = context)
             "vidsrc" -> VidSrcProvider.search(query, limit, page)
             "beeg" -> BeegProvider.search(query, limit)
             "4tube" -> FourTubeProvider.search(query, page, limit)

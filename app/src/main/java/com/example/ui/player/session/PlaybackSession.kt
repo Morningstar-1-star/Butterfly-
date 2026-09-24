@@ -196,6 +196,13 @@ class PlaybackSession(private val appContext: Context) {
             val availableOptions = activeData?.availableStreamOptions.orEmpty()
 
             val failedUrl = currentOption?.videoUrl ?: playerCore?.player?.currentMediaItem?.localConfiguration?.uri?.toString()
+
+            if (activeProvider == "bilibili" || failedUrl?.contains("bilivideo") == true || failedUrl?.contains("bilibili") == true) {
+                val host = runCatching { android.net.Uri.parse(failedUrl).host }.getOrNull() ?: "unknown"
+                val protocol = runCatching { android.net.Uri.parse(failedUrl).scheme }.getOrNull() ?: "unknown"
+                Log.w("BilibiliDiagnostics", "Bilibili Playback Error: httpStatus=$httpStatus, error=${error.message}, protocol=$protocol, host=$host, failedUrl=${failedUrl?.take(120)}")
+            }
+
             recoveryManager.markStreamFailed(failedUrl)
             if (currentOption?.providerType == com.example.model.ProviderType.DECRYPTOR || currentOption?.sourceName.equals("Decryptor", ignoreCase = true)) {
                 com.example.decryptor.DecryptorProviderClient.markServerFailed(failedUrl)
@@ -616,6 +623,12 @@ class PlaybackSession(private val appContext: Context) {
                 urlSnippet = effectivePlayableUrl.take(60),
                 headersCount = streamOption?.headers?.size ?: 0
             )
+
+            if (streamData?.providerId == "bilibili" || effectivePlayableUrl.contains("bilibili") || effectivePlayableUrl.contains("bilivideo")) {
+                val host = runCatching { android.net.Uri.parse(effectivePlayableUrl).host }.getOrNull() ?: "unknown"
+                val protocol = runCatching { android.net.Uri.parse(effectivePlayableUrl).scheme }.getOrNull() ?: "unknown"
+                Log.i("BilibiliDiagnostics", "Bilibili Stream Prepare: format=${streamOption?.format}, quality=${streamOption?.qualityLabel}, isMuxed=${streamOption?.isMuxed}, protocol=$protocol, host=$host, vUrl=${effectivePlayableUrl.take(120)}")
+            }
 
             player.prepare()
             player.playWhenReady = true

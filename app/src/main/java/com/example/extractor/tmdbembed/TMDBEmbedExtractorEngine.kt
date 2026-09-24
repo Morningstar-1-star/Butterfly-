@@ -26,13 +26,26 @@ object TMDBEmbedExtractorEngine {
 
     suspend fun resolveStreamOptions(
         context: Context,
-        request: TMDBMediaRequest
+        request: TMDBMediaRequest,
+        specificSource: TMDBEmbedSource? = null
     ): List<PlayableStreamOption> = withContext(Dispatchers.IO) {
-        val prioritizedSources = TMDBEmbedConfig.getPrioritizedSources(context)
+        val basePrioritized = TMDBEmbedConfig.getPrioritizedSources(context)
+        val prioritizedSources = if (specificSource != null) {
+            val list = mutableListOf(specificSource)
+            for (s in basePrioritized) {
+                if (s != specificSource && !list.contains(s)) {
+                    list.add(s)
+                }
+            }
+            list
+        } else {
+            basePrioritized
+        }
+
         val fallbackAllowed = TMDBEmbedConfig.isFallbackEnabled(context)
         val discoveredStreams = mutableListOf<ExtractedStream>()
 
-        Log.d(TAG, "Starting TMDB Embed extraction for ${request.title} (${request.tmdbId}). Prioritized sources: ${prioritizedSources.map { it.id }}")
+        Log.d(TAG, "Starting TMDB Embed extraction for ${request.title} (${request.tmdbId}). Target: ${specificSource?.displayName ?: "Auto"}. Prioritized sources: ${prioritizedSources.map { it.id }}")
 
         for (source in prioritizedSources) {
             try {
@@ -57,19 +70,21 @@ object TMDBEmbedExtractorEngine {
                     discoveredStreams.addAll(streams)
                     Log.i(TAG, "Source ${source.displayName} succeeded with ${streams.size} stream(s)")
 
-                    // If we found streams, and user got results, we can continue or stop depending on fallback policy
-                    // To ensure fast, responsive playback we can break once the primary source returns streams
+                    // If user requested a specific source and it succeeded, we can stop immediately unless fallback requested
+                    if (specificSource != null && source == specificSource) {
+                        break
+                    }
                     if (discoveredStreams.isNotEmpty() && !fallbackAllowed) {
                         break
                     }
-                    if (discoveredStreams.size >= 3) {
+                    if (discoveredStreams.size >= 4) {
                         break
                     }
                 } else {
                     TMDBEmbedConfig.markFailure(source, "No streams returned")
                     Log.w(TAG, "Source ${source.displayName} returned 0 streams")
                     if (!fallbackAllowed) {
-                        Log.d(TAG, "Fallback disabled; stopping after default source attempt")
+                        Log.d(TAG, "Fallback disabled; stopping after primary source attempt")
                         break
                     }
                 }
@@ -92,7 +107,7 @@ object TMDBEmbedExtractorEngine {
                 audioUrl = null,
                 providerType = ProviderType.TMDB_EMBED,
                 headers = stream.headers,
-                sourceName = "TMDB Embed (${stream.source.displayName})",
+                sourceName = stream.source.displayName,
                 qualityCategory = StreamCategorizer.detectQualityFromText(stream.quality),
                 sizeText = stream.sizeText,
                 seeders = stream.seeders,

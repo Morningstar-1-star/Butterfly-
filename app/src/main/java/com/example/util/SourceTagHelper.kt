@@ -306,7 +306,19 @@ object SourceTagHelper {
 
             // Catalogs & Archives
             pid == "archive_org" || pid == "archive" -> "Archive"
-            pid == "tmdb" || pid == "tmdb_movies" -> "TMDB"
+            pid.startsWith("tmdb_") && pid != "tmdb_embed" -> {
+                val sub = pid.removePrefix("tmdb_")
+                val src = com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
+                src?.displayName ?: sub.replaceFirstChar { it.uppercase() }
+            }
+            pid == "tmdb_embed" || pid == "tmdb" || pid == "tmdb_movies" -> {
+                val matching = com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.firstOrNull { s ->
+                    uploader.contains(s.displayName, ignoreCase = true) ||
+                    uploader.contains(s.id, ignoreCase = true) ||
+                    vid.startsWith("tmdb_${s.id}:")
+                }
+                matching?.displayName ?: com.example.extractor.tmdbembed.TMDBEmbedConfig.cachedDefaultSourceName
+            }
             pid == "anilist" -> "AniList"
             pid == "jikan" || pid == "jikan_anime" -> "Jikan"
 
@@ -369,7 +381,12 @@ object SourceTagHelper {
             vid.startsWith("1337x_") -> "1337x"
             vid.startsWith("torrent:") || vid.startsWith("magnet:") -> "Torrent"
             vid.startsWith("archive_") || vid.contains("archive.org") -> "Archive"
-            vid.startsWith("tmdb_") -> "TMDB"
+            vid.startsWith("tmdb_") -> {
+                val matching = com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.firstOrNull { s ->
+                    vid.startsWith("tmdb_${s.id}:")
+                }
+                matching?.displayName ?: com.example.extractor.tmdbembed.TMDBEmbedConfig.cachedDefaultSourceName
+            }
             vid.startsWith("anilist_") -> "AniList"
             vid.startsWith("eporner:") || vid.contains("eporner.com") -> "Eporner"
             vid.startsWith("spankbang:") || vid.contains("spankbang.com") -> "SpankBang"
@@ -465,6 +482,20 @@ object SourceTagHelper {
             s.contains("telegram") -> "telegram"
             s.contains("torrent") || s.contains("yts") || s.contains("nyaa") -> "torrent"
             s.contains("archive") -> "archive"
+            s.contains("vixsrc") -> "tmdb_vixsrc"
+            s.contains("netmirror") -> "tmdb_netmirror"
+            s.contains("videasy") -> "tmdb_videasy"
+            s.contains("vidlink") -> "tmdb_vidlink"
+            s.contains("castletv") -> "tmdb_castletv"
+            s.contains("4khdhub") -> "tmdb_4khdhub"
+            s.contains("showbox") -> "tmdb_showbox"
+            s.contains("vaplayer") -> "tmdb_vaplayer"
+            s.contains("dahmermovies") -> "tmdb_dahmermovies"
+            s.contains("streamflix") -> "tmdb_streamflix"
+            s.contains("hdghartv") -> "tmdb_hdghartv"
+            s.contains("onetouchtv") -> "tmdb_onetouchtv"
+            s.contains("zxcstreams") -> "tmdb_zxcstreams"
+            s.contains("tmdb") -> "tmdb_embed"
             s.contains("pornhub") -> "pornhub"
             s.contains("xvideos") -> "xvideos"
             s.contains("xnxx") -> "xnxx"
@@ -513,7 +544,22 @@ object SourceTagHelper {
             s.contains("cloud social") -> Pair(Color(0xFF5C6BC0), Color.White)
             s.contains("archive") -> Pair(Color(0xFF5D4037), Color.White)
             s.contains("torrent") || s.contains("yts") || s.contains("eztv") || s.contains("1337x") || s.contains("nyaa") -> Pair(Color(0xFF2E7D32), Color.White)
-            s.contains("tmdb") -> Pair(Color(0xFF01B4E4), Color.White)
+            
+            // TMDB 13 Sources Distinct Branding
+            s.contains("vixsrc") -> Pair(Color(0xFFE50914), Color.White)       // VixSrc Vibrant Red
+            s.contains("netmirror") -> Pair(Color(0xFFB71C1C), Color.White)    // NetMirror Deep Ruby
+            s.contains("videasy") -> Pair(Color(0xFF7C4DFF), Color.White)      // Videasy Electric Violet
+            s.contains("vidlink") -> Pair(Color(0xFF00B4D8), Color.Black)      // Vidlink Bright Cyan
+            s.contains("castletv") -> Pair(Color(0xFFFF5722), Color.White)     // CastleTV Coral
+            s.contains("4khdhub") -> Pair(Color(0xFF0288D1), Color.White)      // 4KHDHub Ocean Blue
+            s.contains("showbox") -> Pair(Color(0xFFFFB300), Color.Black)      // Showbox Amber Gold
+            s.contains("vaplayer") -> Pair(Color(0xFF00C853), Color.White)     // VaPlayer Mint Green
+            s.contains("dahmermovies") -> Pair(Color(0xFFC62828), Color.White) // DahmerMovies Crimson
+            s.contains("streamflix") -> Pair(Color(0xFF8E24AA), Color.White)   // StreamFlix Purple
+            s.contains("hdghartv") -> Pair(Color(0xFFEF6C00), Color.White)     // HDGharTV Flame Orange
+            s.contains("onetouchtv") -> Pair(Color(0xFFE91E63), Color.White)   // OneTouchTV Hot Pink
+            s.contains("zxcstreams") -> Pair(Color(0xFF5E35B1), Color.White)   // ZXCStreams Deep Indigo
+            s.contains("tmdb") -> Pair(Color(0xFF01B4E4), Color.White)         // TMDB Teal
             s.contains("anilist") -> Pair(Color(0xFF02A9FF), Color.White)
             s.contains("jikan") -> Pair(Color(0xFF2E51A2), Color.White)
             s.contains("vega") -> Pair(Color(0xFF6200EE), Color.White)
@@ -572,6 +618,13 @@ object SourceTagHelper {
         }
         if (target.startsWith("vega_") && pId.startsWith("vega_")) {
             return target == pId || target.removePrefix("vega_") == pId.removePrefix("vega_")
+        }
+        if (target == "tmdb_embed" || target == "tmdb") {
+            if (pId.startsWith("tmdb_") || pId == "tmdb" || pId == "tmdb_embed" || pId == "tmdb_movies") return true
+        }
+        if (target.startsWith("tmdb_")) {
+            val sub = target.removePrefix("tmdb_")
+            if (pId == target || pId == sub || pId.contains(sub)) return true
         }
         return false
     }

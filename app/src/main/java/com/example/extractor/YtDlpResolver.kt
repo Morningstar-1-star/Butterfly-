@@ -93,6 +93,7 @@ object YtDlpResolver {
             u.startsWith("txxx:") ||
             u.startsWith("crunchyroll:") ||
             u.startsWith("sonyliv:") ||
+            u.startsWith("hanimetv:") ||
             u.startsWith("hanime1:") ||
             u.startsWith("hanime:") ||
             u.startsWith("noodlemagazine:") ||
@@ -255,6 +256,30 @@ object YtDlpResolver {
             val isYouTube = targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be") || (targetUrl.length == 11 && !targetUrl.startsWith("http") && !targetUrl.contains(" "))
             val videoUrl = when {
                 targetUrl.startsWith("http://") || targetUrl.startsWith("https://") -> targetUrl
+                targetUrl.startsWith("hanimetv:", ignoreCase = true) -> {
+                    val slug = targetUrl.substringAfter(":").trim('/')
+                    if (slug.startsWith("http")) slug else "https://hanime.tv/videos/hentai/$slug"
+                }
+                targetUrl.startsWith("hanime1:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://hanime1.me/watch?v=$id"
+                }
+                targetUrl.startsWith("hanime:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    when {
+                        id.startsWith("http") -> id
+                        id.all { it.isDigit() } -> "https://hanime1.me/watch?v=$id"
+                        else -> "https://hanime.tv/videos/hentai/$id"
+                    }
+                }
+                targetUrl.startsWith("noodlemagazine:", ignoreCase = true) || targetUrl.startsWith("noodlemag:", ignoreCase = true) -> {
+                    val id = targetUrl.substringAfter(":").trim('/')
+                    when {
+                        id.startsWith("http://", ignoreCase = true) || id.startsWith("https://", ignoreCase = true) -> id
+                        id.startsWith("watch/", ignoreCase = true) -> "https://noodlemagazine.com/$id"
+                        else -> "https://noodlemagazine.com/watch/$id"
+                    }
+                }
                 targetUrl.startsWith("4tube:", ignoreCase = true) -> {
                     val id = targetUrl.substringAfter(":").trim('/')
                     if (id.startsWith("http")) id else if (id.startsWith("videos/")) "https://www.4tube.com/$id" else "https://www.4tube.com/videos/$id"
@@ -430,9 +455,9 @@ object YtDlpResolver {
                     val biliCookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
                     if (biliCookie.isNotBlank()) {
                         request.addOption("--add-header", "Cookie: $biliCookie")
-                        domainHeaders["Cookie"] = biliCookie
                     }
                     domainHeaders["Referer"] = "https://www.bilibili.com/"
+                    domainHeaders["User-Agent"] = DEFAULT_USER_AGENT
                 }
                 lowerUrl.contains("pornhub.com") || lowerUrl.contains("phncdn.com") -> {
                     request.addOption("--add-header", "Referer: https://www.pornhub.com/")
@@ -488,13 +513,19 @@ object YtDlpResolver {
                     domainHeaders["Origin"] = "https://www.tnaflix.com"
                     domainHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
                 }
-                lowerUrl.contains("hanime1") || lowerUrl.contains("hanime.tv") || lowerUrl.startsWith("hanime1:") || lowerUrl.startsWith("hanime:") -> {
-                    request.addOption("--add-header", "Referer: https://hanime1.com/")
-                    request.addOption("--add-header", "Origin: https://hanime1.com")
-                    request.addOption("--add-header", "Cookie: age_verified=1; country=US; language=en")
-                    domainHeaders["Referer"] = "https://hanime1.com/"
-                    domainHeaders["Origin"] = "https://hanime1.com"
-                    domainHeaders["Cookie"] = "age_verified=1; country=US; language=en"
+                lowerUrl.contains("hanime.tv") || lowerUrl.startsWith("hanimetv:") -> {
+                    request.addOption("--add-header", "Referer: https://hanime.tv/")
+                    request.addOption("--add-header", "Origin: https://hanime.tv")
+                    domainHeaders["Referer"] = "https://hanime.tv/"
+                    domainHeaders["Origin"] = "https://hanime.tv"
+                }
+                lowerUrl.contains("hanime1") || lowerUrl.startsWith("hanime1:") || lowerUrl.startsWith("hanime:") -> {
+                    request.addOption("--add-header", "Referer: https://hanime1.me/")
+                    request.addOption("--add-header", "Origin: https://hanime1.me")
+                    request.addOption("--add-header", "Cookie: age_verified=1; country=US; language=en; ft_mature=1; consent=1")
+                    domainHeaders["Referer"] = "https://hanime1.me/"
+                    domainHeaders["Origin"] = "https://hanime1.me"
+                    domainHeaders["Cookie"] = "age_verified=1; country=US; language=en; ft_mature=1; consent=1"
                 }
                 lowerUrl.contains("thisvid.com") || lowerUrl.startsWith("thisvid:") -> {
                     request.addOption("--add-header", "Referer: https://thisvid.com/")
@@ -503,14 +534,6 @@ object YtDlpResolver {
                     domainHeaders["Referer"] = "https://thisvid.com/"
                     domainHeaders["Origin"] = "https://thisvid.com"
                     domainHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
-                }
-                lowerUrl.contains("noodlemagazine.com") || lowerUrl.startsWith("noodlemagazine:") || lowerUrl.startsWith("noodlemag:") -> {
-                    request.addOption("--add-header", "Referer: https://noodlemagazine.com/")
-                    request.addOption("--add-header", "Origin: https://noodlemagazine.com")
-                    request.addOption("--add-header", "Cookie: age_verified=1; platform=pc; ft_mature=1; consent=1")
-                    domainHeaders["Referer"] = "https://noodlemagazine.com/"
-                    domainHeaders["Origin"] = "https://noodlemagazine.com"
-                    domainHeaders["Cookie"] = "age_verified=1; platform=pc; ft_mature=1; consent=1"
                 }
                 lowerUrl.contains("hqporner.com") || lowerUrl.contains("hqporner.tv") || lowerUrl.startsWith("hqporner:") || lowerUrl.startsWith("hqplayer:") -> {
                     request.addOption("--add-header", "Referer: https://hqporner.com/")
@@ -771,22 +794,60 @@ object YtDlpResolver {
                         }
                     }
                     var finalStreamUrl = streamUrl
+                    val isNoodle = lowerUrl.contains("noodlemagazine") || lowerUrl.startsWith("noodlemag") ||
+                            streamUrl.contains("pvvstream.pro") || streamUrl.contains("noodlemagazine.com")
+                    if (isNoodle) {
+                        // Pass BOTH url and its http_headers untouched to Media3
+                        val rawNoodleHeaders = mutableMapOf<String, String>()
+                        if (jsonFmtHeaders != null) {
+                            val hKeys = jsonFmtHeaders.keys()
+                            while (hKeys.hasNext()) {
+                                val hk = hKeys.next()
+                                val hv = jsonFmtHeaders.optString(hk, "")
+                                if (hk.isNotBlank() && hv.isNotBlank()) rawNoodleHeaders[hk] = hv
+                            }
+                        } else if (jsonTopHeaders != null) {
+                            val hKeys = jsonTopHeaders.keys()
+                            while (hKeys.hasNext()) {
+                                val hk = hKeys.next()
+                                val hv = jsonTopHeaders.optString(hk, "")
+                                if (hk.isNotBlank() && hv.isNotBlank()) rawNoodleHeaders[hk] = hv
+                            }
+                        }
+                        parsedFormats.add(
+                            ParsedFormat(
+                                formatId = formatId,
+                                url = streamUrl,
+                                ext = ext,
+                                resolution = res,
+                                width = width,
+                                height = height,
+                                fps = fps,
+                                tbr = tbr,
+                                vbr = vbr,
+                                abr = abr,
+                                vcodec = vcodec,
+                                acodec = acodec,
+                                formatNote = note,
+                                protocol = protocol,
+                                httpHeaders = rawNoodleHeaders
+                            )
+                        )
+                        continue
+                    }
+
                     val isBili = lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") ||
                             lowerUrl.contains("biliintl") || streamUrl.contains("bilivideo") || streamUrl.contains("bilibili") ||
                             streamUrl.contains("upgcxcode") || streamUrl.contains("szbdyd") || streamUrl.contains("mcdn")
                     if (isBili) {
                         fmtHeaders.remove("Origin")
                         fmtHeaders.remove("origin")
-                        // Preserve yt-dlp's exact Bilibili Referer when supplied. Bilibili CDN
-                        // requests can be sensitive to the Referer used during extraction.
-                        if (fmtHeaders.keys.none { it.equals("Referer", ignoreCase = true) }) {
-                            fmtHeaders["Referer"] = videoUrl
-                        }
-                        val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
-                        if (cookie.isNotBlank() && !fmtHeaders.containsKey("Cookie")) {
-                            fmtHeaders["Cookie"] = cookie
-                        }
-                        finalStreamUrl = com.example.extractor.BilibiliProvider.cleanBilibiliStreamUrl(streamUrl, null)
+                        fmtHeaders.remove("Cookie")
+                        fmtHeaders.remove("cookie")
+                        fmtHeaders["Referer"] = "https://www.bilibili.com/"
+                        fmtHeaders["User-Agent"] = DEFAULT_USER_AGENT
+                        // Preserve exact signed CDN stream URL returned by yt-dlp: do not rewrite http->https
+                        finalStreamUrl = streamUrl
                     }
 
                     val isDm = lowerUrl.contains("dailymotion.com") || lowerUrl.contains("dai.ly") ||
@@ -924,13 +985,25 @@ object YtDlpResolver {
             // Deduplicate options by quality label
             val distinctOptions = streamOptions.distinctBy { it.qualityLabel }
 
-            // Select best option: First prefer muxed 1080p/720p H.264/MP4, then any muxed, then adaptive 1080p/720p
-            val bestOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.startsWith("1080p") }
-                ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.startsWith("720p") }
-                ?: distinctOptions.firstOrNull { it.isMuxed }
-                ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
-                ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("720p") }
-                ?: distinctOptions.first()
+            // Select best option: For Bilibili, prefer Progressive MP4 / H.264 (720p / 1080p)
+            val isBiliSource = lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") || lowerUrl.contains("biliintl")
+            val bestOption = if (isBiliSource) {
+                distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && (it.format.equals("mp4", ignoreCase = true) || it.qualityLabel.contains("mp4", ignoreCase = true)) }
+                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && (it.format.equals("mp4", ignoreCase = true) || it.qualityLabel.contains("mp4", ignoreCase = true)) }
+                    ?: distinctOptions.firstOrNull { it.isMuxed && (it.format.equals("mp4", ignoreCase = true) || it.qualityLabel.contains("mp4", ignoreCase = true)) }
+                    ?: distinctOptions.firstOrNull { it.isMuxed }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("H.264", ignoreCase = true) }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("720p") }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
+                    ?: distinctOptions.first()
+            } else {
+                distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.startsWith("1080p") }
+                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.startsWith("720p") }
+                    ?: distinctOptions.firstOrNull { it.isMuxed }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("720p") }
+                    ?: distinctOptions.first()
+            }
 
             val providerId = if (isYouTube) "youtube" else json.optString("extractor_key", "generic").lowercase()
 

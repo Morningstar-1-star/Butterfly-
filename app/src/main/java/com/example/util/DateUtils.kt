@@ -35,8 +35,22 @@ object DateUtils {
             return trimmed
         }
 
-        // 2. Try parsing numeric epoch milliseconds or seconds
-        if (trimmed.all { it.isDigit() }) {
+        // 2. Check if it's a 4-digit release year (e.g. "2024", "2025", "2026")
+        if (trimmed.length == 4 && trimmed.all { it.isDigit() }) {
+            val year = trimmed.toIntOrNull()
+            if (year != null && year in 1900..2100) {
+                val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+                val diff = currentYear - year
+                return when {
+                    diff <= 0 -> "this year"
+                    diff == 1 -> "1 year ago"
+                    else -> "$diff years ago"
+                }
+            }
+        }
+
+        // 3. Try parsing numeric epoch milliseconds or seconds (at least 9 digits)
+        if (trimmed.length >= 9 && trimmed.all { it.isDigit() }) {
             val num = trimmed.toLongOrNull()
             if (num != null) {
                 val millis = if (num < 100_000_000_000L) num * 1000L else num
