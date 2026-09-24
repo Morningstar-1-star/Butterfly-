@@ -17,8 +17,146 @@ object SourceTagHelper {
     data class SourceBadge(
         val name: String,
         val backgroundColor: Color,
-        val contentColor: Color = Color.White
+        val contentColor: Color = Color.White,
+        val providerIdKey: String = "youtube"
     )
+
+    fun isActualYouTubeVideo(
+        providerId: String?,
+        videoId: String?,
+        thumbnailUrl: String? = null,
+        uploaderUrl: String? = null,
+        description: String? = null
+    ): Boolean {
+        val pid = (providerId ?: "").trim().lowercase()
+        val vid = (videoId ?: "").trim()
+        val vidLower = vid.lowercase()
+        val thumb = (thumbnailUrl ?: "").trim().lowercase()
+        val upUrl = (uploaderUrl ?: "").trim().lowercase()
+        val desc = (description ?: "").trim().lowercase()
+
+        // 1. Explicit YouTube provider
+        if (pid == "youtube") return true
+
+        // 2. Strict non-YouTube platform exclusions (protect native providers from false YouTube tags)
+        if (pid == "tencent" || pid == "vqq" || pid == "qq" ||
+            pid == "bilibili" || pid == "dailymotion" || pid == "vimeo" ||
+            pid == "twitch" || pid == "bigo" || pid == "bigolive" ||
+            pid == "bunkr" || pid == "mega" || pid == "telegram" ||
+            pid == "yts" || pid == "eztv" || pid == "1337x" || pid == "nyaa" || pid == "torrent" || pid == "torrentio" ||
+            pid == "archive_org" || pid == "archive" || pid == "tmdb" || pid == "anilist" || pid == "jikan" ||
+            isAdultSource(pid)
+        ) {
+            return false
+        }
+
+        // Strict URL/ID prefix exclusions
+        if (vid.startsWith("tencent:", ignoreCase = true) ||
+            vid.startsWith("vqq:", ignoreCase = true) ||
+            vid.contains("v.qq.com", ignoreCase = true) ||
+            vid.contains("video.qq.com", ignoreCase = true) ||
+            vid.startsWith("bili_", ignoreCase = true) ||
+            vid.startsWith("bv", ignoreCase = true) ||
+            vid.startsWith("av", ignoreCase = true) ||
+            vid.startsWith("dm_", ignoreCase = true) ||
+            vid.startsWith("vim_", ignoreCase = true) ||
+            vid.startsWith("twitch_", ignoreCase = true) ||
+            vid.startsWith("bunkr_", ignoreCase = true) ||
+            vid.startsWith("mega_", ignoreCase = true) ||
+            vid.startsWith("tg_", ignoreCase = true) ||
+            vid.startsWith("torrent:", ignoreCase = true) ||
+            vid.startsWith("magnet:", ignoreCase = true) ||
+            vid.startsWith("yts_", ignoreCase = true) ||
+            vid.startsWith("nyaa_", ignoreCase = true) ||
+            vid.startsWith("eztv_", ignoreCase = true) ||
+            vid.startsWith("1337x_", ignoreCase = true) ||
+            vid.startsWith("eporner:", ignoreCase = true) ||
+            vid.startsWith("ph_", ignoreCase = true) ||
+            vid.startsWith("xv_", ignoreCase = true) ||
+            vid.startsWith("xh_", ignoreCase = true) ||
+            vid.startsWith("spankbang:", ignoreCase = true) ||
+            vid.startsWith("tnaflix:", ignoreCase = true) ||
+            vid.startsWith("motherless:", ignoreCase = true) ||
+            vid.startsWith("playvid:", ignoreCase = true) ||
+            vid.startsWith("thisvid:", ignoreCase = true) ||
+            vid.startsWith("4tube:", ignoreCase = true) ||
+            vid.startsWith("archive_", ignoreCase = true) ||
+            vid.startsWith("tmdb_", ignoreCase = true) ||
+            vid.startsWith("anilist_", ignoreCase = true) ||
+            vid.startsWith("vega_", ignoreCase = true)
+        ) {
+            return false
+        }
+
+        if (vidLower.contains("bilibili.com") ||
+            vidLower.contains("dailymotion.com") ||
+            vidLower.contains("vimeo.com") ||
+            vidLower.contains("twitch.tv") ||
+            vidLower.contains("archive.org") ||
+            vidLower.contains("pornhub.com") ||
+            vidLower.contains("xvideos.com") ||
+            vidLower.contains("eporner.com") ||
+            vidLower.contains("spankbang.com") ||
+            vidLower.contains("tnaflix.com") ||
+            vidLower.contains("bunkr.") ||
+            vidLower.contains("mega.nz") ||
+            vidLower.contains("t.me")
+        ) {
+            return false
+        }
+
+        // Non-YouTube CDN thumbnails
+        if (thumb.contains("gtimg.com") ||
+            thumb.contains("qpic.cn") ||
+            thumb.contains("hdslb.com") ||
+            thumb.contains("dmcdn.net") ||
+            thumb.contains("vimeocdn.com") ||
+            thumb.contains("ttvnw.net") ||
+            thumb.contains("phncdn.com") ||
+            thumb.contains("xhcdn.com") ||
+            thumb.contains("eporner.com") ||
+            thumb.contains("sb-cd.com") ||
+            thumb.contains("spankcdn") ||
+            thumb.contains("motherless") ||
+            thumb.contains("bunkr")
+        ) {
+            return false
+        }
+
+        // Positive YouTube signals
+        // 3. YouTube URL in videoId or URL
+        if (vidLower.contains("youtube.com") || vidLower.contains("youtu.be")) {
+            return true
+        }
+
+        // 4. YouTube CDN thumbnails (i.ytimg.com, yt3.ggpht.com, etc.)
+        if (thumb.contains("ytimg.com") || thumb.contains("ggpht.com") || thumb.contains("youtube.com")) {
+            return true
+        }
+
+        // 5. Uploader URL pointing to YouTube
+        if (upUrl.contains("youtube.com") || upUrl.contains("youtu.be")) {
+            return true
+        }
+
+        // 6. Video description containing YouTube watch or youtu.be link
+        if (desc.contains("youtu.be/") || desc.contains("youtube.com/watch")) {
+            return true
+        }
+
+        // 7. Standard 11-character YouTube video ID: ONLY apply when provider is generic/unspecified or OTT wrapper
+        val isGenericOrWrapper = pid.isBlank() || pid == "all" || pid == "video" || pid == "default" || pid == "custom" ||
+            pid == "hotstar" || pid == "sonyliv" || pid == "crunchyroll" || pid == "amazonminitv" || pid == "minitv" || pid == "imdb"
+        if (isGenericOrWrapper && vid.length == 11 && vid.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && !vid.all { it.isDigit() }) {
+            // For OTT wrappers, require either a YouTube thumb or not having native domains
+            if (pid == "hotstar" || pid == "sonyliv" || pid == "crunchyroll" || pid == "amazonminitv" || pid == "minitv") {
+                return thumb.contains("ytimg") || thumb.contains("ggpht") || desc.contains("youtu") || upUrl.contains("youtu")
+            }
+            return true
+        }
+
+        return false
+    }
 
     fun getSourceBadge(video: VideoItem): SourceBadge {
         return getSourceBadge(
@@ -26,7 +164,9 @@ object SourceTagHelper {
             videoId = video.id,
             title = video.title,
             uploaderName = video.uploaderName,
-            thumbnailUrl = video.thumbnailUrl
+            thumbnailUrl = video.thumbnailUrl,
+            uploaderUrl = video.uploaderUrl,
+            description = video.description
         )
     }
 
@@ -35,12 +175,88 @@ object SourceTagHelper {
         videoId: String? = null,
         title: String? = null,
         uploaderName: String? = null,
-        thumbnailUrl: String? = null
+        thumbnailUrl: String? = null,
+        uploaderUrl: String? = null,
+        description: String? = null
     ): SourceBadge {
         val pid = (providerId ?: "").trim().lowercase()
         val vid = (videoId ?: "").trim().lowercase()
         val uploader = (uploaderName ?: "").trim().lowercase()
         val thumb = (thumbnailUrl ?: "").trim().lowercase()
+
+        // 0. Primary Native Provider Accuracy Checks (NEVER mistakenly tag these as YouTube!)
+        // Tencent Video (v.qq.com)
+        if (pid == "tencent" || pid == "vqq" || pid == "qq" ||
+            vid.contains("v.qq.com") || vid.contains("video.qq.com") ||
+            vid.startsWith("tencent:") || vid.startsWith("vqq:") ||
+            thumb.contains("gtimg.com") || thumb.contains("qpic.cn") ||
+            uploader.contains("tencent") || uploader.contains("腾讯") || uploader.contains("wetv")
+        ) {
+            val (bgColor, contentColor) = getBrandColors("Tencent Video")
+            return SourceBadge(
+                name = "Tencent Video",
+                backgroundColor = bgColor,
+                contentColor = contentColor,
+                providerIdKey = "tencent"
+            )
+        }
+
+        // Bilibili
+        if (pid == "bilibili" || vid.contains("bilibili.com") || vid.startsWith("bili_") || vid.startsWith("bv") || vid.startsWith("av") || thumb.contains("hdslb.com")) {
+            val (bgColor, contentColor) = getBrandColors("Bilibili")
+            return SourceBadge(
+                name = "Bilibili",
+                backgroundColor = bgColor,
+                contentColor = contentColor,
+                providerIdKey = "bilibili"
+            )
+        }
+
+        // Dailymotion
+        if (pid == "dailymotion" || vid.contains("dailymotion.com") || vid.startsWith("dm_") || thumb.contains("dmcdn.net")) {
+            val (bgColor, contentColor) = getBrandColors("Dailymotion")
+            return SourceBadge(
+                name = "Dailymotion",
+                backgroundColor = bgColor,
+                contentColor = contentColor,
+                providerIdKey = "dailymotion"
+            )
+        }
+
+        // Twitch
+        if (pid == "twitch" || vid.contains("twitch.tv") || vid.startsWith("twitch_") || thumb.contains("ttvnw.net")) {
+            val (bgColor, contentColor) = getBrandColors("Twitch")
+            return SourceBadge(
+                name = "Twitch",
+                backgroundColor = bgColor,
+                contentColor = contentColor,
+                providerIdKey = "twitch"
+            )
+        }
+
+        // Vimeo
+        if (pid == "vimeo" || vid.contains("vimeo.com") || vid.startsWith("vim_") || thumb.contains("vimeocdn.com")) {
+            val (bgColor, contentColor) = getBrandColors("Vimeo")
+            return SourceBadge(
+                name = "Vimeo",
+                backgroundColor = bgColor,
+                contentColor = contentColor,
+                providerIdKey = "vimeo"
+            )
+        }
+
+        // 1. High-priority verification: If any source (Hotstar, SonyLIV, Crunchyroll, etc.)
+        // is actually serving a YouTube video (via ytimg thumbnail or youtu.be link),
+        // accurately badge it as "YouTube"!
+        if (isActualYouTubeVideo(pid, videoId, thumbnailUrl, uploaderUrl, description)) {
+            val (bgColor, contentColor) = getBrandColors("YouTube")
+            return SourceBadge(
+                name = "YouTube",
+                backgroundColor = bgColor,
+                contentColor = contentColor,
+                providerIdKey = "youtube"
+            )
+        }
 
         // 1. Direct and unambiguous match by provider ID
         val name: String = when {
@@ -200,8 +416,8 @@ object SourceTagHelper {
             uploader.contains("vimeo") -> "Vimeo"
             uploader.contains("twitch") -> "Twitch"
 
-            // Check if standard 11-character YouTube video ID
-            vid.length == 11 && vid.matches(Regex("^[a-zA-Z0-9_-]{11}$")) -> "YouTube"
+            // Check if standard 11-character YouTube video ID (only for generic/unspecified providers)
+            vid.length == 11 && vid.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && (pid.isBlank() || pid == "all" || pid == "video" || pid == "custom" || pid == "default" || pid == "youtube") -> "YouTube"
 
             // If a custom non-empty provider ID was given, format it nicely
             pid.isNotEmpty() && pid != "all" && pid != "custom" && pid != "video" && pid != "default" -> {
@@ -215,11 +431,56 @@ object SourceTagHelper {
         }
 
         val (bgColor, contentColor) = getBrandColors(name)
+        val providerKey = getProviderIdKey(name, pid)
         return SourceBadge(
             name = name,
             backgroundColor = bgColor,
-            contentColor = contentColor
+            contentColor = contentColor,
+            providerIdKey = providerKey
         )
+    }
+
+    fun getProviderIdKey(sourceName: String, originalProviderId: String): String {
+        val s = sourceName.lowercase()
+        return when {
+            s.contains("youtube") -> "youtube"
+            s.contains("crunchyroll") -> "crunchyroll"
+            s.contains("sonyliv") -> "sonyliv"
+            s.contains("hotstar") -> "hotstar"
+            s.contains("dailymotion") -> "dailymotion"
+            s.contains("twitch") -> "twitch"
+            s.contains("bilibili") -> "bilibili"
+            s.contains("tencent") -> "tencent"
+            s.contains("vimeo") -> "vimeo"
+            s.contains("minitv") -> "amazonminitv"
+            s.contains("discovery") -> "discoveryplus"
+            s.contains("disney") -> "disney"
+            s.contains("hbo") -> "hbo"
+            s.contains("curiosity") -> "curiositystream"
+            s.contains("mx player") -> "mxplayer"
+            s.contains("popcorn") -> "popcorntv"
+            s.contains("imdb") -> "imdb"
+            s.contains("bunkr") -> "bunkr"
+            s.contains("mega") -> "mega"
+            s.contains("telegram") -> "telegram"
+            s.contains("torrent") || s.contains("yts") || s.contains("nyaa") -> "torrent"
+            s.contains("archive") -> "archive"
+            s.contains("pornhub") -> "pornhub"
+            s.contains("xvideos") -> "xvideos"
+            s.contains("xnxx") -> "xnxx"
+            s.contains("eporner") -> "eporner"
+            s.contains("spankbang") -> "spankbang"
+            s.contains("xhamster") -> "xhamster"
+            s.contains("redtube") -> "redtube"
+            s.contains("youporn") -> "youporn"
+            s.contains("stripchat") -> "stripchat"
+            s.contains("chaturbate") -> "chaturbate"
+            s.contains("cam4") -> "cam4"
+            s.contains("hanime") -> "hanime1"
+            s.contains("rule34") -> "rule34video"
+            originalProviderId.isNotBlank() -> originalProviderId.lowercase()
+            else -> "youtube"
+        }
     }
 
     private fun getBrandColors(sourceName: String): Pair<Color, Color> {

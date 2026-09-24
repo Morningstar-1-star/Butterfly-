@@ -142,7 +142,7 @@ fun VideoCard(
         !effectiveOriginalTitle.equals(effectiveTranslatedTitle, ignoreCase = true)
     }
 
-    val sourceBadge = remember(video.providerId, video.id, video.uploaderName, video.thumbnailUrl) {
+    val sourceBadge = remember(video.providerId, video.id, video.uploaderName, video.thumbnailUrl, video.uploaderUrl, video.description) {
         com.example.util.SourceTagHelper.getSourceBadge(video)
     }
 
@@ -468,7 +468,7 @@ fun VideoCard(
                 }
 
                 if (showProviderBadge && sourceBadge.name.isNotBlank() && !isPreviewActive && !isPreloadingTeaser) {
-                    val isAdult = com.example.util.SourceTagHelper.isAdultSource(video.providerId)
+                    val isAdult = com.example.util.SourceTagHelper.isAdultSource(sourceBadge.providerIdKey)
                     Surface(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -483,7 +483,7 @@ fun VideoCard(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             SourceBrandLogo(
-                                providerId = video.providerId ?: sourceBadge.name,
+                                providerId = sourceBadge.providerIdKey,
                                 size = 13.dp,
                                 isAdultMode = isAdult
                             )

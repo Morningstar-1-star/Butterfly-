@@ -79,9 +79,11 @@ class UnifiedSourceResolver(private val context: Context) {
     private val vidsrcToProvider = EmbedSourceProviderAdapter(VidsrcToEmbedProvider())
     private val twoEmbedProvider = EmbedSourceProviderAdapter(TwoEmbedProvider())
     private val vidsrcMeProvider = EmbedSourceProviderAdapter(VidsrcMeEmbedProvider())
+    private val tmdbEmbedProvider = com.example.resolver.providers.TMDBEmbedSourceProvider(context)
 
     val activeProviders: List<SourceProvider>
         get() = listOf(
+            tmdbEmbedProvider,
             vidsrcSbsProvider,
             vidrockProvider,
             vidlinkProvider,

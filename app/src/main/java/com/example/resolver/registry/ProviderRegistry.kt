@@ -508,6 +508,28 @@ object ProviderRegistry {
                 fallbackProviderIds = listOf("vidsrc_me", "nuvio_direct", "vega")
             )
         )
+
+        // TMDB Embed Multi-Source Provider
+        register(
+            ProviderDescriptor(
+                id = "tmdb_embed",
+                displayName = "TMDB Embed",
+                category = ProviderCategory.DIRECT_STREAM,
+                baseDomain = "https://api.themoviedb.org",
+                capabilities = setOf(
+                    ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP,
+                    ProviderCapability.HLS, ProviderCapability.SUBTITLE,
+                    ProviderCapability.CAPABILITY_4K
+                ),
+                supportedMediaTypes = setOf(MediaType.MOVIE, MediaType.TV, MediaType.ANIME),
+                supportsDirect = true,
+                supportsHls = true,
+                supportsSubtitles = true,
+                supportedQualities = listOf("4K", "1080p", "720p", "480p", "360p"),
+                priority = 99,
+                fallbackProviderIds = listOf("decryptor", "vidsrc")
+            )
+        )
     }
 
     fun register(descriptor: ProviderDescriptor) {

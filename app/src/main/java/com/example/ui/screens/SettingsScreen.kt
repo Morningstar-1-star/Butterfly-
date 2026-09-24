@@ -1258,6 +1258,230 @@ fun SettingsScreen(
                                 }
                             }
 
+                            // TMDB Embed Multi-Source Provider Card (13 Selectable Sources)
+                            item {
+                                var tmdbMasterEnabled by remember { mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.isMasterEnabled(context)) }
+                                var defaultSource by remember { mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.getDefaultSource(context)) }
+                                var fallbackEnabled by remember { mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.isFallbackEnabled(context)) }
+                                var showSourceList by remember { mutableStateOf(false) }
+
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF6200EE).copy(alpha = 0.12f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .background(Color(0xFF6200EE), CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "TMDB Embed (13 Sources)",
+                                                        fontWeight = FontWeight.Bold,
+                                                        style = MaterialTheme.typography.titleSmall
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = Color(0xFF6200EE)
+                                                    ) {
+                                                        Text(
+                                                            text = "MULTI-SOURCE",
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color.White,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "Extracts TMDB movies & TV via Showbox, VixSrc, NetMirror, Videasy, Vidlink, CastleTV & more",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Switch(
+                                                checked = tmdbMasterEnabled,
+                                                onCheckedChange = {
+                                                    tmdbMasterEnabled = it
+                                                    com.example.extractor.tmdbembed.TMDBEmbedConfig.setMasterEnabled(context, it)
+                                                    viewModel.toggleProviderEnabled("tmdb_embed", it)
+                                                }
+                                            )
+                                        }
+
+                                        if (tmdbMasterEnabled) {
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            // Default Source Selection
+                                            Text(
+                                                text = "Default Primary Source: ${defaultSource.displayName}",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                items(com.example.extractor.tmdbembed.TMDBEmbedSource.allSources) { src ->
+                                                    val isSelected = defaultSource == src
+                                                    FilterChip(
+                                                        selected = isSelected,
+                                                        onClick = {
+                                                            defaultSource = src
+                                                            com.example.extractor.tmdbembed.TMDBEmbedConfig.setDefaultSource(context, src)
+                                                        },
+                                                        label = { Text(src.displayName, fontSize = 11.sp) },
+                                                        colors = FilterChipDefaults.filterChipColors(
+                                                            selectedContainerColor = Color(0xFF6200EE),
+                                                            selectedLabelColor = Color.White
+                                                        )
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            // Fallback Toggle
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Auto Fallback to Other Sources",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                    Text(
+                                                        text = "If default source fails, try next enabled sources automatically",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Switch(
+                                                    checked = fallbackEnabled,
+                                                    onCheckedChange = {
+                                                        fallbackEnabled = it
+                                                        com.example.extractor.tmdbembed.TMDBEmbedConfig.setFallbackEnabled(context, it)
+                                                    }
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            // Toggle Source List Accordion
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { showSourceList = !showSourceList }
+                                                    .padding(vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (showSourceList) "Hide Per-Source Toggles ▲" else "Configure 13 Sources & Health Status ▼",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+
+                                            if (showSourceList) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.forEach { src ->
+                                                    var isSrcEnabled by remember {
+                                                        mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.isSourceEnabled(context, src))
+                                                    }
+                                                    val health = com.example.extractor.tmdbembed.TMDBEmbedConfig.getSourceHealth(src)
+
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 3.dp)
+                                                    ) {
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                Text(
+                                                                    text = src.displayName,
+                                                                    style = MaterialTheme.typography.bodyMedium,
+                                                                    fontWeight = if (src == defaultSource) FontWeight.Bold else FontWeight.Normal
+                                                                )
+                                                                if (src == defaultSource) {
+                                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                                    Text(
+                                                                        text = "(Default)",
+                                                                        fontSize = 10.sp,
+                                                                        color = MaterialTheme.colorScheme.primary
+                                                                    )
+                                                                }
+                                                                Spacer(modifier = Modifier.width(6.dp))
+                                                                // Health badge
+                                                                val badgeColor = when (health.statusText) {
+                                                                    "Online" -> Color(0xFF00C853)
+                                                                    "Degraded" -> Color(0xFFFF9100)
+                                                                    "Failing" -> Color(0xFFFF1744)
+                                                                    else -> Color.Gray
+                                                                }
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(3.dp),
+                                                                    color = badgeColor.copy(alpha = 0.2f)
+                                                                ) {
+                                                                    Text(
+                                                                        text = health.statusText,
+                                                                        fontSize = 9.sp,
+                                                                        color = badgeColor,
+                                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                            Text(
+                                                                text = "${if (src.supportsTv) "Movie & TV" else "Movie"} • Success: ${health.successCount}, Fail: ${health.failureCount}",
+                                                                fontSize = 10.sp,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                        Switch(
+                                                            checked = isSrcEnabled,
+                                                            onCheckedChange = {
+                                                                isSrcEnabled = it
+                                                                com.example.extractor.tmdbembed.TMDBEmbedConfig.setSourceEnabled(context, src, it)
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Featured Tencent Video (v.qq.com) Card
                             item {
                                 val isTencentEnabled = enabledProviderIds.contains("tencent")
@@ -1393,6 +1617,7 @@ fun SettingsScreen(
                                 "mxplayer" to "MX Player",
                                 "popcorntv" to "PopcornTV",
                                 "decryptor" to "Decryptor (Multi-Server HLS)",
+                                "tmdb_embed" to "TMDB Embed (13 Multi-Sources)",
                                 "vidsrc" to "VidSrc (Cloud Stream)"
                             )
                             items(normalProviders) { (id, name) ->
@@ -1416,6 +1641,7 @@ fun SettingsScreen(
                                             "mxplayer" -> "MX Player OTT web series, short films & movies"
                                             "popcorntv" -> "PopcornTV blockbusters, open movies & 4K cinema releases"
                                             "decryptor" -> "Nxsha multi-server HLS engine: Vidhide, Turbo & Fast CDNs"
+                                            "tmdb_embed" -> "13 Selectable Sources: VixSrc, NetMirror, Videasy, Vidlink, CastleTV & more"
                                             "vidsrc" -> "VidSrc high-speed cloud streams, auto-mirrors & HD movies"
                                             else -> "Streams from $name platform"
                                         },

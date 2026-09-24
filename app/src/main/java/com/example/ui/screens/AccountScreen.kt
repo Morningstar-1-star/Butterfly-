@@ -1757,7 +1757,7 @@ private fun AccountMenuListItem(
 /**
  * Bottom sheet viewer for Watch Later / Liked Videos / Playlist detail
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun VideoListBottomSheet(
     title: String,
@@ -1817,39 +1817,147 @@ private fun VideoListBottomSheet(
                 }
             }
 
-            val playlistCategories = remember(videos) {
-                videos.flatMap { v -> com.example.util.SmartTagExtractor.extractTags(v, maxTags = 3) }
-                    .groupingBy { "${it.emoji} ${it.displayName}" }
-                    .eachCount()
-                    .entries
-                    .sortedByDescending { it.value }
-                    .take(4)
-                    .map { it.key }
+            var searchQuery by remember { mutableStateOf("") }
+            var selectedTagKey by remember { mutableStateOf("all") }
+
+            val tagChips = remember(videos) {
+                com.example.util.SmartTagExtractor.buildSmartTagChips(videos)
             }
-            if (playlistCategories.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
+
+            val filteredVideos = remember(videos, searchQuery, selectedTagKey) {
+                var result = videos
+                if (selectedTagKey != "all") {
+                    result = result.filter { com.example.util.SmartTagExtractor.matchesTag(it, selectedTagKey) }
+                }
+                if (searchQuery.isNotBlank()) {
+                    val q = searchQuery.trim().lowercase(java.util.Locale.ROOT)
+                    result = result.filter { v ->
+                        v.title.lowercase(java.util.Locale.ROOT).contains(q) ||
+                        v.uploaderName.lowercase(java.util.Locale.ROOT).contains(q) ||
+                        v.tags.any { it.lowercase(java.util.Locale.ROOT).contains(q) } ||
+                        com.example.util.SmartTagExtractor.extractInternalCategoryTags(v).any { it.displayName.lowercase(java.util.Locale.ROOT).contains(q) }
+                    }
+                }
+                result
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Sleek Search Bar for Playlist
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "AI Categories:",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
-                    playlistCategories.forEach { cat ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                        ) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (searchQuery.isEmpty()) {
                             Text(
-                                text = cat,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = "Search in playlist...",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
+                        }
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (searchQuery.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                                .clickable { searchQuery = "" },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Unlimited Category Tag Filter Chips Bar
+            if (tagChips.size > 1) {
+                Spacer(modifier = Modifier.height(10.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(tagChips, key = { it.key }) { chip ->
+                        val isSelected = selectedTagKey.equals(chip.key, ignoreCase = true)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .height(30.dp)
+                                .clickable {
+                                    selectedTagKey = if (isSelected && chip.key != "all") "all" else chip.key
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (chip.key == "all") "All" else "${chip.emoji} ${chip.label}",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                )
+                                if (chip.key != "all" && chip.count > 0) {
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(
+                                                if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)
+                                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                                            )
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "${chip.count}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1858,7 +1966,7 @@ private fun VideoListBottomSheet(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Play All Action Button
-            if (videos.isNotEmpty()) {
+            if (filteredVideos.isNotEmpty()) {
                 Button(
                     onClick = onPlayAll,
                     modifier = Modifier.fillMaxWidth(),
@@ -1872,7 +1980,7 @@ private fun VideoListBottomSheet(
             }
 
             // Video List
-            if (videos.isEmpty()) {
+            if (filteredVideos.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1880,7 +1988,7 @@ private fun VideoListBottomSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No videos in this playlist yet.",
+                        text = if (searchQuery.isNotBlank() || selectedTagKey != "all") "No matching videos in this playlist" else "No videos in this playlist yet.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1892,7 +2000,7 @@ private fun VideoListBottomSheet(
                         .heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(videos, key = { it.id }) { video ->
+                    items(filteredVideos, key = { it.id }) { video ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1950,17 +2058,23 @@ private fun VideoListBottomSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1
                                 )
-                                val vTags = remember(video.id) {
-                                    com.example.util.SmartTagExtractor.extractTags(video, maxTags = 3)
+                                 val vTags = remember(video.id) {
+                                    com.example.util.SmartTagExtractor.extractTags(video, maxTags = 4)
                                 }
                                 if (vTags.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    androidx.compose.foundation.layout.FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         vTags.forEach { tag ->
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-                                                border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                                border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                                                modifier = Modifier.clickable {
+                                                    selectedTagKey = tag.category
+                                                }
                                             ) {
                                                 Text(
                                                     text = "${tag.emoji} ${tag.displayName}",

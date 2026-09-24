@@ -79,6 +79,87 @@ object BilibiliProvider {
     private val httpClient: OkHttpClient
         get() = com.example.util.NetworkManager.scraperClient
 
+    val DEFAULT_BILIBILI_HOME_FALLBACK = listOf(
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV1GJ411x7h7",
+            title = "Never Gonna Give You Up - Rick Astley (Official MV)",
+            uploaderName = "Rick Astley",
+            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 213,
+            viewCount = 68500000,
+            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/472e389e63cfd29c8e8334f59e9c7042a98f4f34.jpg",
+            originalTitle = "【官方 MV】Never Gonna Give You Up - Rick Astley",
+            translatedTitleEN = "Never Gonna Give You Up - Rick Astley (Official MV)",
+            detectedLanguage = "en",
+            providerId = PROVIDER_ID
+        ),
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV1TAmBYVEJr",
+            title = "What Do American Kids Play With?! Nov Unboxing",
+            uploaderName = "何同学工作室",
+            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 929,
+            viewCount = 4800000,
+            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/50091efd965d9f13ff6814f7ad374f90ab21e77d.jpg",
+            originalTitle = "美国小朋友就玩这个？！何同学工作室11月开箱",
+            translatedTitleEN = "What Do American Kids Play With?! Nov Unboxing",
+            detectedLanguage = "zh",
+            providerId = PROVIDER_ID
+        ),
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV13x41117TL",
+            title = "English Song Sharing #6 Closer",
+            uploaderName = "阿滴英文",
+            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 554,
+            viewCount = 3200000,
+            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/d5236cf544d93ee44081c79e663a8a9a207212c7.jpg",
+            originalTitle = "阿滴英文｜英文歌分享#6 Closer",
+            translatedTitleEN = "English Song Sharing #6 Closer",
+            detectedLanguage = "zh",
+            providerId = PROVIDER_ID
+        ),
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV1vL411G7N7",
+            title = "How to add chapter progress bar to your video",
+            uploaderName = "爱喝咖啡的当麻",
+            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 669,
+            viewCount = 1800000,
+            thumbnailUrl = "http://i1.hdslb.com/bfs/archive/bbf4514781cae9bb58fa85bce904b77f8045b410.jpg",
+            originalTitle = "如何为你的B站视频添加进度条分段",
+            translatedTitleEN = "How to add chapter progress bar to your video",
+            detectedLanguage = "zh",
+            providerId = PROVIDER_ID
+        ),
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV1bK411W797",
+            title = "Monogatari Characters Reaction to Their OP",
+            uploaderName = "打牌还是打桩",
+            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 90,
+            viewCount = 2500000,
+            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/6ec2eaee20a7018c14838637774900c14bdfc9ae.jpg",
+            originalTitle = "物语中的人物是如何吐槽自己的OP的",
+            translatedTitleEN = "Monogatari Characters Reaction to Their OP",
+            detectedLanguage = "zh",
+            providerId = PROVIDER_ID
+        ),
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV1ay4y1d77f",
+            title = "Honkai Impact 3rd Spring Festival Special",
+            uploaderName = "果蝇轰",
+            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 1111,
+            viewCount = 5900000,
+            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/12d08a5482f3efc2901c0c1b72e9d29ef1d7ad39.jpg",
+            originalTitle = "【崩坏3新春剧场】为特别的你送上祝福！",
+            translatedTitleEN = "Honkai Impact 3rd Spring Festival Special",
+            detectedLanguage = "zh",
+            providerId = PROVIDER_ID
+        )
+    )
+
     @Volatile
     private var cachedCookie: String = run {
         val uuid = java.util.UUID.randomUUID().toString()
@@ -898,22 +979,6 @@ object BilibiliProvider {
             cleanUrl = "https://" + cleanUrl.substring(7)
         }
 
-        // Fallback Host replacement if URL still contains problematic P2P/mcdn domains or non-standard ports
-        val lower = cleanUrl.lowercase()
-        if (lower.contains("mcdn") || lower.contains("p2p") || lower.contains("szbdyd") || lower.contains("bcache") ||
-            cleanUrl.matches(Regex(".*:[0-9]{4,5}/.*"))
-        ) {
-            try {
-                val uri = java.net.URI(cleanUrl)
-                val rawPath = uri.rawPath ?: ""
-                val rawQuery = uri.rawQuery
-                val pathAndQuery = rawPath + if (rawQuery != null) "?$rawQuery" else ""
-                cleanUrl = "https://upos-sz-mirrorali.bilivideo.com$pathAndQuery"
-            } catch (e: Exception) {
-                cleanUrl = cleanUrl.replace(Regex("https?://[^/]+"), "https://upos-sz-mirrorali.bilivideo.com")
-            }
-        }
-
         return cleanUrl
     }
 
@@ -1162,6 +1227,22 @@ object BilibiliProvider {
             return sb.toString()
         }
 
+        fun getDmParams(): Map<String, String> {
+            val random = java.util.Random()
+            val rnd1 = (114 * random.nextDouble()).toInt()
+            val wh = "[${2 * 1920 + 2 * 1080 + 3 * rnd1},${4 * 1920 - 1080 + rnd1},$rnd1]"
+            val rnd2 = (514 * random.nextDouble()).toInt()
+            val of = "[${3 * 10 + 2 * 0 + rnd2},${4 * 10 - 4 * 0 + 2 * rnd2},$rnd2]"
+            val dmInter = """{"ds":[],"wh":$wh,"of":$of}"""
+            val dmImgStr = android.util.Base64.encodeToString("abcdefghijklmnopqrstuvwxyz0123456789".toByteArray(), android.util.Base64.NO_WRAP).take(40)
+            return mapOf(
+                "dm_img_list" to "[]",
+                "dm_img_str" to dmImgStr,
+                "dm_cover_img_str" to dmImgStr,
+                "dm_img_inter" to dmInter
+            )
+        }
+
         fun signTvParams(params: Map<String, Any>): String {
             val appKey = "4409e2ce8ffd12b8"
             val appSecret = "59b41e014c1972007135612259b13cc5"
@@ -1220,7 +1301,7 @@ object BilibiliProvider {
             try {
                 val mixinKey = BilibiliWbiHelper.getMixinKey()
                 if (mixinKey != null) {
-                    val params = mapOf(
+                    val params = mutableMapOf<String, Any>(
                         "bvid" to resolvedBvid,
                         "cid" to cid,
                         "qn" to 80,
@@ -1228,6 +1309,7 @@ object BilibiliProvider {
                         "fnver" to 0,
                         "high_quality" to 1
                     )
+                    params.putAll(BilibiliWbiHelper.getDmParams())
                     val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
                     val wbiUrl = "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
                     val wbiReq = Request.Builder()
@@ -1628,8 +1710,7 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                                val finalTitle = cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1695,8 +1776,7 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                                val finalTitle = cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1762,8 +1842,7 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                                val finalTitle = cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1829,8 +1908,7 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                                val finalTitle = cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1896,8 +1974,7 @@ object BilibiliProvider {
                                 if (bvid.isBlank()) continue
                                 val rawTitle = item.optString("title", "Bilibili Video")
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                                val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                                val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                                val finalTitle = cleanTitle
 
                                 var pic = item.optString("pic", "")
                                 if (pic.startsWith("//")) pic = "https:$pic"
@@ -1937,7 +2014,9 @@ object BilibiliProvider {
             Log.w(TAG, "Error fetching Bilibili anime dynamic region: ${e.message}")
         }
 
-        list
+        if (list.isNotEmpty()) return@withContext list
+
+        DEFAULT_BILIBILI_HOME_FALLBACK
     }
 
     /**
@@ -1992,8 +2071,7 @@ object BilibiliProvider {
                         if (bvid.isBlank()) continue
                         val rawTitle = item.optString("title", "Bilibili Video")
                         val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                        val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                        val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                        val finalTitle = cleanTitle
 
                         var pic = item.optString("pic", "")
                         if (pic.startsWith("//")) pic = "https:$pic"
@@ -2060,8 +2138,7 @@ object BilibiliProvider {
                         if (bvid.isBlank()) continue
                         val rawTitle = item.optString("title", "Bilibili Video")
                         val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
-                        val cachedTitle = com.example.util.UniversalTranslator.translateTitle(cleanTitle).translatedEN.ifBlank { cleanTitle }
-                        val finalTitle = if (cachedTitle.isNotBlank() && cachedTitle != cleanTitle) cachedTitle else cleanTitle
+                        val finalTitle = cleanTitle
 
                         var pic = item.optString("pic", "")
                         if (pic.startsWith("//")) pic = "https:$pic"

@@ -403,58 +403,66 @@ fun LibraryScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // YouTube style search bar: [ 🔍 Search title, channel, tag...   x ]
-                    Box(
+                    // YouTube style search bar: [ 🔍 Search Watch later...   x ]
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(42.dp)
-                            .clip(RoundedCornerShape(21.dp))
-                            .background(Color(0xFF272727))
-                            .padding(horizontal = 14.dp),
-                        contentAlignment = Alignment.CenterStart
+                            .height(42.dp),
+                        shape = RoundedCornerShape(21.dp),
+                        color = Color(0xFF222222),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = "Search",
-                                tint = Color.White.copy(alpha = 0.6f),
+                                tint = Color.White.copy(alpha = 0.65f),
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                placeholder = {
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
                                     Text(
-                                        text = "Search title, channel, tag...",
+                                        text = "Search in Watch later...",
                                         fontSize = 13.sp,
-                                        color = Color.White.copy(alpha = 0.5f)
+                                        color = Color.White.copy(alpha = 0.45f)
                                     )
-                                },
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color.Transparent,
-                                    unfocusedBorderColor = Color.Transparent,
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
+                                }
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Normal
+                                    ),
+                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                             if (searchQuery.isNotBlank()) {
-                                IconButton(
-                                    onClick = { searchQuery = "" },
-                                    modifier = Modifier.size(24.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                        .clickable { searchQuery = "" },
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Clear",
-                                        tint = Color.White.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(16.dp)
+                                        tint = Color.White.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }
@@ -463,7 +471,7 @@ fun LibraryScreen(
                 }
             }
 
-            // 3. SMART TAG FILTER CHIPS BAR (e.g. [• All] [📚 Learn 2] [🎙️ Podcast 2] [💻 Tech 1])
+            // 3. SMART TAG FILTER CHIPS BAR (e.g. [• All] [📺 Series 3] [🎌 Anime 1] [💻 Tech & AI 1])
             item {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -473,32 +481,44 @@ fun LibraryScreen(
                     items(tagChips, key = { it.key }) { chip ->
                         val isSelected = selectedTagKey.equals(chip.key, ignoreCase = true)
                         
-                        Box(
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color.White else Color(0xFF242424),
+                            border = if (isSelected) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (isSelected) Color.White else Color(0xFF272727)
-                                )
+                                .height(32.dp)
                                 .clickable {
                                     selectedTagKey = if (isSelected && chip.key != "all") "all" else chip.key
                                 }
-                                .padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
-                                    text = "${chip.emoji} ${chip.label}",
+                                    text = if (chip.key == "all") "All" else "${chip.emoji} ${chip.label}",
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     color = if (isSelected) Color.Black else Color.White
                                 )
                                 if (chip.key != "all" && chip.count > 0) {
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = "${chip.count}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.6f)
-                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(
+                                                if (isSelected) Color.Black.copy(alpha = 0.12f)
+                                                else Color.White.copy(alpha = 0.15f)
+                                            )
+                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "${chip.count}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.9f)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -675,6 +695,7 @@ fun LibraryScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun YouTubePlaylistListItem(
     video: VideoItem,
@@ -794,9 +815,9 @@ private fun YouTubePlaylistListItem(
             // Smart Tag Pills attached to video item (Clean YouTube-style tag pills)
             if (tags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     tags.take(3).forEach { tag ->
                         Surface(
@@ -811,7 +832,7 @@ private fun YouTubePlaylistListItem(
                             ) {
                                 Text(
                                     text = "${tag.emoji} ${tag.displayName}",
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color.White.copy(alpha = 0.9f)
                                 )

@@ -165,7 +165,66 @@ fun HomeScreen(
     }
     val bottomBarPaddingDp = 80.dp
 
-    val categories = listOf("All", "Tencent Video", "YouTube", "miniTV", "MX Player", "Disney+", "PopcornTV", "IMDb", "Discovery+", "Drive", "Dailymotion", "Gaming", "Podcasts", "Music", "Trending", "News")
+    // YouTube-style collapsible top & bottom bars state
+    var areBarsVisible by remember { mutableStateOf(true) }
+    val isFeedAtTop by remember {
+        derivedStateOf {
+            feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset <= 8
+        }
+    }
+
+    LaunchedEffect(isFeedAtTop) {
+        if (isFeedAtTop) {
+            areBarsVisible = true
+        }
+    }
+
+    LaunchedEffect(currentTabScreen, isSearchExpanded, activeProviderId, activeCategory) {
+        areBarsVisible = true
+    }
+
+    val barsAnimatedFraction by animateFloatAsState(
+        targetValue = if (areBarsVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = 260,
+            easing = FastOutSlowInEasing
+        ),
+        label = "bars_visibility"
+    )
+
+    var accumulatedScroll by remember { mutableFloatStateOf(0f) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val scrollThresholdPx = remember(density) { with(density) { 24.dp.toPx() } }
+
+    val nestedScrollConnection = remember(scrollThresholdPx, isFeedAtTop) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val deltaY = available.y
+                if (source == NestedScrollSource.UserInput) {
+                    if (deltaY < 0f) {
+                        // Scrolling DOWN -> accumulate downward delta
+                        if (accumulatedScroll > 0f) accumulatedScroll = 0f
+                        accumulatedScroll += deltaY
+                        if (accumulatedScroll < -scrollThresholdPx && !isFeedAtTop) {
+                            areBarsVisible = false
+                            accumulatedScroll = 0f
+                        }
+                    } else if (deltaY > 0f) {
+                        // Scrolling UP -> accumulate upward delta
+                        if (accumulatedScroll < 0f) accumulatedScroll = 0f
+                        accumulatedScroll += deltaY
+                        if (accumulatedScroll > scrollThresholdPx) {
+                            areBarsVisible = true
+                            accumulatedScroll = 0f
+                        }
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    val categories = listOf("All", "Series", "Movies", "Anime", "Animation", "Music", "Songs", "Gaming", "Gameplay", "Tech", "Trailers", "News", "Podcasts", "Comedy", "Trending")
     val activeProviderName = availableProviders.firstOrNull { it.id == activeProviderId }?.name ?: activeProviderId
 
     // StreamData extracted for player / mini player
@@ -253,7 +312,9 @@ fun HomeScreen(
     }
 
     Box(
-        modifier = modifier.fillMaxSize()
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(nestedScrollConnection)
     ) {
         // LAYER 1: SCREEN CONTENT
         Box(
@@ -711,12 +772,20 @@ fun HomeScreen(
             val unselectedChipBg = if (isDarkTheme) Color(0xFF272727) else Color(0xFFF2F2F2)
             val unselectedChipFg = if (isDarkTheme) Color(0xFFF1F1F1) else Color(0xFF0F0F0F)
 
-            // Top Header + Tags Column (Stably anchored, zero jank)
+            var topBarHeightPx by remember { mutableStateOf(0f) }
+
+            // Top Header + Tags Column (Stably anchored, zero jank, YouTube-style smooth hide/show)
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .zIndex(9f)
+                    .onSizeChanged { topBarHeightPx = it.height.toFloat() }
+                    .graphicsLayer {
+                        val fraction = 1f - barsAnimatedFraction
+                        translationY = if (topBarHeightPx > 0f) -topBarHeightPx * fraction else 0f
+                        alpha = barsAnimatedFraction.coerceIn(0f, 1f)
+                    }
                     .background(MaterialTheme.colorScheme.background)
                     .statusBarsPadding()
             ) {
@@ -1208,90 +1277,6 @@ fun HomeScreen(
                             }
                         }
 
-                        // DEDICATED QUICK SOURCE CHIPS (Without "all" or "tencent" chips)
-                        if (adultContentEnabled) {
-                            val adultQuickSources = listOf(
-                                "xnxx" to ("XNXX" to Color(0xFF00B0FF)),
-                                "hellporno" to ("HellPorno" to Color(0xFFFF1744)),
-                                "stripchat" to ("Stripchat Live" to Color(0xFFFF3D00)),
-                                "chaturbate" to ("Chaturbate Live" to Color(0xFFFF6D00)),
-                                "sextb" to ("SEXТB" to Color(0xFFE91E63)),
-                                "supjav" to ("SupJav" to Color(0xFFFF4081)),
-                                "123av" to ("123AV" to Color(0xFFD81B60)),
-                                "pornhub" to ("Pornhub" to Color(0xFFFF9900)),
-                                "xvideos" to ("XVideos" to Color(0xFFD32F2F))
-                            )
-                            items(adultQuickSources) { (id, pair) ->
-                                val (label, color) = pair
-                                val isActive = (activeProviderId == id)
-                                Surface(
-                                    onClick = { viewModel.setActiveProvider(id) },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isActive) color else color.copy(alpha = 0.12f),
-                                    contentColor = if (isActive) Color.White else color,
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        SourceBrandLogo(
-                                            providerId = id,
-                                            size = 16.dp,
-                                            isAdultMode = true
-                                        )
-                                        Text(
-                                            text = label,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            val normalQuickSources = listOf(
-                                "youtube" to ("YouTube" to Color(0xFFFF0000)),
-                                "tencent" to ("Tencent Video" to Color(0xFF0052D9)),
-                                "sonyliv" to ("SonyLIV" to Color(0xFF003087)),
-                                "hotstar" to ("Hotstar" to Color(0xFF001435)),
-                                "amazonminitv" to ("miniTV" to Color(0xFFFF9900)),
-                                "crunchyroll" to ("Crunchyroll" to Color(0xFFF47521)),
-                                "bilibili" to ("Bilibili" to Color(0xFF00A1D6)),
-                                "twitch" to ("Twitch" to Color(0xFF9146FF)),
-                                "dailymotion" to ("Dailymotion" to Color(0xFF0066DC)),
-                                "disney" to ("Disney+" to Color(0xFF113CCF)),
-                                "popcorntv" to ("PopcornTV" to Color(0xFFFF3366))
-                            )
-                            items(normalQuickSources) { (id, pair) ->
-                                val (label, color) = pair
-                                val isActive = (activeProviderId == id)
-                                Surface(
-                                    onClick = { viewModel.setActiveProvider(id) },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isActive) selectedChipBg else unselectedChipBg,
-                                    contentColor = if (isActive) selectedChipFg else unselectedChipFg,
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        SourceBrandLogo(
-                                            providerId = id,
-                                            size = 16.dp,
-                                            isAdultMode = false
-                                        )
-                                        Text(
-                                            text = label,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-                        }
 
                         // DIRECT ADD LINK BUTTON (when viewing Cloud/Social sources)
                         if (activeProviderId == "bun-tel-meg" || activeProviderId == "bunkr") {
@@ -1407,7 +1392,7 @@ fun HomeScreen(
                         viewModel.closeVideo()
                     },
                     onNext = { viewModel.playNextInQueue() },
-                    bottomBarPaddingDp = if (isSearchExpanded) 16.dp else bottomBarPaddingDp,
+                    bottomBarPaddingDp = if (isSearchExpanded) 16.dp else (bottomBarPaddingDp * barsAnimatedFraction + 16.dp * (1f - barsAnimatedFraction)),
                     statusBarPaddingDp = statusBarTopPadding
                 )
             }
@@ -1415,10 +1400,17 @@ fun HomeScreen(
 
         // LAYER 4: BOTTOM NAVIGATION BAR OVERLAY
         if (!isSearchExpanded) {
+            var bottomBarHeightPx by remember { mutableStateOf(0f) }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .onSizeChanged { bottomBarHeightPx = it.height.toFloat() }
+                    .graphicsLayer {
+                        val fraction = 1f - barsAnimatedFraction
+                        translationY = if (bottomBarHeightPx > 0f) bottomBarHeightPx * fraction else 0f
+                        alpha = barsAnimatedFraction.coerceIn(0f, 1f)
+                    }
             ) {
                 LiquidGlassNavBar(
                     currentScreen = currentScreen,
@@ -1709,7 +1701,7 @@ private fun buildSmartTags(
 
     // Smart contextual rules based on active video / movie / show / query / recent searches
     if (combined.contains("hotstar") || combined.contains("jiohotstar") || combined.contains("disney")) {
-        tags.addAll(listOf("Hotstar Specials", "Serials", "Movies", "Anupamaa", "RadhaKrishn", "StarPlus", "Cricket", "Comedy"))
+        tags.addAll(listOf("Specials", "Serials", "Movies", "Anupamaa", "RadhaKrishn", "Drama", "Cricket", "Comedy"))
     }
     if (combined.contains("spider") || combined.contains("venom")) {
         tags.addAll(listOf("Spider-Man", "Marvel", "Sony", "Tom Holland", "Venom", "Peter Parker", "Superhero"))
@@ -1762,14 +1754,24 @@ private fun buildSmartTags(
         if (!tags.contains(cat)) tags.add(cat)
     }
 
+    val excludedSourceNames = setOf(
+        "youtube", "tencent", "tencent video", "bilibili", "dailymotion", "twitch", "hotstar", "disney+ hotstar", "sonyliv",
+        "disney", "disney+", "minitv", "amazon minitv", "mx player", "mxplayer", "popcorntv", "imdb", "discovery+", "drive", "google drive",
+        "netflix", "crunchyroll", "v.qq.com", "v_qq_com", "qq", "vqqcom", "bunkr", "telegram", "mega", "bun-tel-meg",
+        "xnxx", "hellporno", "stripchat", "chaturbate", "motherless", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
+        "123av", "javtiful", "hanime1", "rule34video", "pmvhaven", "piped", "invidious", "hianime", "aniwatch", "bigo", "kick", "rumble"
+    )
+
     return tags.filter { tag ->
         val lower = tag.lowercase()
         val notTorrent = !lower.contains("torrent") && !lower.contains("toreent")
         val notSextb = !lower.contains("sextb") && !lower.contains("streamtb")
+        val notSource = excludedSourceNames.none { lower == it || lower.startsWith("$it ") || lower.endsWith(" $it") } &&
+                !lower.contains(".com") && !lower.contains(".org") && !lower.contains(".net") && !lower.contains("v.qq")
         if (!adultContentEnabled) {
-            notTorrent && notSextb && adultKeywords.none { lower.contains(it) }
+            notTorrent && notSextb && notSource && adultKeywords.none { lower.contains(it) }
         } else {
-            notTorrent && notSextb
+            notTorrent && notSextb && notSource
         }
     }.distinct()
 }

@@ -132,10 +132,8 @@ object MediaSourceFactoryHelper {
             reqHeaders.remove("Sec-Fetch-Mode")
             reqHeaders.remove("Sec-Fetch-Site")
             reqHeaders.remove("Origin")
-            val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
-            if (cookie.isNotBlank() && !reqHeaders.containsKey("Cookie")) {
-                reqHeaders["Cookie"] = cookie
-            }
+            reqHeaders.remove("Cookie")
+            reqHeaders.remove("cookie")
         } else {
             val hasReferer = reqHeaders.keys.any { it.equals("Referer", ignoreCase = true) }
             if (!hasReferer) {

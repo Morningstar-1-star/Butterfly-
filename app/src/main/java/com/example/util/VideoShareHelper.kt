@@ -234,42 +234,52 @@ object VideoShareHelper {
             val ytMatch = Regex("https?://(?:www\\.)?(?:youtube\\.com/watch\\?v=|youtu\\.be/)([a-zA-Z0-9_-]{11})").find(rawDesc)
             if (ytMatch != null) {
                 val yId = ytMatch.groupValues[1]
-                val origPlatform = when (rawProv) {
-                    "sonyliv" -> "SonyLIV (Official Channel)"
-                    "hotstar" -> "Hotstar (Official Channel)"
-                    "amazonminitv" -> "Amazon miniTV"
-                    "crunchyroll" -> "Crunchyroll Anime"
-                    "imdb" -> "IMDb Trailers"
-                    else -> "YouTube"
-                }
-                return SourceOriginInfo(origPlatform, "youtube.com", "https://youtu.be/$yId")
+                return SourceOriginInfo("YouTube", "youtube.com", "https://youtu.be/$yId")
             }
         }
 
-        // 11. Check OTT & Syndicated Providers
+        // 10.5. YouTube standard ID or URL check - prioritize actual platform over wrapper providers
+        val cleanCandidate = rawId.removePrefix("youtube:").removePrefix("yt:").trim()
+        val isYtId = cleanCandidate.length == 11 && cleanCandidate.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && !cleanCandidate.all { it.isDigit() }
+        val isYtUrl = rawId.contains("youtube.com") || rawId.contains("youtu.be") || rawUrl.contains("youtube.com") || rawUrl.contains("youtu.be")
+        if (isYtId || isYtUrl) {
+            val yId = when {
+                isYtId -> cleanCandidate
+                rawId.contains("youtu.be/") -> rawId.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+                rawId.contains("v=") -> rawId.substringAfter("v=").substringBefore("&").substringBefore("?")
+                rawUrl.contains("youtu.be/") -> rawUrl.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+                rawUrl.contains("v=") -> rawUrl.substringAfter("v=").substringBefore("&").substringBefore("?")
+                else -> cleanCandidate
+            }
+            if (yId.length == 11 && yId.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && !yId.all { it.isDigit() }) {
+                return SourceOriginInfo("YouTube", "youtube.com", "https://youtu.be/$yId")
+            }
+        }
+
+        // 11. Check OTT & Syndicated Providers (Native Non-YouTube links)
         if (rawProv == "sonyliv" || rawId.startsWith("sonyliv:", ignoreCase = true)) {
             val clean = rawId.removePrefix("sonyliv:").trim()
-            val url = if (clean.length == 11) "https://youtu.be/$clean" else "https://www.sonyliv.com"
+            val url = if (clean.startsWith("http")) clean else "https://www.sonyliv.com"
             return SourceOriginInfo("SonyLIV", "sonyliv.com", url)
         }
         if (rawProv == "hotstar" || rawId.startsWith("hotstar:", ignoreCase = true)) {
             val clean = rawId.removePrefix("hotstar:").trim()
-            val url = if (clean.length == 11) "https://youtu.be/$clean" else "https://www.hotstar.com"
+            val url = if (clean.startsWith("http")) clean else "https://www.hotstar.com"
             return SourceOriginInfo("Disney+ Hotstar", "hotstar.com", url)
         }
         if (rawProv == "amazonminitv" || rawId.startsWith("amazonminitv:", ignoreCase = true)) {
             val clean = rawId.removePrefix("amazonminitv:").trim()
-            val url = if (clean.length == 11) "https://youtu.be/$clean" else "https://www.amazon.in/minitv"
+            val url = if (clean.startsWith("http")) clean else "https://www.amazon.in/minitv"
             return SourceOriginInfo("Amazon miniTV", "amazon.in", url)
         }
         if (rawProv == "crunchyroll" || rawId.startsWith("crunchyroll:", ignoreCase = true)) {
             val clean = rawId.removePrefix("crunchyroll:").trim()
-            val url = if (clean.length == 11) "https://youtu.be/$clean" else "https://www.crunchyroll.com"
+            val url = if (clean.startsWith("http")) clean else "https://www.crunchyroll.com"
             return SourceOriginInfo("Crunchyroll", "crunchyroll.com", url)
         }
         if (rawProv == "imdb" || rawId.startsWith("imdb:", ignoreCase = true)) {
             val clean = rawId.removePrefix("imdb:").trim()
-            val url = if (clean.length == 11) "https://youtu.be/$clean" else "https://www.imdb.com"
+            val url = if (clean.startsWith("http")) clean else "https://www.imdb.com"
             return SourceOriginInfo("IMDb", "imdb.com", url)
         }
 

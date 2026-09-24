@@ -215,7 +215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val normalIdsList = listOf(
         "youtube", "crunchyroll", "sonyliv", "twitch", "bigo", "bilibili", "tencent", "dailymotion", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
-        "decryptor", "vidsrc"
+        "decryptor", "tmdb_embed", "vidsrc"
     )
     val defaultDisabledProviderIds = setOf(
         "twitch", "bigo", "bun-tel-meg", "googledrive", "imdb"
@@ -3098,6 +3098,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
+                    id = "tmdb_embed",
+                    name = "TMDB Embed (13 Sources)",
+                    description = "VixSrc, NetMirror, Videasy, Vidlink, CastleTV, 4KHDHub & more with HLS/Subtitles",
+                    category = "Cinema",
+                    isEnabled = enabledSet.contains("tmdb_embed"),
+                    isDefault = (activeId == "tmdb_embed")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
                     id = "vidsrc",
                     name = "VidSrc (Cloud Stream)",
                     description = "VidSrc high-speed cloud streams, auto-mirrors & HD movies",
@@ -3777,7 +3787,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val normalSources = listOf(
                         "tencent", "twitch", "bigo", "vimeo", "hotstar", "bun-tel-meg",
                         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
-                        "crunchyroll", "sonyliv", "decryptor", "vidsrc"
+                        "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
                     )
 
                     val targetMultiSources = when {
@@ -4160,7 +4170,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         listOf(
                             "tencent", "hotstar", "twitch", "bigo", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
-                            "crunchyroll", "sonyliv", "decryptor", "vidsrc"
+                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
                         )
                     }
                 }
@@ -4303,7 +4313,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val multiProvs = listOf(
                             "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
-                            "crunchyroll", "sonyliv", "decryptor", "vidsrc"
+                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
                         ) + (if (adultEnabled) listOf(
                             "sextb", "123av", "javtiful", "jav_all",
                             "hanime1", "hqporner", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
@@ -4348,7 +4358,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val multiProvs = listOf(
                             "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
-                            "crunchyroll", "sonyliv", "decryptor", "vidsrc"
+                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
                         ) + (if (adultEnabled) listOf(
                             "sextb", "123av", "javtiful", "jav_all",
                             "hanime1", "hqporner", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
@@ -4672,6 +4682,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("mxplayer.in", ignoreCase = true) || cleanIdOrUrl.startsWith("mxplayer:", ignoreCase = true) -> "mxplayer"
                 cleanIdOrUrl.contains("popcorntime", ignoreCase = true) || cleanIdOrUrl.startsWith("popcorntv:", ignoreCase = true) -> "popcorntv"
                 cleanIdOrUrl.contains("decryptor", ignoreCase = true) || cleanIdOrUrl.startsWith("decryptor:", ignoreCase = true) -> "decryptor"
+                cleanIdOrUrl.contains("tmdb_embed", ignoreCase = true) || cleanIdOrUrl.startsWith("tmdb_embed:", ignoreCase = true) || cleanIdOrUrl.startsWith("tmdb:", ignoreCase = true) -> "tmdb_embed"
                 cleanIdOrUrl.contains("vidsrc", ignoreCase = true) || cleanIdOrUrl.startsWith("vidsrc:", ignoreCase = true) -> "vidsrc"
                 cleanIdOrUrl.contains("bitchute.com", ignoreCase = true) -> "bitchute"
                 cleanIdOrUrl.contains("rumble.com", ignoreCase = true) -> "rumble"
@@ -5362,6 +5373,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         Log.w("MainViewModel", "Decryptor provider extraction notice: ${e.message}")
                     } finally {
                         _isResolvingDecryptor.value = false
+                    }
+                }
+
+                // 3.5 TMDB Embed Multi-Source Extraction (13 Sources: VixSrc, NetMirror, Videasy, Vidlink, CastleTV, etc.)
+                if (com.example.extractor.tmdbembed.TMDBEmbedConfig.isMasterEnabled(getApplication()) && (!effectiveId.isNullOrBlank() || cleanSearch.isNotBlank())) {
+                    try {
+                        val isTv = mediaType.equals("tv", ignoreCase = true) || mediaType.equals("series", ignoreCase = true)
+                        val s = season ?: 1
+                        val ep = episode ?: 1
+                        val targetTmdbId = resolvedTmdb ?: tmdbId ?: effectiveId?.filter { it.isDigit() } ?: ""
+
+                        if (targetTmdbId.isNotBlank()) {
+                            val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                                tmdbId = targetTmdbId,
+                                mediaType = if (isTv) "tv" else "movie",
+                                season = s,
+                                episode = ep,
+                                title = cleanSearch
+                            )
+                            val tmdbStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(
+                                context = getApplication(),
+                                request = tmdbReq
+                            )
+                            if (tmdbStreams.isNotEmpty()) {
+                                discovered.addAll(tmdbStreams)
+                                withContext(Dispatchers.Main) {
+                                    onDiscovered(discovered.toList())
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MainViewModel", "TMDB Embed extraction notice: ${e.message}")
                     }
                 }
 

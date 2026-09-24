@@ -138,7 +138,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
             try {
                 val targetProvider = _activeProviderId.value
-                val fetched = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                var fetched = kotlinx.coroutines.withTimeoutOrNull(15000L) {
                     withContext(Dispatchers.IO) {
                         val query = topic ?: "trending popular videos 2026"
                         if (targetProvider == "all" || targetProvider == "youtube") {
@@ -155,6 +155,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 } ?: emptyList()
+
+                if (fetched.isEmpty() && targetProvider == "bilibili") {
+                    fetched = com.example.extractor.BilibiliProvider.DEFAULT_BILIBILI_HOME_FALLBACK
+                }
 
                 if (fetched.isNotEmpty()) {
                     val translated = com.example.util.UniversalTranslator.translateVideoItemList(fetched)

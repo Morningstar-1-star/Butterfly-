@@ -23,7 +23,8 @@ enum class ProviderType {
     OTHER,
     VEGA,
     DECRYPTOR,
-    EMBED
+    EMBED,
+    TMDB_EMBED
 }
 
 enum class ProviderStatusState {

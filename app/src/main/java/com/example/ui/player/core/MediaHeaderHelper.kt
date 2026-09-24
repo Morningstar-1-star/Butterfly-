@@ -53,6 +53,9 @@ object MediaHeaderHelper {
                     urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") ||
                     urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
                     urlStr.contains("biliintl") -> {
+                val isBiliCdn = urlStr.contains("bilivideo") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
+                        urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo")
+
                 val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
                 if (request.header("Referer").isNullOrBlank()) {
                     builder.header("Referer", biliReferer)
@@ -66,9 +69,15 @@ object MediaHeaderHelper {
                 builder.removeHeader("Sec-Fetch-Site")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
-                val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
-                if (cookie.isNotBlank() && request.header("Cookie") == null) {
-                    builder.header("Cookie", cookie)
+
+                if (!isBiliCdn) {
+                    val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
+                    if (cookie.isNotBlank() && request.header("Cookie") == null) {
+                        builder.header("Cookie", cookie)
+                    }
+                } else {
+                    builder.removeHeader("Cookie")
+                    builder.removeHeader("cookie")
                 }
             }
             urlStr.contains("eporner.com") || urlStr.contains("eporner") || urlStr.contains("static-cluster") || urlStr.contains("eporner-cdn") -> {
@@ -509,12 +518,23 @@ object MediaHeaderHelper {
         val isDm = urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event")
 
         if (isBili) {
+            val isBiliCdn = urlStr.contains("bilivideo") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
+                    urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo")
+
             val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-            builder.header("Referer", biliReferer)
-            builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            if (request.header("Referer").isNullOrBlank()) {
+                builder.header("Referer", biliReferer)
+            }
+            if (request.header("User-Agent").isNullOrBlank()) {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            }
             builder.header("Accept", "*/*")
             builder.removeHeader("Origin")
             builder.removeHeader("origin")
+            if (isBiliCdn) {
+                builder.removeHeader("Cookie")
+                builder.removeHeader("cookie")
+            }
         } else if (isDm) {
             builder.header("Referer", "https://www.dailymotion.com/")
             builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")

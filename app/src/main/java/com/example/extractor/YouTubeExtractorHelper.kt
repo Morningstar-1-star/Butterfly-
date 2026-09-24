@@ -872,6 +872,16 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isTMDBEmbed = providerId == "tmdb_embed" || providerId == "tmdbembed" || providerId == "tmdb" ||
+                urlOrId.startsWith("tmdb_embed:") || urlOrId.startsWith("tmdb:")
+        if (isTMDBEmbed) {
+            val tmdbData = TMDBEmbedProvider.getStreamData(urlOrId, context)
+            if (tmdbData != null) {
+                Log.i(TAG, "Resolved via TMDBEmbedProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(tmdbData)
+            }
+        }
+
         val isVidSrc = providerId == "vidsrc" || urlOrId.startsWith("vidsrc:") || urlOrId.contains("vidsrc")
         if (isVidSrc) {
             val vidsrcData = VidSrcProvider.getStreamData(urlOrId, context)
