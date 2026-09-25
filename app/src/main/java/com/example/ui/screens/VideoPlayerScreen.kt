@@ -87,6 +87,30 @@ fun VideoPlayerScreen(
     val currentStreamData = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData
     val providerId = currentStreamData?.providerId
     val context = androidx.compose.ui.platform.LocalContext.current
+    val currentView = androidx.compose.ui.platform.LocalView.current
+
+    // Keep Screen On automatically during active video playback
+    val globalIsPlaying by GlobalPlayerManager.isPlaying.collectAsState()
+    val globalIsBuffering by GlobalPlayerManager.isBuffering.collectAsState()
+    val shouldKeepScreenOn = (isPlaying || globalIsPlaying || globalIsBuffering) && activeVideoId != null
+
+    androidx.compose.runtime.DisposableEffect(shouldKeepScreenOn) {
+        val window = (context as? android.app.Activity)?.window
+            ?: (currentView.context as? android.app.Activity)?.window
+        if (shouldKeepScreenOn) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            currentView.keepScreenOn = true
+        } else if (!globalIsPlaying && !globalIsBuffering) {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            currentView.keepScreenOn = false
+        }
+        onDispose {
+            if (!GlobalPlayerManager.isPlaying.value && !GlobalPlayerManager.isBuffering.value) {
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                currentView.keepScreenOn = false
+            }
+        }
+    }
 
     val initialPositionMs = remember(activeVideoId) {
         activeVideoId?.let { id ->
@@ -203,10 +227,24 @@ fun VideoPlayerScreen(
     var relatedContent by remember(activeVideoId) { mutableStateOf<List<com.example.model.VideoItem>>(emptyList()) }
     LaunchedEffect(activeVideoId, currentStreamData, playerRecommendations.size, trendingVideos.size) {
         val streamRelated = currentStreamData?.relatedVideos?.filter { it.id != activeVideoId } ?: emptyList()
-        val pool = (playerRecommendations + streamRelated + trendingVideos.filter { it.id != activeVideoId })
-            .distinctBy { it.id }
-            .filterNot { viewModel.isBlockedVideo(it) }
-        relatedContent = pool.take(15)
+        val pId = providerId ?: currentStreamData?.providerId
+        val isAdultCurrent = viewModel.isAdultProviderId(pId) ||
+                (currentVideoItem != null && (viewModel.isAdultVideoItem(currentVideoItem) || viewModel.isAdultProviderId(currentVideoItem.providerId))) ||
+                (currentStreamData != null && (viewModel.isAdultSearchQuery(currentStreamData.title) || viewModel.isAdultProviderId(currentStreamData.providerId)))
+
+        val basePool = if (isAdultCurrent) {
+            // In 18+ mode: strictly adult items only, never mix normal/YouTube videos!
+            (playerRecommendations + streamRelated).filter {
+                it.id != activeVideoId && (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId)
+            }
+        } else {
+            // In normal mode: strictly normal items only, never mix adult videos!
+            (playerRecommendations + streamRelated + trendingVideos.filter { it.id != activeVideoId }).filter {
+                !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId)
+            }
+        }
+        val pool = basePool.distinctBy { (it.providerId ?: "") + "_" + it.id }.filterNot { viewModel.isBlockedVideo(it) }
+        relatedContent = pool.take(20)
         withContext(Dispatchers.Default) {
             val activeItem = currentVideoItem ?: currentStreamData?.let {
                 com.example.model.VideoItem(
@@ -214,6 +252,7 @@ fun VideoPlayerScreen(
                     title = it.title,
                     uploaderName = it.channelName,
                     tags = it.tags,
+                    providerId = it.providerId,
                     durationSeconds = currentVideoItem?.durationSeconds ?: 0
                 )
             }
@@ -567,6 +606,7 @@ fun VideoPlayerScreen(
                 hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                 captionOption = selectedCaption,
                 streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
+                previewItem = currentVideoItem,
                 providerId = providerId,
                 isPlaying = isPlaying,
                 videoId = activeVideoId,
@@ -688,6 +728,7 @@ fun VideoPlayerScreen(
                                 hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                                 captionOption = selectedCaption,
                                 streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
+                                previewItem = currentVideoItem,
                                 chapters = currentStreamData?.chapters ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters ?: emptyList(),
                                 providerId = providerId,
                                 isPlaying = isPlaying,
@@ -931,6 +972,22 @@ fun VideoPlayerScreen(
                                         )
                                     }
                                 }
+                            )
+                        }
+
+                        // Interactive Timeline Preview Strip (SpankBang & Universal Storyboard Timeline)
+                        item {
+                            val curTimelinePosMs by GlobalPlayerManager.currentPositionMs.collectAsState()
+                            val totalTimelineDurMs by GlobalPlayerManager.durationMs.collectAsState()
+                            com.example.ui.components.InteractiveTimelinePreviewStrip(
+                                currentPositionMs = curTimelinePosMs,
+                                durationMs = totalTimelineDurMs,
+                                streamData = currentStreamData,
+                                previewItem = currentVideoItem,
+                                onSeekTo = { targetMs ->
+                                    GlobalPlayerManager.seekTo(targetMs)
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
                             )
                         }
 

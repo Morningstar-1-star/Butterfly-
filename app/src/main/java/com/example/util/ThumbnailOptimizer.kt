@@ -180,7 +180,7 @@ object ThumbnailOptimizer {
                 builder.setHeader("Referer", "https://www.cam4.com/")
                 builder.setHeader("Origin", "https://www.cam4.com")
             }
-            lowerUrl.contains("cammodels.com") || lowerUrl.contains("img.cammodels.com") || lowerUrl.contains("strpst.com") || lowerUrl.contains("stripchat.com") -> {
+            lowerUrl.contains("cammodels.com") || lowerUrl.contains("img.cammodels.com") || lowerUrl.contains("strpst.com") || lowerUrl.contains("stripchat.com") || lowerUrl.contains("doppiocdn") -> {
                 builder.setHeader("Referer", "https://stripchat.com/")
                 builder.setHeader("Origin", "https://stripchat.com")
             }
@@ -201,9 +201,14 @@ object ThumbnailOptimizer {
                 builder.setHeader("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1")
                 builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            lowerUrl.contains("motherless.com") || lowerUrl.contains("motherlessmedia") || lowerUrl.contains("cdn.motherless") -> {
-                builder.setHeader("Referer", "https://motherless.com/")
-                builder.setHeader("Cookie", "content_filter=0; member=1; age_verified=1; country=US; consent=1")
+            lowerUrl.contains("xnxx.com") || lowerUrl.contains("xnxx-cdn.com") || lowerUrl.contains("xnxxcdn.com") -> {
+                builder.setHeader("Referer", "https://www.xnxx.com/")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc; has_consent=1")
+                builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            }
+            lowerUrl.contains("hellporno") -> {
+                builder.setHeader("Referer", "https://hellporno.com/")
+                builder.setHeader("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
             lowerUrl.contains("playvid.com") -> {

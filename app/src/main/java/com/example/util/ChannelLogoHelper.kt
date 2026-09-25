@@ -604,15 +604,6 @@ object ChannelLogoHelper {
                 subscriberCountText = "Anime Network"
             )
 
-            combined.contains("hqporner") -> BrandLogoInfo(
-                logoUrls = emptyList(),
-                brandName = cleanName,
-                brandShortText = "HQ",
-                backgroundColor = Color(0xFF00C853),
-                textColor = Color.White,
-                subscriberCountText = "Ultra HD 4K CDN"
-            )
-
             combined.contains("beeg") -> BrandLogoInfo(
                 logoUrls = emptyList(),
                 brandName = cleanName,

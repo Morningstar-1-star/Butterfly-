@@ -22,7 +22,7 @@ object PreviewFrameResolver {
 
     /**
      * Checks if this video supports horizontal scrub teaser frames.
-     * Fast O(1) check to avoid regexes on non-scrubbable sources (like YouTube, Archive.org, etc.)
+     * All video sources support preview/storyboard frames.
      */
     fun supportsScrubbing(video: VideoItem): Boolean {
         if (video.previewThumbnails.size > 1) return true
@@ -30,14 +30,19 @@ object PreviewFrameResolver {
         val provider = (video.providerId ?: "").lowercase()
         val thumbLower = rawThumb.lowercase()
 
-        return provider.contains("eporner") || thumbLower.contains("eporner.com") ||
+        return provider.contains("spankbang") || thumbLower.contains("spankbang") || thumbLower.contains("sb-cd.com") || thumbLower.contains("spankcdn") ||
+               provider.contains("xnxx") || thumbLower.contains("xnxx") || thumbLower.contains("xnxx-cdn") ||
+               provider.contains("hellporno") || thumbLower.contains("hellporno") ||
+               provider.contains("eporner") || thumbLower.contains("eporner.com") ||
                provider.contains("xvideos") || thumbLower.contains("xvideos") ||
                provider.contains("pornhub") || thumbLower.contains("phncdn.com") ||
                provider.contains("redtube") || thumbLower.contains("redtube") || thumbLower.contains("rdtcdn.com") ||
                provider.contains("4tube") || thumbLower.contains("4tube") || thumbLower.contains("ttcache.com") ||
                provider.contains("youporn") || thumbLower.contains("youporn") ||
                provider.contains("rule34") || thumbLower.contains("rule34video") ||
-               provider.contains("motherless") || thumbLower.contains("motherless")
+               provider.contains("youtube") || thumbLower.contains("ytimg.com") ||
+               provider.contains("bilibili") || thumbLower.contains("hdslb.com") ||
+               rawThumb.isNotBlank()
     }
 
     /**
@@ -112,14 +117,28 @@ object PreviewFrameResolver {
         }
 
         val rawThumb = video.thumbnailUrl?.trim() ?: return emptyList()
-        if (!supportsScrubbing(video)) {
-            return listOf(rawThumb)
-        }
 
         val provider = (video.providerId ?: "").lowercase()
         val thumbLower = rawThumb.lowercase()
 
-        // 1. EPORNER (16 storyboard teaser frames across video timeline)
+        // 1. SPANKBANG (16 scene screenshots: /1.jpg .. /16.jpg or CDN paths)
+        if (provider.contains("spankbang") || thumbLower.contains("spankbang") || thumbLower.contains("sb-cd.com") || thumbLower.contains("spankcdn")) {
+            val sbMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (sbMatcher != null) {
+                val ext = sbMatcher.groupValues[2]
+                val base = rawThumb.substring(0, sbMatcher.range.first)
+                return (1..16).map { idx -> "$base/$idx.$ext" }
+            }
+            if (thumbLower.contains("/t/")) {
+                val lastSlash = rawThumb.lastIndexOf('/')
+                if (lastSlash != -1) {
+                    val base = rawThumb.substring(0, lastSlash)
+                    return (1..16).map { idx -> "$base/$idx.jpg" }
+                }
+            }
+        }
+
+        // 2. EPORNER (16 storyboard teaser frames across video timeline)
         if (provider.contains("eporner") || thumbLower.contains("eporner.com")) {
             val epornerMatcher = Regex("""/(\d+)(_\d+\.jpg)""").find(rawThumb)
             if (epornerMatcher != null) {
@@ -136,8 +155,8 @@ object PreviewFrameResolver {
             }
         }
 
-        // 2. XVIDEOS (30 storyboard teaser frames: xv_1_t.jpg .. xv_30_t.jpg or hash.1.jpg .. hash.30.jpg)
-        if (provider.contains("xvideos") || thumbLower.contains("xvideos")) {
+        // 3. XVIDEOS & XNXX (30 storyboard teaser frames: xv_1_t.jpg .. xv_30_t.jpg or hash.1.jpg .. hash.30.jpg)
+        if (provider.contains("xvideos") || provider.contains("xnxx") || thumbLower.contains("xvideos") || thumbLower.contains("xnxx") || thumbLower.contains("xnxx-cdn")) {
             // Hash format with frame index: .../thumbs169ll/2c/b4/.../2cb4b3012903847a98a09b3c4a259c84.14.jpg
             val hashMatcher = Regex("""/([a-f0-9]{16,40})\.(\d+)\.jpg""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (hashMatcher != null) {
@@ -161,11 +180,23 @@ object PreviewFrameResolver {
                 val base = rawThumb.substring(0, numMatcher.range.first)
                 return (1..30).map { idx -> "$base/$idx.jpg" }
             }
-
-            return listOf(rawThumb)
         }
 
-        // 3. PORNHUB (16 teaser scene frames: 1.jpg .. 16.jpg, handles (m=eaAaGwObaaaa)1.jpg & CDN paths)
+        // 4. HELLPORNO (16 scene screenshots)
+        if (provider.contains("hellporno") || thumbLower.contains("hellporno") || thumbLower.contains("videos_screenshots")) {
+            val hpMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (hpMatcher != null) {
+                val ext = hpMatcher.groupValues[2]
+                val base = rawThumb.substring(0, hpMatcher.range.first)
+                return (1..16).map { idx -> "$base/$idx.$ext" }
+            }
+            if (rawThumb.contains("/preview.jpg")) {
+                val base = rawThumb.substringBeforeLast("/preview.jpg")
+                return (1..16).map { idx -> "$base/$idx.jpg" }
+            }
+        }
+
+        // 5. PORNHUB (16 teaser scene frames: 1.jpg .. 16.jpg, handles (m=eaAaGwObaaaa)1.jpg & CDN paths)
         if (provider.contains("pornhub") || thumbLower.contains("phncdn.com") || thumbLower.contains("pornhub")) {
             val phPrefixMatcher = Regex("""/((?:\([^\)]+\))*?)(\d+)\.(jpg|webp|jpeg|png)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (phPrefixMatcher != null) {
@@ -186,7 +217,7 @@ object PreviewFrameResolver {
             }
         }
 
-        // 4. XHAMSTER (12 teaser storyboard cuts)
+        // 6. XHAMSTER (12 teaser storyboard cuts)
         if (provider.contains("xhamster") || thumbLower.contains("xhcdn.com") || thumbLower.contains("xhamster")) {
             val xhMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (xhMatcher != null) {
@@ -196,7 +227,7 @@ object PreviewFrameResolver {
             }
         }
 
-        // 5. REDTUBE & YOUPORN
+        // 7. REDTUBE & YOUPORN
         if (provider.contains("redtube") || provider.contains("youporn") || thumbLower.contains("redtube") || thumbLower.contains("youporn") || thumbLower.contains("rdtcdn.com") || thumbLower.contains("ypncdn.com")) {
             val rtPrefixMatcher = Regex("""/((?:\([^\)]+\))*?)(\d+)\.(jpg|webp|jpeg|png)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (rtPrefixMatcher != null) {
@@ -213,7 +244,7 @@ object PreviewFrameResolver {
             }
         }
 
-        // 6. 4TUBE (16 storyboard teaser frames: 1.jpg .. 16.jpg)
+        // 8. 4TUBE (16 storyboard teaser frames: 1.jpg .. 16.jpg)
         if (provider.contains("4tube") || thumbLower.contains("ttcache.com") || thumbLower.contains("4tube")) {
             val ttHostMatch = Regex("""(https://c\d+\.ttcache\.com/thumbnail/[^/]+/288x162/)[^/]+""").find(rawThumb)
             if (ttHostMatch != null) {
@@ -227,7 +258,7 @@ object PreviewFrameResolver {
             }
         }
 
-        // 7. RULE34VIDEO & KVS (10-15 frames: /1.jpg .. /10.jpg)
+        // 9. RULE34VIDEO & KVS (10-15 frames: /1.jpg .. /10.jpg)
         if (provider.contains("rule34") || thumbLower.contains("rule34video") || thumbLower.contains("videos_screenshots")) {
             val r34Matcher = Regex("""/([1-9]|1[0-5])\.jpg""").find(rawThumb)
             if (r34Matcher != null) {
@@ -236,34 +267,19 @@ object PreviewFrameResolver {
             }
         }
 
-        // 7. BEEG (thumbs.externulls.com/240x180/{id}.jpg)
-        if (provider.contains("beeg") || thumbLower.contains("externulls.com")) {
-            val beegMatcher = Regex("""thumbs\.externulls\.com/(\d+x\d+)/(\d+)\.jpg""").find(rawThumb)
-            if (beegMatcher != null) {
-                val res = beegMatcher.groupValues[1]
-                val fileId = beegMatcher.groupValues[2]
+        // 11. YOUTUBE (storyboard frames)
+        if (provider.contains("youtube") || thumbLower.contains("ytimg.com") || thumbLower.contains("youtube.com")) {
+            val ytIdMatch = Regex("""vi(?:_webp)?/([a-zA-Z0-9_-]{11})/""").find(rawThumb)
+            if (ytIdMatch != null) {
+                val yId = ytIdMatch.groupValues[1]
                 return listOf(
-                    "https://thumbs.externulls.com/$res/$fileId.jpg"
+                    "https://i.ytimg.com/vi/$yId/hqdefault.jpg",
+                    "https://i.ytimg.com/vi/$yId/hq1.jpg",
+                    "https://i.ytimg.com/vi/$yId/hq2.jpg",
+                    "https://i.ytimg.com/vi/$yId/hq3.jpg",
+                    "https://i.ytimg.com/vi/$yId/sddefault.jpg",
+                    "https://i.ytimg.com/vi/$yId/mqdefault.jpg"
                 )
-            }
-        }
-
-        // 8. MOTHERLESS
-        if (provider.contains("motherless") || thumbLower.contains("motherless")) {
-            if (thumbLower.contains("eporner.com")) {
-                val epornerMatcher = Regex("""/(\d+)(_\d+\.jpg)""").find(rawThumb)
-                if (epornerMatcher != null) {
-                    val suffix = epornerMatcher.groupValues[2]
-                    val base = rawThumb.substring(0, epornerMatcher.range.first)
-                    return (1..16).map { idx -> "$base/$idx$suffix" }
-                }
-            }
-            val mlMatch = Regex("""/([a-zA-Z0-9]+)(?:_\d+)?\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
-            if (mlMatch != null) {
-                val fileId = mlMatch.groupValues[1]
-                val ext = mlMatch.groupValues[2]
-                val base = rawThumb.substring(0, mlMatch.range.first)
-                return (1..15).map { idx -> "$base/${fileId}_$idx.$ext" }
             }
         }
 

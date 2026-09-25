@@ -20,7 +20,7 @@ object CategoryTagDetector {
 
     private val ADULT_KEYWORDS = listOf(
         "milf", "hentai", "jav", "porn", "xxx", "nsfw", "18+", "erotic", "spankbang",
-        "xvideos", "hqporner", "redtube", "xhamster", "youporn", "ecchi", "cam4",
+        "xvideos", "redtube", "xhamster", "youporn", "ecchi", "cam4",
         "chaturbate", "eporner", "tnaflix", "noodlemagazine", "thisvid", "playvid",
         "txxx", "3d hentai", "doujinshi", "uncensored"
     )
@@ -89,7 +89,7 @@ object CategoryTagDetector {
             val providerId = detectProviderFromUrl(trimmed)
             val domainName = providerId?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() } ?: "Direct Link"
             val tags = mutableListOf("Direct Link", domainName)
-            if (providerId in listOf("eporner", "pornhub", "xvideos", "hqporner", "spankbang", "123av", "javtiful", "sextb")) {
+            if (providerId in listOf("eporner", "pornhub", "xvideos", "spankbang", "123av", "javtiful", "sextb")) {
                 tags.add("18+ Adult")
             }
             return TagAnalysisResult(

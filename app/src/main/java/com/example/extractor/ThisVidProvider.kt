@@ -71,25 +71,7 @@ object ThisVidProvider {
             }
         }
 
-        // Secondary fallback via high-availability adult feeds (Eporner)
-        try {
-            val epFallback = EpornerProvider.getHome(limit, safePage)
-            if (epFallback.isNotEmpty()) {
-                Log.i(TAG, "Using Eporner cross-provider fallback for ThisVid feed")
-                return@withContext epFallback.map { item ->
-                    val cleanSlug = extractVideoId(item.id)
-                    item.copy(
-                        id = "thisvid:eporner:$cleanSlug",
-                        providerId = PROVIDER_ID,
-                        uploaderName = "${item.uploaderName.ifBlank { "ThisVid" }} (ThisVid)"
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "ThisVid secondary Eporner fallback: ${e.message}")
-        }
-
-        getCuratedThisVidList(limit, safePage)
+        emptyList()
     }
 
     suspend fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -122,24 +104,7 @@ object ThisVidProvider {
             }
         }
 
-        // Resilient cross-search via Eporner
-        try {
-            val epSearch = EpornerProvider.search(q, limit, safePage)
-            if (epSearch.isNotEmpty()) {
-                return@withContext epSearch.map { item ->
-                    val cleanSlug = extractVideoId(item.id)
-                    item.copy(
-                        id = "thisvid:eporner:$cleanSlug",
-                        providerId = PROVIDER_ID,
-                        uploaderName = "${item.uploaderName.ifBlank { "ThisVid" }} (ThisVid)"
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "ThisVid search Eporner fallback: ${e.message}")
-        }
-
-        getCuratedThisVidList(limit, safePage).filter { it.title.contains(q, ignoreCase = true) }
+        emptyList()
     }
 
     fun cleanThisVidTitle(raw: String): String {
@@ -396,36 +361,7 @@ object ThisVidProvider {
             }
         }
 
-        // 4. Cross-provider fallback matching for high-speed direct streams
-        try {
-            val candidateTitle = if (resolvedTitle != "ThisVid Video") resolvedTitle else clean.substringAfterLast("/").substringBefore("?")
-            val cleanQuery = candidateTitle
-                .replace(Regex("""(?i)(?:thisvid|watch|video|\.html|\d{5,}|[-_])"""), " ")
-                .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
-                .trim()
-            if (cleanQuery.isNotBlank() && cleanQuery.length > 2) {
-                val epSearch = EpornerProvider.search(cleanQuery, limit = 4, page = 1)
-                if (epSearch.isNotEmpty()) {
-                    for (searchItem in epSearch) {
-                        val streamData = EpornerProvider.getStreamData(searchItem.id, context)
-                        if (streamData != null && streamData.availableStreamOptions.isNotEmpty()) {
-                            Log.i(TAG, "Matched ThisVid backup stream via Eporner for '$cleanQuery'")
-                            val playableStreams = streamData.availableStreamOptions.filter {
-                                !it.videoUrl.isNullOrBlank() && !it.format.equals("embed", true)
-                            }
-                            if (playableStreams.isNotEmpty()) {
-                                videoSources.addAll(playableStreams)
-                                break
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "ThisVid cross-search note: ${e.message}")
-        }
-
-        // 5. Fallback to ThisVid Web Embed Player
+        // 4. Fallback to ThisVid Web Embed Player
         val finalEmbedUrl = if (embedUrl.isNotBlank()) embedUrl else if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$videoSlug"
         val embedOption = PlayableStreamOption(
             qualityLabel = "ThisVid Web Player (HD)",
@@ -482,11 +418,11 @@ object ThisVidProvider {
             pattern.findAll(html).forEach { match ->
                 var raw = match.groupValues[1]
                 raw = unescapeUrl(raw)
-                // Reject KVS kt_player obfuscated URLs which return 404 when requested without in-browser deobfuscation
-                if (raw.startsWith("function/") || raw.contains("/get_file/") && (raw.contains("function") || raw.contains("?embed=true"))) {
+                if (raw.startsWith("function/") || raw.contains("function/")) {
                     return@forEach
                 }
                 if (raw.startsWith("//")) raw = "https:$raw"
+                if (raw.startsWith("/")) raw = "$BASE_URL$raw"
 
                 if (raw.startsWith("http://") || raw.startsWith("https://")) {
                     val lower = raw.lowercase()
@@ -494,7 +430,8 @@ object ThisVidProvider {
                         !lower.contains(".css") && !lower.contains(".js") && !lower.contains("preview") &&
                         !lower.contains("poster") && !lower.contains("thumb") && !lower.contains("tracking") &&
                         !lower.contains("event_reporting") && !lower.contains("event_") &&
-                        (lower.contains(".mp4") || lower.contains(".m3u8"))
+                        !lower.contains("function/") && !lower.contains("function%2f") &&
+                        (lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("/get_file/"))
                     ) {
                         if (!seenUrls.contains(raw)) {
                             seenUrls.add(raw)
@@ -548,53 +485,6 @@ object ThisVidProvider {
         }
 
         return clean
-    }
-
-    private fun getCuratedThisVidList(limit: Int, page: Int): List<VideoItem> {
-        val seed = (page * 7) % 10
-        val items = listOf(
-            VideoItem(
-                id = "$BASE_URL/videos/top_trending_amateur_clips_$seed",
-                title = "Top Trending Community Clips & HD Moments #$seed",
-                uploaderName = "ThisVid Highlights",
-                thumbnailUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop",
-                providerId = PROVIDER_ID,
-                durationSeconds = 640L,
-                uploadDate = "Today",
-                description = "Featured high-rated videos from the ThisVid community."
-            ),
-            VideoItem(
-                id = "$BASE_URL/videos/popular_weekly_spotlight_$seed",
-                title = "Popular Weekly Spotlight & Creator Showcase",
-                uploaderName = "ThisVid Trending",
-                thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop",
-                providerId = PROVIDER_ID,
-                durationSeconds = 520L,
-                uploadDate = "This Week",
-                description = "Most-watched videos and highlights of the week on ThisVid."
-            ),
-            VideoItem(
-                id = "$BASE_URL/videos/most_rated_exclusive_$seed",
-                title = "Top Rated Verified Studio Releases & Direct Uploads",
-                uploaderName = "Verified Studio",
-                thumbnailUrl = "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop",
-                providerId = PROVIDER_ID,
-                durationSeconds = 780L,
-                uploadDate = "Recently Added",
-                description = "Exclusive high-definition full streams from verified creators."
-            ),
-            VideoItem(
-                id = "$BASE_URL/videos/curated_picks_compilation_$seed",
-                title = "Curated Community Picks & High Bitrate Compilations",
-                uploaderName = "ThisVid Editor Picks",
-                thumbnailUrl = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop",
-                providerId = PROVIDER_ID,
-                durationSeconds = 490L,
-                uploadDate = "Trending",
-                description = "Editor selected top clips from ThisVid."
-            )
-        )
-        return (items + items).take(limit)
     }
 }
 

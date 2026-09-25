@@ -211,7 +211,8 @@ data class StreamData(
     val translatedDescriptionEN: String? = null,
     val translatedDescriptionHI: String? = null,
     val chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
-    val heatmap: VideoHeatmap? = null
+    val heatmap: VideoHeatmap? = null,
+    val previewThumbnails: List<String> = emptyList()
 ) {
     fun getDisplayTitle(showOriginal: Boolean = false, appLanguage: String = "en"): String {
         if (showOriginal) {

@@ -93,10 +93,16 @@ object MediaHeaderHelper {
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; country=US; consent=1")
             }
             urlStr.contains("spankbang.com") || urlStr.contains("sb-cd.com") || urlStr.contains("spankcdn") || urlStr.contains("spankbang.party") || urlStr.contains("spankbang") -> {
-                builder.header("Referer", "https://spankbang.com/")
-                builder.header("Origin", "https://spankbang.com")
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1")
+                if (request.header("Referer").isNullOrBlank()) {
+                    builder.header("Referer", "https://spankbang.com/")
+                }
+                if (request.header("Origin").isNullOrBlank()) {
+                    builder.header("Origin", "https://spankbang.com")
+                }
+                if (request.header("User-Agent").isNullOrBlank()) {
+                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                }
+                if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1")
             }
             urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("cdn.motherless") -> {
                 builder.header("Referer", "https://motherless.com/")
@@ -186,7 +192,12 @@ object MediaHeaderHelper {
                 builder.header("Origin", "https://www.bigo.tv")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            urlStr.contains("cammodels.com") || urlStr.contains("stripchat.com") || urlStr.contains("doppiocdn.com") || urlStr.contains("strpst.com") || urlStr.contains("bongacams.com") || urlStr.contains("bngp.net") -> {
+            urlStr.contains("stripchat.com") || urlStr.contains("doppiocdn.com") || urlStr.contains("doppiocdn.live") || urlStr.contains("strpst.com") || urlStr.contains("b-hls") || urlStr.contains("edge-hls") -> {
+                builder.header("Referer", "https://stripchat.com/")
+                builder.header("Origin", "https://stripchat.com")
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            }
+            urlStr.contains("cammodels.com") || urlStr.contains("bongacams.com") || urlStr.contains("bngp.net") -> {
                 builder.header("Referer", "https://cammodels.com/")
                 builder.header("Origin", "https://cammodels.com")
             }

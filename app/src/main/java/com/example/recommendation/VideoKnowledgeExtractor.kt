@@ -99,7 +99,7 @@ object VideoKnowledgeExtractor {
 
     private val ADULT_TUBE_PROVIDERS = setOf(
         "xnxx", "hellporno", "pornhub", "xvideos", "youporn", "xhamster", "rule34video",
-        "hanime1", "redtube", "tube8", "coomer", "pmvhaven", "motherless", "txxx"
+        "hanime1", "redtube", "tube8", "coomer", "pmvhaven", "txxx"
     )
 
     private val JAV_PROVIDERS = setOf(

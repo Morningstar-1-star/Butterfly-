@@ -285,7 +285,7 @@ object ProviderRegistry {
                 supportsHls = true,
                 supportsStoryboards = true,
                 priority = 96,
-                fallbackProviderIds = listOf("missav", "hqporner", "eporner")
+                fallbackProviderIds = listOf("missav", "eporner")
             )
         )
         register(
@@ -299,7 +299,7 @@ object ProviderRegistry {
                 supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
                 supportsHls = true,
                 priority = 95,
-                fallbackProviderIds = listOf("jable", "hqporner", "eporner")
+                fallbackProviderIds = listOf("jable", "eporner")
             )
         )
         register(
@@ -315,21 +315,6 @@ object ProviderRegistry {
                 supportsSubtitles = true,
                 priority = 94,
                 fallbackProviderIds = listOf("hianime", "aniwatch")
-            )
-        )
-        register(
-            ProviderDescriptor(
-                id = "hqporner",
-                displayName = "HQPorner (Ultra HD)",
-                category = ProviderCategory.ADULT,
-                baseDomain = "https://hqporner.com",
-                mirrors = listOf("https://hqporner.com", "https://hqporner.tv"),
-                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP, ProviderCapability.CAPABILITY_4K),
-                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
-                supportsDirect = true,
-                supportedQualities = listOf("4K", "1080p", "720p"),
-                priority = 92,
-                fallbackProviderIds = listOf("eporner", "xvideos")
             )
         )
         register(
@@ -458,20 +443,6 @@ object ProviderRegistry {
                 supportsDirect = true,
                 supportedQualities = listOf("4K", "1080p", "720p", "480p", "240p"),
                 priority = 83
-            )
-        )
-        register(
-            ProviderDescriptor(
-                id = "motherless",
-                displayName = "Motherless (Direct HD)",
-                category = ProviderCategory.ADULT,
-                baseDomain = "https://motherless.com",
-                mirrors = listOf("https://motherless.com", "https://motherless.com/videos/recent", "https://motherless.com/videos/popular"),
-                capabilities = setOf(ProviderCapability.SEARCH, ProviderCapability.STREAM, ProviderCapability.DIRECT_HTTP),
-                supportedMediaTypes = setOf(MediaType.JAV, MediaType.VIDEO),
-                supportsDirect = true,
-                supportedQualities = listOf("1080p", "720p", "480p"),
-                priority = 82
             )
         )
         register(

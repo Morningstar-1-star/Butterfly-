@@ -27,6 +27,9 @@ fun PersistentPlayerHost(
     val context = LocalContext.current
     val exoPlayer = remember(context) { GlobalPlayerManager.getExoPlayer(context) }
     val videoEffectsConfig by VideoEffectsManager.currentConfig.collectAsState()
+    val isPlaying by GlobalPlayerManager.isPlaying.collectAsState()
+    val isBuffering by GlobalPlayerManager.isBuffering.collectAsState()
+    val shouldKeepScreenOn = isPlaying || isBuffering
 
     AndroidView(
         factory = { ctx ->
@@ -37,6 +40,7 @@ fun PersistentPlayerHost(
                 this.resizeMode = resizeMode
                 this.isClickable = false
                 this.isFocusable = false
+                this.keepScreenOn = shouldKeepScreenOn
                 this.setOnTouchListener { _, _ -> false }
                 setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
@@ -54,6 +58,7 @@ fun PersistentPlayerHost(
         },
         update = { playerView ->
             com.example.ui.player.core.PlayerFrameCaptureHelper.registerPlayerView(playerView)
+            playerView.keepScreenOn = shouldKeepScreenOn
             if (playerView.player != exoPlayer) {
                 playerView.player = exoPlayer
             }

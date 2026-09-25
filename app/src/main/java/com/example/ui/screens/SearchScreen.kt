@@ -240,15 +240,17 @@ fun SearchScreen(
             }
         } else {
             val adultDefaults = listOf(
+                ProviderSourceItemData("eporner", "Eporner", Icons.Default.Explicit, Color(0xFFFF5722)),
+                ProviderSourceItemData("spankbang", "SpankBang", Icons.Default.Explicit, Color(0xFFFF4081)),
                 ProviderSourceItemData("xnxx", "XNXX", Icons.Default.Explicit, Color(0xFF00B0FF)),
                 ProviderSourceItemData("hellporno", "HellPorno", Icons.Default.Explicit, Color(0xFFFF1744)),
+                ProviderSourceItemData("pornhub", "Pornhub", Icons.Default.Explicit, Color(0xFFFF9900)),
+                ProviderSourceItemData("xvideos", "XVideos", Icons.Default.Explicit, Color(0xFFD32F2F)),
                 ProviderSourceItemData("stripchat", "Stripchat", Icons.Default.VideoLibrary, Color(0xFFFF3D00)),
                 ProviderSourceItemData("chaturbate", "Chaturbate", Icons.Default.VideoLibrary, Color(0xFFFF6D00)),
                 ProviderSourceItemData("sextb", "SEXTB", Icons.Default.Explicit, Color(0xFFE91E63)),
                 ProviderSourceItemData("supjav", "SupJav", Icons.Default.Explicit, Color(0xFFFF4081)),
-                ProviderSourceItemData("123av", "123AV", Icons.Default.Explicit, Color(0xFF9C27B0)),
-                ProviderSourceItemData("pornhub", "Pornhub", Icons.Default.Explicit, Color(0xFFFF9900)),
-                ProviderSourceItemData("xvideos", "XVideos", Icons.Default.Explicit, Color(0xFFD32F2F))
+                ProviderSourceItemData("123av", "123AV", Icons.Default.Explicit, Color(0xFF9C27B0))
             )
             adultDefaults.forEach { item ->
                 if (!processedIds.contains(item.id.lowercase())) {

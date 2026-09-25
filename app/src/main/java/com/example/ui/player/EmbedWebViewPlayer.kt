@@ -56,10 +56,22 @@ fun EmbedWebViewPlayer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val currentView = androidx.compose.ui.platform.LocalView.current
     var isLoading by remember(candidate.urlOrMagnet) { mutableStateOf(true) }
     var errorMessage by remember(candidate.urlOrMagnet) { mutableStateOf<String?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var customViewRef by remember { mutableStateOf<View?>(null) }
+
+    DisposableEffect(Unit) {
+        val window = (context as? android.app.Activity)?.window
+            ?: (currentView.context as? android.app.Activity)?.window
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        currentView.keepScreenOn = true
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            currentView.keepScreenOn = false
+        }
+    }
 
     val initialUrl = candidate.urlOrMagnet
     val providerName = candidate.providerName.ifBlank { "Embed Provider" }
@@ -302,6 +314,7 @@ private fun createConfiguredWebView(
         )
 
         setBackgroundColor(android.graphics.Color.BLACK)
+        keepScreenOn = true
 
         val cookieManager = android.webkit.CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)

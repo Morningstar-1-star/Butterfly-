@@ -1349,7 +1349,7 @@ private fun HistoryVideoCard(
     LaunchedEffect(isAutoPlaying, previewFrames) {
         if (isAutoPlaying && isScrubbable) {
             while (isAutoPlaying) {
-                kotlinx.coroutines.delay(200L)
+                kotlinx.coroutines.delay(750L)
                 frameIndex = (frameIndex + 1) % previewFrames.size
                 scrubFraction = (frameIndex + 1).toFloat() / previewFrames.size
             }

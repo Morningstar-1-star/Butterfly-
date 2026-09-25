@@ -28,7 +28,7 @@ import kotlin.coroutines.resume
 object ThisVidWebViewFallback {
     private const val TAG = "ThisVidWebViewFallback"
     private const val DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    private const val TIMEOUT_MS = 6000L
+    private const val TIMEOUT_MS = 10000L
 
     suspend fun resolveStream(
         context: Context,
@@ -172,18 +172,30 @@ object ThisVidWebViewFallback {
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        // Inject video element watcher and player inspector
+                        // Inject player click trigger and video element watcher
                         val js = """
                             (function() {
+                                function tryPlay() {
+                                    try {
+                                        var btn = document.querySelector('.fp-ui, .btn-play, .play-button, .play_btn, div[class*="play"], button[class*="play"], a[class*="play"]');
+                                        if (btn) { btn.click(); }
+                                        var v = document.querySelector('video');
+                                        if (v && v.play) { v.play().catch(function(){}); }
+                                    } catch (e) {}
+                                }
+                                tryPlay();
+                                setTimeout(tryPlay, 500);
+                                setTimeout(tryPlay, 1200);
+
                                 function checkMedia() {
                                     var v = document.querySelector('video');
-                                    if (v && v.src && v.src.indexOf('http') === 0 && (v.src.indexOf('.mp4') !== -1 || v.src.indexOf('.m3u8') !== -1)) {
+                                    if (v && v.src && v.src.indexOf('http') === 0 && (v.src.indexOf('.mp4') !== -1 || v.src.indexOf('.m3u8') !== -1 || v.src.indexOf('/get_file/') !== -1)) {
                                         window.ThisVidBridge.onMediaFound(v.src);
                                         return;
                                     }
                                     var sources = document.querySelectorAll('video source');
                                     for (var i = 0; i < sources.length; i++) {
-                                        if (sources[i].src && sources[i].src.indexOf('http') === 0 && (sources[i].src.indexOf('.mp4') !== -1 || sources[i].src.indexOf('.m3u8') !== -1)) {
+                                        if (sources[i].src && sources[i].src.indexOf('http') === 0 && (sources[i].src.indexOf('.mp4') !== -1 || sources[i].src.indexOf('.m3u8') !== -1 || sources[i].src.indexOf('/get_file/') !== -1)) {
                                             window.ThisVidBridge.onMediaFound(sources[i].src);
                                             return;
                                         }
@@ -200,7 +212,7 @@ object ThisVidWebViewFallback {
                                 }
                                 checkMedia();
                                 var interval = setInterval(checkMedia, 300);
-                                setTimeout(function() { clearInterval(interval); }, 5000);
+                                setTimeout(function() { clearInterval(interval); }, 8000);
                             })();
                         """.trimIndent()
                         view?.evaluateJavascript(js, null)
@@ -227,10 +239,11 @@ object ThisVidWebViewFallback {
             lower.contains(".css") || lower.contains(".js") || lower.contains("blank") ||
             lower.contains("tracking") || lower.contains("event_reporting") || lower.contains("event_") ||
             lower.contains("analytics") || lower.contains("pixel") || lower.contains("log") ||
-            lower.contains("ads") || lower.contains("count")
+            lower.contains("ads") || lower.contains("count") ||
+            lower.contains("function/") || lower.contains("function%2f")
         ) {
             return false
         }
-        return (lower.contains(".mp4") || lower.contains(".m3u8")) && lower.startsWith("http")
+        return (lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("/get_file/")) && lower.startsWith("http")
     }
 }

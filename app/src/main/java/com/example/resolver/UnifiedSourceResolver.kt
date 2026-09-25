@@ -8,7 +8,6 @@ import com.example.resolver.health.ProviderIsolationController
 import com.example.resolver.providers.Av123SourceProvider
 import com.example.resolver.providers.CometSourceProvider
 import com.example.resolver.providers.Hanime1SourceProvider
-import com.example.resolver.providers.HQPornerSourceProvider
 import com.example.resolver.providers.JableMissAvSourceProvider
 import com.example.resolver.providers.JavPySourceProvider
 import com.example.resolver.providers.JavtifulSourceProvider
@@ -62,7 +61,6 @@ class UnifiedSourceResolver(private val context: Context) {
     private val av123Provider = Av123SourceProvider()
     private val javtifulProvider = JavtifulSourceProvider()
     private val hanime1Provider = Hanime1SourceProvider()
-    private val hqPornerProvider = HQPornerSourceProvider()
     private val javPyProvider = JavPySourceProvider()
     private val mediaFusionProvider = MediaFusionSourceProvider()
     private val cometProvider = CometSourceProvider()
@@ -105,7 +103,6 @@ class UnifiedSourceResolver(private val context: Context) {
             av123Provider,
             javtifulProvider,
             hanime1Provider,
-            hqPornerProvider,
             javPyProvider,
             vegaAdapter,
             torrentAdapter

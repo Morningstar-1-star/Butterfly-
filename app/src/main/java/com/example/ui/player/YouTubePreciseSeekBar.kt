@@ -16,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -23,13 +25,17 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.model.VideoHeatmap
 import kotlin.math.roundToInt
 
@@ -55,6 +61,9 @@ fun YouTubePreciseSeekBar(
     onSeekScrubbing: (scrubPositionMs: Long) -> Unit,
     onSeekFinished: (finalPositionMs: Long) -> Unit,
     modifier: Modifier = Modifier,
+    onSlideUpForFineScrubbing: (() -> Unit)? = null,
+    previewFrames: List<String> = emptyList(),
+    fallbackThumbnailUrl: String? = null,
     segments: List<com.example.smartskip.SkipSegment> = emptyList(),
     chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
     heatmap: VideoHeatmap? = null,
@@ -64,10 +73,12 @@ fun YouTubePreciseSeekBar(
     thumbColor: Color = Color(0xFFFF0033),
     isLandscape: Boolean = false
 ) {
+    val context = LocalContext.current
     var isDragging by remember { mutableStateOf(false) }
     var scrubPositionMs by remember { mutableLongStateOf(0L) }
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
     var bubbleWidthPx by remember { mutableIntStateOf(0) }
+    var totalDragY by remember { mutableFloatStateOf(0f) }
 
     val safeDuration = durationMs.coerceAtLeast(1L)
     val displayPosition = if (isDragging) scrubPositionMs else currentPositionMs.coerceIn(0L, safeDuration)
@@ -75,10 +86,22 @@ fun YouTubePreciseSeekBar(
     val bufferedFraction = (bufferedPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
     val hasHeatmap = heatmap != null && heatmap.isNotEmpty
 
+    // Floating preview frame image corresponding to current scrub position
+    val activePreviewUrl = remember(scrubPositionMs, previewFrames, fallbackThumbnailUrl) {
+        if (previewFrames.size > 1) {
+            val idx = ((scrubPositionMs.toDouble() / safeDuration) * (previewFrames.size - 1))
+                .roundToInt()
+                .coerceIn(0, previewFrames.size - 1)
+            previewFrames[idx]
+        } else {
+            fallbackThumbnailUrl ?: previewFrames.firstOrNull()
+        }
+    }
+
     val outerBoxHeight = if (hasHeatmap) {
-        if (isLandscape) 48.dp else 62.dp
+        if (isLandscape) 140.dp else 160.dp
     } else {
-        if (isLandscape) 26.dp else 44.dp
+        if (isLandscape) 120.dp else 140.dp
     }
 
     Box(
@@ -88,7 +111,7 @@ fun YouTubePreciseSeekBar(
             .onSizeChanged { trackWidthPx = it.width.toFloat().coerceAtLeast(1f) },
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Floating YouTube Scrubbing Time Bubble (Appears above finger/thumb)
+        // Floating YouTube Scrubbing Window with Thumbnail & Time (Appears above finger)
         AnimatedVisibility(
             visible = isDragging,
             enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -97,15 +120,16 @@ fun YouTubePreciseSeekBar(
         ) {
             val thumbXPx = progressFraction * trackWidthPx
             val halfBubble = bubbleWidthPx / 2f
-            val bubbleLeft = (thumbXPx - halfBubble).coerceIn(12f, (trackWidthPx - bubbleWidthPx - 12f).coerceAtLeast(12f))
+            val bubbleLeft = (thumbXPx - halfBubble).coerceIn(8f, (trackWidthPx - bubbleWidthPx - 8f).coerceAtLeast(8f))
 
             Box(
                 modifier = Modifier
                     .offset { IntOffset(bubbleLeft.roundToInt(), 0) }
                     .onSizeChanged { bubbleWidthPx = it.width }
-                    .background(Color(0xEE1A1A1A), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .shadow(12.dp, RoundedCornerShape(10.dp))
+                    .background(Color(0xFA151515), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                    .padding(4.dp)
             ) {
                 val currentChapter = remember(scrubPositionMs, chapters) {
                     chapters.lastOrNull { scrubPositionMs >= it.startTimeMs }
@@ -113,7 +137,32 @@ fun YouTubePreciseSeekBar(
                 val isNearPeak = hasHeatmap && heatmap != null &&
                         kotlin.math.abs(progressFraction - heatmap.peakFraction) < 0.05f
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(IntrinsicSize.Min)
+                ) {
+                    // Preview Thumbnail Image (if available)
+                    if (!activePreviewUrl.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .width(120.dp)
+                                .height(68.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black)
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(activePreviewUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Scrub Preview",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
                     if (isNearPeak) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -137,22 +186,33 @@ fun YouTubePreciseSeekBar(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+
                     Text(
                         text = "${formatVideoTimestamp(scrubPositionMs)} / ${formatVideoTimestamp(durationMs)}",
-                        color = if (isNearPeak) Color(0xFFFFE082) else if (currentChapter != null) Color.White.copy(alpha = 0.85f) else Color.White,
-                        fontSize = if (currentChapter != null || isNearPeak) 10.sp else 12.sp,
-                        fontWeight = FontWeight.Medium,
+                        color = if (isNearPeak) Color(0xFFFFE082) else Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace
                     )
+
+                    // Slide up hint
+                    if (onSlideUpForFineScrubbing != null) {
+                        Text(
+                            text = "Slide up to fine scrub",
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
 
-        // The Seekbar Canvas Track & Thumb with Touch Gestures
+        // The Seekbar Canvas Track & Thumb with Touch & Slide-Up Gestures
         val touchTrackHeight = if (hasHeatmap) {
             if (isLandscape) 42.dp else 52.dp
         } else {
-            24.dp
+            26.dp
         }
 
         Box(
@@ -163,6 +223,7 @@ fun YouTubePreciseSeekBar(
                     detectTapGestures(
                         onPress = { offset ->
                             isDragging = true
+                            totalDragY = 0f
                             onSeekStarted()
                             val frac = (offset.x / size.width).coerceIn(0f, 1f)
                             scrubPositionMs = (frac * safeDuration).toLong()
@@ -180,13 +241,23 @@ fun YouTubePreciseSeekBar(
                     detectDragGestures(
                         onDragStart = { offset ->
                             isDragging = true
+                            totalDragY = 0f
                             onSeekStarted()
                             val frac = (offset.x / size.width).coerceIn(0f, 1f)
                             scrubPositionMs = (frac * safeDuration).toLong()
                             onSeekScrubbing(scrubPositionMs)
                         },
-                        onDrag = { change, _ ->
+                        onDrag = { change, dragAmount ->
                             change.consume()
+                            totalDragY += dragAmount.y
+
+                            // Check for Slide-Up gesture (YouTube Fine Scrubbing)
+                            if (totalDragY < -45f && onSlideUpForFineScrubbing != null) {
+                                isDragging = false
+                                onSlideUpForFineScrubbing.invoke()
+                                return@detectDragGestures
+                            }
+
                             val frac = (change.position.x / size.width).coerceIn(0f, 1f)
                             scrubPositionMs = (frac * safeDuration).toLong()
                             onSeekScrubbing(scrubPositionMs)

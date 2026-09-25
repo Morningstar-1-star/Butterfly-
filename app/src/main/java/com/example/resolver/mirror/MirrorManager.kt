@@ -78,13 +78,6 @@ object MirrorManager {
         )
         registerMirror(
             MirrorConfig(
-                providerId = "hqporner",
-                primaryDomain = "https://hqporner.com",
-                mirrors = listOf("https://hqporner.com", "https://hqporner.tv", "https://m.hqporner.com")
-            )
-        )
-        registerMirror(
-            MirrorConfig(
                 providerId = "eporner",
                 primaryDomain = "https://www.eporner.com",
                 mirrors = listOf("https://www.eporner.com", "https://eporner.com", "https://static-sg-cdn.eporner.com")

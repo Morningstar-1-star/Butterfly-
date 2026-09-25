@@ -582,7 +582,7 @@ object BilibiliProvider {
             return@withContext null
         }
 
-        val distinctOptions = streamOptions.distinctBy { it.qualityLabel }
+        val distinctOptions = streamOptions.distinctBy { it.videoUrl ?: it.qualityLabel }
         val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && it.qualityLabel.contains("MP4 Direct") }
             ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && it.qualityLabel.contains("MP4 Direct") }
             ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("MP4 Direct") }
@@ -689,7 +689,7 @@ object BilibiliProvider {
             // Try PGC playurl first
             val pgcStreams = fetchBangumiPlayurlStreams(resolvedEpId, bvid, cid, biliHeaders)
             if (pgcStreams.isNotEmpty()) {
-                val distinctOptions = pgcStreams.distinctBy { it.qualityLabel }
+                val distinctOptions = pgcStreams.distinctBy { it.videoUrl ?: it.qualityLabel }
                 val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && it.qualityLabel.contains("MP4 Direct") }
                     ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && it.qualityLabel.contains("MP4 Direct") }
                     ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("MP4 Direct") }
@@ -960,24 +960,16 @@ object BilibiliProvider {
         if (cleanUrl.isBlank()) return ""
 
         val rawLower = cleanUrl.lowercase()
-        val isProblematic = rawLower.contains("mcdn") || rawLower.contains("p2p") ||
-                rawLower.contains("szbdyd") || rawLower.contains("bcache") ||
-                rawLower.contains(":4483") || rawLower.contains(":8080") ||
-                rawLower.contains(":8000") || rawLower.contains(":8443") || rawLower.contains(":51056")
+        // Only if the primary URL is an invalid local P2P port (:4483, :51056), look for standard CDN in backupArr
+        val isMcdnP2pPort = (rawLower.contains("mcdn") || rawLower.contains("p2p")) &&
+                (rawLower.contains(":4483") || rawLower.contains(":51056") || rawLower.contains(":8080") || rawLower.contains(":8000"))
 
-        // If primary URL is problematic, check if backupArr has a clean overseas/akamai/ali/tencent mirror
-        if (isProblematic && backupArr != null && backupArr.length() > 0) {
+        if (isMcdnP2pPort && backupArr != null && backupArr.length() > 0) {
             for (b in 0 until backupArr.length()) {
                 val cand = backupArr.optString(b, "").trim()
                 if (cand.isNotBlank()) {
                     val lower = cand.lowercase()
-                    if ((lower.contains("mirrorakam") || lower.contains("akamaized") ||
-                        lower.contains("mirrorali") || lower.contains("mirrorcos") ||
-                        lower.contains("mirror08c") || lower.contains("mirrorhw") ||
-                        lower.contains("staticak") || lower.contains("bilivideo.com") || lower.contains("hdslb.com")) &&
-                        !lower.contains("mcdn") && !lower.contains("p2p") && !lower.contains("szbdyd") &&
-                        !lower.contains(":4483") && !lower.contains(":8080") && !lower.contains(":8000") && !lower.contains(":8443")
-                    ) {
+                    if (!lower.contains(":4483") && !lower.contains(":51056") && !lower.contains(":8080") && !lower.contains(":8000")) {
                         cleanUrl = cand
                         break
                     }
@@ -999,16 +991,15 @@ object BilibiliProvider {
         val streamOptions = mutableListOf<PlayableStreamOption>()
         val pgcUrls = mutableListOf<String>()
         if (epId.isNotBlank()) {
-            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1")
+            // fnval=1 is standard Progressive MP4 per current Bilibili API documentation (fnval=0 is obsolete legacy format)
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=1&fnver=0&platform=html5&high_quality=1")
             pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1")
-            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=1&fnver=0&platform=html5&high_quality=1")
             pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1")
-            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?ep_id=$epId&cid=$cid&qn=80&fnval=4048&fnver=0&fourk=1")
         }
         if (bvid.isNotBlank()) {
-            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1")
+            pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=1&fnver=0&platform=html5&high_quality=1")
             pgcUrls.add("https://api.bilibili.com/pgc/player/web/v2/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=16&fnver=0&fourk=1&platform=pc&high_quality=1")
-            pgcUrls.add("https://api.bilibili.com/pgc/player/web/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=4048&fnver=0&fourk=1")
         }
 
         for (apiUrl in pgcUrls) {
@@ -1060,6 +1051,11 @@ object BilibiliProvider {
                             break
                         }
                     }
+                }
+
+                // If progressive streams were found, we stop to avoid hammering further endpoints
+                if (streamOptions.isNotEmpty()) {
+                    break
                 }
 
                 // Check DASH streams
@@ -1266,6 +1262,132 @@ object BilibiliProvider {
         }
     }
 
+    private fun parseProgressivePlayurlResponse(
+        jsonStr: String,
+        streamOptions: MutableList<PlayableStreamOption>,
+        biliHeaders: Map<String, String>
+    ) {
+        try {
+            val playJson = JSONObject(jsonStr)
+            val playData = playJson.optJSONObject("data") ?: playJson.optJSONObject("result") ?: return
+            val durlArr = playData.optJSONArray("durl") ?: return
+            if (durlArr.length() == 0) return
+
+            for (i in 0 until durlArr.length()) {
+                val dItem = durlArr.optJSONObject(i) ?: continue
+                val rawUrl = dItem.optString("url", "").trim()
+                if (rawUrl.isBlank()) continue
+
+                val sUrl = cleanBilibiliStreamUrl(rawUrl, dItem.optJSONArray("backup_url"))
+                if (sUrl.isBlank()) continue
+
+                val quality = playData.optInt("quality", 64)
+                val qLabel = when (quality) {
+                    116 -> "1080p 60fps Progressive (MP4 Direct)"
+                    80 -> "1080p Progressive (MP4 Direct)"
+                    64 -> "720p Progressive (MP4 Direct)"
+                    32 -> "480p Progressive (MP4 Direct)"
+                    16 -> "360p Progressive (MP4 Direct)"
+                    else -> "${quality}p Progressive (MP4 Direct)"
+                }
+
+                if (streamOptions.none { it.videoUrl == sUrl }) {
+                    streamOptions.add(
+                        PlayableStreamOption(
+                            qualityLabel = qLabel,
+                            format = "mp4",
+                            isMuxed = true,
+                            videoUrl = sUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = biliHeaders
+                        )
+                    )
+                }
+                break
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing progressive playurl: ${e.message}")
+        }
+    }
+
+    private fun parseDashPlayurlResponse(
+        dashStr: String,
+        streamOptions: MutableList<PlayableStreamOption>,
+        biliHeaders: Map<String, String>
+    ) {
+        try {
+            val playJson = JSONObject(dashStr)
+            val playData = playJson.optJSONObject("data") ?: playJson.optJSONObject("result") ?: return
+            val dashObj = playData.optJSONObject("dash") ?: return
+
+            val audioArr = dashObj.optJSONArray("audio")
+            var bestAudioUrl = ""
+            var bestAudioId = 0
+
+            if (audioArr != null) {
+                for (i in 0 until audioArr.length()) {
+                    val aItem = audioArr.optJSONObject(i) ?: continue
+                    val aRaw = aItem.optString("baseUrl", aItem.optString("base_url", ""))
+                    val aBackup = aItem.optJSONArray("backupUrl") ?: aItem.optJSONArray("backup_url")
+                    val aUrl = cleanBilibiliStreamUrl(aRaw, aBackup)
+                    val aId = aItem.optInt("id", 0)
+                    if (aUrl.isNotBlank() && (bestAudioUrl.isBlank() || aId > bestAudioId)) {
+                        bestAudioUrl = aUrl
+                        bestAudioId = aId
+                    }
+                }
+            }
+
+            val videoArr = dashObj.optJSONArray("video")
+            if (videoArr != null) {
+                for (i in 0 until videoArr.length()) {
+                    val vItem = videoArr.optJSONObject(i) ?: continue
+                    val vRaw = vItem.optString("baseUrl", vItem.optString("base_url", ""))
+                    val vBackup = vItem.optJSONArray("backupUrl") ?: vItem.optJSONArray("backup_url")
+                    val vUrl = cleanBilibiliStreamUrl(vRaw, vBackup)
+                    if (vUrl.isBlank()) continue
+
+                    val qnId = vItem.optInt("id", 0)
+                    val width = vItem.optInt("width", 0)
+                    val height = vItem.optInt("height", 0)
+                    val frameRate = vItem.optString("frameRate", vItem.optString("frame_rate", "30"))
+                    val codecs = vItem.optString("codecs", "")
+
+                    val heightLabel = when (qnId) {
+                        120 -> "4K 2160p"
+                        116 -> "1080p 60fps"
+                        80 -> "1080p"
+                        64 -> "720p"
+                        32 -> "480p"
+                        16 -> "360p"
+                        else -> if (height > 0) "${height}p" else "Stream $qnId"
+                    }
+
+                    val fpsStr = if (frameRate.contains("60")) "60fps" else ""
+                    val codecLabel = if (codecs.contains("avc", ignoreCase = true) || codecs.contains("h264", ignoreCase = true)) "H.264" else if (codecs.contains("hev", ignoreCase = true) || codecs.contains("h265", ignoreCase = true)) "HEVC" else if (codecs.contains("av01", ignoreCase = true)) "AV1" else "MP4"
+                    val label = "$heightLabel $fpsStr Adaptive ($codecLabel)".replace("  ", " ").trim()
+
+                    if (streamOptions.none { it.videoUrl == vUrl }) {
+                        streamOptions.add(
+                            PlayableStreamOption(
+                                qualityLabel = label,
+                                format = "video_mp4",
+                                isMuxed = bestAudioUrl.isBlank(),
+                                videoUrl = vUrl,
+                                audioUrl = if (bestAudioUrl.isNotBlank()) bestAudioUrl else null,
+                                providerType = ProviderType.DIRECT,
+                                headers = biliHeaders,
+                                audioHeaders = biliHeaders
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing DASH playurl: ${e.message}")
+        }
+    }
+
     private suspend fun fetchPlayurlStreams(
         resolvedBvid: String,
         cid: Long,
@@ -1274,307 +1396,131 @@ object BilibiliProvider {
         val streamOptions = mutableListOf<PlayableStreamOption>()
         ensureCookieValid()
 
-        // 1. Official TV UGC direct playurl (Signed TV AppKey, unthrottled direct progressive MP4)
-        val tvUgcDeferred = async(Dispatchers.IO) {
-            try {
-                val tvParams = mapOf(
+        // 1. Primary path: Targeted HTML5 Progressive MP4 request (qn=64 / 720p FIRST)
+        // Matches the Google AI Studio Chrome playback path (720p Progressive MP4 Direct).
+        // Uses fnval=1 (MP4) and platform=html5 (no anti-leech restriction).
+        // Uses sequential requests instead of hammering 7 endpoints simultaneously,
+        // which prevents Bilibili IP rate-limiting / CDN 403 blocks.
+        val html5Json = try {
+            val mixinKey = BilibiliWbiHelper.getMixinKey()
+            val wbiUrl = if (mixinKey != null) {
+                val params = mutableMapOf<String, Any>(
                     "bvid" to resolvedBvid,
                     "cid" to cid,
-                    "qn" to 80,
-                    "fnval" to 0,
+                    "qn" to 64,
+                    "fnval" to 1,
                     "fnver" to 0,
-                    "fourk" to 1,
-                    "platform" to "android"
+                    "platform" to "html5",
+                    "high_quality" to 1
                 )
-                val tvQuery = BilibiliWbiHelper.signTvParams(tvParams)
-                val tvUrl = "https://api.bilibili.com/x/tv/ugc/playurl?$tvQuery"
-                val tvReq = Request.Builder()
-                    .url(tvUrl)
-                    .header("User-Agent", "Bilibili Freediff/7.64.0 (Android; Palm)")
-                    .header("Referer", REFERER)
-                    .header("Cookie", getBilibiliCookie())
-                    .build()
-
-                httpClient.newCall(tvReq).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching TV UGC playurl: ${e.message}")
-                null
+                val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
+                "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
+            } else {
+                "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=64&fnval=1&fnver=0&platform=html5&high_quality=1"
             }
+
+            val req = Request.Builder()
+                .url(wbiUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", REFERER)
+                .header("Cookie", getBilibiliCookie())
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching WBI HTML5 playurl: ${e.message}")
+            null
         }
 
-        // 2. WBI-signed Progressive Direct MP4 (fnval=0: unblocked single-file muxed video+audio)
-        val wbiProgDeferred = async(Dispatchers.IO) {
+        if (html5Json != null) {
+            parseProgressivePlayurlResponse(html5Json, streamOptions, biliHeaders)
+        }
+
+        // If 720p progressive stream was obtained, try querying 1080p progressive MP4 sequentially
+        if (streamOptions.isNotEmpty()) {
             try {
                 val mixinKey = BilibiliWbiHelper.getMixinKey()
-                if (mixinKey != null) {
+                val wbi1080Url = if (mixinKey != null) {
                     val params = mutableMapOf<String, Any>(
                         "bvid" to resolvedBvid,
                         "cid" to cid,
                         "qn" to 80,
-                        "fnval" to 0,
+                        "fnval" to 1,
                         "fnver" to 0,
+                        "platform" to "html5",
                         "high_quality" to 1
                     )
-                    params.putAll(BilibiliWbiHelper.getDmParams())
                     val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
-                    val wbiUrl = "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
-                    val wbiReq = Request.Builder()
-                        .url(wbiUrl)
+                    "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
+                } else null
+
+                if (wbi1080Url != null) {
+                    val req = Request.Builder()
+                        .url(wbi1080Url)
                         .header("User-Agent", USER_AGENT)
                         .header("Referer", REFERER)
                         .header("Cookie", getBilibiliCookie())
                         .build()
-
-                    httpClient.newCall(wbiReq).execute().use { resp ->
+                    httpClient.newCall(req).execute().use { resp ->
                         if (resp.isSuccessful) resp.body?.string() else null
-                    }
-                } else null
+                    }?.let { parseProgressivePlayurlResponse(it, streamOptions, biliHeaders) }
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Error fetching WBI progressive playurl: ${e.message}")
-                null
+                Log.d(TAG, "Optional 1080p HTML5 query skipped: ${e.message}")
             }
+
+            return@withContext streamOptions
         }
 
-        // 2. High-speed Direct Progressive MP4 (fnval=1: single-file muxed video+audio)
-        val progMp4Deferred = async(Dispatchers.IO) {
-            try {
-                val progUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=1&fnver=0&fourk=1"
-                val progReq = Request.Builder()
-                    .url(progUrl)
+        // 2. Fallback 1: Direct Web Progressive MP4 without WBI (fnval=1, qn=80)
+        try {
+            val progUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=1&fnver=0&platform=html5&high_quality=1"
+            val progReq = Request.Builder()
+                .url(progUrl)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", REFERER)
+                .header("Cookie", getBilibiliCookie())
+                .build()
+
+            httpClient.newCall(progReq).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }?.let { parseProgressivePlayurlResponse(it, streamOptions, biliHeaders) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching direct HTML5 playurl fallback: ${e.message}")
+        }
+
+        if (streamOptions.isNotEmpty()) {
+            return@withContext streamOptions
+        }
+
+        // 3. Fallback 2: WBI DASH / H.264 (fnval=16) only if progressive MP4 is unavailable
+        try {
+            val mixinKey = BilibiliWbiHelper.getMixinKey()
+            if (mixinKey != null) {
+                val params = mapOf(
+                    "bvid" to resolvedBvid,
+                    "cid" to cid,
+                    "qn" to 80,
+                    "fnval" to 16,
+                    "fnver" to 0
+                )
+                val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
+                val wbiUrl = "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
+                val wbiReq = Request.Builder()
+                    .url(wbiUrl)
                     .header("User-Agent", USER_AGENT)
                     .header("Referer", REFERER)
                     .header("Cookie", getBilibiliCookie())
                     .build()
 
-                httpClient.newCall(progReq).execute().use { resp ->
+                httpClient.newCall(wbiReq).execute().use { resp ->
                     if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching progressive MP4 playurl: ${e.message}")
-                null
+                }?.let { parseDashPlayurlResponse(it, streamOptions, biliHeaders) }
             }
-        }
-
-        // 3. WBI-signed DASH / playurl endpoint
-        val wbiDashDeferred = async(Dispatchers.IO) {
-            try {
-                val mixinKey = BilibiliWbiHelper.getMixinKey()
-                if (mixinKey != null) {
-                    val params = mapOf(
-                        "bvid" to resolvedBvid,
-                        "cid" to cid,
-                        "qn" to 80,
-                        "fnval" to 4048,
-                        "fnver" to 0,
-                        "fourk" to 1
-                    )
-                    val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
-                    val wbiUrl = "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
-                    val wbiReq = Request.Builder()
-                        .url(wbiUrl)
-                        .header("User-Agent", USER_AGENT)
-                        .header("Referer", REFERER)
-                        .header("Cookie", getBilibiliCookie())
-                        .build()
-
-                    httpClient.newCall(wbiReq).execute().use { resp ->
-                        if (resp.isSuccessful) resp.body?.string() else null
-                    }
-                } else null
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching WBI playurl: ${e.message}")
-                null
-            }
-        }
-
-        // 4. Progressive direct MP4 stream (fnval=0 html5)
-        val progDeferred = async(Dispatchers.IO) {
-            try {
-                val progUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=0&fnver=0&platform=html5&high_quality=1"
-                val progReq = Request.Builder()
-                    .url(progUrl)
-                    .header("User-Agent", USER_AGENT)
-                    .header("Referer", REFERER)
-                    .header("Cookie", getBilibiliCookie())
-                    .build()
-
-                httpClient.newCall(progReq).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching progressive playurl: ${e.message}")
-                null
-            }
-        }
-
-        // 5. High-speed H.264 DASH stream (platform=pc&fnval=16)
-        val dashCompatDeferred = async(Dispatchers.IO) {
-            try {
-                val dashUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=16&fnver=0&platform=pc&high_quality=1"
-                val dashReq = Request.Builder()
-                    .url(dashUrl)
-                    .header("User-Agent", USER_AGENT)
-                    .header("Referer", REFERER)
-                    .header("Cookie", getBilibiliCookie())
-                    .build()
-
-                httpClient.newCall(dashReq).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching DASH compat playurl: ${e.message}")
-                null
-            }
-        }
-
-        // 6. Full DASH streams (fnval=4048: 1080p60, 4K, HDR, high-bitrate AAC & Dolby)
-        val dashFullDeferred = async(Dispatchers.IO) {
-            try {
-                val dashUrl = "https://api.bilibili.com/x/player/playurl?bvid=$resolvedBvid&cid=$cid&qn=80&fnval=4048&fnver=0&fourk=1"
-                val dashReq = Request.Builder()
-                    .url(dashUrl)
-                    .header("User-Agent", USER_AGENT)
-                    .header("Referer", REFERER)
-                    .header("Cookie", getBilibiliCookie())
-                    .build()
-
-                httpClient.newCall(dashReq).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error fetching DASH full playurl: ${e.message}")
-                null
-            }
-        }
-
-        val tvUgcJsonStr = tvUgcDeferred.await()
-        val wbiProgJsonStr = wbiProgDeferred.await()
-        val progMp4JsonStr = progMp4Deferred.await()
-        val wbiDashJsonStr = wbiDashDeferred.await()
-        val progJsonStr = progDeferred.await()
-        val dashCompatJsonStr = dashCompatDeferred.await()
-        val dashFullJsonStr = dashFullDeferred.await()
-
-        // Process Progressive Muxed Streams (tvUgc, wbiProg, progMp4, prog, wbi)
-        val progressiveJsonList = listOfNotNull(tvUgcJsonStr, wbiProgJsonStr, progMp4JsonStr, progJsonStr, wbiDashJsonStr)
-        for (pJsonStr in progressiveJsonList) {
-            try {
-                val playJson = JSONObject(pJsonStr)
-                val playData = playJson.optJSONObject("data") ?: playJson.optJSONObject("result")
-                val durlArr = playData?.optJSONArray("durl")
-
-                if (durlArr != null && durlArr.length() > 0) {
-                    for (i in 0 until durlArr.length()) {
-                        val dItem = durlArr.optJSONObject(i) ?: continue
-                        val sUrl = cleanBilibiliStreamUrl(dItem.optString("url", ""), dItem.optJSONArray("backup_url"))
-                        if (sUrl.isNotBlank()) {
-                            val quality = playData.optInt("quality", 80)
-                            val qLabel = when (quality) {
-                                116 -> "1080p 60fps Progressive (MP4 Direct)"
-                                80 -> "1080p Progressive (MP4 Direct)"
-                                64 -> "720p Progressive (MP4 Direct)"
-                                32 -> "480p Progressive (MP4 Direct)"
-                                16 -> "360p Progressive (MP4 Direct)"
-                                else -> "Progressive Stream (MP4 Direct)"
-                            }
-
-                            if (streamOptions.none { it.videoUrl == sUrl }) {
-                                streamOptions.add(
-                                    PlayableStreamOption(
-                                        qualityLabel = qLabel,
-                                        format = "mp4",
-                                        isMuxed = true,
-                                        videoUrl = sUrl,
-                                        providerType = ProviderType.DIRECT,
-                                        headers = biliHeaders
-                                    )
-                                )
-                            }
-                            break
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error parsing progressive streams: ${e.message}")
-            }
-        }
-
-        // Process DASH streams from all responses (wbiDash, dashCompat, dashFull)
-        val dashResponses = listOfNotNull(wbiDashJsonStr, dashCompatJsonStr, dashFullJsonStr)
-        for (dashStr in dashResponses) {
-            try {
-                val playJson = JSONObject(dashStr)
-                val playData = playJson.optJSONObject("data") ?: playJson.optJSONObject("result")
-                val dashObj = playData?.optJSONObject("dash") ?: continue
-
-                val audioArr = dashObj.optJSONArray("audio")
-                var bestAudioUrl = ""
-                var bestAudioId = 0
-
-                if (audioArr != null) {
-                    for (i in 0 until audioArr.length()) {
-                        val aItem = audioArr.optJSONObject(i) ?: continue
-                        val aRaw = aItem.optString("baseUrl", aItem.optString("base_url", ""))
-                        val aBackup = aItem.optJSONArray("backupUrl") ?: aItem.optJSONArray("backup_url")
-                        val aUrl = cleanBilibiliStreamUrl(aRaw, aBackup)
-                        val aId = aItem.optInt("id", 0)
-                        if (aUrl.isNotBlank() && (bestAudioUrl.isBlank() || aId > bestAudioId)) {
-                            bestAudioUrl = aUrl
-                            bestAudioId = aId
-                        }
-                    }
-                }
-
-                val videoArr = dashObj.optJSONArray("video")
-                if (videoArr != null) {
-                    for (i in 0 until videoArr.length()) {
-                        val vItem = videoArr.optJSONObject(i) ?: continue
-                        val vRaw = vItem.optString("baseUrl", vItem.optString("base_url", ""))
-                        val vBackup = vItem.optJSONArray("backupUrl") ?: vItem.optJSONArray("backup_url")
-                        val vUrl = cleanBilibiliStreamUrl(vRaw, vBackup)
-                        if (vUrl.isBlank()) continue
-
-                        val qnId = vItem.optInt("id", 0)
-                        val width = vItem.optInt("width", 0)
-                        val height = vItem.optInt("height", 0)
-                        val frameRate = vItem.optString("frameRate", vItem.optString("frame_rate", "30"))
-                        val codecs = vItem.optString("codecs", "")
-
-                        val heightLabel = when (qnId) {
-                            120 -> "4K 2160p"
-                            116 -> "1080p 60fps"
-                            80 -> "1080p"
-                            64 -> "720p"
-                            32 -> "480p"
-                            16 -> "360p"
-                            else -> if (height > 0) "${height}p" else "Stream $qnId"
-                        }
-
-                        val fpsStr = if (frameRate.contains("60")) "60fps" else ""
-                        val codecLabel = if (codecs.contains("avc", ignoreCase = true) || codecs.contains("h264", ignoreCase = true)) "H.264" else if (codecs.contains("hev", ignoreCase = true) || codecs.contains("h265", ignoreCase = true)) "HEVC" else if (codecs.contains("av01", ignoreCase = true)) "AV1" else "MP4"
-                        val label = "$heightLabel $fpsStr Adaptive ($codecLabel)".replace("  ", " ").trim()
-
-                        if (streamOptions.none { it.videoUrl == vUrl }) {
-                            streamOptions.add(
-                                PlayableStreamOption(
-                                    qualityLabel = label,
-                                    format = "video_mp4",
-                                    isMuxed = bestAudioUrl.isBlank(),
-                                    videoUrl = vUrl,
-                                    audioUrl = if (bestAudioUrl.isNotBlank()) bestAudioUrl else null,
-                                    providerType = ProviderType.DIRECT,
-                                    headers = biliHeaders,
-                                    audioHeaders = biliHeaders
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error parsing DASH playurl: ${e.message}")
-            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching fallback WBI DASH: ${e.message}")
         }
 
         if (streamOptions.isEmpty() && resolvedBvid.isNotBlank() && cid > 0L) {

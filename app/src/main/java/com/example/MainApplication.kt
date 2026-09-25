@@ -159,10 +159,6 @@ class MainApplication : Application() {
                         requestBuilder.header("Origin", "https://txxx.com")
                         requestBuilder.header("Cookie", "age_confirmed=1; age_verified=1; platform=pc; country=US; ft_mature=1; consent=1")
                     }
-                    urlStr.contains("motherless") || urlStr.contains("motherlessmedia") -> {
-                        requestBuilder.header("Referer", "https://motherless.com/")
-                        requestBuilder.header("Origin", "https://motherless.com")
-                    }
                     urlStr.contains("youporn.com") || urlStr.contains("ypncdn.com") -> {
                         requestBuilder.header("Referer", "https://www.youporn.com/")
                         requestBuilder.header("Cookie", "age_verified=1; platform=pc; premium_redirect_cookie=1")

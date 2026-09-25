@@ -544,7 +544,12 @@ fun HomeScreen(
                                             }
                                         }
                                     } else {
-                                        val showSearchRecsShelf = searchResults.isEmpty() && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank()
+                                        val isCurrentAdultContext = adultContentEnabled || viewModel.isAdultProviderId(activeProviderId)
+                                        val isSingleProviderActive = activeProviderId != "all" && activeProviderId.isNotBlank()
+                                        val showSearchRecsShelf = !isSingleProviderActive && searchResults.isEmpty() && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank() && (
+                                            if (isCurrentAdultContext) searchDrivenRecommendations.all { (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId) }
+                                            else searchDrivenRecommendations.all { !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId) }
+                                        )
 
                                         if (!showSearchRecsShelf) {
                                             // Unified continuous items list for optimal 120fps scrolling

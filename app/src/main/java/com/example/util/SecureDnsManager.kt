@@ -48,6 +48,22 @@ object SecureDnsManager {
 
     val appDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
+            val lowerHost = hostname.lowercase()
+            // Bilibili CDN and API endpoints use Geo-DNS/Anycast that must match the device's native ISP/System DNS
+            // Custom DoH resolvers (Cloudflare, Google) often route Bilibili requests to overseas edge nodes that 403 or throttle.
+            if (lowerHost.contains("bilibili") || lowerHost.contains("bilivideo") ||
+                lowerHost.contains("hdslb") || lowerHost.contains("szbdyd") ||
+                lowerHost.contains("mcdn") || lowerHost.contains("upgcxcode") ||
+                lowerHost.contains("upos") || lowerHost.contains("bcache") ||
+                lowerHost.contains("biliapi")
+            ) {
+                return try {
+                    Dns.SYSTEM.lookup(hostname)
+                } catch (e: Exception) {
+                    fallbackLookup(hostname)
+                }
+            }
+
             val now = System.currentTimeMillis()
             dnsCache[hostname]?.let { (cachedAt, ips) ->
                 if (now - cachedAt < DNS_CACHE_TTL_MS && ips.isNotEmpty()) {

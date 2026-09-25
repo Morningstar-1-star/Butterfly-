@@ -37,6 +37,21 @@ object MediaSourceFactoryHelper {
             .build()
     }
 
+    val bilibiliMediaClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .dns(okhttp3.Dns.SYSTEM)
+            .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(MediaHeaderHelper.mediaHeaderInterceptor)
+            .addNetworkInterceptor(MediaHeaderHelper.networkHeaderInterceptor)
+            .build()
+    }
+
     val extractorsFactory: DefaultExtractorsFactory by lazy {
         DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
@@ -202,6 +217,12 @@ object MediaSourceFactoryHelper {
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://spankbang.com"
                         if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1"
                     }
+                    lowerTarget.contains("stripchat") || lowerTarget.contains("doppiocdn") || lowerTarget.contains("strpst") || lowerTarget.contains("b-hls") || lowerTarget.contains("edge-hls") || streamData?.providerId == "stripchat" -> {
+                        reqHeaders["Referer"] = "https://stripchat.com/"
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://stripchat.com"
+                        if (!reqHeaders.keys.any { it.equals("Accept", ignoreCase = true) }) reqHeaders["Accept"] = "*/*"
+                        reqHeaders["User-Agent"] = customUserAgent ?: NetworkManager.DEFAULT_USER_AGENT
+                    }
                     (lowerTarget.contains("motherless.com") || lowerTarget.contains("motherlessmedia") || lowerTarget.contains("cdn.motherless") || streamData?.providerId == "motherless") -> {
                         reqHeaders["Referer"] = "https://motherless.com/"
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://motherless.com"
@@ -262,7 +283,15 @@ object MediaSourceFactoryHelper {
      */
     fun createHttpDataSourceFactory(targetUrl: String, streamData: StreamData?, specificHeaders: Map<String, String> = emptyMap()): OkHttpDataSource.Factory {
         val (userAgent, reqHeaders) = resolveRequestHeaders(targetUrl, streamData, specificHeaders)
-        val dsFactory = OkHttpDataSource.Factory(okHttpClient)
+        val lowerTarget = targetUrl.lowercase()
+        val isBili = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") ||
+                lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") ||
+                lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") ||
+                lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos") ||
+                lowerTarget.contains("bcache") || lowerTarget.contains("mirrorakam") ||
+                streamData?.providerId == "bilibili"
+        val client = if (isBili) bilibiliMediaClient else okHttpClient
+        val dsFactory = OkHttpDataSource.Factory(client)
         userAgent?.let { dsFactory.setUserAgent(it) }
         if (reqHeaders.isNotEmpty()) {
             dsFactory.setDefaultRequestProperties(reqHeaders)

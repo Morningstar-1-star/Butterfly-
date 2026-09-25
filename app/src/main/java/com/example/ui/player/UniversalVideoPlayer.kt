@@ -70,6 +70,7 @@ fun UniversalVideoPlayer(
     hlsUrl: String?,
     captionOption: CaptionOption?,
     streamData: StreamData? = null,
+    previewItem: com.example.model.VideoItem? = null,
     chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
     providerId: String? = null,
     isPlaying: Boolean = true,
@@ -200,6 +201,7 @@ fun UniversalVideoPlayer(
     var initialVolume by remember { mutableFloatStateOf(0.7f) }
     var isDraggingHorizontally by remember { mutableStateOf(false) }
     var isDraggingVertically by remember { mutableStateOf(false) }
+    var showFineScrubbing by remember { mutableStateOf(false) }
 
     val curPos by GlobalPlayerManager.currentPositionMs.collectAsState()
     val durMs by GlobalPlayerManager.durationMs.collectAsState()
@@ -230,6 +232,29 @@ fun UniversalVideoPlayer(
     LaunchedEffect(curPos, durMs) {
         if (durMs > 0 && curPos >= 0) {
             onProgressUpdate(curPos, durMs)
+        }
+    }
+
+    val globalIsPlaying by GlobalPlayerManager.isPlaying.collectAsState()
+    val globalIsBuffering by GlobalPlayerManager.isBuffering.collectAsState()
+    val shouldKeepScreenOn = isPlaying || globalIsPlaying || globalIsBuffering
+    val localView = androidx.compose.ui.platform.LocalView.current
+
+    DisposableEffect(shouldKeepScreenOn) {
+        val window = (context as? android.app.Activity)?.window
+            ?: (localView.context as? android.app.Activity)?.window
+        if (shouldKeepScreenOn) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            localView.keepScreenOn = true
+        } else if (!globalIsPlaying && !globalIsBuffering) {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            localView.keepScreenOn = false
+        }
+        onDispose {
+            if (!GlobalPlayerManager.isPlaying.value && !GlobalPlayerManager.isBuffering.value) {
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                localView.keepScreenOn = false
+            }
         }
     }
 
@@ -1010,15 +1035,41 @@ fun UniversalVideoPlayer(
                     val bufferedPosMs by GlobalPlayerManager.bufferedPositionMs.collectAsState()
                     val isCurrentlyPlaying by GlobalPlayerManager.isPlaying.collectAsState()
 
-                    // 1. YouTube Precise Seekbar
+                    // 1. YouTube Precise Seekbar (Bottom Edge + Floating Preview + Slide-Up)
+                    val currentStream = activeStreamData ?: streamData
+                    val candidateFrames = remember(currentStream, previewItem) {
+                        val direct = currentStream?.previewThumbnails?.takeIf { it.isNotEmpty() }
+                            ?: previewItem?.previewThumbnails?.takeIf { it.isNotEmpty() }
+                        if (!direct.isNullOrEmpty()) {
+                            direct
+                        } else if (previewItem != null) {
+                            com.example.util.PreviewFrameResolver.resolvePreviewFrames(previewItem)
+                        } else if (currentStream != null) {
+                            val dummy = com.example.model.VideoItem(
+                                id = currentStream.videoId,
+                                title = currentStream.title,
+                                uploaderName = currentStream.channelName,
+                                thumbnailUrl = currentStream.thumbnailUrl,
+                                providerId = currentStream.providerId,
+                                previewThumbnails = currentStream.previewThumbnails
+                            )
+                            com.example.util.PreviewFrameResolver.resolvePreviewFrames(dummy)
+                        } else emptyList()
+                    }
+
                     YouTubePreciseSeekBar(
                         currentPositionMs = currentPosMs,
                         durationMs = totalDurMs,
                         bufferedPositionMs = bufferedPosMs,
                         segments = smartSkipSegments,
                         chapters = effectiveChapters,
-                        heatmap = activeStreamData?.heatmap,
+                        heatmap = currentStream?.heatmap,
                         isLandscape = isLandscape,
+                        previewFrames = candidateFrames,
+                        fallbackThumbnailUrl = currentStream?.thumbnailUrl ?: previewItem?.thumbnailUrl,
+                        onSlideUpForFineScrubbing = {
+                            showFineScrubbing = true
+                        },
                         onSeekStarted = { GlobalPlayerManager.showControls() },
                         onSeekScrubbing = { /* Scrubbing */ },
                         onSeekFinished = { targetMs ->
@@ -1109,6 +1160,34 @@ fun UniversalVideoPlayer(
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
+                                }
+                            }
+
+                            // Scenes & Screenshots Quick Filmstrip Pill
+                            Surface(
+                                onClick = {
+                                    GlobalPlayerManager.showControls()
+                                    showFineScrubbing = true
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White.copy(alpha = 0.18f),
+                                contentColor = Color.White
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoLibrary,
+                                        contentDescription = "Scenes",
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = "Scenes",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
 
@@ -2329,6 +2408,23 @@ fun UniversalVideoPlayer(
                 )
             }
         }
+
+        // YouTube Fine Scrubbing Filmstrip Overlay
+        FineScrubbingOverlay(
+            isVisible = showFineScrubbing,
+            currentPositionMs = GlobalPlayerManager.currentPositionMs.collectAsState().value,
+            durationMs = GlobalPlayerManager.durationMs.collectAsState().value,
+            streamData = activeStreamData,
+            previewItem = previewItem,
+            onScrubPositionChange = { /* realtime scrubbing feedback */ },
+            onConfirmSeek = { targetMs ->
+                showFineScrubbing = false
+                GlobalPlayerManager.seekTo(targetMs)
+            },
+            onCancel = {
+                showFineScrubbing = false
+            }
+        )
 
         // Smart Skip Floating Prompt (Manual 'Show button' mode)
         AnimatedVisibility(

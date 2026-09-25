@@ -109,6 +109,7 @@ class PlayerCore(
         val exo = ExoPlayer.Builder(appContext)
             .setRenderersFactory(renderersFactory)
             .setLoadControl(loadControl)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)

@@ -76,7 +76,7 @@ object SmartTagExtractor {
         "youtube", "tencent", "bilibili", "dailymotion", "twitch", "hotstar", "sonyliv",
         "disney", "netflix", "crunchyroll", "v.qq.com", "v_qq_com", "qq", "vqqcom",
         "bunkr", "telegram", "mega", "bun-tel-meg", "xnxx", "hellporno", "stripchat",
-        "chaturbate", "motherless", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
+        "chaturbate", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
         "123av", "javtiful", "hanime1", "rule34video", "pmvhaven", "piped", "invidious",
         "hianime", "aniwatch", "popcorntv", "amazonminitv", "bigo", "kick", "rumble",
         "vimeo", "soundcloud", "bandcamp", "tiktok"
@@ -142,7 +142,7 @@ object SmartTagExtractor {
         // 0. Adult / 18+ / Erotic Sources & Content
         val isAdultProvider = providerLower in setOf(
             "pornhub", "xvideos", "youporn", "xhamster",
-            "rule34video", "hanime1", "redtube", "tube8", "coomer", "pmvhaven", "eporner", "txxx", "motherless", "stripchat", "chaturbate", "sextb", "supjav", "123av", "hellporno"
+            "rule34video", "hanime1", "redtube", "tube8", "coomer", "pmvhaven", "eporner", "txxx", "stripchat", "chaturbate", "sextb", "supjav", "123av", "hellporno"
         )
         val hasAdultKeywords = titleLower.hasWord("porn", "xxx", "hentai", "jav", "erotic", "nsfw", "uncensored", "creampie", "milf", "bdsm", "fetish", "pmv", "doujin", "lewd", "stripchat", "chaturbate") ||
                 titleLower.contains("18+") || titleLower.contains("成人") || titleLower.contains("福利") || titleLower.contains("无码") ||

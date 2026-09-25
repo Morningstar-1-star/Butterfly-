@@ -259,11 +259,11 @@ fun VideoCard(
     val previewFrames = loadedPreviewFrames ?: emptyList()
     val isPreviewActive = isPreviewRequested && !isPreloadingTeaser && previewFrames.size > 1
 
-    // Fast Automatic Teaser Loop: cycles through fully pre-loaded frames at ~8.3 FPS (120ms)
+    // Smooth Automatic Teaser Loop: cycles through scenes at a natural, comfortable speed (~750ms per frame)
     LaunchedEffect(isAutoPlaying, isPreviewActive, previewFrames) {
         if (isAutoPlaying && isPreviewActive && previewFrames.size > 1) {
             while (isAutoPlaying) {
-                kotlinx.coroutines.delay(120L) // 8.3 FPS smooth, fast video clip teaser preview
+                kotlinx.coroutines.delay(750L) // Normal, comfortable scene preview speed
                 currentFrameIndex = (currentFrameIndex + 1) % previewFrames.size
                 scrubFraction = (currentFrameIndex + 1).toFloat() / previewFrames.size
             }
@@ -287,11 +287,11 @@ fun VideoCard(
         }
     }
 
-    val thumbnailImageRequest = remember(activeImageUrl, isPreviewActive) {
+    val thumbnailImageRequest = remember(activeImageUrl, isPreviewActive, isAutoPlaying) {
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
             context,
             activeImageUrl,
-            crossfadeMillis = 0,
+            crossfadeMillis = if (isAutoPlaying) 220 else 0,
             preferCompact = true
         )
     }

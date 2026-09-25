@@ -622,7 +622,7 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isSpankBang = providerId == "spankbang" || urlOrId.contains("spankbang.com") ||
+        val isSpankBang = providerId == "spankbang" || urlOrId.contains("spankbang.", ignoreCase = true) ||
                 urlOrId.startsWith("spankbang:", ignoreCase = true)
         if (isSpankBang) {
             val sbData = SpankBangProvider.getStreamData(urlOrId, context)
@@ -639,25 +639,6 @@ object YouTubeExtractorHelper {
                 if (ytdlResult is ExtractionResult.Success) {
                     return@withContext ExtractionResult.Success(
                         ytdlResult.streamData.copy(providerId = SpankBangProvider.PROVIDER_ID)
-                    )
-                }
-            }
-        }
-
-        val isMotherless = providerId == "motherless" || urlOrId.contains("motherless.com") ||
-                urlOrId.startsWith("motherless:", ignoreCase = true)
-        if (isMotherless) {
-            val mlData = MotherlessProvider.getStreamData(urlOrId, context)
-            if (mlData != null) {
-                Log.i(TAG, "Resolved via MotherlessProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(mlData)
-            } else if (context != null) {
-                Log.i(TAG, "Routing Motherless to YtDlpResolver fallback for $urlOrId")
-                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://motherless.com/${urlOrId.substringAfter(":")}"
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
-                if (ytdlResult is ExtractionResult.Success) {
-                    return@withContext ExtractionResult.Success(
-                        ytdlResult.streamData.copy(providerId = MotherlessProvider.PROVIDER_ID)
                     )
                 }
             }
@@ -931,21 +912,45 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isXnxx = providerId == "xnxx" || urlOrId.contains("xnxx.com") || urlOrId.startsWith("xnxx:", ignoreCase = true)
+        val isXnxx = providerId == "xnxx" || urlOrId.contains("xnxx.", ignoreCase = true) || urlOrId.startsWith("xnxx:", ignoreCase = true)
         if (isXnxx) {
             val xnData = XnxxProvider.getStreamData(urlOrId, context)
             if (xnData != null) {
                 Log.i(TAG, "Resolved via XnxxProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(xnData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing XNXX to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://www.xnxx.com/video-$id/"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = XnxxProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
-        val isHellPorno = providerId == "hellporno" || urlOrId.contains("hellporno.com") || urlOrId.contains("hellporno.tv") || urlOrId.startsWith("hellporno:", ignoreCase = true)
+        val isHellPorno = providerId == "hellporno" || urlOrId.contains("hellporno.", ignoreCase = true) || urlOrId.startsWith("hellporno:", ignoreCase = true)
         if (isHellPorno) {
             val hpData = HellPornoProvider.getStreamData(urlOrId, context)
             if (hpData != null) {
                 Log.i(TAG, "Resolved via HellPornoProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(hpData)
+            } else if (context != null) {
+                Log.i(TAG, "Routing HellPorno to YtDlpResolver fallback for $urlOrId")
+                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else {
+                    val id = urlOrId.substringAfter(":").trim('/')
+                    if (id.startsWith("http")) id else "https://hellporno.com/videos/$id/"
+                }
+                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
+                if (ytdlResult is ExtractionResult.Success) {
+                    return@withContext ExtractionResult.Success(
+                        ytdlResult.streamData.copy(providerId = HellPornoProvider.PROVIDER_ID)
+                    )
+                }
             }
         }
 
@@ -1040,23 +1045,6 @@ object YouTubeExtractorHelper {
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
                 if (ytdlResult is ExtractionResult.Success) {
                     return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hanime1"))
-                }
-            }
-        }
-
-        val isHQPorner = providerId == "hqporner" || providerId == "hqplayer" || urlOrId.contains("hqporner") || urlOrId.contains("hqplayer") ||
-                urlOrId.startsWith("hqporner:", ignoreCase = true) || urlOrId.startsWith("hqplayer:", ignoreCase = true)
-        if (isHQPorner) {
-            val hqpData = HQPornerProvider.getStreamData(urlOrId, context)
-            if (hqpData != null) {
-                Log.i(TAG, "Resolved via HQPornerProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(hqpData)
-            } else if (context != null) {
-                val videoSlug = HQPornerProvider.extractVideoId(urlOrId)
-                val fullUrl = if (urlOrId.startsWith("http")) urlOrId else "https://hqporner.com/hdporn/$videoSlug.html"
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, fullUrl)
-                if (ytdlResult is ExtractionResult.Success) {
-                    return@withContext ExtractionResult.Success(ytdlResult.streamData.copy(providerId = "hqporner"))
                 }
             }
         }

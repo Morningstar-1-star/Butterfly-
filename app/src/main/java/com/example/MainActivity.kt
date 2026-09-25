@@ -66,8 +66,20 @@ class MainActivity : ComponentActivity() {
 
         // Keep PiP actions dynamically synced with playback state
         lifecycleScope.launch {
-            com.example.ui.player.GlobalPlayerManager.isPlaying.collect {
+            com.example.ui.player.GlobalPlayerManager.isPlaying.collect { isPlaying ->
                 updatePipParams()
+                if (isPlaying) {
+                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            com.example.ui.player.GlobalPlayerManager.isBuffering.collect { isBuffering ->
+                if (isBuffering || com.example.ui.player.GlobalPlayerManager.isPlaying.value) {
+                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
             }
         }
         lifecycleScope.launch {

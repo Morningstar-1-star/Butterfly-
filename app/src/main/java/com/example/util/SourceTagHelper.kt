@@ -76,7 +76,6 @@ object SourceTagHelper {
             vid.startsWith("xh_", ignoreCase = true) ||
             vid.startsWith("spankbang:", ignoreCase = true) ||
             vid.startsWith("tnaflix:", ignoreCase = true) ||
-            vid.startsWith("motherless:", ignoreCase = true) ||
             vid.startsWith("playvid:", ignoreCase = true) ||
             vid.startsWith("thisvid:", ignoreCase = true) ||
             vid.startsWith("4tube:", ignoreCase = true) ||
@@ -117,7 +116,6 @@ object SourceTagHelper {
             thumb.contains("eporner.com") ||
             thumb.contains("sb-cd.com") ||
             thumb.contains("spankcdn") ||
-            thumb.contains("motherless") ||
             thumb.contains("bunkr")
         ) {
             return false
@@ -333,7 +331,6 @@ object SourceTagHelper {
             pid == "youporn" -> "YouPorn"
             pid == "eporner" -> "Eporner"
             pid == "spankbang" -> "SpankBang"
-            pid == "motherless" -> "Motherless"
             pid == "playvid" -> "Playvid"
             pid == "tnaflix" -> "TNAFlix"
             pid == "txxx" -> "Txxx"
@@ -343,7 +340,6 @@ object SourceTagHelper {
             pid == "cammodels" -> "CamModels Live"
             pid == "chaturbate" -> "Chaturbate Live"
             pid == "hanime1" || pid == "hanime" -> "Hanime"
-            pid == "hqporner" || pid == "hqplayer" -> "HQPorner"
             pid == "beeg" -> "Beeg"
             pid == "4tube" -> "4Tube"
             pid == "rule34video" -> "Rule34"
@@ -390,7 +386,6 @@ object SourceTagHelper {
             vid.startsWith("anilist_") -> "AniList"
             vid.startsWith("eporner:") || vid.contains("eporner.com") -> "Eporner"
             vid.startsWith("spankbang:") || vid.contains("spankbang.com") -> "SpankBang"
-            vid.startsWith("motherless:") || vid.contains("motherless.com") -> "Motherless"
             vid.startsWith("tnaflix:") || vid.contains("tnaflix.com") -> "TNAFlix"
             vid.startsWith("playvid:") || vid.contains("playvid.com") -> "Playvid"
             vid.startsWith("thisvid:") || vid.contains("thisvid.com") -> "ThisVid"
@@ -413,7 +408,6 @@ object SourceTagHelper {
             thumb.contains("archive.org") -> "Archive"
             thumb.contains("eporner.com") -> "Eporner"
             thumb.contains("spankbang") || thumb.contains("sb-cd.com") || thumb.contains("spankcdn") -> "SpankBang"
-            thumb.contains("motherless") || thumb.contains("motherlessmedia") || thumb.contains("cdn.motherless") -> "Motherless"
             thumb.contains("tnaflix.com") -> "TNAFlix"
             thumb.contains("phncdn.com") -> "Pornhub"
             thumb.contains("xvideos-cdn") || thumb.contains("xnxx-cdn") -> "XVideos"
@@ -575,7 +569,6 @@ object SourceTagHelper {
             s.contains("youporn") -> Pair(Color(0xFFF22B69), Color.White)
             s.contains("eporner") -> Pair(Color(0xFFC2185B), Color.White)
             s.contains("spankbang") -> Pair(Color(0xFFE53935), Color.White)
-            s.contains("motherless") -> Pair(Color(0xFF880E4F), Color.White)
             s.contains("playvid") -> Pair(Color(0xFF00897B), Color.White)
             s.contains("tnaflix") -> Pair(Color(0xFFD84315), Color.White)
             s.contains("txxx") -> Pair(Color(0xFFE53935), Color.White)
@@ -585,7 +578,6 @@ object SourceTagHelper {
             s.contains("cammodels") -> Pair(Color(0xFFD81B60), Color.White)
             s.contains("chaturbate") -> Pair(Color(0xFFE65100), Color.White)
             s.contains("hanime") -> Pair(Color(0xFFFF4081), Color.White)
-            s.contains("hqporner") -> Pair(Color(0xFF00ACC1), Color.White)
             s.contains("beeg") -> Pair(Color(0xFFFB8C00), Color.White)
             s.contains("4tube") -> Pair(Color(0xFF00B0FF), Color.White)
             s.contains("rule34") -> Pair(Color(0xFF43A047), Color.White)
@@ -633,9 +625,9 @@ object SourceTagHelper {
         val pid = (providerId ?: "").trim().lowercase(java.util.Locale.ROOT)
         return pid in setOf(
             "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "xhamster",
-            "redtube", "youporn", "eporner", "spankbang", "motherless", "playvid",
+            "redtube", "youporn", "eporner", "spankbang", "playvid",
             "tnaflix", "txxx", "thisvid", "noodlemagazine", "noodlemag", "cam4",
-            "cammodels", "chaturbate", "hanime1", "hanime", "hqporner", "hqplayer",
+            "cammodels", "chaturbate", "hanime1", "hanime",
             "beeg", "4tube", "rule34video", "123av", "javplayer", "javtiful",
             "jav_all", "all_jav", "javbus", "javapi", "javdex", "sextb", "supjav"
         )

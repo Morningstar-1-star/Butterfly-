@@ -11,8 +11,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.FormBody
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.URLEncoder
@@ -20,9 +25,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * SpankBang Provider & High-Performance Stream Extractor.
- * Provides authentic SpankBang video catalogs, search results, original thumbnails,
- * and direct MP4/HLS video playback without unauthorized cross-provider fallbacks.
+ * SpankBang Provider & Native Stream Extractor.
+ * Follows the canonical yt-dlp SpankBang extraction flow:
+ * Video Page -> data-streamkey -> POST https://spankbang.com/api/videos/stream -> Format URLs -> Media3 Direct Playback.
+ * Features persistent cookie handling, video-page Referer preservation, and MP4/HLS/DASH support.
  */
 object SpankBangProvider {
     private const val TAG = "SpankBangProvider"
@@ -39,30 +45,42 @@ object SpankBangProvider {
     private const val DEFAULT_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+    // Thread-safe in-memory Cookie Jar for session and age-verification persistence
+    private val inMemoryCookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+
+    private val cookieJar = object : CookieJar {
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            val host = url.host
+            val list = inMemoryCookieStore.getOrPut(host) { mutableListOf() }
+            synchronized(list) {
+                cookies.forEach { newCookie ->
+                    list.removeAll { it.name == newCookie.name }
+                    list.add(newCookie)
+                }
+            }
+        }
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            val list = inMemoryCookieStore[url.host] ?: mutableListOf()
+            return synchronized(list) { list.toList() }
+        }
+    }
+
     private val httpClient = OkHttpClient.Builder()
-        .dns(com.example.util.SecureDnsManager.appDns)
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
+        .cookieJar(cookieJar)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .addInterceptor { chain ->
             val req = chain.request().newBuilder()
                 .header("User-Agent", DEFAULT_UA)
-                .header("Referer", "https://spankbang.com/")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1")
                 .build()
             chain.proceed(req)
         }
         .build()
-
-    private val defaultHeaders = mapOf(
-        "User-Agent" to DEFAULT_UA,
-        "Referer" to "https://spankbang.com/",
-        "Origin" to "https://spankbang.com",
-        "Cookie" to "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1"
-    )
 
     private val feedCache = ConcurrentHashMap<String, Pair<Long, List<VideoItem>>>()
     private const val CACHE_TTL = 300_000L // 5 minutes
@@ -76,9 +94,8 @@ object SpankBangProvider {
             }
         }
 
-        // 1. Parallel probing across SpankBang mirrors and categories
         try {
-            val liveItems = withTimeoutOrNull(6000L) {
+            val liveItems = withTimeoutOrNull(8000L) {
                 coroutineScope {
                     val deferredList = MIRRORS.take(3).flatMap { mirror ->
                         listOf(
@@ -105,7 +122,6 @@ object SpankBangProvider {
             Log.w(TAG, "SpankBang live getHome note: ${e.message}")
         }
 
-        // 2. Authentic SpankBang verified collection (Real SpankBang IDs and original thumbnails)
         val authenticFallback = getAuthenticCatalog(safePage)
         feedCache[cacheKey] = Pair(System.currentTimeMillis(), authenticFallback)
         authenticFallback.take(limit)
@@ -124,9 +140,8 @@ object SpankBangProvider {
             }
         }
 
-        // 1. Live search across SpankBang mirrors
         try {
-            val liveSearch = withTimeoutOrNull(6000L) {
+            val liveSearch = withTimeoutOrNull(8000L) {
                 coroutineScope {
                     val deferredList = MIRRORS.take(3).map { mirror ->
                         async {
@@ -152,7 +167,6 @@ object SpankBangProvider {
             Log.w(TAG, "SpankBang live search note: ${e.message}")
         }
 
-        // 2. Filter authentic SpankBang catalog by query terms
         val filteredFallback = getAuthenticCatalog(1).filter {
             it.title.contains(clean, ignoreCase = true) || it.uploaderName.contains(clean, ignoreCase = true)
         }
@@ -168,6 +182,7 @@ object SpankBangProvider {
         try {
             val req = Request.Builder()
                 .url(url)
+                .header("Referer", "https://spankbang.com/")
                 .build()
 
             val html = httpClient.newCall(req).execute().use { resp ->
@@ -223,7 +238,7 @@ object SpankBangProvider {
                 val durationSec = durationText?.let { parseDuration(it) } ?: -1L
                 val uploader = elem.selectFirst(".uploader, .user, .i a, .ch, .author, span.channel")?.text()?.trim() ?: "SpankBang Studio"
                 val brand = com.example.util.ChannelLogoHelper.getBrandInfo(uploader, null, title)
-                val encName = try { java.net.URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
+                val encName = try { URLEncoder.encode(uploader.take(30), "UTF-8") } catch (_: Exception) { uploader.take(30) }
                 val uploaderAvatar = brand.logoUrls.firstOrNull()
                     ?: "https://ui-avatars.com/api/?name=$encName&background=E53935&color=fff&size=256&bold=true"
                 val uploaderUrl = "spankbang_${uploader.lowercase().replace(Regex("[^a-z0-9]"), "")}"
@@ -280,153 +295,183 @@ object SpankBangProvider {
         val candidateUrls = listOf(
             if (cleanId.startsWith("http")) cleanId else "https://spankbang.com/${if (cleanId.contains("/video/")) cleanId else "$cleanId/video/"}",
             if (cleanId.startsWith("http")) cleanId else "https://spankbang.party/${if (cleanId.contains("/video/")) cleanId else "$cleanId/video/"}",
-            if (cleanId.startsWith("http")) cleanId else "https://spankbang.porn/${if (cleanId.contains("/video/")) cleanId else "$cleanId/video/"}"
+            if (cleanId.startsWith("http")) cleanId else "https://spankbang.porn/${if (cleanId.contains("/video/")) cleanId else "$cleanId/video/"}",
+            if (cleanId.startsWith("http")) cleanId else "https://m.spankbang.com/${if (cleanId.contains("/video/")) cleanId else "$cleanId/video/"}"
         )
 
         var directTitle = "SpankBang HD Video"
         var directThumb: String? = null
         val streamOptions = mutableListOf<PlayableStreamOption>()
+        var resolvedPageReferer = "https://spankbang.com/"
 
-        // 1. Direct page HTML / JS extraction
+        // 1. Direct page HTML -> streamkey -> POST /api/videos/stream
         for (targetUrl in candidateUrls) {
             try {
-                val req = Request.Builder()
-                    .url(targetUrl)
-                    .build()
-
-                val html = httpClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
+                val mirrorBase = try {
+                    val uri = java.net.URI(targetUrl)
+                    "${uri.scheme}://${uri.host}"
+                } catch (_: Exception) {
+                    "https://spankbang.com"
                 }
 
+                val req = Request.Builder()
+                    .url(targetUrl)
+                    .header("User-Agent", DEFAULT_UA)
+                    .header("Referer", "$mirrorBase/")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                    .header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1")
+                    .build()
+
+                val callResp = httpClient.newCall(req).execute()
+                val statusCode = callResp.code
+                val html = callResp.use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+                Log.i(TAG, "Fetching video page: $targetUrl -> HTTP $statusCode (body size: ${html?.length ?: 0})")
+
                 if (!html.isNullOrBlank()) {
+                    resolvedPageReferer = targetUrl
                     val doc = Jsoup.parse(html)
-                    doc.selectFirst("h1, .left h1, meta[property='og:title']")?.let {
+                    doc.selectFirst("h1, .left h1, meta[property='og:title'], meta[name='twitter:title']")?.let {
                         val t = it.attr("content").ifBlank { it.text() }.trim()
                         if (t.isNotBlank()) directTitle = t
                     }
 
-                    doc.selectFirst("meta[property='og:image'], meta[name='twitter:image']")?.attr("content")?.let {
-                        val fullThumb = if (it.startsWith("//")) "https:$it" else it
-                        directThumb = fullThumb
+                    doc.selectFirst("meta[property='og:image'], meta[name='twitter:image'], link[rel='image_src']")?.let {
+                        val img = it.attr("content").ifBlank { it.attr("href") }
+                        if (img.isNotBlank()) {
+                            val fullThumb = if (img.startsWith("//")) "https:$img" else img
+                            directThumb = fullThumb
+                        }
                     }
 
-                    // A: Parse stream_data JSON object (e.g. var stream_data = {...})
-                    val streamDataMatch = Regex("""(?:var|window\.)?\s*stream_data\s*=\s*(\{.*?\});""", RegexOption.DOT_MATCHES_ALL).find(html)
-                    if (streamDataMatch != null) {
-                        try {
-                            val jsonStr = streamDataMatch.groupValues[1]
-                            val json = JSONObject(jsonStr)
-                            val keys = listOf("4k", "1080p", "720p", "480p", "320p", "240p", "main", "m3u8")
-                            for (key in keys) {
-                                if (json.has(key)) {
-                                    val opt = json.opt(key)
-                                    val urlList = mutableListOf<String>()
-                                    if (opt is org.json.JSONArray) {
-                                        for (i in 0 until opt.length()) {
-                                            val u = opt.optString(i)
-                                            if (u.isNotBlank()) urlList.add(u)
-                                        }
-                                    } else if (opt is String && opt.isNotBlank()) {
-                                        urlList.add(opt)
-                                    }
+                    // STEP A0: Extract screenshot timeline keyframes
+                    val screenshotList = mutableListOf<String>()
+                    doc.select(".screenshots img, .timeline_preview img, div[data-preview] img, img[data-src*='/t/'], img[data-src*='spank'], img[data-src*='sb-cd']").forEach { imgElem ->
+                        val sUrl = imgElem.attr("data-src").ifBlank { imgElem.attr("data-preview").ifBlank { imgElem.attr("src") } }
+                        if (sUrl.isNotBlank()) {
+                            val full = if (sUrl.startsWith("//")) "https:$sUrl" else sUrl
+                            if (!screenshotList.contains(full)) screenshotList.add(full)
+                        }
+                    }
+                    if (screenshotList.isEmpty() && !directThumb.isNullOrBlank()) {
+                        val sbFrameMatch = Regex("""/(\d+)\.(jpg|webp|jpeg)""").find(directThumb!!)
+                        if (sbFrameMatch != null) {
+                            val base = directThumb!!.substring(0, sbFrameMatch.range.first)
+                            val ext = sbFrameMatch.groupValues[2]
+                            screenshotList.addAll((1..16).map { idx -> "$base/$idx.$ext" })
+                        }
+                    }
 
-                                    for (u in urlList) {
-                                        val full = if (u.startsWith("//")) "https:$u" else u
-                                        if (full.startsWith("http")) {
-                                            val label = when (key) {
-                                                "4k" -> "2160p (4K UHD)"
-                                                "1080p" -> "1080p (Full HD)"
-                                                "720p" -> "720p (HD)"
-                                                "480p" -> "480p (SD)"
-                                                "m3u8" -> "Auto (HLS Stream)"
-                                                else -> "720p (HD)"
-                                            }
-                                            val optStream = PlayableStreamOption(
-                                                qualityLabel = label,
-                                                format = if (full.contains(".m3u8")) "m3u8" else "mp4",
-                                                isMuxed = true,
-                                                videoUrl = full,
-                                                providerType = ProviderType.DIRECT,
-                                                headers = defaultHeaders,
-                                                qualityCategory = if (key == "4k") "4K" else "1080p"
-                                            )
-                                            if (streamOptions.none { it.videoUrl == full }) {
-                                                streamOptions.add(optStream)
-                                            }
-                                        }
-                                    }
+                    // STEP A: Extract data-streamkey and call canonical /api/videos/stream endpoint
+                    val streamKey = extractStreamKey(html, doc, cleanId)
+                    if (!streamKey.isNullOrBlank()) {
+                        Log.i(TAG, "Found streamkey: '$streamKey' for $targetUrl, calling /api/videos/stream")
+                        val apiOptions = fetchStreamsFromApi(mirrorBase, streamKey, targetUrl)
+                        for (opt in apiOptions) {
+                            if (streamOptions.none { it.videoUrl == opt.videoUrl }) {
+                                streamOptions.add(opt)
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "streamkey NOT found in HTML for $targetUrl")
+                    }
+
+                    // STEP B: Parse stream_data JSON in HTML (fallback)
+                    if (streamOptions.isEmpty()) {
+                        val streamDataMatch = Regex("""(?:var|window\.)?\s*stream_data\s*=\s*(\{.*?\});""", RegexOption.DOT_MATCHES_ALL).find(html)
+                        if (streamDataMatch != null) {
+                            try {
+                                val jsonStr = streamDataMatch.groupValues[1]
+                                val json = JSONObject(jsonStr)
+                                Log.i(TAG, "Parsing embedded stream_data JSON from page HTML")
+                                parseStreamJson(json, streamOptions, targetUrl)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Stream data JSON parse note: ${e.message}")
+                            }
+                        }
+                    }
+
+                    // STEP C: Direct regex scan for stream URLs in JavaScript
+                    if (streamOptions.isEmpty()) {
+                        val streamRegex = Regex("""(?:stream_url|stream_key|url_4k|url_1080p|url_720p|url_480p|url_320p|url_240p|video_url|file)\s*[:=]\s*['"]([^'"]+)['"]""")
+                        for (match in streamRegex.findAll(html)) {
+                            val rawStream = match.groupValues[1].replace("\\/", "/")
+                            val fullStream = if (rawStream.startsWith("//")) "https:$rawStream" else rawStream
+                            if (fullStream.startsWith("http") && !fullStream.endsWith(".html", ignoreCase = true) && !fullStream.contains("/video/", ignoreCase = true)) {
+                                val quality = when {
+                                    match.value.contains("4k") || match.value.contains("2160") -> "2160p (4K UHD)"
+                                    match.value.contains("1080") -> "1080p (Full HD)"
+                                    match.value.contains("720") -> "720p (HD)"
+                                    match.value.contains("480") -> "480p (SD)"
+                                    else -> "720p (HD)"
+                                }
+                                val opt = PlayableStreamOption(
+                                    qualityLabel = quality,
+                                    format = if (fullStream.contains(".m3u8")) "m3u8" else if (fullStream.contains(".mpd")) "mpd" else "mp4",
+                                    isMuxed = true,
+                                    videoUrl = fullStream,
+                                    providerType = ProviderType.DIRECT,
+                                    headers = createStreamHeaders(targetUrl),
+                                    qualityCategory = if (quality.contains("4K")) "4K" else "1080p"
+                                )
+                                if (streamOptions.none { it.videoUrl == fullStream }) {
+                                    streamOptions.add(opt)
                                 }
                             }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Stream data JSON parse note: ${e.message}")
                         }
                     }
 
-                    // B: Direct regex fallback for stream URLs
-                    val streamRegex = Regex("""(?:stream_url|stream_key|url_4k|url_1080p|url_720p|url_480p|url_320p|url_240p|video_url|file)\s*[:=]\s*['"]([^'"]+)['"]""")
-                    for (match in streamRegex.findAll(html)) {
-                        val rawStream = match.groupValues[1].replace("\\/", "/")
-                        val fullStream = if (rawStream.startsWith("//")) "https:$rawStream" else rawStream
-                        val isMediaFile = (fullStream.contains(".mp4") || fullStream.contains(".m3u8") || fullStream.contains("/get_file/")) &&
-                                !fullStream.endsWith(".html", ignoreCase = true) &&
-                                !fullStream.endsWith(".htm", ignoreCase = true) &&
-                                !fullStream.contains("/video/", ignoreCase = true)
-
-                        if (fullStream.startsWith("http") && isMediaFile) {
-                            val quality = when {
-                                match.value.contains("4k") -> "2160p (4K UHD)"
-                                match.value.contains("1080") -> "1080p (Full HD)"
-                                match.value.contains("720") -> "720p (HD)"
-                                match.value.contains("480") -> "480p (SD)"
-                                else -> "720p (HD)"
-                            }
-                            val streamOption = PlayableStreamOption(
-                                qualityLabel = quality,
-                                format = if (fullStream.contains(".m3u8")) "m3u8" else "mp4",
-                                isMuxed = true,
-                                videoUrl = fullStream,
-                                providerType = ProviderType.DIRECT,
-                                headers = defaultHeaders,
-                                qualityCategory = "1080p"
-                            )
-                            if (streamOptions.none { it.videoUrl == fullStream }) {
-                                streamOptions.add(streamOption)
-                            }
-                        }
-                    }
-
-                    // C: HTML5 video tag
-                    doc.select("video source, video").forEach { vTag ->
-                        val src = vTag.attr("src").ifBlank { vTag.attr("data-src") }
-                        if (src.isNotBlank() && (src.contains(".mp4") || src.contains(".m3u8"))) {
-                            val fullSrc = if (src.startsWith("//")) "https:$src" else if (src.startsWith("/")) "https://spankbang.com$src" else src
-                            val streamOption = PlayableStreamOption(
-                                qualityLabel = "1080p (Full HD)",
-                                format = if (fullSrc.contains(".m3u8")) "m3u8" else "mp4",
-                                isMuxed = true,
-                                videoUrl = fullSrc,
-                                providerType = ProviderType.DIRECT,
-                                headers = defaultHeaders,
-                                qualityCategory = "1080p"
-                            )
-                            if (streamOptions.none { it.videoUrl == fullSrc }) {
-                                streamOptions.add(streamOption)
+                    // STEP D: HTML5 video tag
+                    if (streamOptions.isEmpty()) {
+                        doc.select("video source, video").forEach { vTag ->
+                            val src = vTag.attr("src").ifBlank { vTag.attr("data-src") }
+                            if (src.isNotBlank() && (src.contains(".mp4") || src.contains(".m3u8") || src.contains(".mpd") || src.contains("/get_file/"))) {
+                                val fullSrc = if (src.startsWith("//")) "https:$src" else if (src.startsWith("/")) "https://spankbang.com$src" else src
+                                val opt = PlayableStreamOption(
+                                    qualityLabel = "1080p (Full HD)",
+                                    format = if (fullSrc.contains(".m3u8")) "m3u8" else if (fullSrc.contains(".mpd")) "mpd" else "mp4",
+                                    isMuxed = true,
+                                    videoUrl = fullSrc,
+                                    providerType = ProviderType.DIRECT,
+                                    headers = createStreamHeaders(targetUrl),
+                                    qualityCategory = "1080p"
+                                )
+                                if (streamOptions.none { it.videoUrl == fullSrc }) {
+                                    streamOptions.add(opt)
+                                }
                             }
                         }
                     }
 
                     if (streamOptions.isNotEmpty()) {
+                        // Sort stream options from highest quality to lowest
+                        val sortedOptions = streamOptions.sortedByDescending { opt ->
+                            when {
+                                opt.qualityLabel.contains("2160") || opt.qualityLabel.contains("4K") -> 2160
+                                opt.qualityLabel.contains("1080") -> 1080
+                                opt.qualityLabel.contains("720") -> 720
+                                opt.qualityLabel.contains("480") -> 480
+                                opt.qualityLabel.contains("360") || opt.qualityLabel.contains("320") -> 360
+                                opt.qualityLabel.contains("240") -> 240
+                                else -> 700
+                            }
+                        }
+                        val selected = sortedOptions.first()
+                        Log.i(TAG, "Final Media3 stream resolved: URL=${selected.videoUrl}, format=${selected.format}, quality=${selected.qualityLabel}, Referer=$resolvedPageReferer")
+
                         return@withContext StreamData(
                             videoId = urlOrId,
-                            videoUrl = streamOptions.first().videoUrl ?: "",
+                            videoUrl = selected.videoUrl ?: "",
                             title = directTitle,
                             channelName = "SpankBang HD",
                             thumbnailUrl = directThumb,
                             providerId = PROVIDER_ID,
                             providerType = ProviderType.DIRECT,
-                            availableStreamOptions = streamOptions,
-                            selectedStreamOption = streamOptions.first(),
-                            headers = defaultHeaders
+                            availableStreamOptions = sortedOptions,
+                            selectedStreamOption = selected,
+                            headers = createStreamHeaders(resolvedPageReferer),
+                            previewThumbnails = screenshotList.distinct()
                         )
                     }
                 }
@@ -435,16 +480,18 @@ object SpankBangProvider {
             }
         }
 
-        // 2. Native YtDlp resolution
+        // 2. Native YtDlp fallback resolution
         if (context != null) {
             try {
                 val primaryTarget = candidateUrls.first()
+                Log.i(TAG, "Attempting YtDlpResolver fallback for $primaryTarget")
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, primaryTarget)
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
+                    Log.i(TAG, "Resolved SpankBang stream via YtDlpResolver fallback for $urlOrId")
                     return@withContext ytdlResult.streamData.copy(
                         providerId = PROVIDER_ID,
                         channelName = "SpankBang HD",
-                        headers = defaultHeaders
+                        headers = createStreamHeaders(primaryTarget)
                     )
                 }
             } catch (e: Exception) {
@@ -452,43 +499,227 @@ object SpankBangProvider {
             }
         }
 
-        // 3. Fallback to SpankBang Web Embed Player
-        val embedCleanId = urlOrId.removePrefix("spankbang:").substringBefore("?").trim('/')
-        val embedUrl = if (embedCleanId.startsWith("http")) {
-            if (embedCleanId.contains("/embed/")) embedCleanId else "$embedCleanId/embed/"
-        } else {
-            "https://spankbang.com/$embedCleanId/embed/"
-        }
+        Log.e(TAG, "SpankBang stream extraction completely failed for $urlOrId (no playable streams found)")
+        null
+    }
 
-        val embedOption = PlayableStreamOption(
-            qualityLabel = "SpankBang Web Player (HD)",
-            format = "embed",
-            isMuxed = true,
-            videoUrl = embedUrl,
-            providerType = ProviderType.EMBED,
-            headers = defaultHeaders,
-            qualityCategory = "1080p"
-        )
-
-        StreamData(
-            videoId = urlOrId,
-            videoUrl = embedUrl,
-            title = directTitle,
-            channelName = "SpankBang HD",
-            thumbnailUrl = directThumb ?: "https://sb-cd.com/t/9920000/9920100/1000/1.jpg",
-            providerId = PROVIDER_ID,
-            providerType = ProviderType.EMBED,
-            availableStreamOptions = listOf(embedOption),
-            selectedStreamOption = embedOption,
-            headers = defaultHeaders
+    private fun createStreamHeaders(refererUrl: String): Map<String, String> {
+        return mapOf(
+            "User-Agent" to DEFAULT_UA,
+            "Referer" to refererUrl,
+            "Origin" to "https://spankbang.com",
+            "Cookie" to "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1"
         )
     }
 
     /**
-     * Authentic SpankBang verified video catalog with real SpankBang IDs and original thumbnails.
+     * Extracts stream key from DOM elements or script variables.
      */
+    private fun extractStreamKey(html: String, doc: org.jsoup.nodes.Document, fallbackId: String): String? {
+        // 1. Check data-streamkey / data-stream-key attribute on player wrapper or any element
+        doc.select("[data-streamkey]").firstOrNull()?.attr("data-streamkey")?.let {
+            if (it.isNotBlank()) return it.trim()
+        }
+        doc.select("[data-stream-key]").firstOrNull()?.attr("data-stream-key")?.let {
+            if (it.isNotBlank()) return it.trim()
+        }
+        doc.select("#player_wrapper_sample, #video_player, .player-wrapper, #main_video, video, div[data-key]").firstOrNull()?.let { elem ->
+            val key = elem.attr("data-streamkey").ifBlank {
+                elem.attr("data-stream-key").ifBlank {
+                    elem.attr("data-key")
+                }
+            }
+            if (key.isNotBlank()) return key.trim()
+        }
+
+        // 2. Regex matching on HTML body
+        val regexes = listOf(
+            Regex("""data-streamkey\s*=\s*["']([^"']+)["']"""),
+            Regex("""data-stream-key\s*=\s*["']([^"']+)["']"""),
+            Regex("""var\s+stream_key\s*=\s*['"]([^'"]+)['"]"""),
+            Regex("""["']stream_key["']\s*:\s*['"]([^'"]+)['"]"""),
+            Regex("""stream_key\s*[:=]\s*['"]([^'"]+)['"]"""),
+            Regex("""window\.stream_key\s*=\s*['"]([^'"]+)['"]""")
+        )
+
+        for (r in regexes) {
+            val m = r.find(html)
+            if (m != null && m.groupValues[1].isNotBlank()) {
+                return m.groupValues[1].trim()
+            }
+        }
+
+        // 3. Fallback to video ID from URL if short alphanumeric
+        val shortId = fallbackId.substringBefore("/").trim()
+        if (shortId.isNotBlank() && shortId.length in 3..15 && !shortId.startsWith("http")) {
+            return shortId
+        }
+
+        return null
+    }
+
+    /**
+     * POSTs stream key to canonical /api/videos/stream and parses the returned stream JSON.
+     */
+    private fun fetchStreamsFromApi(mirrorBase: String, streamKey: String, refererUrl: String): List<PlayableStreamOption> {
+        val options = mutableListOf<PlayableStreamOption>()
+        val endpoints = listOf(
+            "https://spankbang.com/api/videos/stream",
+            "$mirrorBase/api/videos/stream",
+            "https://spankbang.party/api/videos/stream",
+            "https://m.spankbang.com/api/videos/stream"
+        ).distinct()
+
+        for (apiUrl in endpoints) {
+            try {
+                val formBody = FormBody.Builder()
+                    .add("id", streamKey)
+                    .add("data", "0")
+                    .build()
+
+                val apiReq = Request.Builder()
+                    .url(apiUrl)
+                    .post(formBody)
+                    .header("User-Agent", DEFAULT_UA)
+                    .header("Referer", refererUrl)
+                    .header("Origin", "https://spankbang.com")
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                    .header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1")
+                    .build()
+
+                val resp = httpClient.newCall(apiReq).execute()
+                val code = resp.code
+                val responseBody = resp.use {
+                    if (it.isSuccessful) it.body?.string() else null
+                }
+                Log.i(TAG, "Stream API response from $apiUrl: HTTP $code (body size: ${responseBody?.length ?: 0})")
+
+                if (!responseBody.isNullOrBlank()) {
+                    val json = JSONObject(responseBody)
+                    val keysList = json.keys().asSequence().toList()
+                    Log.i(TAG, "Stream API returned format keys: $keysList")
+                    parseStreamJson(json, options, refererUrl)
+                    if (options.isNotEmpty()) {
+                        Log.i(TAG, "Successfully extracted ${options.size} format streams from $apiUrl: ${options.map { it.qualityLabel }}")
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching stream from $apiUrl: ${e.message}")
+            }
+        }
+        return options
+    }
+
+    /**
+     * Parses stream JSON object containing format/resolution keys into PlayableStreamOption items.
+     * Note: Accepts valid URLs even without .mp4 / .m3u8 extensions as CDN paths may not include extensions.
+     */
+    private fun parseStreamJson(json: JSONObject, outOptions: MutableList<PlayableStreamOption>, refererUrl: String) {
+        val resolutionKeys = listOf(
+            "4k" to ("2160p (4K UHD)" to "4K"),
+            "2160p" to ("2160p (4K UHD)" to "4K"),
+            "4k_uhd" to ("2160p (4K UHD)" to "4K"),
+            "1080p" to ("1080p (Full HD)" to "1080p"),
+            "720p" to ("720p (HD)" to "720p"),
+            "480p" to ("480p (SD)" to "480p"),
+            "360p" to ("360p (SD)" to "360p"),
+            "320p" to ("360p (SD)" to "360p"),
+            "240p" to ("240p (SD)" to "240p"),
+            "m3u8" to ("Auto (HLS Stream)" to "1080p"),
+            "hls" to ("Auto (HLS Stream)" to "1080p"),
+            "mpd" to ("Auto (DASH Stream)" to "1080p"),
+            "dash" to ("Auto (DASH Stream)" to "1080p"),
+            "main" to ("720p (HD)" to "720p"),
+            "mp4" to ("720p (HD)" to "720p")
+        )
+
+        for ((key, pair) in resolutionKeys) {
+            val (label, category) = pair
+            if (!json.has(key)) continue
+
+            val opt = json.opt(key) ?: continue
+            val urlList = mutableListOf<String>()
+
+            when (opt) {
+                is JSONArray -> {
+                    for (i in 0 until opt.length()) {
+                        val item = opt.opt(i)
+                        if (item is String && item.isNotBlank()) {
+                            urlList.add(item)
+                        } else if (item is JSONObject) {
+                            val u = item.optString("url").ifBlank { item.optString("src") }
+                            if (u.isNotBlank()) urlList.add(u)
+                        }
+                    }
+                }
+                is String -> {
+                    if (opt.isNotBlank()) urlList.add(opt)
+                }
+                is JSONObject -> {
+                    val u = opt.optString("url").ifBlank { opt.optString("src") }
+                    if (u.isNotBlank()) urlList.add(u)
+                }
+            }
+
+            for (rawUrl in urlList) {
+                val cleanUrl = rawUrl.replace("\\/", "/")
+                val fullUrl = when {
+                    cleanUrl.startsWith("//") -> "https:$cleanUrl"
+                    cleanUrl.startsWith("/") -> "https://spankbang.com$cleanUrl"
+                    else -> cleanUrl
+                }
+
+                if (fullUrl.startsWith("http://") || fullUrl.startsWith("https://")) {
+                    val streamFormat = when {
+                        key in listOf("m3u8", "hls") || fullUrl.contains(".m3u8", ignoreCase = true) -> "m3u8"
+                        key in listOf("mpd", "dash") || fullUrl.contains(".mpd", ignoreCase = true) -> "mpd"
+                        else -> "mp4"
+                    }
+                    val streamOption = PlayableStreamOption(
+                        qualityLabel = label,
+                        format = streamFormat,
+                        isMuxed = true,
+                        videoUrl = fullUrl,
+                        providerType = ProviderType.DIRECT,
+                        headers = createStreamHeaders(refererUrl),
+                        qualityCategory = category
+                    )
+                    if (outOptions.none { it.videoUrl == fullUrl }) {
+                        outOptions.add(streamOption)
+                    }
+                }
+            }
+        }
+
+        // Generic fallback: check any remaining keys that look like stream URLs
+        val iter = json.keys()
+        while (iter.hasNext()) {
+            val key = iter.next()
+            if (resolutionKeys.any { it.first == key }) continue
+            val opt = json.opt(key)
+            if (opt is String && (opt.startsWith("http://") || opt.startsWith("https://") || opt.startsWith("//"))) {
+                val clean = if (opt.startsWith("//")) "https:$opt" else opt
+                val streamFormat = if (clean.contains(".m3u8", ignoreCase = true)) "m3u8" else if (clean.contains(".mpd", ignoreCase = true)) "mpd" else "mp4"
+                val streamOption = PlayableStreamOption(
+                    qualityLabel = "720p (HD)",
+                    format = streamFormat,
+                    isMuxed = true,
+                    videoUrl = clean,
+                    providerType = ProviderType.DIRECT,
+                    headers = createStreamHeaders(refererUrl),
+                    qualityCategory = "720p"
+                )
+                if (outOptions.none { it.videoUrl == clean }) {
+                    outOptions.add(streamOption)
+                }
+            }
+        }
+    }
+
     private fun getAuthenticCatalog(page: Int): List<VideoItem> {
-        val baseItems = listOf(
+        return listOf(
             VideoItem(
                 id = "spankbang:8hqw2/video/passionate_romance_in_luxury_suite",
                 title = "Passionate Romance In Luxury Suite • Ultra 4K",
@@ -562,7 +793,5 @@ object SpankBangProvider {
                 description = "SpankBang 4K High Dynamic Range"
             )
         )
-
-        return baseItems
     }
 }
