@@ -1,18 +1,21 @@
-name: Build Butterfly APK
+name: Build & Release Butterfly APK
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Setup JDK
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -26,12 +29,55 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew || true
 
-      - name: Build APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Prepare Keystore & Build APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir -p release-apk
+          mkdir -p ~/.android
+          if [ -f "debug.keystore" ]; then
+            cp debug.keystore ~/.android/debug.keystore
+          fi
 
-      - name: Upload APK
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "Found Release Keystore secrets. Building signed Release APK..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
+            export STORE_PASSWORD="$STORE_PASSWORD"
+            export KEY_PASSWORD="$KEY_PASSWORD"
+            ./gradlew :app:assembleRelease --stacktrace
+            cp app/build/outputs/apk/release/*.apk release-apk/Butterfly-0.0.2-alpha.apk
+          else
+            echo "Release signing secrets not found in GitHub repository secrets."
+            echo "Building with repository fixed keystore for consistent signature..."
+            ./gradlew :app:assembleDebug --stacktrace
+            cp app/build/outputs/apk/debug/*.apk release-apk/Butterfly-0.0.2-alpha.apk
+          fi
+
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Butterfly-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: Butterfly-0.0.2-alpha-build-${{ github.run_number }}
+          path: release-apk/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v0.0.2-alpha.${{ github.run_number }}"
+          name: "Butterfly v0.0.2-alpha (Build ${{ github.run_number }})"
+          make_latest: "true"
+          files: release-apk/*.apk
+          body: |
+            ## Butterfly v0.0.2-alpha (Build ${{ github.run_number }})
+            versionCode: ${{ github.run_number }}
+
+            ### What's New:
+            - Horizontal episode carousel for TV series (e.g. Courage the Cowardly Dog)
+            - Smart Archive.org quality disambiguation & deduplication
+            - Launch splash screen fixes for Android 12+ (AMOLED dark & light)
+            - Automatic in-app update detector & What's New dialog
+
+            **Commit:** ${{ github.sha }}
