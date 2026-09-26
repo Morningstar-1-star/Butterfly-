@@ -58,6 +58,7 @@ fun VideoDetailsSection(
     onSaveLongClick: () -> Unit = {},
     onShareClick: () -> Unit = {},
     onCommentsClick: () -> Unit = {},
+    onDescriptionClick: (() -> Unit)? = null,
     onChannelClick: (String) -> Unit = {},
     isSubscribed: Boolean = false,
     onSubscribeClick: () -> Unit = {},
@@ -210,7 +211,7 @@ fun VideoDetailsSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { showDescriptionSheet = true },
+                .clickable { onDescriptionClick?.invoke() ?: run { showDescriptionSheet = true } },
             verticalAlignment = Alignment.Top
         ) {
             Text(
@@ -277,7 +278,7 @@ fun VideoDetailsSection(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { showDescriptionSheet = true }
+                .clickable { onDescriptionClick?.invoke() ?: run { showDescriptionSheet = true } }
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -443,24 +444,6 @@ fun VideoDetailsSection(
                 onClick = onSaveClick
             )
 
-            // Three Dots (...) More Pill
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF272727),
-                modifier = Modifier
-                    .size(36.dp)
-                    .bounceClick(scaleDown = 0.90f) { showMoreActionsSheet = true }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "More actions",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
             // Servers & Sources Pill
             if (onServersClick != null) {
                 ActionPill(
@@ -486,59 +469,6 @@ fun VideoDetailsSection(
                 isActive = isDownloaded || isDownloading,
                 onClick = onDownloadClick
             )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // 5. QUALITY SELECTION PILL (Preserved as requested)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Surface(
-                onClick = {
-                    if (!streamData?.availableStreamOptions.isNullOrEmpty()) {
-                        isQualityMenuExpanded = true
-                    }
-                },
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF1E1E1E),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(38.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.HighQuality,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD700),
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = selectedOption?.qualityLabel ?: if (streamData == null) "Loading stream..." else "Adaptive HLS (Auto)",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            if (isQualityMenuExpanded && !streamData?.availableStreamOptions.isNullOrEmpty()) {
-                StreamSourcePickerBottomSheet(
-                    streamData = streamData,
-                    selectedOption = selectedOption,
-                    onSelectOption = { option ->
-                        onSelectOption(option)
-                        isQualityMenuExpanded = false
-                    },
-                    onDismiss = { isQualityMenuExpanded = false }
-                )
-            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -711,11 +641,10 @@ private fun ActionPill(
 }
 
 /**
- * YouTube-style Modern Description Bottom Sheet (Screenshot 2 & 3)
+ * YouTube-style Modern Description Inline Panel (Screenshot 2 & 3)
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DescriptionBottomSheet(
+fun DescriptionPanel(
     title: String,
     channelName: String,
     channelAvatarUrl: String?,
@@ -732,33 +661,38 @@ fun DescriptionBottomSheet(
     previewItem: VideoItem? = null,
     onSeekTo: ((Long) -> Unit)? = null,
     onChannelClick: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var isTextExpanded by remember { mutableStateOf(false) }
     val curTimelinePosMs by com.example.ui.player.GlobalPlayerManager.currentPositionMs.collectAsState()
     val totalTimelineDurMs by com.example.ui.player.GlobalPlayerManager.durationMs.collectAsState()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color(0xFF0F0F0F),
-        dragHandle = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-            ) {
-                BottomSheetDefaults.DragHandle()
-            }
-        }
+    Surface(
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        color = Color(0xFF0F0F0F),
+        modifier = modifier.fillMaxSize()
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.88f)
+                .fillMaxSize()
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Drag handle
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(Color(0xFF555555), RoundedCornerShape(2.dp))
+                )
+            }
             // Header Row: Description + Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1194,6 +1128,61 @@ fun DescriptionBottomSheet(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+/**
+ * YouTube-style Modern Description Bottom Sheet (Screenshot 2 & 3)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DescriptionBottomSheet(
+    title: String,
+    channelName: String,
+    channelAvatarUrl: String?,
+    subscriberCountText: String?,
+    isSubscribed: Boolean,
+    onSubscribeClick: () -> Unit,
+    likesCountText: String,
+    viewsCountText: String,
+    timeAgoText: String,
+    exactDateText: String,
+    fullDescription: String,
+    tags: List<String>,
+    streamData: StreamData? = null,
+    previewItem: VideoItem? = null,
+    onSeekTo: ((Long) -> Unit)? = null,
+    onChannelClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF0F0F0F),
+        dragHandle = null
+    ) {
+        DescriptionPanel(
+            title = title,
+            channelName = channelName,
+            channelAvatarUrl = channelAvatarUrl,
+            subscriberCountText = subscriberCountText,
+            isSubscribed = isSubscribed,
+            onSubscribeClick = onSubscribeClick,
+            likesCountText = likesCountText,
+            viewsCountText = viewsCountText,
+            timeAgoText = timeAgoText,
+            exactDateText = exactDateText,
+            fullDescription = fullDescription,
+            tags = tags,
+            streamData = streamData,
+            previewItem = previewItem,
+            onSeekTo = onSeekTo,
+            onChannelClick = onChannelClick,
+            onDismiss = onDismiss,
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f)
+        )
     }
 }
 

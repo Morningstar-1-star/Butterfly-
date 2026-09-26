@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.model.CastMember
 import com.example.model.EpisodeItem
 import com.example.model.MediaDetailInfo
+import com.example.model.PlayableStreamOption
 import com.example.model.SeriesSeason
 import com.example.model.StreamData
 import com.example.model.VideoTrailerClip
@@ -842,23 +843,35 @@ object TMDBHelper {
     }
 
     /**
-     * Parses season and episode hierarchy directly from stream options (e.g. "01x01 Night of the Lizard", "S01E02", etc.)
+     * Parses season and episode hierarchy directly from stream options (e.g. "01x01 Night of the Lizard", "S01E02", "Ep 01 - ...", etc.)
+     * Filters out pure quality variants (like 480p, 720p, 1080p, 512kb) and deduplicates multiple qualities for the same episode.
      */
     private fun parseSeasonsFromStreamOptions(streamData: StreamData): List<SeriesSeason> {
         val options = streamData.availableStreamOptions
         if (options.isEmpty()) return emptyList()
 
-        val seasonMap = mutableMapOf<Int, MutableList<EpisodeItem>>()
-        val epPattern = Regex("(?i)(?:s(\\d{1,2})[._\\s-]*e(\\d{1,3}))|(?:(\\d{1,2})[xX](\\d{1,3}))|(?:season[._\\s-]*(\\d{1,2})[._\\s-]*episode[._\\s-]*(\\d{1,3}))|(?:(?:ep|episode)[._\\s-]*(\\d{1,3}))")
+        // Season -> (Episode Number -> List of stream options for that episode)
+        val seasonMap = mutableMapOf<Int, MutableMap<Int, MutableList<PlayableStreamOption>>>()
+        val epPattern = Regex("(?i)(?:s(\\d{1,2})[._\\s-]*e(\\d{1,3}))|(?:(\\d{1,2})[xX](\\d{1,3}))|(?:season[._\\s-]*(\\d{1,2})[._\\s-]*episode[._\\s-]*(\\d{1,3}))|(?:(?:ep|episode|capitulo|episodio|part|pt|chapter|vol|volume)[._\\s-]*(\\d{1,3}))")
+        val leadingNumPattern = Regex("^(\\d{1,3})[._\\s-]+([a-zA-Z0-9].*)")
+
+        var foundGenuineEpisode = false
 
         for ((idx, opt) in options.withIndex()) {
             val label = opt.qualityLabel.trim()
-            val match = epPattern.find(label)
+            val url = opt.videoUrl ?: ""
+            val filename = url.substringAfterLast("/").substringBefore("?").trim()
 
-            var sNum = 1
-            var eNum = idx + 1
+            var sNum: Int? = null
+            var eNum: Int? = null
+
+            // Try matching episode pattern on label first, then filename
+            val matchLabel = epPattern.find(label)
+            val matchFile = if (matchLabel == null) epPattern.find(filename) else null
+            val match = matchLabel ?: matchFile
 
             if (match != null) {
+                foundGenuineEpisode = true
                 val g = match.groupValues
                 when {
                     g[1].isNotEmpty() && g[2].isNotEmpty() -> {
@@ -874,49 +887,97 @@ object TMDBHelper {
                         eNum = g[6].toIntOrNull() ?: (idx + 1)
                     }
                     g[7].isNotEmpty() -> {
+                        sNum = 1
                         eNum = g[7].toIntOrNull() ?: (idx + 1)
+                    }
+                }
+            } else {
+                // Check if label or filename starts with a leading track/episode number (e.g. "01 - Pilot", "02. Title")
+                val cleanStart = label.removePrefix(streamData.title).trim().trim('-', '_', '.', ' ')
+                val leadMatch = leadingNumPattern.find(cleanStart) ?: leadingNumPattern.find(filename)
+                if (leadMatch != null) {
+                    val rawNum = leadMatch.groupValues[1].toIntOrNull()
+                    // Avoid video resolutions (144, 240, 360, 480, 512, 720, 1080, 1440, 2160) and years (1900-2099) being mistaken as episode numbers
+                    if (rawNum != null && rawNum in 1..999 &&
+                        rawNum !in listOf(144, 240, 360, 480, 512, 720, 1080, 1440, 2160) &&
+                        rawNum !in 1900..2099
+                    ) {
+                        foundGenuineEpisode = true
+                        sNum = 1
+                        eNum = rawNum
                     }
                 }
             }
 
-            // Clean title for display
-            var epTitle = label
-                .replace(Regex("(?i)\\(\\d+p.*?\\)"), "")
-                .replace(Regex("(?i)\\[.*?\\]"), "")
-                .replace(Regex("(?i)\\.ia\\.mp4|\\.mp4|\\.mkv|\\.avi"), "")
-                .replace("_", " ")
-                .trim()
+            if (sNum != null && eNum != null) {
+                seasonMap.getOrPut(sNum) { mutableMapOf() }
+                    .getOrPut(eNum) { mutableListOf() }
+                    .add(opt)
+            }
+        }
 
-            if (match != null) {
-                epTitle = epTitle.removePrefix(match.value).trim()
+        // If no genuine episode patterns were found in the stream options, they are just different qualities for a single video!
+        if (!foundGenuineEpisode || seasonMap.isEmpty()) {
+            return emptyList()
+        }
+
+        // Must have at least 2 distinct episodes (or explicit episode tags) to be considered an episode collection
+        val totalDistinctEps = seasonMap.values.sumOf { it.keys.size }
+        if (totalDistinctEps <= 1) {
+            return emptyList()
+        }
+
+        // Convert the grouped options into SeriesSeason and EpisodeItem, choosing the best quality option for each episode
+        return seasonMap.map { (sNum, episodeOptionsMap) ->
+            val episodeItems = episodeOptionsMap.map { (eNum, optList) ->
+                // Sort options to pick the highest quality (e.g. 1080p > 720p > 480p, MP4)
+                val bestOpt = optList.maxByOrNull { opt ->
+                    var score = 0
+                    val ql = opt.qualityLabel.lowercase()
+                    if (ql.contains("1080p") || ql.contains("1080")) score += 1000
+                    else if (ql.contains("720p") || ql.contains("720")) score += 700
+                    else if (ql.contains("480p") || ql.contains("480")) score += 400
+                    else if (ql.contains("360p") || ql.contains("360")) score += 200
+                    if (opt.format.equals("mp4", ignoreCase = true) || ql.contains("mp4")) score += 100
+                    if (ql.contains("512kb") || ql.contains("ia.mp4")) score -= 50
+                    score
+                } ?: optList.first()
+
+                // Extract clean display title for the episode
+                var epTitle = bestOpt.qualityLabel.trim()
+                    .replace(Regex("(?i)\\(\\d+p.*?\\)"), "")
+                    .replace(Regex("(?i)\\[.*?\\]"), "")
+                    .replace(Regex("(?i)\\.ia\\.mp4|\\.mp4|\\.mkv|\\.avi|\\.webm"), "")
+                    .replace(Regex("(?i)1080p|720p|480p|360p|240p|512kb"), "")
+                    .replace("_", " ")
+                    .trim()
+
+                // Remove season/episode prefix from title if present
+                epTitle = epTitle.replace(Regex("(?i)^(?:s\\d{1,2}[._\\s-]*e\\d{1,3}|\\d{1,2}x\\d{1,3}|season[._\\s-]*\\d{1,2}[._\\s-]*episode[._\\s-]*\\d{1,3}|(?:ep|episode|capitulo|episodio|part|pt|chapter|vol|volume)[._\\s-]*\\d{1,3}|\\d{1,3})[._\\s-]*"), "").trim()
                 if (epTitle.startsWith("-") || epTitle.startsWith(".")) {
                     epTitle = epTitle.substring(1).trim()
                 }
-            }
 
-            if (epTitle.isBlank()) {
-                epTitle = "Episode $eNum"
-            }
+                if (epTitle.isBlank() || epTitle.equals(streamData.title, ignoreCase = true)) {
+                    epTitle = "Episode $eNum"
+                }
 
-            val epItem = EpisodeItem(
-                id = opt.videoUrl ?: "${streamData.videoId}_s${sNum}_e${eNum}",
-                seasonNumber = sNum,
-                episodeNumber = eNum,
-                title = epTitle,
-                durationText = if (opt.format.isNotBlank()) opt.format.uppercase() else "Direct",
-                thumbnailUrl = streamData.effectiveThumbnailUrl,
-                providerId = streamData.providerId ?: "archive_org",
-                viewsText = "Direct Stream"
-            )
+                EpisodeItem(
+                    id = bestOpt.videoUrl ?: "${streamData.videoId}_s${sNum}_e${eNum}",
+                    seasonNumber = sNum,
+                    episodeNumber = eNum,
+                    title = epTitle,
+                    durationText = if (bestOpt.format.isNotBlank()) bestOpt.format.uppercase() else "HD",
+                    thumbnailUrl = streamData.effectiveThumbnailUrl,
+                    providerId = streamData.providerId ?: "archive_org",
+                    viewsText = "Direct Stream"
+                )
+            }.sortedBy { it.episodeNumber }
 
-            seasonMap.getOrPut(sNum) { mutableListOf() }.add(epItem)
-        }
-
-        return seasonMap.map { (sNum, eps) ->
             SeriesSeason(
                 seasonNumber = sNum,
                 seasonName = "Season $sNum",
-                episodes = eps.sortedBy { it.episodeNumber }
+                episodes = episodeItems
             )
         }.sortedBy { it.seasonNumber }
     }
@@ -1063,13 +1124,60 @@ object TMDBHelper {
         val provider = streamData.providerId ?: ""
         if (options.isEmpty() && provider != "archive_org") return seasons
 
+        // Pre-index available stream options by detected (season, episode)
+        val epPattern = Regex("(?i)(?:s(\\d{1,2})[._\\s-]*e(\\d{1,3}))|(?:(\\d{1,2})[xX](\\d{1,3}))|(?:season[._\\s-]*(\\d{1,2})[._\\s-]*episode[._\\s-]*(\\d{1,3}))|(?:(?:ep|episode|capitulo|episodio|part|pt|chapter|vol|volume)[._\\s-]*(\\d{1,3}))")
+        val optionsByEp = mutableMapOf<Pair<Int, Int>, MutableList<PlayableStreamOption>>()
+
+        for ((idx, opt) in options.withIndex()) {
+            val label = opt.qualityLabel
+            val filename = opt.videoUrl?.substringAfterLast("/")?.substringBefore("?") ?: ""
+            val match = epPattern.find(label) ?: epPattern.find(filename)
+            if (match != null) {
+                val g = match.groupValues
+                var s = 1
+                var e = idx + 1
+                when {
+                    g[1].isNotEmpty() && g[2].isNotEmpty() -> {
+                        s = g[1].toIntOrNull() ?: 1
+                        e = g[2].toIntOrNull() ?: (idx + 1)
+                    }
+                    g[3].isNotEmpty() && g[4].isNotEmpty() -> {
+                        s = g[3].toIntOrNull() ?: 1
+                        e = g[4].toIntOrNull() ?: (idx + 1)
+                    }
+                    g[5].isNotEmpty() && g[6].isNotEmpty() -> {
+                        s = g[5].toIntOrNull() ?: 1
+                        e = g[6].toIntOrNull() ?: (idx + 1)
+                    }
+                    g[7].isNotEmpty() -> {
+                        s = 1
+                        e = g[7].toIntOrNull() ?: (idx + 1)
+                    }
+                }
+                optionsByEp.getOrPut(Pair(s, e)) { mutableListOf() }.add(opt)
+            }
+        }
+
         var globalIndex = 0
         return seasons.map { season ->
             val updatedEps = season.episodes.map { ep ->
-                val targetUrl = if (globalIndex < options.size && !options[globalIndex].videoUrl.isNullOrBlank()) {
+                val epKey = Pair(season.seasonNumber, ep.episodeNumber)
+                val matchedOpts = optionsByEp[epKey] ?: optionsByEp[Pair(1, ep.episodeNumber)]
+                val bestOpt = matchedOpts?.maxByOrNull { opt ->
+                    val ql = opt.qualityLabel.lowercase()
+                    var score = 0
+                    if (ql.contains("1080")) score += 100
+                    if (ql.contains("720")) score += 70
+                    if (opt.format.equals("mp4", ignoreCase = true)) score += 20
+                    score
+                }
+
+                val targetUrl = if (bestOpt != null && !bestOpt.videoUrl.isNullOrBlank()) {
+                    bestOpt.videoUrl!!
+                } else if (globalIndex < options.size && !options[globalIndex].videoUrl.isNullOrBlank()) {
                     options[globalIndex].videoUrl!!
                 } else if (provider == "archive_org" && streamData.videoId.isNotBlank()) {
-                    "https://archive.org/download/${streamData.videoId}::${globalIndex + 1}"
+                    "https://archive.org/download/${streamData.videoId}::${ep.episodeNumber}"
                 } else {
                     ep.id
                 }

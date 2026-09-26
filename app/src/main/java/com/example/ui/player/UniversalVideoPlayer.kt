@@ -834,54 +834,24 @@ fun UniversalVideoPlayer(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left-side minimize button + Title & Uploader info
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = {
-                                if (onBackClick != null) {
-                                    onBackClick.invoke()
-                                } else {
-                                    (currentPlayerContext as? androidx.activity.ComponentActivity)?.onBackPressedDispatcher?.onBackPressed()
-                                        ?: (currentPlayerContext as? Activity)?.finish()
-                                }
-                            },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Minimize Player",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Column(
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = currentDisplayTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
-                            if (!currentUploader.isNullOrBlank()) {
-                                Text(
-                                    text = currentUploader,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
+                    // Left-side minimize button (Clean YouTube style: no overlapping title text)
+                    IconButton(
+                        onClick = {
+                            if (onBackClick != null) {
+                                onBackClick.invoke()
+                            } else {
+                                (currentPlayerContext as? androidx.activity.ComponentActivity)?.onBackPressedDispatcher?.onBackPressed()
+                                    ?: (currentPlayerContext as? Activity)?.finish()
                             }
-                        }
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Minimize Player",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
 
                     // Right-side actions (ONLY Speed, Caption, Settings - clean YouTube style, no background circles)
@@ -1076,281 +1046,158 @@ fun UniversalVideoPlayer(
                 }
             }
 
-            // Bottom YouTube-Style Bar (Seekbar + Live/Elapsed Duration Below + Quick Controls)
-            AnimatedVisibility(
-                visible = areControlsVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
+            // Bottom YouTube-Style Section (Duration & Quality ABOVE Progress Bar, Progress Bar perfectly anchored at bottom edge)
+            val currentPosMs by GlobalPlayerManager.currentPositionMs.collectAsState()
+            val totalDurMs by GlobalPlayerManager.durationMs.collectAsState()
+            val bufferedPosMs by GlobalPlayerManager.bufferedPositionMs.collectAsState()
+
+            val candidateFrames = remember(currentStream, previewItem) {
+                val direct = currentStream?.previewThumbnails?.takeIf { it.isNotEmpty() }
+                    ?: previewItem?.previewThumbnails?.takeIf { it.isNotEmpty() }
+                if (!direct.isNullOrEmpty()) {
+                    direct
+                } else if (previewItem != null) {
+                    com.example.util.PreviewFrameResolver.resolvePreviewFrames(previewItem)
+                } else if (currentStream != null) {
+                    val dummy = com.example.model.VideoItem(
+                        id = currentStream.videoId,
+                        title = currentStream.title,
+                        uploaderName = currentStream.channelName,
+                        thumbnailUrl = currentStream.thumbnailUrl,
+                        providerId = currentStream.providerId,
+                        previewThumbnails = currentStream.previewThumbnails
+                    )
+                    com.example.util.PreviewFrameResolver.resolvePreviewFrames(dummy)
+                } else emptyList()
+            }
+
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.60f),
-                                Color.Black.copy(alpha = 0.92f)
-                            )
-                        )
-                    )
-                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
             ) {
+                // Background Gradient Scrim (fades in when controls are visible)
+                AnimatedVisibility(
+                    visible = areControlsVisible,
+                    enter = fadeIn(androidx.compose.animation.core.tween(180)),
+                    exit = fadeOut(androidx.compose.animation.core.tween(180)),
+                    modifier = Modifier.matchParentSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.50f),
+                                        Color.Black.copy(alpha = 0.92f)
+                                    )
+                                )
+                            )
+                    )
+                }
+
                 Column(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val currentPosMs by GlobalPlayerManager.currentPositionMs.collectAsState()
-                    val totalDurMs by GlobalPlayerManager.durationMs.collectAsState()
-                    val bufferedPosMs by GlobalPlayerManager.bufferedPositionMs.collectAsState()
-                    val isCurrentlyPlaying by GlobalPlayerManager.isPlaying.collectAsState()
-
-                    // 1. YouTube Precise Seekbar (Bottom Edge + Floating Preview + Slide-Up)
-                    val currentStream = activeStreamData ?: streamData
-                    val candidateFrames = remember(currentStream, previewItem) {
-                        val direct = currentStream?.previewThumbnails?.takeIf { it.isNotEmpty() }
-                            ?: previewItem?.previewThumbnails?.takeIf { it.isNotEmpty() }
-                        if (!direct.isNullOrEmpty()) {
-                            direct
-                        } else if (previewItem != null) {
-                            com.example.util.PreviewFrameResolver.resolvePreviewFrames(previewItem)
-                        } else if (currentStream != null) {
-                            val dummy = com.example.model.VideoItem(
-                                id = currentStream.videoId,
-                                title = currentStream.title,
-                                uploaderName = currentStream.channelName,
-                                thumbnailUrl = currentStream.thumbnailUrl,
-                                providerId = currentStream.providerId,
-                                previewThumbnails = currentStream.previewThumbnails
-                            )
-                            com.example.util.PreviewFrameResolver.resolvePreviewFrames(dummy)
-                        } else emptyList()
-                    }
-
-                    YouTubePreciseSeekBar(
-                        currentPositionMs = currentPosMs,
-                        durationMs = totalDurMs,
-                        bufferedPositionMs = bufferedPosMs,
-                        segments = smartSkipSegments,
-                        chapters = effectiveChapters,
-                        heatmap = currentStream?.heatmap,
-                        isLandscape = isLandscape,
-                        previewFrames = candidateFrames,
-                        fallbackThumbnailUrl = currentStream?.thumbnailUrl ?: previewItem?.thumbnailUrl,
-                        onSlideUpForFineScrubbing = {
-                            showFineScrubbing = true
-                        },
-                        onSeekStarted = { GlobalPlayerManager.showControls() },
-                        onSeekScrubbing = { /* Scrubbing */ },
-                        onSeekFinished = { targetMs ->
-                            GlobalPlayerManager.seekTo(targetMs)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // 2. Duration text below Seekbar + Controls
-                    Row(
+                    // 1. YouTube Duration & Quality ROW (Placed directly above the progress bar, smoothly fades)
+                    AnimatedVisibility(
+                        visible = areControlsVisible,
+                        enter = fadeIn(androidx.compose.animation.core.tween(180)),
+                        exit = fadeOut(androidx.compose.animation.core.tween(180)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(start = 14.dp, end = 10.dp, bottom = 0.dp)
                     ) {
-                        // Left: Current time & Total duration (just like YouTube)
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val isLive = totalDurMs <= 0L && (activeStreamData?.hlsUrl != null || activeStreamData?.videoUrl?.contains("m3u8") == true)
-                            if (isLive) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color(0xFFE50914), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "LIVE",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    text = "${formatVideoTimestamp(currentPosMs)} / ${formatVideoTimestamp(totalDurMs)}",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                                )
-                            }
-
-                            // Quick Quality Chip
-                            val qLabel = streamOption?.qualityLabel?.takeIf { it.isNotBlank() && it != "Direct Video Stream" } ?: "Auto"
-                            Surface(
-                                onClick = {
-                                    GlobalPlayerManager.showControls()
-                                    showQualitySubMenu = true
-                                    showSettingsSheet = true
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color.White.copy(alpha = 0.15f),
-                                contentColor = Color.White
+                            // Left: Current time / Total duration + Quality Chip + Chapter
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = qLabel,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-
-                            // Most Replayed / Heatmap Peak Quick Jump Chip
-                            val currentHeatmap = activeStreamData?.heatmap
-                            if (currentHeatmap != null && currentHeatmap.isNotEmpty && currentHeatmap.peakPositionMs > 0L) {
-                                Surface(
-                                    onClick = {
-                                        GlobalPlayerManager.showControls()
-                                        GlobalPlayerManager.seekTo(currentHeatmap.peakPositionMs)
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFFF9900).copy(alpha = 0.25f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF9900).copy(alpha = 0.65f)),
-                                    contentColor = Color(0xFFFFCC00)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                val isLive = totalDurMs <= 0L && (activeStreamData?.hlsUrl != null || activeStreamData?.videoUrl?.contains("m3u8") == true)
+                                if (isLive) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFE50914), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                        Text(text = "🔥", fontSize = 10.sp)
                                         Text(
-                                            text = "Peak ${formatVideoTimestamp(currentHeatmap.peakPositionMs)}",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
+                                            text = "LIVE",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black
                                         )
                                     }
-                                }
-                            }
-
-                            // Scenes & Screenshots Quick Filmstrip Pill
-                            Surface(
-                                onClick = {
-                                    GlobalPlayerManager.showControls()
-                                    showFineScrubbing = true
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color.White.copy(alpha = 0.18f),
-                                contentColor = Color.White
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PhotoLibrary,
-                                        contentDescription = "Scenes",
-                                        modifier = Modifier.size(11.dp)
-                                    )
+                                } else {
                                     Text(
-                                        text = "Scenes",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium
+                                        text = "${formatVideoTimestamp(currentPosMs)} / ${formatVideoTimestamp(totalDurMs)}",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                                     )
                                 }
-                            }
 
-                            // Current Chapter Pill (Tapping opens chapters list)
-                            val currentChapter = remember(currentPosMs, effectiveChapters) {
-                                effectiveChapters.lastOrNull { currentPosMs >= it.startTimeMs }
-                            }
-                            if (currentChapter != null) {
+                                // Quick Quality Chip on top of progress bar
+                                val qLabel = streamOption?.qualityLabel?.takeIf { it.isNotBlank() && it != "Direct Video Stream" } ?: "Auto"
                                 Surface(
                                     onClick = {
                                         GlobalPlayerManager.showControls()
-                                        showChaptersSheet = true
+                                        showQualitySubMenu = true
+                                        showSettingsSheet = true
                                     },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color.White.copy(alpha = 0.18f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.16f),
                                     contentColor = Color.White
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = currentChapter.title,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.widthIn(max = 120.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(2.dp))
-                                        Icon(
-                                            imageVector = Icons.Default.ChevronRight,
-                                            contentDescription = "Chapters",
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = qLabel,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
                                 }
-                            }
-                        }
 
-                        // Right: More Videos (landscape), Play/Pause, Fullscreen
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (isLandscape && onOpenRelatedVideos != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color.White.copy(alpha = 0.18f),
-                                    modifier = Modifier
-                                        .clickable {
+                                // Current Chapter Name (if present)
+                                val currentChapter = remember(currentPosMs, effectiveChapters) {
+                                    effectiveChapters.lastOrNull { currentPosMs >= it.startTimeMs }
+                                }
+                                if (currentChapter != null) {
+                                    Surface(
+                                        onClick = {
                                             GlobalPlayerManager.showControls()
-                                            onOpenRelatedVideos()
-                                        }
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                            showChaptersSheet = true
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color.White.copy(alpha = 0.16f),
+                                        contentColor = Color.White
                                     ) {
-                                        Text(
-                                            text = "More videos",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowUp,
-                                            contentDescription = "More videos",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "• ${currentChapter.title}",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.widthIn(max = 130.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
 
-                            IconButton(
-                                onClick = {
-                                    GlobalPlayerManager.showControls()
-                                    if (isCurrentlyPlaying) {
-                                        GlobalPlayerManager.pause()
-                                    } else {
-                                        GlobalPlayerManager.play()
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isCurrentlyPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (isCurrentlyPlaying) "Pause" else "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
+                            // Right: Fullscreen Toggle Button (Clean YouTube style)
                             IconButton(
                                 onClick = {
                                     GlobalPlayerManager.showControls()
@@ -1360,61 +1207,46 @@ fun UniversalVideoPlayer(
                                         toggleFullscreen(currentPlayerContext)
                                     }
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = if (isLandscape || isPortraitExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                                     contentDescription = "Toggle Fullscreen",
                                     tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
                     }
-                }
-            }
-        }
 
-        // YouTube Style Bottom Mini Progress Bar (Visible when controls are hidden/collapsed)
-        val currentPosMsForMini by GlobalPlayerManager.currentPositionMs.collectAsState()
-        val totalDurMsForMini by GlobalPlayerManager.durationMs.collectAsState()
-        val bufferedPosMsForMini by GlobalPlayerManager.bufferedPositionMs.collectAsState()
-
-        AnimatedVisibility(
-            visible = !areControlsVisible && totalDurMsForMini > 0L,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .height(3.dp)
-        ) {
-            val safeDuration = totalDurMsForMini.coerceAtLeast(1L).toFloat()
-            val progressFraction = (currentPosMsForMini.toFloat() / safeDuration).coerceIn(0f, 1f)
-            val bufferFraction = (bufferedPosMsForMini.toFloat() / safeDuration).coerceIn(0f, 1f)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White.copy(alpha = 0.20f))
-            ) {
-                if (bufferFraction > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(fraction = bufferFraction)
-                            .background(Color.White.copy(alpha = 0.60f))
-                    )
-                }
-                if (progressFraction > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(fraction = progressFraction)
-                            .background(Color(0xFFFF0033))
+                    // 2. YouTube Precise Progress Bar (Stationary, anchored to bottom with 0 vertical movement)
+                    YouTubePreciseSeekBar(
+                        currentPositionMs = currentPosMs,
+                        durationMs = totalDurMs,
+                        bufferedPositionMs = bufferedPosMs,
+                        isControlsVisible = areControlsVisible,
+                        segments = smartSkipSegments,
+                        chapters = effectiveChapters,
+                        heatmap = currentStream?.heatmap,
+                        isLandscape = isLandscape,
+                        previewFrames = candidateFrames,
+                        fallbackThumbnailUrl = currentStream?.thumbnailUrl ?: previewItem?.thumbnailUrl,
+                        activeColor = Color(0xFFFFD600),
+                        thumbColor = Color(0xFFFFD600),
+                        onSlideUpForFineScrubbing = {
+                            showFineScrubbing = true
+                        },
+                        onSeekStarted = { GlobalPlayerManager.showControls() },
+                        onSeekScrubbing = { scrubMs ->
+                            GlobalPlayerManager.seekTo(scrubMs)
+                        },
+                        onSeekFinished = { targetMs ->
+                            GlobalPlayerManager.seekTo(targetMs)
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
-        }
 
         // YouTube Style Settings Modal Bottom Sheet
         if (showSettingsSheet) {
@@ -2865,6 +2697,7 @@ fun UniversalVideoPlayer(
             )
         }
     }
+}
 }
 
 private fun Context.findActivity(): Activity? {

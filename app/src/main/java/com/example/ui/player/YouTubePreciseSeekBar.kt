@@ -1,6 +1,9 @@
 package com.example.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -52,11 +55,20 @@ fun formatVideoTimestamp(millis: Long): String {
     }
 }
 
+/**
+ * YouTube-authentic Precise Seek Bar.
+ * - Anchored firmly to the bottom edge of the player.
+ * - Never moves or jumps vertically when controls toggle.
+ * - Smooth real-time left/right drag scrubbing.
+ * - Vibrant YouTube Yellow active track and thumb.
+ * - High-precision floating preview time & thumbnail bubble hovering above thumb.
+ */
 @Composable
 fun YouTubePreciseSeekBar(
     currentPositionMs: Long,
     durationMs: Long,
     bufferedPositionMs: Long,
+    isControlsVisible: Boolean,
     onSeekStarted: () -> Unit,
     onSeekScrubbing: (scrubPositionMs: Long) -> Unit,
     onSeekFinished: (finalPositionMs: Long) -> Unit,
@@ -67,10 +79,10 @@ fun YouTubePreciseSeekBar(
     segments: List<com.example.smartskip.SkipSegment> = emptyList(),
     chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
     heatmap: VideoHeatmap? = null,
-    activeColor: Color = Color(0xFFFF0033),
-    bufferedColor: Color = Color.White.copy(alpha = 0.55f),
+    activeColor: Color = Color(0xFFFFD600),
+    bufferedColor: Color = Color.White.copy(alpha = 0.50f),
     inactiveColor: Color = Color.White.copy(alpha = 0.25f),
-    thumbColor: Color = Color(0xFFFF0033),
+    thumbColor: Color = Color(0xFFFFD600),
     isLandscape: Boolean = false
 ) {
     val context = LocalContext.current
@@ -78,13 +90,31 @@ fun YouTubePreciseSeekBar(
     var scrubPositionMs by remember { mutableLongStateOf(0L) }
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
     var bubbleWidthPx by remember { mutableIntStateOf(0) }
-    var totalDragY by remember { mutableFloatStateOf(0f) }
 
     val safeDuration = durationMs.coerceAtLeast(1L)
     val displayPosition = if (isDragging) scrubPositionMs else currentPositionMs.coerceIn(0L, safeDuration)
     val progressFraction = (displayPosition.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
     val bufferedFraction = (bufferedPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
     val hasHeatmap = heatmap != null && heatmap.isNotEmpty
+
+    // Animated bar thickness and thumb size for YouTube-authentic feel
+    val animatedBarHeight by animateDpAsState(
+        targetValue = if (isDragging) 4.5.dp else if (isControlsVisible) 3.5.dp else 2.5.dp,
+        animationSpec = tween(durationMillis = 180),
+        label = "barHeight"
+    )
+
+    val animatedThumbRadius by animateDpAsState(
+        targetValue = if (isDragging) 6.5.dp else if (isControlsVisible) 4.5.dp else 0.dp,
+        animationSpec = tween(durationMillis = 180),
+        label = "thumbRadius"
+    )
+
+    val animatedThumbAlpha by animateFloatAsState(
+        targetValue = if (isDragging || isControlsVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "thumbAlpha"
+    )
 
     // Floating preview frame image corresponding to current scrub position
     val activePreviewUrl = remember(scrubPositionMs, previewFrames, fallbackThumbnailUrl) {
@@ -98,25 +128,20 @@ fun YouTubePreciseSeekBar(
         }
     }
 
-    val outerBoxHeight = if (hasHeatmap) {
-        if (isLandscape) 140.dp else 160.dp
-    } else {
-        if (isLandscape) 120.dp else 140.dp
-    }
-
+    // Fixed height touch wrapper anchored to bottom
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(outerBoxHeight)
+            .height(24.dp)
             .onSizeChanged { trackWidthPx = it.width.toFloat().coerceAtLeast(1f) },
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Floating YouTube Scrubbing Window with Thumbnail & Time (Appears above finger)
+        // Floating YouTube Scrubbing Window with Thumbnail & Time (Floats smoothly above thumb)
         AnimatedVisibility(
             visible = isDragging,
-            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-            exit = fadeOut() + scaleOut(targetScale = 0.85f),
-            modifier = Modifier.align(Alignment.TopStart)
+            enter = fadeIn(tween(120)) + scaleIn(initialScale = 0.85f, animationSpec = tween(120)),
+            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.85f, animationSpec = tween(120)),
+            modifier = Modifier.align(Alignment.BottomStart)
         ) {
             val thumbXPx = progressFraction * trackWidthPx
             val halfBubble = bubbleWidthPx / 2f
@@ -124,7 +149,7 @@ fun YouTubePreciseSeekBar(
 
             Box(
                 modifier = Modifier
-                    .offset { IntOffset(bubbleLeft.roundToInt(), 0) }
+                    .offset { IntOffset(bubbleLeft.roundToInt(), -80) }
                     .onSizeChanged { bubbleWidthPx = it.width }
                     .shadow(12.dp, RoundedCornerShape(10.dp))
                     .background(Color(0xFA151515), RoundedCornerShape(10.dp))
@@ -145,8 +170,8 @@ fun YouTubePreciseSeekBar(
                     if (!activePreviewUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
-                                .width(120.dp)
-                                .height(68.dp)
+                                .width(110.dp)
+                                .height(62.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Color.Black)
                         ) {
@@ -160,7 +185,7 @@ fun YouTubePreciseSeekBar(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                     }
 
                     if (isNearPeak) {
@@ -194,36 +219,19 @@ fun YouTubePreciseSeekBar(
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace
                     )
-
-                    // Slide up hint
-                    if (onSlideUpForFineScrubbing != null) {
-                        Text(
-                            text = "Slide up to fine scrub",
-                            color = Color.White.copy(alpha = 0.55f),
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
                 }
             }
         }
 
-        // The Seekbar Canvas Track & Thumb with Touch & Slide-Up Gestures
-        val touchTrackHeight = if (hasHeatmap) {
-            if (isLandscape) 42.dp else 52.dp
-        } else {
-            26.dp
-        }
-
+        // The Seekbar Canvas Track & Thumb with Touch & Drag Gestures
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(touchTrackHeight)
+                .fillMaxHeight()
                 .pointerInput(safeDuration) {
                     detectTapGestures(
                         onPress = { offset ->
                             isDragging = true
-                            totalDragY = 0f
                             onSeekStarted()
                             val frac = (offset.x / size.width).coerceIn(0f, 1f)
                             scrubPositionMs = (frac * safeDuration).toLong()
@@ -241,23 +249,13 @@ fun YouTubePreciseSeekBar(
                     detectDragGestures(
                         onDragStart = { offset ->
                             isDragging = true
-                            totalDragY = 0f
                             onSeekStarted()
                             val frac = (offset.x / size.width).coerceIn(0f, 1f)
                             scrubPositionMs = (frac * safeDuration).toLong()
                             onSeekScrubbing(scrubPositionMs)
                         },
-                        onDrag = { change, dragAmount ->
+                        onDrag = { change, _ ->
                             change.consume()
-                            totalDragY += dragAmount.y
-
-                            // Check for Slide-Up gesture (YouTube Fine Scrubbing)
-                            if (totalDragY < -45f && onSlideUpForFineScrubbing != null) {
-                                isDragging = false
-                                onSlideUpForFineScrubbing.invoke()
-                                return@detectDragGestures
-                            }
-
                             val frac = (change.position.x / size.width).coerceIn(0f, 1f)
                             scrubPositionMs = (frac * safeDuration).toLong()
                             onSeekScrubbing(scrubPositionMs)
@@ -271,37 +269,29 @@ fun YouTubePreciseSeekBar(
                         }
                     )
                 },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.BottomCenter
         ) {
-            val canvasHeightDp = if (hasHeatmap) {
-                if (isLandscape) 38.dp else 48.dp
-            } else {
-                if (isLandscape) 12.dp else 16.dp
-            }
-
-            Canvas(modifier = Modifier.fillMaxWidth().height(canvasHeightDp)) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+            ) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
-                val barHeight = if (isLandscape) {
-                    if (isDragging) 3.5.dp.toPx() else 2.dp.toPx()
-                } else {
-                    if (isDragging) 6.dp.toPx() else 3.5.dp.toPx()
-                }
-                val cornerRadius = CornerRadius(barHeight / 2f, barHeight / 2f)
+                // Baseline is locked exactly to the bottom of the canvas (canvasHeight - 4dp)
+                // This guarantees ZERO vertical jump or shift when controls toggle
+                val barHeightPx = animatedBarHeight.toPx()
+                val thumbRadiusPx = animatedThumbRadius.toPx()
+                val centerY = canvasHeight - 4.dp.toPx()
+                val baselineY = centerY - (barHeightPx / 2f)
+                val cornerRadius = CornerRadius(barHeightPx / 2f, barHeightPx / 2f)
 
-                val centerY = if (hasHeatmap) {
-                    canvasHeight - (barHeight / 2f) - 6.dp.toPx()
-                } else {
-                    canvasHeight / 2f
-                }
-                val baselineY = centerY - (barHeight / 2f)
-
-                // 0. Heatmap Waveform (Most Replayed Graph)
-                if (hasHeatmap && heatmap != null && heatmap.points.size >= 4) {
+                // 0. Heatmap Waveform (Most Replayed Graph) if available
+                if (hasHeatmap && heatmap != null && heatmap.points.size >= 4 && isControlsVisible) {
                     val pts = heatmap.points
                     val n = pts.size
-                    val maxWaveHeight = if (isLandscape) 24.dp.toPx() else 32.dp.toPx()
+                    val maxWaveHeight = 16.dp.toPx()
 
                     val wavePath = Path()
                     val strokePath = Path()
@@ -331,15 +321,15 @@ fun YouTubePreciseSeekBar(
                         path = wavePath,
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                Color.White.copy(alpha = 0.50f),
-                                Color.White.copy(alpha = 0.15f)
+                                Color.White.copy(alpha = 0.40f),
+                                Color.White.copy(alpha = 0.10f)
                             ),
                             startY = baselineY - maxWaveHeight,
                             endY = baselineY
                         )
                     )
 
-                    // Played portion of heatmap highlighted
+                    // Played portion of heatmap highlighted in yellow
                     val activeW = canvasWidth * progressFraction
                     if (activeW > 0f) {
                         clipRect(left = 0f, top = 0f, right = activeW, bottom = canvasHeight) {
@@ -347,8 +337,8 @@ fun YouTubePreciseSeekBar(
                                 path = wavePath,
                                 brush = Brush.verticalGradient(
                                     colors = listOf(
-                                        activeColor.copy(alpha = 0.70f),
-                                        activeColor.copy(alpha = 0.25f)
+                                        activeColor.copy(alpha = 0.65f),
+                                        activeColor.copy(alpha = 0.20f)
                                     ),
                                     startY = baselineY - maxWaveHeight,
                                     endY = baselineY
@@ -360,38 +350,20 @@ fun YouTubePreciseSeekBar(
                     // Top crisp line of heatmap
                     drawPath(
                         path = strokePath,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = Color.White.copy(alpha = 0.75f),
                         style = Stroke(
-                            width = 1.5.dp.toPx(),
+                            width = 1.2.dp.toPx(),
                             cap = StrokeCap.Round,
                             join = StrokeJoin.Round
                         )
                     )
-
-                    // Subtle highlight at the highest peak
-                    if (heatmap.peakFraction in 0f..1f) {
-                        val peakX = heatmap.peakFraction * canvasWidth
-                        val peakIdx = (heatmap.peakFraction * (n - 1)).roundToInt().coerceIn(0, n - 1)
-                        val peakY = baselineY - (pts[peakIdx] * maxWaveHeight).coerceAtLeast(1.dp.toPx())
-
-                        drawCircle(
-                            color = Color(0xFFFF9900).copy(alpha = 0.45f),
-                            radius = 4.dp.toPx(),
-                            center = Offset(peakX, peakY)
-                        )
-                        drawCircle(
-                            color = Color(0xFFFFCC00),
-                            radius = 2.dp.toPx(),
-                            center = Offset(peakX, peakY)
-                        )
-                    }
                 }
 
                 // 1. Inactive background track (full width)
                 drawRoundRect(
                     color = inactiveColor,
-                    topLeft = Offset(0f, centerY - (barHeight / 2f)),
-                    size = Size(canvasWidth, barHeight),
+                    topLeft = Offset(0f, centerY - (barHeightPx / 2f)),
+                    size = Size(canvasWidth, barHeightPx),
                     cornerRadius = cornerRadius
                 )
 
@@ -405,8 +377,8 @@ fun YouTubePreciseSeekBar(
 
                         drawRoundRect(
                             color = seg.category.color.copy(alpha = 0.9f),
-                            topLeft = Offset(segStartX, centerY - (barHeight / 2f)),
-                            size = Size(segWidth, barHeight),
+                            topLeft = Offset(segStartX, centerY - (barHeightPx / 2f)),
+                            size = Size(segWidth, barHeightPx),
                             cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
                         )
                     }
@@ -417,19 +389,19 @@ fun YouTubePreciseSeekBar(
                     val bufferedWidth = canvasWidth * bufferedFraction
                     drawRoundRect(
                         color = bufferedColor,
-                        topLeft = Offset(0f, centerY - (barHeight / 2f)),
-                        size = Size(bufferedWidth, barHeight),
+                        topLeft = Offset(0f, centerY - (barHeightPx / 2f)),
+                        size = Size(bufferedWidth, barHeightPx),
                         cornerRadius = cornerRadius
                     )
                 }
 
-                // 3. Active / Played progress track
+                // 3. Active / Played progress track (Bright YouTube Yellow)
                 val activeWidth = canvasWidth * progressFraction
                 if (activeWidth > 0f) {
                     drawRoundRect(
                         color = activeColor,
-                        topLeft = Offset(0f, centerY - (barHeight / 2f)),
-                        size = Size(activeWidth, barHeight),
+                        topLeft = Offset(0f, centerY - (barHeightPx / 2f)),
+                        size = Size(activeWidth, barHeightPx),
                         cornerRadius = cornerRadius
                     )
                 }
@@ -444,43 +416,40 @@ fun YouTubePreciseSeekBar(
                         if (x > gapWidth && x < canvasWidth - gapWidth) {
                             drawRect(
                                 color = Color.Black,
-                                topLeft = Offset(x - gapWidth / 2f, centerY - (barHeight / 2f) - 1.dp.toPx()),
-                                size = Size(gapWidth, barHeight + 2.dp.toPx())
+                                topLeft = Offset(x - gapWidth / 2f, centerY - (barHeightPx / 2f) - 1.dp.toPx()),
+                                size = Size(gapWidth, barHeightPx + 2.dp.toPx())
                             )
                         }
                     }
                 }
 
-                // 4. Scrubber Thumb Circle
-                val thumbRadius = if (isLandscape) {
-                    if (isDragging) 5.dp.toPx() else 3.dp.toPx()
-                } else {
-                    if (isDragging) 7.5.dp.toPx() else 5.dp.toPx()
-                }
-                val thumbX = activeWidth.coerceIn(thumbRadius, canvasWidth - thumbRadius)
+                // 4. Scrubber Thumb Circle (YouTube Yellow Dot) - smooth alpha and radius transition
+                if (thumbRadiusPx > 0.5f && animatedThumbAlpha > 0.05f) {
+                    val thumbX = activeWidth.coerceIn(thumbRadiusPx, canvasWidth - thumbRadiusPx)
 
-                // Outer subtle glow when dragging
-                if (isDragging) {
+                    // Outer subtle glow when dragging
+                    if (isDragging) {
+                        drawCircle(
+                            color = activeColor.copy(alpha = 0.35f * animatedThumbAlpha),
+                            radius = thumbRadiusPx + 4.dp.toPx(),
+                            center = Offset(thumbX, centerY)
+                        )
+                    }
+
+                    // Main yellow thumb circle
                     drawCircle(
-                        color = activeColor.copy(alpha = 0.35f),
-                        radius = thumbRadius + 4.dp.toPx(),
+                        color = thumbColor.copy(alpha = animatedThumbAlpha),
+                        radius = thumbRadiusPx,
+                        center = Offset(thumbX, centerY)
+                    )
+
+                    // Inner white center highlight dot
+                    drawCircle(
+                        color = Color.White.copy(alpha = animatedThumbAlpha),
+                        radius = if (isDragging) 2.2.dp.toPx() else 1.2.dp.toPx(),
                         center = Offset(thumbX, centerY)
                     )
                 }
-
-                // Main red thumb circle
-                drawCircle(
-                    color = thumbColor,
-                    radius = thumbRadius,
-                    center = Offset(thumbX, centerY)
-                )
-
-                // Inner white center dot
-                drawCircle(
-                    color = Color.White,
-                    radius = if (isDragging) 2.5.dp.toPx() else 1.5.dp.toPx(),
-                    center = Offset(thumbX, centerY)
-                )
             }
         }
     }

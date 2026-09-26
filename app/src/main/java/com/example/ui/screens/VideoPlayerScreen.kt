@@ -176,6 +176,7 @@ fun VideoPlayerScreen(
     val isSeasonsLoading by viewModel.isSeasonsLoading.collectAsState()
     var selectedSeasonNumber by remember { mutableStateOf(1) }
     var showCommentsBottomSheet by remember { mutableStateOf(false) }
+    var showDescriptionPanel by remember { mutableStateOf(false) }
 
     LaunchedEffect(tvSeasons) {
         if (tvSeasons.isNotEmpty()) {
@@ -247,27 +248,39 @@ fun VideoPlayerScreen(
     )
 
     var relatedContent by remember(activeVideoId) { mutableStateOf<List<com.example.model.VideoItem>>(emptyList()) }
-    LaunchedEffect(activeVideoId, currentStreamData, playerRecommendations.size, trendingVideos.size, shouldRenderDetails) {
-        if (!shouldRenderDetails) return@LaunchedEffect
+    var hasFinalizedRelatedForVideo by remember(activeVideoId) { mutableStateOf(false) }
+
+    LaunchedEffect(activeVideoId, currentStreamData?.relatedVideos?.size, playerRecommendations.size, shouldRenderDetails) {
+        if (!shouldRenderDetails || activeVideoId == null) return@LaunchedEffect
         val streamRelated = currentStreamData?.relatedVideos?.filter { it.id != activeVideoId } ?: emptyList()
         val pId = providerId ?: currentStreamData?.providerId
         val isAdultCurrent = viewModel.isAdultProviderId(pId) ||
                 (currentVideoItem != null && (viewModel.isAdultVideoItem(currentVideoItem) || viewModel.isAdultProviderId(currentVideoItem.providerId))) ||
                 (currentStreamData != null && (viewModel.isAdultSearchQuery(currentStreamData.title) || viewModel.isAdultProviderId(currentStreamData.providerId)))
 
+        if (hasFinalizedRelatedForVideo && relatedContent.isNotEmpty() && streamRelated.isEmpty()) {
+            return@LaunchedEffect
+        }
+
         val basePool = if (isAdultCurrent) {
-            // In 18+ mode: strictly adult items only, never mix normal/YouTube videos!
-            (playerRecommendations + streamRelated).filter {
+            val raw = if (streamRelated.isNotEmpty()) (streamRelated + playerRecommendations) else (playerRecommendations + streamRelated)
+            raw.filter {
                 it.id != activeVideoId && (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId)
             }
         } else {
-            // In normal mode: strictly normal items only, never mix adult videos!
-            (playerRecommendations + streamRelated + trendingVideos.filter { it.id != activeVideoId }).filter {
+            val raw = if (streamRelated.isNotEmpty()) {
+                (streamRelated + playerRecommendations)
+            } else {
+                (playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
+            }
+            raw.filter {
                 !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId)
             }
         }
+
         val pool = basePool.distinctBy { (it.providerId ?: "") + "_" + it.id }.filterNot { viewModel.isBlockedVideo(it) }
-        relatedContent = pool.take(20)
+        if (pool.isEmpty()) return@LaunchedEffect
+
         withContext(Dispatchers.Default) {
             val activeItem = currentVideoItem ?: currentStreamData?.let {
                 com.example.model.VideoItem(
@@ -281,7 +294,12 @@ fun VideoPlayerScreen(
             }
             val ranked = viewModel.rankFallbackRelated(pool, activeVideoId, activeItem)
             withContext(Dispatchers.Main) {
-                relatedContent = ranked
+                if (ranked.isNotEmpty()) {
+                    relatedContent = ranked
+                    if (streamRelated.isNotEmpty()) {
+                        hasFinalizedRelatedForVideo = true
+                    }
+                }
             }
         }
     }
@@ -978,6 +996,9 @@ fun VideoPlayerScreen(
                                         viewModel.loadVideoComments(vid, pId, title)
                                     }
                                 },
+                                onDescriptionClick = {
+                                    showDescriptionPanel = true
+                                },
                                 commentsCount = if (videoComments.isNotEmpty()) videoComments.size else 0,
                                 topCommentSnippet = videoComments.firstOrNull()?.commentText,
                                 onChannelClick = { channelName ->
@@ -1053,22 +1074,6 @@ fun VideoPlayerScreen(
                             )
                         }
 
-                        // Interactive Timeline Preview Strip (SpankBang & Universal Storyboard Timeline)
-                        item {
-                            val curTimelinePosMs by GlobalPlayerManager.currentPositionMs.collectAsState()
-                            val totalTimelineDurMs by GlobalPlayerManager.durationMs.collectAsState()
-                            com.example.ui.components.InteractiveTimelinePreviewStrip(
-                                currentPositionMs = curTimelinePosMs,
-                                durationMs = totalTimelineDurMs,
-                                streamData = currentStreamData,
-                                previewItem = currentVideoItem,
-                                onSeekTo = { targetMs ->
-                                    GlobalPlayerManager.seekTo(targetMs)
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                            )
-                        }
-
                         // YouTube Queue Section (Temporary Session Playlist)
                         if (playbackQueue.isNotEmpty()) {
                             item {
@@ -1098,190 +1103,270 @@ fun VideoPlayerScreen(
                                     }
                                 }
                             } else if (tvSeasons.isNotEmpty()) {
-                                // Season Selector Row
                                 item {
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                    val currentSeason = tvSeasons.firstOrNull { it.seasonNumber == selectedSeasonNumber } ?: tvSeasons.firstOrNull()
+                                    val episodesList = currentSeason?.episodes ?: emptyList()
+                                    val episodesRowState = rememberLazyListState()
+
+                                    // Auto-scroll to currently playing episode
+                                    val currentPlayingIndex = remember(episodesList, currentStreamData, displayTitle) {
+                                        episodesList.indexOfFirst { episode ->
+                                            (currentStreamData?.selectedStreamOption?.videoUrl == episode.id) ||
+                                            (displayTitle.contains("E${episode.episodeNumber}", ignoreCase = true) && displayTitle.contains("S${episode.seasonNumber}", ignoreCase = true))
+                                        }
+                                    }
+                                    LaunchedEffect(currentPlayingIndex, selectedSeasonNumber) {
+                                        if (currentPlayingIndex >= 0) {
+                                            episodesRowState.animateScrollToItem(currentPlayingIndex.coerceAtLeast(0))
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 8.dp, bottom = 4.dp)
                                     ) {
-                                        items(tvSeasons, key = { "season_${it.seasonNumber}" }) { season ->
-                                            val isSelected = season.seasonNumber == selectedSeasonNumber
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                                modifier = Modifier.clickable { selectedSeasonNumber = season.seasonNumber }
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        // Header Row: Section Title and Season Count
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.VideoLibrary,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "Episodes",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                                                 ) {
                                                     Text(
-                                                        text = season.name,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                        fontSize = 13.sp,
-                                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "(${season.episodes.size})",
+                                                        text = "${episodesList.size}",
+                                                        color = MaterialTheme.colorScheme.primary,
                                                         fontSize = 11.sp,
-                                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
                                                 }
                                             }
                                         }
-                                    }
-                                }
 
-                                // Episodes of selected season
-                                val currentSeason = tvSeasons.firstOrNull { it.seasonNumber == selectedSeasonNumber } ?: tvSeasons.firstOrNull()
-                                val episodesList = currentSeason?.episodes ?: emptyList()
-
-                                items(episodesList, key = { "ep_${it.id}_s${it.seasonNumber}_e${it.episodeNumber}" }) { episode ->
-                                    val isCurrentPlaying = (currentStreamData?.selectedStreamOption?.videoUrl == episode.id) ||
-                                            (displayTitle.contains("E${episode.episodeNumber}", ignoreCase = true) && displayTitle.contains("S${episode.seasonNumber}", ignoreCase = true))
-
-                                    Card(
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isCurrentPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                        ),
-                                        border = if (isCurrentPlaying) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                                            .clickable {
-                                                viewModel.playEpisode(episode, currentStreamData)
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(10.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(112.dp)
-                                                    .aspectRatio(16f / 9f)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        // Season Selector Row (if multiple seasons or to switch seasons)
+                                        if (tvSeasons.size > 1) {
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                                modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                if (!episode.thumbnailUrl.isNullOrBlank()) {
-                                                    AsyncImage(
-                                                        model = episode.thumbnailUrl,
-                                                        contentDescription = episode.title,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                } else {
-                                                    Box(
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentAlignment = Alignment.Center
+                                                items(tvSeasons, key = { "season_${it.seasonNumber}" }) { season ->
+                                                    val isSelected = season.seasonNumber == selectedSeasonNumber
+                                                    Surface(
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                                        modifier = Modifier.clickable { selectedSeasonNumber = season.seasonNumber }
                                                     ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.PlayCircleOutline,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                        )
-                                                    }
-                                                }
-
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = Color.Black.copy(alpha = 0.75f),
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomStart)
-                                                        .padding(4.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "EP ${episode.episodeNumber}",
-                                                        color = Color.White,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
-
-                                                if (isCurrentPlaying) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .background(Color.Black.copy(alpha = 0.4f)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.PlayArrow,
-                                                            contentDescription = "Playing",
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(24.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            Spacer(modifier = Modifier.width(12.dp))
-
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Text(
-                                                        text = "Episode ${episode.episodeNumber}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = if (isCurrentPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-
-                                                    if (episode.voteAverage != null && episode.voteAverage > 0f) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.Star,
-                                                                contentDescription = null,
-                                                                tint = Color(0xFFFFB800),
-                                                                modifier = Modifier.size(12.dp)
-                                                            )
-                                                            Spacer(modifier = Modifier.width(2.dp))
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                        ) {
                                                             Text(
-                                                                text = String.format("%.1f", episode.voteAverage),
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                fontWeight = FontWeight.Bold
+                                                                text = season.name,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                                fontSize = 12.sp,
+                                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                                            )
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "(${season.episodes.size})",
+                                                                fontSize = 10.sp,
+                                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
 
-                                                Text(
-                                                    text = episode.title,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
+                                        // Horizontal Episodes Scroll Row
+                                        LazyRow(
+                                            state = episodesRowState,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(episodesList, key = { "ep_${it.id}_s${it.seasonNumber}_e${it.episodeNumber}" }) { episode ->
+                                                val isCurrentPlaying = (currentStreamData?.selectedStreamOption?.videoUrl == episode.id) ||
+                                                        (displayTitle.contains("E${episode.episodeNumber}", ignoreCase = true) && displayTitle.contains("S${episode.seasonNumber}", ignoreCase = true))
 
-                                                if (!episode.overview.isNullOrBlank()) {
-                                                    Text(
-                                                        text = episode.overview,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        lineHeight = 15.sp,
-                                                        modifier = Modifier.padding(top = 2.dp)
-                                                    )
-                                                }
+                                                Card(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (isCurrentPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                                    ),
+                                                    border = if (isCurrentPlaying) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                                    modifier = Modifier
+                                                        .width(170.dp)
+                                                        .clickable {
+                                                            viewModel.playEpisode(episode, currentStreamData)
+                                                        }
+                                                ) {
+                                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                                        // 16:9 Thumbnail preview Box
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .aspectRatio(16f / 9f)
+                                                                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                        ) {
+                                                            if (!episode.thumbnailUrl.isNullOrBlank()) {
+                                                                AsyncImage(
+                                                                    model = episode.thumbnailUrl,
+                                                                    contentDescription = episode.title,
+                                                                    contentScale = ContentScale.Crop,
+                                                                    modifier = Modifier.fillMaxSize()
+                                                                )
+                                                            } else {
+                                                                Box(
+                                                                    modifier = Modifier.fillMaxSize(),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Default.PlayCircleOutline,
+                                                                        contentDescription = null,
+                                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                                    )
+                                                                }
+                                                            }
 
-                                                if (isCurrentPlaying) {
-                                                    Text(
-                                                        text = "▶ Now Playing",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(top = 3.dp)
-                                                    )
+                                                            // Episode Badge on Bottom Start
+                                                            Surface(
+                                                                shape = RoundedCornerShape(4.dp),
+                                                                color = Color.Black.copy(alpha = 0.75f),
+                                                                modifier = Modifier
+                                                                    .align(Alignment.BottomStart)
+                                                                    .padding(4.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "EP ${episode.episodeNumber}",
+                                                                    color = Color.White,
+                                                                    fontSize = 9.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                )
+                                                            }
+
+                                                            // Duration / Quality Badge on Bottom End
+                                                            if (episode.durationText.isNotBlank()) {
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(4.dp),
+                                                                    color = Color.Black.copy(alpha = 0.75f),
+                                                                    modifier = Modifier
+                                                                        .align(Alignment.BottomEnd)
+                                                                        .padding(4.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = episode.durationText,
+                                                                        color = Color.White,
+                                                                        fontSize = 9.sp,
+                                                                        fontWeight = FontWeight.Medium,
+                                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            // Active Playing Overlay
+                                                            if (isCurrentPlaying) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .background(Color.Black.copy(alpha = 0.45f)),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Default.PlayArrow,
+                                                                        contentDescription = "Playing",
+                                                                        tint = MaterialTheme.colorScheme.primary,
+                                                                        modifier = Modifier.size(28.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Episode Info Section
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(8.dp)
+                                                        ) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                modifier = Modifier.fillMaxWidth()
+                                                            ) {
+                                                                Text(
+                                                                    text = "Episode ${episode.episodeNumber}",
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    color = if (isCurrentPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    fontSize = 11.sp
+                                                                )
+
+                                                                if (episode.voteAverage != null && episode.voteAverage > 0f) {
+                                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                        Icon(
+                                                                            imageVector = Icons.Default.Star,
+                                                                            contentDescription = null,
+                                                                            tint = Color(0xFFFFB800),
+                                                                            modifier = Modifier.size(11.dp)
+                                                                        )
+                                                                        Spacer(modifier = Modifier.width(2.dp))
+                                                                        Text(
+                                                                            text = String.format("%.1f", episode.voteAverage),
+                                                                            style = MaterialTheme.typography.labelSmall,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            fontSize = 10.sp
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            Spacer(modifier = Modifier.height(2.dp))
+
+                                                            Text(
+                                                                text = episode.title,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                                color = MaterialTheme.colorScheme.onSurface
+                                                            )
+
+                                                            if (isCurrentPlaying) {
+                                                                Text(
+                                                                    text = "▶ Now Playing",
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    color = MaterialTheme.colorScheme.primary,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    fontSize = 10.sp,
+                                                                    modifier = Modifier.padding(top = 2.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1447,6 +1532,80 @@ fun VideoPlayerScreen(
                         }
                     }
                 }
+
+                // INLINE YOUTUBE DESCRIPTION PANEL (Below 16:9 player, never covers the top video!)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showDescriptionPanel,
+                    enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut(),
+                    modifier = Modifier.fillMaxSize().zIndex(10f)
+                ) {
+                    com.example.ui.components.DescriptionPanel(
+                        title = displayTitle,
+                        channelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: "",
+                        channelAvatarUrl = currentStreamData?.channelAvatarUrl ?: currentVideoItem?.uploaderAvatarUrl,
+                        subscriberCountText = null,
+                        isSubscribed = viewModel.isSubscribed(currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: ""),
+                        onSubscribeClick = {
+                            val chName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: ""
+                            if (chName.isNotBlank()) {
+                                val isNowSub = !viewModel.isSubscribed(chName)
+                                viewModel.toggleSubscription(chName, currentStreamData?.channelAvatarUrl ?: currentVideoItem?.thumbnailUrl)
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(if (isNowSub) "Subscribed to $chName" else "Unsubscribed from $chName")
+                                }
+                            }
+                        },
+                        likesCountText = if (currentStreamData?.likeCount != null && currentStreamData!!.likeCount > 0) String.format("%,d", currentStreamData!!.likeCount) else "Like",
+                        viewsCountText = if (currentStreamData?.viewCount != null && currentStreamData!!.viewCount > 0) String.format("%,d", currentStreamData!!.viewCount) else "12K",
+                        timeAgoText = currentStreamData?.uploadDate?.takeIf { it.isNotBlank() } ?: "Recently",
+                        exactDateText = currentStreamData?.uploadDate?.takeIf { it.isNotBlank() } ?: "Recently",
+                        fullDescription = (currentStreamData?.description ?: currentVideoItem?.description ?: "").ifBlank { "Watch $displayTitle on Butterfly Player." },
+                        tags = currentStreamData?.tags ?: currentVideoItem?.tags ?: emptyList(),
+                        streamData = currentStreamData,
+                        previewItem = currentVideoItem,
+                        onSeekTo = { targetMs -> GlobalPlayerManager.seekTo(targetMs) },
+                        onChannelClick = {
+                            val ch = currentStreamData?.channelName ?: currentVideoItem?.uploaderName ?: ""
+                            if (ch.isNotBlank()) viewModel.openChannel(ch)
+                        },
+                        onDismiss = { showDescriptionPanel = false }
+                    )
+                }
+
+                // INLINE YOUTUBE COMMENTS PANEL (Below 16:9 player, never covers the top video!)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showCommentsBottomSheet,
+                    enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut(),
+                    modifier = Modifier.fillMaxSize().zIndex(10f)
+                ) {
+                    com.example.ui.components.CommentsPanel(
+                        comments = videoComments,
+                        isLoading = isCommentsLoading,
+                        onAddComment = { text ->
+                            activeVideoId?.let { vid -> viewModel.addComment(text, vid) }
+                        },
+                        onLikeComment = { commentId ->
+                            viewModel.toggleCommentLike(commentId)
+                        },
+                        onSeekToTimestamp = { ms ->
+                            GlobalPlayerManager.seekTo(ms)
+                        },
+                        onRefresh = {
+                            activeVideoId?.let { vid ->
+                                val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+                                val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                                viewModel.loadVideoComments(
+                                    videoId = vid,
+                                    providerId = pId,
+                                    videoTitle = title
+                                )
+                            }
+                        },
+                        onDismiss = { showCommentsBottomSheet = false }
+                    )
+                }
             }
         }
     }
@@ -1455,33 +1614,10 @@ fun VideoPlayerScreen(
     }
 }
 
-    // MODAL BOTTOM SHEET: COMMENTS (YouTube Style)
-    if (showCommentsBottomSheet) {
-        com.example.ui.components.CommentsBottomSheet(
-            comments = videoComments,
-            isLoading = isCommentsLoading,
-            onAddComment = { text ->
-                activeVideoId?.let { vid -> viewModel.addComment(text, vid) }
-            },
-            onLikeComment = { commentId ->
-                viewModel.toggleCommentLike(commentId)
-            },
-            onSeekToTimestamp = { ms ->
-                GlobalPlayerManager.seekTo(ms)
-            },
-            onRefresh = {
-                activeVideoId?.let { vid ->
-                    val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
-                    val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
-                    viewModel.loadVideoComments(
-                        videoId = vid,
-                        providerId = pId,
-                        videoTitle = title
-                    )
-                }
-            },
-            onDismiss = { showCommentsBottomSheet = false }
-        )
+    // Dismiss inline panels first on back press
+    androidx.activity.compose.BackHandler(enabled = showDescriptionPanel || showCommentsBottomSheet) {
+        showDescriptionPanel = false
+        showCommentsBottomSheet = false
     }
 
     // MODAL BOTTOM SHEET: DOWNLOAD QUALITY PICKER

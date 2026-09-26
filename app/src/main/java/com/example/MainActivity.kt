@@ -8,10 +8,13 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.zIndex
 import coil.Coil
 import coil.ImageLoader
@@ -27,8 +30,10 @@ import com.example.ui.MainViewModel
 import com.example.ui.animation.ButterflyOpeningAnimation
 import com.example.ui.animation.FairyBunnyOpeningAnimation
 import com.example.ui.animation.MtvMoonButterflyOpeningAnimation
+import com.example.ui.components.WhatsNewDialog
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.util.WhatsNewManager
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -97,11 +102,20 @@ class MainActivity : ComponentActivity() {
         viewModel.syncWithGlobalPlayer()
 
         setContent {
+            val context = LocalContext.current
             val themeMode by viewModel.themeMode.collectAsState()
             val accentColor by viewModel.accentColor.collectAsState()
             val showOpeningAnimation by viewModel.showOpeningAnimation.collectAsState()
             val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
             val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
+            var showWhatsNewDialog by remember { mutableStateOf(false) }
+
+            // Trigger "What's New" when the app was updated
+            LaunchedEffect(Unit) {
+                if (WhatsNewManager.shouldShowWhatsNew(context)) {
+                    showWhatsNewDialog = true
+                }
+            }
 
             MyApplicationTheme(
                 themeMode = themeMode,
@@ -117,6 +131,15 @@ class MainActivity : ComponentActivity() {
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(viewModel = viewModel)
+
+                    if (showWhatsNewDialog) {
+                        WhatsNewDialog(
+                            onDismiss = {
+                                WhatsNewManager.markWhatsNewAsSeen(context)
+                                showWhatsNewDialog = false
+                            }
+                        )
+                    }
 
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
                         when (openingAnimationStyle) {

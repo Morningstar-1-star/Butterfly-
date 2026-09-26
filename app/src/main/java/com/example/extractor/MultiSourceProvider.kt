@@ -38,7 +38,15 @@ object MultiSourceProvider {
         if (pid.startsWith("tmdb_") && pid != "tmdb_embed") {
             val sub = pid.removePrefix("tmdb_")
             val src = com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
-            return@withContext TMDBEmbedProvider.getHome(page, limit, specificSource = src, context = context)
+            return@withContext TMDBEmbedProvider.getHome(page, limit, specificSource = src, context = context).map { it.copy(providerId = pid) }
+        }
+
+        if (pid.startsWith("vidsrc_") && pid != "vidsrc") {
+            return@withContext VidSrcProvider.getHome(page, limit).map { it.copy(providerId = pid) }
+        }
+
+        if (pid.startsWith("decryptor_") && pid != "decryptor") {
+            return@withContext DecryptorProvider.getHome(page, limit).map { it.copy(providerId = pid) }
         }
 
         // 1. Try custom scrapers / APIs first
@@ -105,7 +113,15 @@ object MultiSourceProvider {
         if (pid.startsWith("tmdb_") && pid != "tmdb_embed") {
             val sub = pid.removePrefix("tmdb_")
             val src = com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
-            return@withContext TMDBEmbedProvider.search(query, limit, page, specificSource = src, context = context)
+            return@withContext TMDBEmbedProvider.search(query, limit, page, specificSource = src, context = context).map { it.copy(providerId = pid) }
+        }
+
+        if (pid.startsWith("vidsrc_") && pid != "vidsrc") {
+            return@withContext VidSrcProvider.search(query, limit, page).map { it.copy(providerId = pid) }
+        }
+
+        if (pid.startsWith("decryptor_") && pid != "decryptor") {
+            return@withContext DecryptorProvider.search(query, limit, page).map { it.copy(providerId = pid) }
         }
 
         when (pid) {

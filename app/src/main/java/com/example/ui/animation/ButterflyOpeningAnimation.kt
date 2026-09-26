@@ -190,15 +190,9 @@ fun ButterflyOpeningAnimation(
     val isDark = themeMode == ThemeMode.AMOLED_DARK
     val backgroundBrush = remember(isDark, accentColor) {
         if (isDark) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFF0F172A), // Deep midnight slate
-                    Color(0xFF080D1A),
-                    Color(0xFF020408)  // AMOLED pure abyss
-                )
-            )
+            SolidColor(Color.Black) // Pure AMOLED Pitch Black
         } else {
-            // Radiant sky gradient inspired by video clip
+            // Vibrant blue gradient
             Brush.verticalGradient(
                 colors = listOf(
                     Color(0xFF389DF6), // Vibrant cerulean sky

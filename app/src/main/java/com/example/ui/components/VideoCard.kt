@@ -119,7 +119,7 @@ fun VideoCard(
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     var localShowOriginal by remember(video.id) { mutableStateOf(false) }
-    var cardYPosition by remember { mutableFloatStateOf(0f) }
+    val cardYPosition = remember { floatArrayOf(0f) }
     val context = LocalContext.current
     val effectiveWatchProgress = watchProgressFraction
 
@@ -209,10 +209,10 @@ fun VideoCard(
             !raw.isNullOrBlank() && !raw.contains("placeholder") && !raw.contains("blank.gif") && !raw.contains("loading.gif") && (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("//")) -> {
                 if (raw.startsWith("//")) "https:$raw" else raw
             }
-            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/mqdefault.jpg"
+            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hq720.jpg"
             (video.providerId == "youtube" || video.providerId == "all") && video.id.contains("v=") -> {
                 val vId = video.id.substringAfter("v=").substringBefore("&")
-                "https://i.ytimg.com/vi/$vId/mqdefault.jpg"
+                "https://i.ytimg.com/vi/$vId/hq720.jpg"
             }
             video.providerId == "beeg" && video.id.isNotBlank() -> {
                 val fileId = Regex("""\d+""").find(video.id)?.value ?: ""
@@ -287,8 +287,8 @@ fun VideoCard(
         com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
             context,
             activeImageUrl,
-            crossfadeMillis = 0,
-            preferCompact = true
+            crossfadeMillis = 100,
+            preferCompact = false
         )
     }
 
@@ -341,7 +341,7 @@ fun VideoCard(
             .clickable {
                 if (!isScrubbing) {
                     if (onClickWithOrigin != null) {
-                        onClickWithOrigin(cardYPosition)
+                        onClickWithOrigin(cardYPosition[0])
                     } else {
                         onClick()
                     }
@@ -355,7 +355,7 @@ fun VideoCard(
                 .aspectRatio(16f / 9f)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .onGloballyPositioned { coordinates ->
-                    cardYPosition = coordinates.positionInRoot().y
+                    cardYPosition[0] = coordinates.positionInRoot().y
                 }
                 .then(scrubModifier)
         ) {

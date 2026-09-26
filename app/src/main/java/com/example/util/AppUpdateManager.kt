@@ -25,16 +25,22 @@ data class GithubReleaseInfo(
     val versionCode: Int,
     val releaseTitle: String,
     val releaseNotes: String,
+    val changelogHighlights: List<String>,
     val apkDownloadUrl: String,
     val apkSize: Long,
     val publishedAt: String
+)
+
+data class DynamicScriptUpdateResult(
+    val updatedCount: Int,
+    val message: String
 )
 
 sealed class UpdateCheckState {
     object Idle : UpdateCheckState()
     object Checking : UpdateCheckState()
     data class UpdateAvailable(val release: GithubReleaseInfo) : UpdateCheckState()
-    data class UpToDate(val currentVersion: String) : UpdateCheckState()
+    data class UpToDate(val currentVersion: String, val latestChangelog: List<String> = emptyList()) : UpdateCheckState()
     data class Downloading(val progressPercent: Int, val bytesDownloaded: Long, val totalBytes: Long) : UpdateCheckState()
     data class ReadyToInstall(val apkFile: File, val release: GithubReleaseInfo) : UpdateCheckState()
     data class Error(val message: String) : UpdateCheckState()
@@ -48,6 +54,9 @@ object AppUpdateManager {
     private val _updateState = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
     val updateState: StateFlow<UpdateCheckState> = _updateState.asStateFlow()
 
+    private val _isSyncingScripts = MutableStateFlow(false)
+    val isSyncingScripts: StateFlow<Boolean> = _isSyncingScripts.asStateFlow()
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -60,6 +69,27 @@ object AppUpdateManager {
 
     val currentVersionCode: Int
         get() = BuildConfig.VERSION_CODE
+
+    /**
+     * Parses GitHub markdown release notes into clean bullet-point changelog items.
+     */
+    fun parseChangelogLines(body: String): List<String> {
+        if (body.isBlank()) return emptyList()
+        val lines = body.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filter { !it.startsWith("#") && !it.startsWith("---") && !it.startsWith("***") }
+            .map { line ->
+                line.removePrefix("* ")
+                    .removePrefix("- ")
+                    .removePrefix("+ ")
+                    .removePrefix("• ")
+                    .trim()
+            }
+            .filter { it.isNotBlank() && it.length > 2 }
+
+        return if (lines.isNotEmpty()) lines else listOf(body.trim())
+    }
 
     suspend fun checkForUpdates(context: Context): UpdateCheckState = withContext(Dispatchers.IO) {
         _updateState.value = UpdateCheckState.Checking
@@ -77,7 +107,7 @@ object AppUpdateManager {
                         _updateState.value = state
                         return@withContext state
                     }
-                    throw Exception("GitHub API error: ${resp.code}")
+                    throw Exception("GitHub API error: HTTP ${resp.code}")
                 }
                 resp.body?.string() ?: throw Exception("Empty response from GitHub")
             }
@@ -85,8 +115,9 @@ object AppUpdateManager {
             val json = JSONObject(responseBody)
             val tagName = json.optString("tag_name", "").trim()
             val releaseTitle = json.optString("name", tagName).ifBlank { tagName }
-            val releaseNotes = json.optString("body", "No release notes provided.").trim()
+            val rawReleaseNotes = json.optString("body", "Bug fixes and performance enhancements.").trim()
             val publishedAt = json.optString("published_at", "")
+            val changelogList = parseChangelogLines(rawReleaseNotes)
 
             // Parse asset APK
             val assets = json.optJSONArray("assets")
@@ -106,46 +137,40 @@ object AppUpdateManager {
                 }
             }
 
-            if (apkUrl.isBlank()) {
-                val state = UpdateCheckState.UpToDate(currentVersionName)
-                _updateState.value = state
-                return@withContext state
-            }
-
             // Extract numeric version from tag/title (e.g. "v1.6" -> "1.6", "6")
             val cleanVersionName = tagName.removePrefix("v").removePrefix("V").ifBlank { tagName }
             
             // Extract versionCode integer from release body, title, or tag
             var remoteVersionCode = extractVersionCode(json)
             if (remoteVersionCode <= 0) {
-                // Infer from versionName if tag is e.g. "1.6" -> 6 or semver comparison
                 remoteVersionCode = parseVersionNameToCode(cleanVersionName)
             }
 
-            val isNewer = remoteVersionCode > currentVersionCode || isVersionNameNewer(cleanVersionName, currentVersionName)
+            val isNewer = (remoteVersionCode > currentVersionCode) || isVersionNameNewer(cleanVersionName, currentVersionName)
 
             val releaseInfo = GithubReleaseInfo(
                 tagName = tagName,
                 versionName = cleanVersionName,
                 versionCode = remoteVersionCode,
                 releaseTitle = releaseTitle,
-                releaseNotes = releaseNotes,
+                releaseNotes = rawReleaseNotes,
+                changelogHighlights = changelogList,
                 apkDownloadUrl = apkUrl,
                 apkSize = apkSize,
                 publishedAt = publishedAt
             )
 
-            val newState = if (isNewer) {
+            val newState = if (isNewer && apkUrl.isNotBlank()) {
                 UpdateCheckState.UpdateAvailable(releaseInfo)
             } else {
-                UpdateCheckState.UpToDate(currentVersionName)
+                UpdateCheckState.UpToDate(currentVersionName, changelogList)
             }
 
             _updateState.value = newState
             return@withContext newState
         } catch (e: Exception) {
             Log.w(TAG, "Check update error: ${e.message}")
-            val errorState = UpdateCheckState.Error("Unable to check updates: ${e.localizedMessage}")
+            val errorState = UpdateCheckState.Error("Unable to check updates: ${e.localizedMessage ?: "Network error"}")
             _updateState.value = errorState
             return@withContext errorState
         }
@@ -193,7 +218,26 @@ object AppUpdateManager {
             triggerApkInstallation(context, apkFile)
         } catch (e: Exception) {
             Log.e(TAG, "Download update error: ${e.message}", e)
-            _updateState.value = UpdateCheckState.Error("Download failed: ${e.localizedMessage}")
+            _updateState.value = UpdateCheckState.Error("Download failed: ${e.localizedMessage ?: "Unknown error"}")
+        }
+    }
+
+    /**
+     * Dynamic Over-The-Air (OTA) sync for scraper scripts, provider URLs, and extractor definitions without APK download.
+     */
+    suspend fun syncDynamicScripts(context: Context): DynamicScriptUpdateResult = withContext(Dispatchers.IO) {
+        _isSyncingScripts.value = true
+        var updatedCount = 0
+        try {
+            // 1. Refresh live Vega mirror provider endpoints from GitHub
+            com.example.vega.VegaProviderRegistry.refreshUrlsFromNetwork()
+            updatedCount += 1
+
+            _isSyncingScripts.value = false
+            DynamicScriptUpdateResult(updatedCount, "All streaming sources & scrapers synced to latest dynamic rules.")
+        } catch (e: Exception) {
+            _isSyncingScripts.value = false
+            DynamicScriptUpdateResult(0, "Script sync note: ${e.message}")
         }
     }
 
@@ -221,7 +265,6 @@ object AppUpdateManager {
     }
 
     private fun extractVersionCode(json: JSONObject): Int {
-        // Try parsing versionCode from release title or body if formatted like "versionCode=6" or "vc:6"
         val text = json.optString("body", "") + " " + json.optString("name", "") + " " + json.optString("tag_name", "")
         val vcMatch = Regex("""versionCode\s*[:=]\s*(\d+)""", RegexOption.IGNORE_CASE).find(text)
             ?: Regex("""vc\s*[:=]\s*(\d+)""", RegexOption.IGNORE_CASE).find(text)

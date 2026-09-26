@@ -3315,6 +3315,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+
+            // Dynamic VidSrc Individual Server Mirrors installed by user
+            if (vidSrcRepository.isMasterEnabled.value) {
+                val installedVidSrc = vidSrcRepository.installedProviders.value
+                for (vsp in installedVidSrc) {
+                    val vId = "vidsrc_${vsp.id}"
+                    uiList.add(
+                        ProviderUiItem(
+                            id = vId,
+                            name = vsp.name,
+                            description = "VidSrc cloud mirror: ${vsp.name}",
+                            category = "VidSrc",
+                            providerType = com.example.model.ProviderType.EMBED,
+                            isEnabled = vsp.isEnabled && enabledSet.contains(vId),
+                            isDefault = (activeId == vId)
+                        )
+                    )
+                }
+            }
+
+            // Dynamic Decryptor Individual Stream Engines installed by user
+            if (decryptorRepository.isMasterEnabled.value) {
+                val installedDec = decryptorRepository.installedProviders.value
+                for (dec in installedDec) {
+                    val dId = "decryptor_${dec.id}"
+                    uiList.add(
+                        ProviderUiItem(
+                            id = dId,
+                            name = dec.name,
+                            description = "Decryptor stream engine: ${dec.name}",
+                            category = "Decryptor",
+                            providerType = com.example.model.ProviderType.DECRYPTOR,
+                            isEnabled = dec.isEnabled && enabledSet.contains(dId),
+                            isDefault = (activeId == dId)
+                        )
+                    )
+                }
+            }
+
+            // Dynamic TMDB Individual Embed Sources installed by user
+            if (tmdbRepository.isMasterEnabled.value) {
+                val installedTMDB = tmdbRepository.installedProviders.value
+                for (tp in installedTMDB) {
+                    val tId = "tmdb_${tp.id}"
+                    uiList.add(
+                        ProviderUiItem(
+                            id = tId,
+                            name = tp.name,
+                            description = "TMDB cinema source: ${tp.name}",
+                            category = "TMDB",
+                            providerType = com.example.model.ProviderType.EMBED,
+                            isEnabled = tp.isEnabled && enabledSet.contains(tId),
+                            isDefault = (activeId == tId)
+                        )
+                    )
+                }
+            }
         }
 
         _availableProviders.value = uiList
@@ -4331,9 +4388,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Immediately clear refresh and loading indicators as soon as Priority 1 finishes
-                _isLoadingTrending.value = false
-                _isFeedRefreshing.value = false
+                // Smoothly dismiss loading only if items are already present, otherwise allow subsequent priorities to complete
+                if (_trendingVideos.value.isNotEmpty()) {
+                    _isLoadingTrending.value = false
+                    _isFeedRefreshing.value = false
+                }
 
                 if (!isActive) return@launch
 
@@ -4362,6 +4421,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val targetFastSources = when {
                     activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (if (adultEnabled) isAdultProviderId(it) && !isNormalProvider(it) else !isAdultProviderId(it)) }
+                    activeProv.startsWith("vidsrc") || activeProv.startsWith("decryptor") || activeProv.startsWith("tmdb") -> listOf(activeProv)
                     else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
                 }
 

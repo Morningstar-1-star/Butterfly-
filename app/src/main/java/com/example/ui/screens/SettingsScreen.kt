@@ -4625,7 +4625,10 @@ fun SettingsScreen(
 
                     SettingsCategory.ABOUT -> {
                         val updateState by com.example.util.AppUpdateManager.updateState.collectAsState()
+                        val isSyncingScripts by com.example.util.AppUpdateManager.isSyncingScripts.collectAsState()
                         val scope = rememberCoroutineScope()
+                        var otaSyncMessage by remember { mutableStateOf<String?>(null) }
+                        var showWhatsNewDialog by remember { mutableStateOf(false) }
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -4647,6 +4650,15 @@ fun SettingsScreen(
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                FilledTonalButton(
+                                    onClick = { showWhatsNewDialog = true },
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("What's New in v${com.example.util.AppUpdateManager.currentVersionName}")
+                                }
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = "A modern, lightweight multimedia streaming and playback client engineered with Jetpack Compose & Media3 ExoPlayer.",
@@ -4656,7 +4668,7 @@ fun SettingsScreen(
                                 )
                                 Spacer(modifier = Modifier.height(24.dp))
 
-                                // APP UPDATES CARD
+                                // 1. APP UPDATES CARD (GitHub Releases with Detailed What's New Changelog)
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
@@ -4698,7 +4710,7 @@ fun SettingsScreen(
                                                 Button(
                                                     onClick = {
                                                         scope.launch {
-                                                            com.example.util.AppUpdateManager.checkForUpdates(context)
+                                                             com.example.util.AppUpdateManager.checkForUpdates(context)
                                                         }
                                                     },
                                                     modifier = Modifier.fillMaxWidth(),
@@ -4747,14 +4759,43 @@ fun SettingsScreen(
                                             is com.example.util.UpdateCheckState.UpdateAvailable -> {
                                                 val release = state.release
                                                 Surface(
-                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
                                                     shape = RoundedCornerShape(12.dp),
                                                     modifier = Modifier.fillMaxWidth()
                                                 ) {
-                                                    Column(modifier = Modifier.padding(12.dp)) {
-                                                        Text("🚀 New Version Available: v${release.versionName}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                                        if (release.releaseNotes.isNotBlank()) {
-                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                    Column(modifier = Modifier.padding(14.dp)) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            Text("🚀 New Version: v${release.versionName}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                                            if (release.apkSize > 0) {
+                                                                val mb = String.format("%.1f MB", release.apkSize / (1024.0 * 1024.0))
+                                                                Text("($mb)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                            }
+                                                        }
+
+                                                        Spacer(modifier = Modifier.height(8.dp))
+                                                        Text("What's New:", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                                        if (release.changelogHighlights.isNotEmpty()) {
+                                                            release.changelogHighlights.forEach { item ->
+                                                                Row(
+                                                                    modifier = Modifier.padding(vertical = 2.dp),
+                                                                    verticalAlignment = Alignment.Top,
+                                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                                ) {
+                                                                    Text("•", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                                    Text(
+                                                                        text = item,
+                                                                        fontSize = 12.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                        lineHeight = 16.sp
+                                                                    )
+                                                                }
+                                                            }
+                                                        } else {
                                                             Text(
                                                                 text = release.releaseNotes.take(300),
                                                                 fontSize = 12.sp,
@@ -4775,13 +4816,21 @@ fun SettingsScreen(
                                                 ) {
                                                     Icon(Icons.Default.GetApp, contentDescription = null, modifier = Modifier.size(18.dp))
                                                     Spacer(modifier = Modifier.width(8.dp))
-                                                    Text("Download & Install Update")
+                                                    Text("Download & Install (v${release.versionName})")
                                                 }
                                             }
 
                                             is com.example.util.UpdateCheckState.Downloading -> {
                                                 Column(modifier = Modifier.fillMaxWidth()) {
-                                                    Text("Downloading Update (${state.progressPercent}%)...", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                    val mbDownloaded = String.format("%.1f", state.bytesDownloaded / (1024.0 * 1024.0))
+                                                    val mbTotal = String.format("%.1f", state.totalBytes / (1024.0 * 1024.0))
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Text("Downloading Update...", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                        Text("${state.progressPercent}% ($mbDownloaded / $mbTotal MB)", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                                    }
                                                     Spacer(modifier = Modifier.height(6.dp))
                                                     LinearProgressIndicator(
                                                         progress = { state.progressPercent / 100f },
@@ -4791,7 +4840,7 @@ fun SettingsScreen(
                                             }
 
                                             is com.example.util.UpdateCheckState.ReadyToInstall -> {
-                                                Text("Download finished! Ready to install update.", fontSize = 13.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+                                                Text("Download completed! Ready to install update.", fontSize = 13.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 Button(
                                                     onClick = {
@@ -4824,7 +4873,87 @@ fun SettingsScreen(
                                         }
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // 2. DYNAMIC SCRIPT & PROVIDER OVER-THE-AIR (OTA) SYNC CARD
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Sync,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E676)
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = "Instant Scraper & Provider Sync (OTA)",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp
+                                                )
+                                                Text(
+                                                    text = "Update streaming rules & source mirrors without APK download",
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        if (otaSyncMessage != null) {
+                                            Text(
+                                                text = otaSyncMessage!!,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF00E676),
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    val res = com.example.util.AppUpdateManager.syncDynamicScripts(context)
+                                                    otaSyncMessage = res.message
+                                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            enabled = !isSyncingScripts,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            if (isSyncingScripts) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Syncing Scrapers...")
+                                            } else {
+                                                Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Sync Scraper Rules (Files Only)")
+                                            }
+                                        }
+                                    }
+                                }
                             }
+                        }
+
+                        if (showWhatsNewDialog) {
+                            com.example.ui.components.WhatsNewDialog(
+                                onDismiss = { showWhatsNewDialog = false }
+                            )
                         }
                     }
                     null -> {}

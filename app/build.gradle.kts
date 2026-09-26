@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.butterfly.youtubeclient"
     minSdk = 28
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.0.1-alpha"
+    versionCode = 2
+    versionName = "0.0.2-alpha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     ndk {

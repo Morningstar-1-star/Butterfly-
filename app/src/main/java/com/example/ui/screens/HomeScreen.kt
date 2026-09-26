@@ -131,7 +131,7 @@ fun HomeScreen(
         if (currentFeedList.isNotEmpty()) {
             isSourceSwitching = false
         } else if (!isLoadingTrending && !isSearching && !isFeedRefreshing) {
-            kotlinx.coroutines.delay(400L)
+            kotlinx.coroutines.delay(1200L)
             if (currentFeedList.isEmpty() && !isLoadingTrending && !isSearching && !isFeedRefreshing) {
                 isSourceSwitching = false
             }

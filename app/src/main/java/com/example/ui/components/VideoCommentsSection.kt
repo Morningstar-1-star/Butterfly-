@@ -431,20 +431,19 @@ private fun formatCount(count: Int): String {
 }
 
 /**
- * YouTube-style Modern Comments Bottom Sheet
+ * YouTube-style Modern Comments Inline Panel & Sheet
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CommentsBottomSheet(
+fun CommentsPanel(
     comments: List<VideoComment>,
     isLoading: Boolean = false,
     onAddComment: (String) -> Unit = {},
     onLikeComment: (String) -> Unit = {},
     onSeekToTimestamp: (Long) -> Unit = {},
     onRefresh: () -> Unit = {},
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var userCommentInput by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Top") }
     val filterOptions = listOf("Top", "Newest")
@@ -456,24 +455,29 @@ fun CommentsBottomSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color(0xFF0F0F0F),
-        dragHandle = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-            ) {
-                BottomSheetDefaults.DragHandle()
-            }
-        }
+    Surface(
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        color = Color(0xFF0F0F0F),
+        modifier = modifier.fillMaxSize()
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.85f)
+            modifier = Modifier.fillMaxSize()
         ) {
+            // Drag handle
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(Color(0xFF555555), RoundedCornerShape(2.dp))
+                )
+            }
+
             // Header Row
             Row(
                 modifier = Modifier
@@ -652,6 +656,41 @@ fun CommentsBottomSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * YouTube-style Modern Comments Bottom Sheet
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CommentsBottomSheet(
+    comments: List<VideoComment>,
+    isLoading: Boolean = false,
+    onAddComment: (String) -> Unit = {},
+    onLikeComment: (String) -> Unit = {},
+    onSeekToTimestamp: (Long) -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF0F0F0F),
+        dragHandle = null
+    ) {
+        CommentsPanel(
+            comments = comments,
+            isLoading = isLoading,
+            onAddComment = onAddComment,
+            onLikeComment = onLikeComment,
+            onSeekToTimestamp = onSeekToTimestamp,
+            onRefresh = onRefresh,
+            onDismiss = onDismiss,
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f)
+        )
     }
 }
 

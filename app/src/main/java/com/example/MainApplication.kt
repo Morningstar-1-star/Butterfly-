@@ -194,17 +194,17 @@ class MainApplication : Application() {
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache_v4"))
-                    .maxSizeBytes(150L * 1024L * 1024L) // 150 MB dedicated disk cache
+                    .directory(cacheDir.resolve("image_cache_hd_v5"))
+                    .maxSizeBytes(250L * 1024L * 1024L) // 250 MB dedicated disk cache for instant offline & startup loading
                     .build()
             }
             .respectCacheHeaders(false)
             .allowHardware(true)
-            .allowRgb565(true)
+            .allowRgb565(false)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(0) // 0ms crossfade eliminates composable animation lag on list scroll
+            .crossfade(100)
             .build()
         Coil.setImageLoader(imageLoader)
 
