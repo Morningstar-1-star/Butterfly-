@@ -4,12 +4,13 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 object ShowboxExtractor {
     private const val TAG = "ShowboxExtractor"
@@ -17,8 +18,8 @@ object ShowboxExtractor {
     private const val PSTREAM_API = "https://pstream.org/api"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
@@ -42,8 +43,8 @@ object ShowboxExtractor {
                 if (resp.isSuccessful) resp.body?.string() ?: "" else ""
             }
 
-            if (body.isNotBlank()) {
-                val json = JSONObject(body)
+            val json = body.toJsonObjectOrNull()
+            if (json != null) {
                 val streamsArr = json.optJSONArray("streams")
                 if (streamsArr != null) {
                     for (i in 0 until streamsArr.length()) {
@@ -67,10 +68,30 @@ object ShowboxExtractor {
                         }
                     }
                 }
+            } else if (body.isNotBlank() && (body.contains(".m3u8") || body.contains(".mp4"))) {
+                // If HTML returned contains direct media URLs
+                val m = Pattern.compile("https?://[^\"'\\s]+\\.(?:m3u8|mp4)[^\"'\\s]*").matcher(body)
+                if (m.find()) {
+                    val streamUrl = m.group()
+                    streams.add(
+                        ExtractedStream(
+                            title = "${request.title} [Showbox/FebBox • Direct]",
+                            url = streamUrl,
+                            quality = "1080p",
+                            source = TMDBEmbedSource.SHOWBOX,
+                            isHls = streamUrl.contains(".m3u8"),
+                            headers = mapOf(
+                                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Referer" to "https://www.febbox.com/"
+                            )
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Showbox extraction failed: ${e.message}", e)
+            Log.w(TAG, "Showbox extraction note: ${e.message}")
         }
         streams
     }
 }
+

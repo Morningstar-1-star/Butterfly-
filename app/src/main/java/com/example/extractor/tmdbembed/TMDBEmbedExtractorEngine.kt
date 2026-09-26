@@ -90,7 +90,7 @@ object TMDBEmbedExtractorEngine {
                 }
             } catch (e: Exception) {
                 TMDBEmbedConfig.markFailure(source, e.message ?: "Extraction error")
-                Log.e(TAG, "Error extracting from ${source.displayName}: ${e.message}", e)
+                Log.w(TAG, "Note extracting from ${source.displayName}: ${e.message}")
                 if (!fallbackAllowed) {
                     break
                 }

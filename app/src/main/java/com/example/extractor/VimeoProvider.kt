@@ -54,18 +54,28 @@ object VimeoProvider {
                     val thumb = item.optString("thumbnail_large", item.optString("thumbnail_medium", ""))
                     val duration = item.optLong("duration", -1L)
                     val views = item.optLong("stats_number_of_plays", -1L)
+                    val rawUploadDate = item.optString("upload_date").ifBlank { item.optString("created_time") }
+                    val uploadDate = rawUploadDate.takeIf { it.isNotBlank() }
+                    val uploaderAvatar = item.optString("user_portrait_huge")
+                        .ifBlank { item.optString("user_portrait_large") }
+                        .ifBlank { item.optString("user_portrait_medium") }
+                        .ifBlank { item.optString("user_portrait_small") }
+                        .takeIf { it.isNotBlank() } ?: "https://i.vimeocdn.com/favicon/main-touch_180.png"
 
-                    list.add(
-                        VideoItem(
-                            id = videoUrl,
-                            title = title,
-                            uploaderName = uploader,
-                            durationSeconds = duration,
-                            viewCount = views,
-                            thumbnailUrl = thumb,
-                            providerId = PROVIDER_ID
-                        )
+                    val videoItem = VideoItem(
+                        id = videoUrl,
+                        title = title,
+                        uploaderName = uploader,
+                        uploaderAvatarUrl = uploaderAvatar,
+                        durationSeconds = duration,
+                        viewCount = views,
+                        uploadDate = uploadDate,
+                        thumbnailUrl = thumb,
+                        providerId = PROVIDER_ID
                     )
+                    if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(videoItem)) {
+                        list.add(videoItem)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -101,6 +111,7 @@ object VimeoProvider {
                             id = "https://vimeo.com/$id",
                             title = title,
                             uploaderName = "Vimeo Creator",
+                            uploaderAvatarUrl = "https://i.vimeocdn.com/favicon/main-touch_180.png",
                             durationSeconds = -1L,
                             viewCount = -1L,
                             thumbnailUrl = "https://vumbnail.com/$id.jpg",

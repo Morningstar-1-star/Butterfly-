@@ -25,10 +25,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.CachePolicy
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Velocity
@@ -168,18 +175,13 @@ fun VideoPlayerScreen(
     val tvSeasons by viewModel.tvSeasons.collectAsState()
     val isSeasonsLoading by viewModel.isSeasonsLoading.collectAsState()
     var selectedSeasonNumber by remember { mutableStateOf(1) }
-    var selectedPillTab by remember { mutableStateOf("RELATED") } // "EPISODES", "RELATED", "REACTIONS", "COMMENTS"
+    var showCommentsBottomSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(tvSeasons) {
         if (tvSeasons.isNotEmpty()) {
             if (tvSeasons.none { it.seasonNumber == selectedSeasonNumber }) {
                 selectedSeasonNumber = tvSeasons.first().seasonNumber
             }
-            if (selectedPillTab == "RELATED") {
-                selectedPillTab = "EPISODES"
-            }
-        } else if (selectedPillTab == "EPISODES") {
-            selectedPillTab = "RELATED"
         }
     }
 
@@ -189,7 +191,7 @@ fun VideoPlayerScreen(
                 id = activeVideoId ?: "playing_video",
                 title = currentStreamData.title,
                 uploaderName = currentStreamData.channelName,
-                thumbnailUrl = currentStreamData.thumbnailUrl,
+                thumbnailUrl = currentStreamData.thumbnailUrl?.takeIf { it.isNotBlank() } ?: activeVideoItem?.thumbnailUrl,
                 providerId = providerId ?: currentStreamData.providerId ?: "youtube"
             )
         } else if (activeVideoItem != null) {
@@ -209,6 +211,26 @@ fun VideoPlayerScreen(
         }
     }
 
+    val firstFrameRendered by GlobalPlayerManager.firstFrameRendered.collectAsState()
+    var isVideoPriorityGracePeriodOver by remember(activeVideoId) { mutableStateOf(false) }
+
+    LaunchedEffect(activeVideoId) {
+        isVideoPriorityGracePeriodOver = false
+        // YouTube-style prioritized playback: dedicate all system, CPU and network bandwidth to video playback engine first
+        delay(750L)
+        isVideoPriorityGracePeriodOver = true
+    }
+
+    val shouldRenderDetails = firstFrameRendered || isVideoPriorityGracePeriodOver
+
+    val playerBackdropThumbnailUrl = remember(currentStreamData, currentVideoItem, activeVideoItem, activeVideoId) {
+        val curVidId = activeVideoId
+        currentStreamData?.thumbnailUrl?.takeIf { it.isNotBlank() }
+            ?: currentVideoItem?.thumbnailUrl?.takeIf { it.isNotBlank() }
+            ?: activeVideoItem?.thumbnailUrl?.takeIf { it.isNotBlank() }
+            ?: (if (curVidId != null && curVidId.length == 11 && !curVidId.startsWith("http")) "https://i.ytimg.com/vi/$curVidId/hqdefault.jpg" else null)
+    }
+
     val hiddenVideoIds by viewModel.hiddenVideoIds.collectAsState()
     val notInterestedVideoIds by viewModel.notInterestedVideoIds.collectAsState()
     val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
@@ -225,7 +247,8 @@ fun VideoPlayerScreen(
     )
 
     var relatedContent by remember(activeVideoId) { mutableStateOf<List<com.example.model.VideoItem>>(emptyList()) }
-    LaunchedEffect(activeVideoId, currentStreamData, playerRecommendations.size, trendingVideos.size) {
+    LaunchedEffect(activeVideoId, currentStreamData, playerRecommendations.size, trendingVideos.size, shouldRenderDetails) {
+        if (!shouldRenderDetails) return@LaunchedEffect
         val streamRelated = currentStreamData?.relatedVideos?.filter { it.id != activeVideoId } ?: emptyList()
         val pId = providerId ?: currentStreamData?.providerId
         val isAdultCurrent = viewModel.isAdultProviderId(pId) ||
@@ -432,13 +455,15 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(currentStreamData?.videoId, activeVideoId) {
+    LaunchedEffect(currentStreamData?.videoId, activeVideoId, shouldRenderDetails) {
+        if (!shouldRenderDetails) return@LaunchedEffect
         viewModel.loadMorePlayerRecommendations(currentStreamData)
     }
 
-    LaunchedEffect(selectedPillTab, activeVideoId, currentStreamData?.videoId) {
+    LaunchedEffect(activeVideoId, currentStreamData?.videoId, shouldRenderDetails) {
+        if (!shouldRenderDetails) return@LaunchedEffect
         val vid = activeVideoId
-        if (selectedPillTab == "COMMENTS" && !vid.isNullOrBlank()) {
+        if (!vid.isNullOrBlank()) {
             val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
             val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
             viewModel.loadVideoComments(
@@ -446,13 +471,11 @@ fun VideoPlayerScreen(
                 providerId = pId,
                 videoTitle = title
             )
-        } else if (selectedPillTab == "REACTIONS") {
-            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
-            viewModel.loadVideoReactions(title, vid)
         }
     }
 
-    LaunchedEffect(displayTitle, activeVideoId) {
+    LaunchedEffect(displayTitle, activeVideoId, shouldRenderDetails) {
+        if (!shouldRenderDetails) return@LaunchedEffect
         if (displayTitle.isNotBlank() && displayTitle != "Loading video...") {
             val cleanTitle = displayTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
             viewModel.resolveUnifiedSourcesForMedia(
@@ -594,6 +617,24 @@ fun VideoPlayerScreen(
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
+            if (!firstFrameRendered && !playerBackdropThumbnailUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(playerBackdropThumbnailUrl)
+                        .crossfade(false)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.22f))
+                )
+            }
             if (effectiveEmbedCandidate != null) {
                 EmbedWebViewPlayer(
                     candidate = effectiveEmbedCandidate,
@@ -716,6 +757,24 @@ fun VideoPlayerScreen(
                                 .background(Color.Black),
                             contentAlignment = Alignment.Center
                         ) {
+                            if (!firstFrameRendered && !playerBackdropThumbnailUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(playerBackdropThumbnailUrl)
+                                        .crossfade(false)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .build(),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.22f))
+                                )
+                            }
                             if (effectiveEmbedCandidate != null) {
                                 EmbedWebViewPlayer(
                                     candidate = effectiveEmbedCandidate,
@@ -845,11 +904,21 @@ fun VideoPlayerScreen(
                                 }
                                 .nestedScroll(nestedScrollConnection)
                         ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 32.dp)
-                    ) {
+                            Crossfade(
+                                targetState = shouldRenderDetails,
+                                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+                                label = "youtube_details_crossfade"
+                            ) { isReady ->
+                                if (!isReady) {
+                                    YouTubeVideoDetailsSkeleton(
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        state = listState,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(bottom = 32.dp)
+                                    ) {
                         // Video Details Section
                         item {
                             VideoDetailsSection(
@@ -901,7 +970,16 @@ fun VideoPlayerScreen(
                                         activeVideoId = activeVideoId
                                     )
                                 },
-                                onCommentsClick = { selectedPillTab = "COMMENTS" },
+                                onCommentsClick = {
+                                    showCommentsBottomSheet = true
+                                    activeVideoId?.let { vid ->
+                                        val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+                                        val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                                        viewModel.loadVideoComments(vid, pId, title)
+                                    }
+                                },
+                                commentsCount = if (videoComments.isNotEmpty()) videoComments.size else 0,
+                                topCommentSnippet = videoComments.firstOrNull()?.commentText,
                                 onChannelClick = { channelName ->
                                     viewModel.openChannel(channelName)
                                 },
@@ -1003,189 +1081,23 @@ fun VideoPlayerScreen(
                             }
                         }
 
-                        // Modern Pill Tab Navigation Bar (Episodes vs Related Videos vs Comments)
-                        item {
-                            LazyRow(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                if (tvSeasons.isNotEmpty()) {
-                                    item {
-                                        val totalEpCount = tvSeasons.sumOf { it.episodes.size }
-                                        FilterChip(
-                                            selected = selectedPillTab == "EPISODES",
-                                            onClick = { selectedPillTab = "EPISODES" },
-                                            label = {
-                                                Text(
-                                                    text = if (totalEpCount > 0) "Episodes ($totalEpCount)" else "Episodes",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.Tv,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                            ),
-                                            shape = RoundedCornerShape(20.dp)
-                                        )
-                                    }
-                                }
-
-                                item {
-                                    FilterChip(
-                                        selected = selectedPillTab == "RELATED",
-                                        onClick = { selectedPillTab = "RELATED" },
-                                        label = {
-                                            Text(
-                                                text = "Related",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.VideoLibrary,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        ),
-                                        shape = RoundedCornerShape(20.dp)
-                                    )
-                                }
-
-                                if (chaptersForDetail.isNotEmpty()) {
-                                    item {
-                                        FilterChip(
-                                            selected = selectedPillTab == "CHAPTERS",
-                                            onClick = { selectedPillTab = "CHAPTERS" },
-                                            label = {
-                                                Text(
-                                                    text = "Chapters (${chaptersForDetail.size})",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.ViewList,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                            ),
-                                            shape = RoundedCornerShape(20.dp)
-                                        )
-                                    }
-                                }
-
-                                item {
-                                    FilterChip(
-                                        selected = selectedPillTab == "REACTIONS",
-                                        onClick = {
-                                            selectedPillTab = "REACTIONS"
-                                            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
-                                            viewModel.loadVideoReactions(title, activeVideoId)
-                                        },
-                                        label = {
-                                            Text(
-                                                text = if (videoReactions.isNotEmpty()) "Reactions (${videoReactions.size})" else "Reactions",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.RateReview,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        ),
-                                        shape = RoundedCornerShape(20.dp)
-                                    )
-                                }
-
-                                item {
-                                    FilterChip(
-                                        selected = selectedPillTab == "COMMENTS",
-                                        onClick = {
-                                            selectedPillTab = "COMMENTS"
-                                            activeVideoId?.let { vid ->
-                                                val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
-                                                val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
-                                                viewModel.loadVideoComments(vid, pId, title)
-                                            }
-                                        },
-                                        label = {
-                                            Text(
-                                                text = "Comments (${videoComments.size})",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Comment,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        ),
-                                        shape = RoundedCornerShape(20.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Tab Content Section
-                        if (selectedPillTab == "EPISODES" && (tvSeasons.isNotEmpty() || isSeasonsLoading)) {
+                        // TV Seasons & Episodes Section (If TV Series Available)
+                        if (tvSeasons.isNotEmpty() || isSeasonsLoading) {
                             if (isSeasonsLoading && tvSeasons.isEmpty()) {
                                 item {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(32.dp),
+                                            .padding(24.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(32.dp),
+                                            modifier = Modifier.size(28.dp),
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
-                            } else {
+                            } else if (tvSeasons.isNotEmpty()) {
                                 // Season Selector Row
                                 item {
                                     LazyRow(
@@ -1249,7 +1161,6 @@ fun VideoPlayerScreen(
                                                 .padding(10.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Episode Still / Thumbnail
                                             Box(
                                                 modifier = Modifier
                                                     .width(112.dp)
@@ -1277,7 +1188,6 @@ fun VideoPlayerScreen(
                                                     }
                                                 }
 
-                                                // Episode number badge overlay
                                                 Surface(
                                                     shape = RoundedCornerShape(4.dp),
                                                     color = Color.Black.copy(alpha = 0.75f),
@@ -1294,7 +1204,6 @@ fun VideoPlayerScreen(
                                                     )
                                                 }
 
-                                                // Play icon overlay if active
                                                 if (isCurrentPlaying) {
                                                     Box(
                                                         modifier = Modifier
@@ -1314,7 +1223,6 @@ fun VideoPlayerScreen(
 
                                             Spacer(modifier = Modifier.width(12.dp))
 
-                                            // Episode Metadata
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -1380,146 +1288,9 @@ fun VideoPlayerScreen(
                                     }
                                 }
                             }
-                        } else if (selectedPillTab == "CHAPTERS") {
-                            itemsIndexed(chaptersForDetail, key = { idx, ch -> "detail_ch_${idx}_${ch.startTimeMs}" }) { idx, chapter ->
-                                val isActive = idx == activeChapterIndex
-                                Card(
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                    ),
-                                    border = if (isActive) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                                        .clickable {
-                                            GlobalPlayerManager.seekTo(chapter.startTimeMs)
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .width(96.dp)
-                                                .height(54.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                                            contentAlignment = Alignment.BottomEnd
-                                        ) {
-                                            if (!currentStreamData?.thumbnailUrl.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = currentStreamData?.thumbnailUrl,
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .background(if (isActive) Color(0x66FF0033) else Color(0x40000000))
-                                            )
-                                            if (isActive) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .align(Alignment.Center)
-                                                        .size(24.dp)
-                                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.PlayArrow,
-                                                        contentDescription = "Playing",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .padding(3.dp)
-                                                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(3.dp))
-                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = com.example.extractor.chapters.YTCustomChapters.formatMs(chapter.startTimeMs),
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                                                )
-                                            }
-                                        }
+                        }
 
-                                        Spacer(modifier = Modifier.width(12.dp))
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = chapter.title,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = com.example.extractor.chapters.YTCustomChapters.formatMs(chapter.startTimeMs),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else if (selectedPillTab == "COMMENTS") {
-                            item {
-                                com.example.ui.components.VideoCommentsSection(
-                                    comments = videoComments,
-                                    isLoading = isCommentsLoading,
-                                    onAddComment = { text ->
-                                        activeVideoId?.let { vid -> viewModel.addComment(text, vid) }
-                                    },
-                                    onLikeComment = { commentId ->
-                                        viewModel.toggleCommentLike(commentId)
-                                    },
-                                    onSeekToTimestamp = { ms ->
-                                        GlobalPlayerManager.seekTo(ms)
-                                    },
-                                    onRefresh = {
-                                        activeVideoId?.let { vid ->
-                                            val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
-                                            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
-                                            viewModel.loadVideoComments(
-                                                videoId = vid,
-                                                providerId = pId,
-                                                videoTitle = title
-                                            )
-                                        }
-                                    }
-                                )
-                            }
-                        } else if (selectedPillTab == "REACTIONS") {
-                            item(key = "reactions_tab_content") {
-                                com.example.ui.components.VideoReactionsSection(
-                                    reactions = videoReactions,
-                                    isLoading = isReactionsLoading,
-                                    onReactionClick = { reactionVideo ->
-                                        viewModel.playVideo(reactionVideo.id, reactionVideo.providerId)
-                                    },
-                                    onRefresh = {
-                                        val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
-                                        viewModel.loadVideoReactions(title, activeVideoId)
-                                    }
-                                )
-                            }
-                        } else {
-                            // Related Videos List
+                        // Related Videos List Directly Below
                             val topFullVideo = relatedContent.firstOrNull {
                                 val r = it.recommendationReason
                                 r?.contains("Full Movie") == true ||
@@ -1656,36 +1427,21 @@ fun VideoPlayerScreen(
                                         )
                                     }
                                 }
-                            } else {
+                            }
+
+                            if (isLoadingMore || isLoadingPlayerRecs) {
                                 item {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(32.dp),
+                                            .padding(vertical = 16.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = "No related videos available.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        CircularProgressIndicator(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(26.dp)
                                         )
                                     }
-                                }
-                            }
-                        }
-
-                        if (isLoadingMore || isLoadingPlayerRecs) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(26.dp)
-                                    )
                                 }
                             }
                         }
@@ -1694,9 +1450,39 @@ fun VideoPlayerScreen(
             }
         }
     }
+            }
+        }
+    }
 }
-}
-}
+
+    // MODAL BOTTOM SHEET: COMMENTS (YouTube Style)
+    if (showCommentsBottomSheet) {
+        com.example.ui.components.CommentsBottomSheet(
+            comments = videoComments,
+            isLoading = isCommentsLoading,
+            onAddComment = { text ->
+                activeVideoId?.let { vid -> viewModel.addComment(text, vid) }
+            },
+            onLikeComment = { commentId ->
+                viewModel.toggleCommentLike(commentId)
+            },
+            onSeekToTimestamp = { ms ->
+                GlobalPlayerManager.seekTo(ms)
+            },
+            onRefresh = {
+                activeVideoId?.let { vid ->
+                    val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+                    val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+                    viewModel.loadVideoComments(
+                        videoId = vid,
+                        providerId = pId,
+                        videoTitle = title
+                    )
+                }
+            },
+            onDismiss = { showCommentsBottomSheet = false }
+        )
+    }
 
     // MODAL BOTTOM SHEET: DOWNLOAD QUALITY PICKER
     if (showDownloadQualitySheet) {
@@ -2073,6 +1859,162 @@ fun QueueSection(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun YouTubeVideoDetailsSkeleton(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "yt_skeleton_shimmer")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.20f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "skeleton_alpha"
+    )
+    val barColor = MaterialTheme.colorScheme.onSurface.copy(alpha = shimmerAlpha * 0.25f)
+    val pillColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = shimmerAlpha * 0.70f)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Title skeleton bars
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .height(20.dp)
+                .background(barColor, RoundedCornerShape(6.dp))
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.50f)
+                .height(13.dp)
+                .background(barColor, RoundedCornerShape(4.dp))
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Channel row skeleton
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(barColor, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(115.dp)
+                        .height(14.dp)
+                        .background(barColor, RoundedCornerShape(4.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .width(70.dp)
+                        .height(11.dp)
+                        .background(barColor, RoundedCornerShape(3.dp))
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(34.dp)
+                    .background(pillColor, RoundedCornerShape(17.dp))
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        // Action buttons row skeleton
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            repeat(4) {
+                Box(
+                    modifier = Modifier
+                        .width(78.dp)
+                        .height(34.dp)
+                        .background(pillColor, RoundedCornerShape(17.dp))
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Comments preview card skeleton
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(68.dp)
+                .background(pillColor, RoundedCornerShape(12.dp))
+                .padding(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.35f)
+                        .height(12.dp)
+                        .background(barColor, RoundedCornerShape(4.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.80f)
+                        .height(11.dp)
+                        .background(barColor, RoundedCornerShape(4.dp))
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Related items skeleton cards
+        repeat(2) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(130.dp)
+                        .height(78.dp)
+                        .background(barColor, RoundedCornerShape(8.dp))
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.95f)
+                            .height(14.dp)
+                            .background(barColor, RoundedCornerShape(4.dp))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.65f)
+                            .height(12.dp)
+                            .background(barColor, RoundedCornerShape(4.dp))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.40f)
+                            .height(10.dp)
+                            .background(barColor, RoundedCornerShape(3.dp))
+                    )
                 }
             }
         }

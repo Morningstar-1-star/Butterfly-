@@ -12,6 +12,8 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.TransformOrigin
+import kotlin.math.roundToInt
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -260,6 +262,7 @@ fun HomeScreen(
     val globalProgress by com.example.ui.player.GlobalPlayerManager.progressFraction.collectAsState()
     val globalIsPlaying by com.example.ui.player.GlobalPlayerManager.isPlaying.collectAsState()
     val isPipMode by viewModel.isPipMode.collectAsState()
+    val playbackCardOriginY by viewModel.playbackCardOriginY.collectAsState()
     val activeVideoProgress = if (globalProgress > 0f) globalProgress else (activeVideoId?.let { watchProgressMap[it] } ?: 0f)
 
     if (isPipMode) {
@@ -324,7 +327,7 @@ fun HomeScreen(
                 SearchScreen(
                     viewModel = viewModel,
                     onSelectVideo = { video ->
-                        viewModel.playVideo(video.id, video.providerId)
+                        viewModel.playVideo(video)
                     },
                     onCloseSearch = {
                         viewModel.clearSearch()
@@ -349,7 +352,7 @@ fun HomeScreen(
                             ExploreScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
+                                    viewModel.playVideo(video)
                                 },
                                 topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                                 bottomPadding = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
@@ -360,7 +363,7 @@ fun HomeScreen(
                             SubscriptionsScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
+                                    viewModel.playVideo(video)
                                 },
                                 onChannelClick = { chName, avatarUrl ->
                                     viewModel.openChannel(chName, avatarUrl)
@@ -376,7 +379,7 @@ fun HomeScreen(
                             ChannelScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
+                                    viewModel.playVideo(video)
                                 },
                                 onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
                                 topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
@@ -388,7 +391,7 @@ fun HomeScreen(
                             LibraryScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
+                                    viewModel.playVideo(video)
                                 },
                                 onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) },
                                 topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
@@ -400,7 +403,7 @@ fun HomeScreen(
                             AccountScreen(
                                 viewModel = viewModel,
                                 onSelectVideo = { video ->
-                                    viewModel.playVideo(video.id, video.providerId)
+                                    viewModel.playVideo(video)
                                 },
                                 onOpenSettings = { viewModel.navigateToScreen(AppScreen.SETTINGS) },
                                 onOpenMoviesAndTv = { viewModel.navigateToScreen(AppScreen.EXPLORE) },
@@ -566,7 +569,7 @@ fun HomeScreen(
                                                         if (video.id == "bun_tel_meg_help") {
                                                             showAddCloudDialog = true
                                                         } else {
-                                                            viewModel.playVideo(video.id, video.providerId)
+                                                            viewModel.playVideo(video)
                                                         }
                                                     },
                                                     onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
@@ -611,7 +614,7 @@ fun HomeScreen(
                                                         if (video.id == "bun_tel_meg_help") {
                                                             showAddCloudDialog = true
                                                         } else {
-                                                            viewModel.playVideo(video.id, video.providerId)
+                                                            viewModel.playVideo(video)
                                                         }
                                                     },
                                                     onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
@@ -651,7 +654,7 @@ fun HomeScreen(
                                                     videos = searchDrivenRecommendations,
                                                     showProviderBadge = showThumbnailTags,
                                                     onSelectVideo = { video ->
-                                                        viewModel.playVideo(video.id, video.providerId)
+                                                        viewModel.playVideo(video)
                                                     },
                                                     onOpenSearch = { query ->
                                                         viewModel.updateSearchQuery(query)
@@ -676,7 +679,7 @@ fun HomeScreen(
                                                             if (video.id == "bun_tel_meg_help") {
                                                                 showAddCloudDialog = true
                                                             } else {
-                                                                viewModel.playVideo(video.id, video.providerId)
+                                                                viewModel.playVideo(video)
                                                             }
                                                         },
                                                         onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
@@ -762,8 +765,6 @@ fun HomeScreen(
                     listOf("All", "Live Female", "Couples", "Male Models", "Trans Cams", "VR Cams", "Private Shows", "Top Broadcasters", "New Models")
                 } else if (activeProviderId == "chaturbate") {
                     listOf("All", "Female Cams", "Male Cams", "Couple Shows", "Trans Cams", "Featured Live", "Teen (18+)", "Spy Cams", "VR Live")
-                } else if (activeProviderId == "motherless") {
-                    listOf("All", "Amateur", "Uncensored", "Homemade", "Verified", "Trending", "Popular", "Hardcore", "Fetish", "HD Video")
                 } else if (activeProviderId == "txxx") {
                     listOf("All", "Top Rated", "Latest HD", "Full HD", "Most Popular", "Hardcore", "Amateur", "Verified", "Trending")
                 } else {
@@ -1397,14 +1398,22 @@ fun HomeScreen(
                         viewModel.closeVideo()
                     },
                     onNext = { viewModel.playNextInQueue() },
-                    bottomBarPaddingDp = if (isSearchExpanded) 16.dp else (bottomBarPaddingDp * barsAnimatedFraction + 16.dp * (1f - barsAnimatedFraction)),
+                    bottomBarPaddingDp = if (isSearchExpanded || currentTabScreen !in listOf(AppScreen.HOME, AppScreen.EXPLORE, AppScreen.SUBSCRIPTIONS, AppScreen.LIBRARY, AppScreen.ACCOUNT)) 16.dp else (bottomBarPaddingDp * barsAnimatedFraction + 16.dp * (1f - barsAnimatedFraction)),
                     statusBarPaddingDp = statusBarTopPadding
                 )
             }
         }
 
-        // LAYER 4: BOTTOM NAVIGATION BAR OVERLAY
-        if (!isSearchExpanded) {
+        // LAYER 4: BOTTOM NAVIGATION BAR OVERLAY (Only show on main navigation tabs)
+        val isBottomBarVisible = !isSearchExpanded && currentTabScreen in listOf(
+            AppScreen.HOME,
+            AppScreen.EXPLORE,
+            AppScreen.SUBSCRIPTIONS,
+            AppScreen.LIBRARY,
+            AppScreen.ACCOUNT
+        ) && currentScreen != AppScreen.PLAYER
+
+        if (isBottomBarVisible) {
             var bottomBarHeightPx by remember { mutableStateOf(0f) }
             Box(
                 modifier = Modifier
@@ -1470,16 +1479,50 @@ fun HomeScreen(
         AnimatedVisibility(
             visible = (currentScreen == AppScreen.PLAYER),
             enter = slideInVertically(
-                initialOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(durationMillis = 320, easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f))
+                initialOffsetY = { fullHeight ->
+                    val origin = playbackCardOriginY
+                    if (origin != null && origin > 0f) {
+                        origin.roundToInt().coerceIn(0, (fullHeight * 0.85f).roundToInt())
+                    } else {
+                        (fullHeight * 0.35f).roundToInt()
+                    }
+                },
+                animationSpec = tween(
+                    durationMillis = 280,
+                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                )
+            ) + scaleIn(
+                initialScale = 0.95f,
+                transformOrigin = TransformOrigin(0.5f, 0.0f),
+                animationSpec = tween(
+                    durationMillis = 280,
+                    easing = CubicBezierEasing(0.08f, 0.82f, 0.17f, 1.0f)
+                )
             ) + fadeIn(
-                animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing)
+                animationSpec = tween(durationMillis = 150, easing = LinearOutSlowInEasing)
             ),
             exit = slideOutVertically(
-                targetOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                targetOffsetY = { fullHeight ->
+                    val origin = playbackCardOriginY
+                    if (origin != null && origin > 0f) {
+                        origin.roundToInt().coerceIn(0, fullHeight)
+                    } else {
+                        (fullHeight * 0.35f).roundToInt()
+                    }
+                },
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                )
+            ) + scaleOut(
+                targetScale = 0.95f,
+                transformOrigin = TransformOrigin(0.5f, 0.0f),
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                )
             ) + fadeOut(
-                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
             ),
             modifier = Modifier.fillMaxSize().zIndex(100f)
         ) {
@@ -1763,7 +1806,7 @@ private fun buildSmartTags(
         "youtube", "tencent", "tencent video", "bilibili", "dailymotion", "twitch", "hotstar", "disney+ hotstar", "sonyliv",
         "disney", "disney+", "minitv", "amazon minitv", "mx player", "mxplayer", "popcorntv", "imdb", "discovery+", "drive", "google drive",
         "netflix", "crunchyroll", "v.qq.com", "v_qq_com", "qq", "vqqcom", "bunkr", "telegram", "mega", "bun-tel-meg",
-        "xnxx", "hellporno", "stripchat", "chaturbate", "motherless", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
+        "xnxx", "hellporno", "stripchat", "chaturbate", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
         "123av", "javtiful", "hanime1", "rule34video", "pmvhaven", "piped", "invidious", "hianime", "aniwatch", "bigo", "kick", "rumble"
     )
 

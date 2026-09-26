@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -16,8 +17,8 @@ object StreamFlixExtractor {
     private const val API_BASE = "https://api.streamflix.app"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
@@ -34,8 +35,7 @@ object StreamFlixExtractor {
                 resp.body?.string() ?: ""
             }
 
-            if (body.isBlank()) return@withContext emptyList()
-            val config = JSONObject(body)
+            val config = body.toJsonObjectOrNull() ?: return@withContext emptyList()
             val streamBase = config.optString("stream_url", config.optString("server", ""))
 
             if (streamBase.isNotBlank() && streamBase.startsWith("http")) {
@@ -60,8 +60,9 @@ object StreamFlixExtractor {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "StreamFlix extraction failed: ${e.message}", e)
+            Log.w(TAG, "StreamFlix extraction note: ${e.message}")
         }
         streams
     }
 }
+

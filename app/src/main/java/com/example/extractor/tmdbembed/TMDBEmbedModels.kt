@@ -1,6 +1,8 @@
 package com.example.extractor.tmdbembed
 
 import com.example.model.CaptionOption
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class TMDBMediaRequest(
     val tmdbId: String,
@@ -26,3 +28,26 @@ data class ExtractedStream(
     val seeders: Int = -1,
     val extraData: Map<String, String> = emptyMap()
 )
+
+fun String?.toJsonObjectOrNull(): JSONObject? {
+    if (this == null) return null
+    val trimmed = this.trim()
+    if (trimmed.isEmpty() || trimmed == "null" || !trimmed.startsWith("{") || trimmed.startsWith("<!")) return null
+    return try {
+        JSONObject(trimmed)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun String?.toJsonArrayOrNull(): JSONArray? {
+    if (this == null) return null
+    val trimmed = this.trim()
+    if (trimmed.isEmpty() || trimmed == "null" || !trimmed.startsWith("[") || trimmed.startsWith("<!")) return null
+    return try {
+        JSONArray(trimmed)
+    } catch (_: Exception) {
+        null
+    }
+}
+

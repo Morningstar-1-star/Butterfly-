@@ -125,7 +125,7 @@ class PlaybackSession(private val appContext: Context) {
     private val _videoAspectRatio = MutableStateFlow(16f / 9f)
     val videoAspectRatio: StateFlow<Float> = _videoAspectRatio.asStateFlow()
 
-    private val _areControlsVisible = MutableStateFlow(true)
+    private val _areControlsVisible = MutableStateFlow(false)
     val areControlsVisible: StateFlow<Boolean> = _areControlsVisible.asStateFlow()
 
     private val _playbackEnded = MutableStateFlow(false)
@@ -410,6 +410,8 @@ class PlaybackSession(private val appContext: Context) {
         )
 
         _firstFrameRendered.value = false
+        _areControlsVisible.value = false
+        autoHideControlsJob?.cancel()
         _currentPositionMs.value = effectiveResumePos
         _durationMs.value = 0L
         _bufferedPositionMs.value = 0L

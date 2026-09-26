@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import com.example.model.CaptionOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,8 +20,8 @@ object NetMirrorExtractor {
     private const val ORIGIN = "https://videodownloader.site"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -45,8 +46,7 @@ object NetMirrorExtractor {
                 resp.body?.string() ?: ""
             }
 
-            if (body.isBlank()) return@withContext emptyList()
-            val json = JSONObject(body)
+            val json = body.toJsonObjectOrNull() ?: return@withContext emptyList()
 
             val headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -107,7 +107,7 @@ object NetMirrorExtractor {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "NetMirror extraction failed: ${e.message}", e)
+            Log.w(TAG, "NetMirror extraction note: ${e.message}")
         }
         streams
     }

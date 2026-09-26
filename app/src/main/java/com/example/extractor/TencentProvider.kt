@@ -192,11 +192,12 @@ object TencentProvider {
         try {
             val ytResults = YouTubeExtractorHelper.searchYouTube(query)
             if (ytResults.isNotEmpty()) {
-                return@withContext ytResults.take(limitPerTopic).map { item ->
-                    item.copy(
+                return@withContext ytResults.take(limitPerTopic).mapNotNull { item ->
+                    val modified = item.copy(
                         providerId = PROVIDER_ID,
                         uploaderName = if (item.uploaderName.contains("Tencent", ignoreCase = true)) item.uploaderName else "${item.uploaderName} • Tencent Video"
                     )
+                    if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(modified)) modified else null
                 }
             }
         } catch (e: Exception) {

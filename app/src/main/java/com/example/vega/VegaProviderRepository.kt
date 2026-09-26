@@ -27,6 +27,11 @@ class VegaProviderRepository(private val context: Context) {
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
     init {
+        // Initialize in-app Vega engine and registry with local assets
+        try {
+            VegaInAppEngine.init(context)
+        } catch (_: Exception) {}
+
         // Sync global flag on startup
         VegaProviderClient.isVegaGloballyEnabled = _isVegaMasterEnabled.value
         loadInstalledProviders()

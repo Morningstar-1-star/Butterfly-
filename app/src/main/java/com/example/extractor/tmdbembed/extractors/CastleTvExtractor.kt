@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -27,8 +28,8 @@ object CastleTvExtractor {
     private const val PKG = "com.external.castle"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private fun deriveKey(securityKeyB64: String): ByteArray {
@@ -57,7 +58,7 @@ object CastleTvExtractor {
             val decrypted = cipher.doFinal(cipherBytes)
             String(decrypted, Charsets.UTF_8)
         } catch (e: Exception) {
-            Log.e(TAG, "Castle decrypt failed: ${e.message}")
+            Log.w(TAG, "Castle decrypt note: ${e.message}")
             ""
         }
     }
@@ -79,8 +80,8 @@ object CastleTvExtractor {
                 resp.body?.string() ?: ""
             }
 
-            val secKeyJson = JSONObject(secKeyResp)
-            val secKey = secKeyJson.optString("data", "")
+            val secKeyJson = secKeyResp.toJsonObjectOrNull()
+            val secKey = secKeyJson?.optString("data", "") ?: ""
             if (secKey.isBlank()) return@withContext emptyList()
 
             val aesKey = deriveKey(secKey)
@@ -103,21 +104,19 @@ object CastleTvExtractor {
 
             var searchCipher = searchBody.trim()
             try {
-                val parsed = JSONObject(searchCipher)
-                if (parsed.has("data") && parsed.get("data") is String) {
+                val parsed = searchCipher.toJsonObjectOrNull()
+                if (parsed != null && parsed.has("data") && parsed.get("data") is String) {
                     searchCipher = parsed.getString("data")
                 }
             } catch (e: Exception) {}
 
             val searchPlain = decryptCastle(searchCipher, aesKey)
-            if (searchPlain.isBlank()) return@withContext emptyList()
-
-            val searchJson = JSONObject(searchPlain)
+            val searchJson = searchPlain.toJsonObjectOrNull() ?: return@withContext emptyList()
             val searchData = searchJson.optJSONObject("data") ?: return@withContext emptyList()
             val rows = searchData.optJSONArray("rows") ?: return@withContext emptyList()
             if (rows.length() == 0) return@withContext emptyList()
 
-            val firstMovie = rows.getJSONObject(0)
+            val firstMovie = rows.optJSONObject(0) ?: return@withContext emptyList()
             val movieId = firstMovie.optLong("id", 0L)
             if (movieId == 0L) return@withContext emptyList()
 
@@ -137,17 +136,17 @@ object CastleTvExtractor {
 
             var detailCipher = detailBody.trim()
             try {
-                val parsed = JSONObject(detailCipher)
-                if (parsed.has("data") && parsed.get("data") is String) {
+                val parsed = detailCipher.toJsonObjectOrNull()
+                if (parsed != null && parsed.has("data") && parsed.get("data") is String) {
                     detailCipher = parsed.getString("data")
                 }
             } catch (e: Exception) {}
 
             val detailPlain = decryptCastle(detailCipher, aesKey)
             if (detailPlain.isNotBlank()) {
-                val detailJson = JSONObject(detailPlain)
-                val detailData = detailJson.optJSONObject("data") ?: detailJson
-                val resolutions = detailData.optJSONArray("resolutions")
+                val detailJson = detailPlain.toJsonObjectOrNull()
+                val detailData = detailJson?.optJSONObject("data") ?: detailJson
+                val resolutions = detailData?.optJSONArray("resolutions")
                 if (resolutions != null) {
                     for (i in 0 until resolutions.length()) {
                         val resObj = resolutions.optJSONObject(i) ?: continue
@@ -172,8 +171,9 @@ object CastleTvExtractor {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "CastleTv extraction failed: ${e.message}", e)
+            Log.w(TAG, "CastleTv extraction note: ${e.message}")
         }
         streams
     }
 }
+

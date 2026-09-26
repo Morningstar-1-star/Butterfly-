@@ -86,12 +86,6 @@ object MediaHeaderHelper {
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")
             }
-            urlStr.contains("hqporner.com") || urlStr.contains("hqporner.tv") || urlStr.contains("hqporner") || urlStr.contains("hqplayer") || urlStr.contains("cdn.hqporner") -> {
-                builder.header("Referer", "https://hqporner.com/")
-                builder.header("Origin", "https://hqporner.com")
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                if (request.header("Cookie") == null) builder.header("Cookie", "age_verified=1; country=US; consent=1")
-            }
             urlStr.contains("spankbang.com") || urlStr.contains("sb-cd.com") || urlStr.contains("spankcdn") || urlStr.contains("spankbang.party") || urlStr.contains("spankbang") -> {
                 if (request.header("Referer").isNullOrBlank()) {
                     builder.header("Referer", "https://spankbang.com/")
@@ -103,12 +97,6 @@ object MediaHeaderHelper {
                     builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 }
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1")
-            }
-            urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("cdn.motherless") -> {
-                builder.header("Referer", "https://motherless.com/")
-                builder.header("Origin", "https://motherless.com")
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                if (request.header("Cookie") == null) builder.header("Cookie", "content_filter=0; member=1; age_verified=1; country=US; consent=1")
             }
             urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event") -> {
                 builder.header("Referer", "https://www.dailymotion.com/")
@@ -289,15 +277,8 @@ object MediaHeaderHelper {
                 builder.removeHeader("origin")
                 if (request.header("Cookie") == null) builder.header("Cookie", "age_confirmed=1; country=US")
             }
-            urlStr.contains("motherless.com") || urlStr.contains("motherlessmedia") || urlStr.contains("cdn.motherless") -> {
-                builder.header("Referer", "https://motherless.com/")
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                builder.removeHeader("Origin")
-                builder.removeHeader("origin")
-                if (request.header("Cookie") == null) builder.header("Cookie", "content_filter=0; member=1")
-            }
-            urlStr.contains("playvid") || urlStr.contains("playvid.com") -> {
-                builder.header("Referer", "https://www.playvid.com/")
+            urlStr.contains("playvid") || urlStr.contains("playvid.com") || urlStr.contains("playvids.com") -> {
+                builder.header("Referer", "https://www.playvids.com/")
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.removeHeader("Origin")
                 builder.removeHeader("origin")

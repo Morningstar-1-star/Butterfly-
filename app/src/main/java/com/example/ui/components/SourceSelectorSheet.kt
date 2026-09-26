@@ -324,7 +324,6 @@ private fun getProviderBrandColor(id: String, isAdult: Boolean): Color {
         "thisvid" -> Color(0xFF3F51B5)
         "spankbang" -> Color(0xFFE91E63)
         "hanime1" -> Color(0xFFFF80AB)
-        "hqporner" -> Color(0xFF00E676)
         else -> if (isAdult) Color(0xFFE91E63) else Color(0xFF2196F3)
     }
 }

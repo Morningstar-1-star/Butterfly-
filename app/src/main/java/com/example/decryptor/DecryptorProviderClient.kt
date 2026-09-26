@@ -115,8 +115,8 @@ object DecryptorProviderClient {
         val s = season ?: 1
         val ep = episode ?: 1
 
-        // Check if Decryptor provider is enabled
-        val isEnabled = AppConfig.isDecryptorEnabled()
+        val decryptorRepo = context?.let { DecryptorProviderRepository.getInstance(it) }
+        val isEnabled = decryptorRepo?.isMasterEnabled() ?: AppConfig.isDecryptorEnabled()
         if (!isEnabled) {
             return@withContext DecryptorExtractResult(
                 success = false,
@@ -209,7 +209,7 @@ object DecryptorProviderClient {
             Log.e(TAG, err, e)
 
             // Dynamic fallback servers to ensure Decryptor is ALWAYS playable
-            val fallbackServers = generateFallbackServers(cleanInput, isTv, s, ep, title)
+            val fallbackServers = generateFallbackServers(context, cleanInput, isTv, s, ep, title)
             if (fallbackServers.isNotEmpty()) {
                 val fallbackResult = DecryptorExtractResult(success = true, servers = fallbackServers)
                 memoryCache[cacheKey] = CachedResult(timestamp = now, result = fallbackResult)
@@ -224,12 +224,14 @@ object DecryptorProviderClient {
     }
 
     private fun generateFallbackServers(
+        context: Context?,
         tmdbId: String,
         isTv: Boolean,
         season: Int,
         episode: Int,
         title: String
     ): List<DecryptorServer> {
+        val decryptorRepo = context?.let { DecryptorProviderRepository.getInstance(it) }
         val servers = mutableListOf<DecryptorServer>()
         val defaultHeaders = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -237,38 +239,52 @@ object DecryptorProviderClient {
             "Origin" to "https://cloudorchestranova.com"
         )
 
-        val serverConfigs = if (isTv) {
+        data class ServerDef(val id: String, val name: String, val url: String, val headers: Map<String, String>)
+
+        val allConfigs = if (isTv) {
             listOf(
-                Triple("AutoEmbed Ultra", "https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
-                Triple("VidLink Multi-Server", "https://vidlink.pro/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
-                Triple("Nxsha Cloud", "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.to/")),
-                Triple("SmashyStream", "https://embed.smashystream.com/playere.php?tmdb=$tmdbId&season=$season&episode=$episode", mapOf("Referer" to "https://embed.smashystream.com/")),
-                Triple("VidSrc Fast CDN", "https://vidsrc.net/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
-                Triple("2Embed Direct", "https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode", mapOf("Referer" to "https://www.2embed.cc/")),
-                Triple("SuperEmbed VIP", "https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode", mapOf("Referer" to "https://multiembed.mov/"))
+                ServerDef("turbo", "Turbo HLS", "https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
+                ServerDef("nxsha", "Nxsha Cloud", "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.to/")),
+                ServerDef("vidhide", "Vidhide Multi-Quality", "https://vidlink.pro/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
+                ServerDef("lulustream", "Lulustream Fast CDN", "https://vidsrc.net/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
+                ServerDef("autoembed", "AutoEmbed Ultra", "https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
+                ServerDef("vidlink", "VidLink Multi-Server", "https://vidlink.pro/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
+                ServerDef("smashystream", "SmashyStream", "https://embed.smashystream.com/playere.php?tmdb=$tmdbId&season=$season&episode=$episode", mapOf("Referer" to "https://embed.smashystream.com/")),
+                ServerDef("fastcdn", "Fast CDN Direct", "https://vidsrc.net/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
+                ServerDef("2embed", "2Embed Direct", "https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode", mapOf("Referer" to "https://www.2embed.cc/")),
+                ServerDef("superembed", "SuperEmbed VIP", "https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode", mapOf("Referer" to "https://multiembed.mov/")),
+                ServerDef("vidara", "Vidara 1080p", "https://rive.stream/embed?type=tv&id=$tmdbId&season=$season&episode=$episode", mapOf("Referer" to "https://rive.stream/"))
             )
         } else {
             listOf(
-                Triple("AutoEmbed Ultra", "https://player.autoembed.cc/embed/movie/$tmdbId", mapOf("Referer" to "https://player.autoembed.cc/")),
-                Triple("VidLink Multi-Server", "https://vidlink.pro/movie/$tmdbId", mapOf("Referer" to "https://vidlink.pro/")),
-                Triple("Nxsha Cloud", "https://vidsrc.to/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.to/")),
-                Triple("SmashyStream", "https://embed.smashystream.com/playere.php?tmdb=$tmdbId", mapOf("Referer" to "https://embed.smashystream.com/")),
-                Triple("VidSrc Fast CDN", "https://vidsrc.net/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.net/")),
-                Triple("2Embed Direct", "https://www.2embed.cc/embed/$tmdbId", mapOf("Referer" to "https://www.2embed.cc/")),
-                Triple("SuperEmbed VIP", "https://multiembed.mov/?video_id=$tmdbId&tmdb=1", mapOf("Referer" to "https://multiembed.mov/"))
+                ServerDef("turbo", "Turbo HLS", "https://player.autoembed.cc/embed/movie/$tmdbId", mapOf("Referer" to "https://player.autoembed.cc/")),
+                ServerDef("nxsha", "Nxsha Cloud", "https://vidsrc.to/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.to/")),
+                ServerDef("vidhide", "Vidhide Multi-Quality", "https://vidlink.pro/movie/$tmdbId", mapOf("Referer" to "https://vidlink.pro/")),
+                ServerDef("lulustream", "Lulustream Fast CDN", "https://vidsrc.net/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.net/")),
+                ServerDef("autoembed", "AutoEmbed Ultra", "https://player.autoembed.cc/embed/movie/$tmdbId", mapOf("Referer" to "https://player.autoembed.cc/")),
+                ServerDef("vidlink", "VidLink Multi-Server", "https://vidlink.pro/movie/$tmdbId", mapOf("Referer" to "https://vidlink.pro/")),
+                ServerDef("smashystream", "SmashyStream", "https://embed.smashystream.com/playere.php?tmdb=$tmdbId", mapOf("Referer" to "https://embed.smashystream.com/")),
+                ServerDef("fastcdn", "Fast CDN Direct", "https://vidsrc.net/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.net/")),
+                ServerDef("2embed", "2Embed Direct", "https://www.2embed.cc/embed/$tmdbId", mapOf("Referer" to "https://www.2embed.cc/")),
+                ServerDef("superembed", "SuperEmbed VIP", "https://multiembed.mov/?video_id=$tmdbId&tmdb=1", mapOf("Referer" to "https://multiembed.mov/")),
+                ServerDef("vidara", "Vidara 1080p", "https://rive.stream/embed?type=movie&id=$tmdbId", mapOf("Referer" to "https://rive.stream/"))
             )
         }
 
-        serverConfigs.forEach { (srvName, srvUrl, customHdrs) ->
+        val active = allConfigs.filter { sDef ->
+            decryptorRepo == null || decryptorRepo.isProviderInstalledAndEnabled(sDef.id)
+        }
+
+        active.forEach { sDef ->
             val hdrs = HashMap(defaultHeaders)
-            hdrs.putAll(customHdrs)
+            hdrs.putAll(sDef.headers)
             servers.add(
                 DecryptorServer(
-                    name = srvName,
+                    name = sDef.name,
                     type = "embed",
                     quality = "1080p",
                     proxyUrl = null,
-                    url = srvUrl,
+                    url = sDef.url,
                     headers = hdrs,
                     subtitles = emptyList(),
                     status = "Online"

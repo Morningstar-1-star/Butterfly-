@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -107,8 +108,8 @@ object VideasyExtractor {
             }
 
             if (seedJson.isNotBlank() && streams.isEmpty()) {
-                val seedObj = JSONObject(seedJson)
-                val seed = seedObj.optString("seed", "")
+                val seedObj = seedJson.toJsonObjectOrNull()
+                val seed = seedObj?.optString("seed", "") ?: ""
                 if (seed.isNotBlank()) {
                     val encUrl = "$BASE_URL/cdn/sources-with-title?title=${URLEncoder.encode(request.title, "UTF-8")}&mediaType=${if (request.isTv) "TV Series" else "Movie"}&year=${request.year}&tmdbId=${request.tmdbId}&enc=2&seed=$seed"
                     val encReq = Request.Builder()
@@ -142,7 +143,7 @@ object VideasyExtractor {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Videasy extraction failed: ${e.message}", e)
+            Log.w(TAG, "Videasy extraction note: ${e.message}")
         }
         streams
     }

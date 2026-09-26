@@ -17,17 +17,12 @@ import java.util.concurrent.TimeUnit
 
 object VegaProviderClient {
     private const val TAG = "VegaProviderClient"
-    const val DEFAULT_SERVER_URL = "https://butterfly-mediaserver-1.onrender.com"
+    const val DEFAULT_SERVER_URL = ""
 
     @Volatile
     var isVegaGloballyEnabled: Boolean = false
 
-    val BACKUP_SERVER_URLS = listOf(
-        "https://butterfly-mediaserver-1.onrender.com",
-        "https://butterfly-mediaserver.onrender.com",
-        "https://butterfly-server.onrender.com",
-        "https://butterfly-mediaserver-2.onrender.com"
-    )
+    val BACKUP_SERVER_URLS: List<String> = emptyList()
 
     // Stage-specific timeout configuration
     private const val SEARCH_TIMEOUT_MS = 20_000L
@@ -66,6 +61,10 @@ object VegaProviderClient {
     }
 
     fun formatProviderDisplayName(providerId: String): String {
+        val registered = VegaProviderRegistry.getProviderInfo(providerId)
+        if (registered != null && registered.name.isNotBlank()) {
+            return registered.name
+        }
         val trimmed = providerId.trim().lowercase()
         return when (trimmed) {
             "hdhub4u" -> "HDHub4U"
@@ -115,6 +114,10 @@ object VegaProviderClient {
     }
 
     suspend fun getAvailableProviders(baseUrl: String = DEFAULT_SERVER_URL): List<String> = withContext(Dispatchers.IO) {
+        val localList = VegaProviderRegistry.getAllProviderIds()
+        if (localList.isNotEmpty()) {
+            return@withContext localList
+        }
         executeWithServerFallbacks(baseUrl, { currentUrl ->
             fetchAvailableProvidersInternal(currentUrl)
         }, { res -> !res.isNullOrEmpty() }) ?: emptyList()
@@ -198,7 +201,7 @@ object VegaProviderClient {
         coroutineScope {
             val deferred = discoveryQueries.take(4).map { q ->
                 async(Dispatchers.IO) {
-                    searchSingleQuery(cleanProv, q, baseUrl)
+                    search(cleanProv, q, baseUrl)
                 }
             }
             deferred.awaitAll().forEach { list ->
@@ -208,7 +211,7 @@ object VegaProviderClient {
 
         if (allResults.isEmpty()) {
             for (q in listOf("avengers", "love", "man", "war", "2023", "popular")) {
-                val list = searchSingleQuery(cleanProv, q, baseUrl)
+                val list = search(cleanProv, q, baseUrl)
                 if (list.isNotEmpty()) {
                     allResults.addAll(list)
                     break
@@ -227,6 +230,17 @@ object VegaProviderClient {
         if (!isVegaGloballyEnabled || providerId.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
         val cleanQuery = query.trim()
+
+        // 1. In-App Scraper Engine execution (instant response, 0 cold-start delay)
+        val inAppResults = try {
+            VegaInAppEngine.search(cleanProv, cleanQuery.ifBlank { "2024" })
+        } catch (e: Exception) {
+            Log.d(TAG, "In-app search error for $cleanProv: ${e.message}")
+            emptyList()
+        }
+        if (inAppResults.isNotEmpty()) {
+            return@withContext inAppResults
+        }
 
         executeWithServerFallbacks(baseUrl, { currentUrl ->
             withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
@@ -356,6 +370,17 @@ object VegaProviderClient {
         baseUrl: String = DEFAULT_SERVER_URL
     ): VegaMetaResult? = withContext(Dispatchers.IO) {
         if (!isVegaGloballyEnabled || providerId.isBlank() || link.isBlank()) return@withContext null
+        val cleanProv = providerId.trim().lowercase()
+
+        // 1. In-App Scraper Engine execution
+        val inAppMeta = try {
+            VegaInAppEngine.getMeta(cleanProv, link)
+        } catch (_: Exception) {
+            null
+        }
+        if (inAppMeta != null && (inAppMeta.linkList.isNotEmpty() || !inAppMeta.title.equals("Untitled", ignoreCase = true))) {
+            return@withContext inAppMeta
+        }
 
         executeWithServerFallbacks(baseUrl, { currentUrl ->
             fetchMetaInternal(providerId, link, currentUrl)
@@ -550,6 +575,17 @@ object VegaProviderClient {
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaEpisode> = withContext(Dispatchers.IO) {
         if (!isVegaGloballyEnabled || providerId.isBlank() || episodesLink.isBlank()) return@withContext emptyList()
+        val cleanProv = providerId.trim().lowercase()
+
+        // 1. In-App Scraper Engine execution
+        val inAppEpisodes = try {
+            VegaInAppEngine.getEpisodes(cleanProv, episodesLink)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (inAppEpisodes.isNotEmpty()) {
+            return@withContext inAppEpisodes
+        }
 
         executeWithServerFallbacks(baseUrl, { currentUrl ->
             fetchEpisodesInternal(providerId, episodesLink, currentUrl)
@@ -661,6 +697,17 @@ object VegaProviderClient {
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
         if (!isVegaGloballyEnabled || providerId.isBlank() || directLink.isBlank()) return@withContext emptyList()
+        val cleanProv = providerId.trim().lowercase()
+
+        // 1. In-App Extractor Engine execution
+        val inAppStreams = try {
+            VegaInAppEngine.getStream(cleanProv, directLink)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (inAppStreams.isNotEmpty()) {
+            return@withContext inAppStreams
+        }
 
         val serverStreams = executeWithServerFallbacks(baseUrl, { currentUrl ->
             fetchStreamInternal(providerId, directLink, currentUrl)

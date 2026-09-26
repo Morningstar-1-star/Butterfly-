@@ -211,8 +211,8 @@ object ThumbnailOptimizer {
                 builder.setHeader("Cookie", "age_verified=1; platform=pc; has_consent=1")
                 builder.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             }
-            lowerUrl.contains("playvid.com") -> {
-                builder.setHeader("Referer", "https://www.playvid.com/")
+            lowerUrl.contains("playvid.com") || lowerUrl.contains("playvids.com") -> {
+                builder.setHeader("Referer", "https://www.playvids.com/")
                 builder.setHeader("Cookie", "age_confirmed=1")
             }
             lowerUrl.contains("thisvid.com") -> {

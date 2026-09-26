@@ -429,3 +429,229 @@ private fun formatCount(count: Int): String {
         else -> "$count"
     }
 }
+
+/**
+ * YouTube-style Modern Comments Bottom Sheet
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CommentsBottomSheet(
+    comments: List<VideoComment>,
+    isLoading: Boolean = false,
+    onAddComment: (String) -> Unit = {},
+    onLikeComment: (String) -> Unit = {},
+    onSeekToTimestamp: (Long) -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var userCommentInput by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("Top") }
+    val filterOptions = listOf("Top", "Newest")
+
+    val sortedComments = remember(comments, selectedFilter) {
+        when (selectedFilter) {
+            "Newest" -> comments.reversed()
+            else -> comments.sortedByDescending { it.likeCount }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF0F0F0F),
+        dragHandle = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            ) {
+                BottomSheetDefaults.DragHandle()
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (comments.isNotEmpty()) "Comments ${comments.size}" else "Comments",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Sort Chips
+                filterOptions.forEach { filter ->
+                    val isSelected = selectedFilter == filter
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) Color.White else Color(0xFF272727),
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .clickable { selectedFilter = filter }
+                    ) {
+                        Text(
+                            text = filter,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) Color.Black else Color.White,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp).padding(start = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+
+            // Comments List
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (isLoading && comments.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp), color = MaterialTheme.colorScheme.primary)
+                    }
+                } else if (sortedComments.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = null,
+                            tint = Color(0xFFAAAAAA),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "No comments yet",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Be the first one to comment!",
+                            fontSize = 13.sp,
+                            color = Color(0xFFAAAAAA)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(sortedComments, key = { it.id }) { comment ->
+                            SingleCommentCard(
+                                comment = comment,
+                                onLikeClick = { onLikeComment(comment.id) },
+                                onSeekToTimestamp = { ms ->
+                                    onSeekToTimestamp(ms)
+                                    onDismiss()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+
+            // Sticky Bottom Input Bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF181818))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF333333)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "User",
+                        tint = Color(0xFFAAAAAA),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                TextField(
+                    value = userCommentInput,
+                    onValueChange = { userCommentInput = it },
+                    placeholder = {
+                        Text("Add a comment...", fontSize = 13.sp, color = Color(0xFFAAAAAA))
+                    },
+                    maxLines = 3,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(Color(0xFF272727), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 8.dp)
+                )
+
+                if (userCommentInput.isNotBlank()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = {
+                            onAddComment(userCommentInput)
+                            userCommentInput = ""
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "Post Comment",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

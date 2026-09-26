@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -18,8 +19,8 @@ object HDGharTvExtractor {
     private const val REFERER = "https://hdghartv.cc/"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
@@ -41,11 +42,10 @@ object HDGharTvExtractor {
                 resp.body?.string() ?: ""
             }
 
-            if (body.isBlank()) return@withContext emptyList()
-            val json = JSONObject(body)
+            val json = body.toJsonObjectOrNull() ?: return@withContext emptyList()
             val list = if (request.isTv) json.optJSONArray("series") else json.optJSONArray("movies")
             if (list != null && list.length() > 0) {
-                val item = list.getJSONObject(0)
+                val item = list.optJSONObject(0) ?: return@withContext emptyList()
                 val links = item.optJSONArray("streamingLinks")
                 if (links != null) {
                     for (i in 0 until links.length()) {
@@ -71,8 +71,9 @@ object HDGharTvExtractor {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "HDGharTV extraction failed: ${e.message}", e)
+            Log.w(TAG, "HDGharTV extraction note: ${e.message}")
         }
         streams
     }
 }
+

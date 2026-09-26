@@ -16,8 +16,9 @@ import java.util.concurrent.TimeUnit
  */
 class TorrentioProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .dns(com.example.util.SecureDnsManager.appDns)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
         .build()
 ) : TorrentProvider {
 

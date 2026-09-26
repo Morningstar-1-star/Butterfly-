@@ -275,7 +275,8 @@ fun SupabaseAuthDialog(
                                         if (res.isSuccess) {
                                             val sess = res.getOrNull()
                                             if (sess != null && sess.accessToken.isBlank()) {
-                                                infoMessage = "Account created! A confirmation link/code has been sent to $emailInput. Please check your email (and Spam folder)."
+                                                infoMessage = "Account created! A confirmation code and link have been sent to $emailInput. Check your email inbox & Spam folder."
+                                                showOtpSection = true
                                                 isSignUpTab = false
                                             }
                                         }
@@ -319,6 +320,7 @@ fun SupabaseAuthDialog(
                                         isLoading = false
                                         if (res.isSuccess) {
                                             resendSuccess = "Confirmation email resent to $emailInput! Check Spam/Junk."
+                                            showOtpSection = true
                                         }
                                     }
                                 } else {

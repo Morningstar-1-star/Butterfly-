@@ -18,21 +18,22 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * Playvid Provider & Stream Extractor.
- * High-speed video catalog, search, and resilient MP4/HLS stream extractor.
+ * Playvid Provider & Real Stream Extractor.
+ * High-speed live video catalog parsing, search, and native MP4/HLS stream extraction
+ * via flashvars, KVS deobfuscation, iframe embeds, and yt-dlp fallback.
  */
 object PlayvidProvider {
     private const val TAG = "PlayvidProvider"
     const val PROVIDER_ID = "playvid"
-    private const val BASE_URL = "https://www.playvid.com"
+    private const val BASE_URL = "https://www.playvids.com"
 
     private const val DEFAULT_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
     private val httpClient = OkHttpClient.Builder()
         .dns(com.example.util.SecureDnsManager.appDns)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .addInterceptor { chain ->
@@ -56,13 +57,14 @@ object PlayvidProvider {
     suspend fun getHome(limit: Int = 24, page: Int = 1, context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
         val safePage = if (page < 1) 1 else page
 
-        // 1. Parallel fetch across Playvid sections with 10s timeout
         try {
-            val liveItems = withTimeoutOrNull(10000L) {
+            val liveItems = withTimeoutOrNull(12000L) {
                 coroutineScope {
                     val tDef = async { parseHtml(if (safePage == 1) "$BASE_URL/top-rated" else "$BASE_URL/top-rated?page=$safePage", limit) }
                     val pDef = async { parseHtml(if (safePage == 1) "$BASE_URL/most-popular" else "$BASE_URL/most-popular?page=$safePage", limit) }
                     val lDef = async { parseHtml(if (safePage == 1) "$BASE_URL/latest-updates" else "$BASE_URL/latest-updates?page=$safePage", limit) }
+                    val vDef = async { parseHtml(if (safePage == 1) "$BASE_URL/videos" else "$BASE_URL/videos?page=$safePage", limit) }
+                    val rDef = async { parseHtml(if (safePage == 1) "$BASE_URL/" else "$BASE_URL/?page=$safePage", limit) }
 
                     val tRes = tDef.await()
                     if (tRes.isNotEmpty()) return@coroutineScope tRes
@@ -70,6 +72,10 @@ object PlayvidProvider {
                     if (pRes.isNotEmpty()) return@coroutineScope pRes
                     val lRes = lDef.await()
                     if (lRes.isNotEmpty()) return@coroutineScope lRes
+                    val vRes = vDef.await()
+                    if (vRes.isNotEmpty()) return@coroutineScope vRes
+                    val rRes = rDef.await()
+                    if (rRes.isNotEmpty()) return@coroutineScope rRes
                     emptyList<VideoItem>()
                 }
             }
@@ -79,11 +85,10 @@ object PlayvidProvider {
                 return@withContext liveItems.take(limit)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Playvid live getHome note: ${e.message}")
+            Log.w(TAG, "Playvid live getHome error: ${e.message}")
         }
 
-        // 2. Curated authentic Playvid releases with real metadata & instant playback
-        getCuratedPlayvidCatalog(limit, safePage)
+        emptyList()
     }
 
     suspend fun search(query: String, limit: Int = 24, page: Int = 1, context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -92,11 +97,14 @@ object PlayvidProvider {
         val safePage = if (page < 1) 1 else page
         val encoded = URLEncoder.encode(clean, "UTF-8")
 
-        // 1. Live search attempt
         try {
-            val liveSearch = withTimeoutOrNull(10000L) {
+            val liveSearch = withTimeoutOrNull(12000L) {
                 val searchUrl = if (safePage == 1) "$BASE_URL/search?q=$encoded" else "$BASE_URL/search?q=$encoded&page=$safePage"
-                parseHtml(searchUrl, limit)
+                val res = parseHtml(searchUrl, limit)
+                if (res.isNotEmpty()) res else {
+                    val altSearchUrl = if (safePage == 1) "$BASE_URL/search/video?q=$encoded" else "$BASE_URL/search/video?q=$encoded&page=$safePage"
+                    parseHtml(altSearchUrl, limit)
+                }
             }
 
             if (!liveSearch.isNullOrEmpty()) {
@@ -104,17 +112,16 @@ object PlayvidProvider {
                 return@withContext liveSearch.take(limit)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Playvid live search note: ${e.message}")
+            Log.w(TAG, "Playvid live search error: ${e.message}")
         }
 
-        // 2. Curated fallback filtered by search query
-        getCuratedPlayvidCatalog(limit, safePage).filter {
-            it.title.contains(clean, ignoreCase = true) || (it.uploaderName?.contains(clean, ignoreCase = true) == true)
-        }.ifEmpty { getCuratedPlayvidCatalog(limit, safePage) }
+        emptyList()
     }
 
     private fun parseHtml(url: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()
+        val seenIds = mutableSetOf<String>()
+
         try {
             val req = Request.Builder()
                 .url(url)
@@ -125,13 +132,15 @@ object PlayvidProvider {
             } ?: return emptyList()
 
             val doc = Jsoup.parse(html)
-            val items = doc.select(".video-item, .thumb-block, .item, .thumb_block, article, .grid-item, div[data-video-id], .video-card")
+            
+            // Search broadly across all anchor tags linking to watch, video, v, or playvids pages
+            val linkElems = doc.select("a[href*='/v/'], a[href*='/watch/'], a[href*='/video/'], a[href*='/videos/'], a[href*='playvids.com/'], a[href*='playvid.com/']")
 
-            for (elem in items) {
+            for (linkElem in linkElems) {
                 if (list.size >= limit) break
-                val linkElem = elem.selectFirst("a[href*='/watch/'], a[href*='/video/'], a.thumb, a[href^='/']") ?: continue
-                val rawHref = linkElem.attr("href")
-                if (rawHref.isBlank() || rawHref == "/" || rawHref.contains("/search") || rawHref.contains("/categories")) continue
+
+                val rawHref = linkElem.attr("href").trim()
+                if (rawHref.isBlank() || rawHref == "/" || rawHref.contains("/search") || rawHref.contains("/categories") || rawHref.contains("/channels") || rawHref.contains("/tags")) continue
 
                 val fullUrl = when {
                     rawHref.startsWith("http://") || rawHref.startsWith("https://") -> rawHref
@@ -140,16 +149,30 @@ object PlayvidProvider {
                     else -> "$BASE_URL/$rawHref"
                 }
 
-                val videoId = fullUrl.substringAfter("playvid.com/").trim('/')
-                if (videoId.isBlank()) continue
+                val videoId = fullUrl
+                    .substringAfter("playvids.com/")
+                    .substringAfter("playvid.com/")
+                    .trim('/')
+                if (videoId.isBlank() || seenIds.contains(videoId)) continue
 
-                val imgElem = elem.selectFirst("img")
+                // Find parent block/card to extract rich thumbnail, duration, uploader
+                val container = linkElem.parents().firstOrNull { p ->
+                    p.hasClass("video-item") || p.hasClass("thumb-block") || p.hasClass("item") ||
+                            p.hasClass("thumb_block") || p.tagName() == "article" || p.hasClass("grid-item") ||
+                            p.hasAttr("data-video-id") || p.hasClass("video-card") || p.hasClass("box")
+                } ?: linkElem.parent() ?: linkElem
+
+                val imgElem = container.selectFirst("img") ?: linkElem.selectFirst("img")
                 val rawThumb = imgElem?.let {
                     it.attr("data-src").ifBlank {
                         it.attr("data-original").ifBlank {
                             it.attr("data-preview").ifBlank {
                                 it.attr("data-thumb").ifBlank {
-                                    it.attr("data-webp").ifBlank { it.attr("src") }
+                                    it.attr("data-poster").ifBlank {
+                                        it.attr("data-webp").ifBlank {
+                                            it.attr("data-lazy").ifBlank { it.attr("src") }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -163,15 +186,17 @@ object PlayvidProvider {
                     else -> rawThumb
                 }
 
-                val title = elem.selectFirst(".title, .video-title, .item-title, h3, h4, a[title], img[alt]")?.let {
+                val title = container.selectFirst(".title, .video-title, .item-title, h3, h4, a[title], img[alt]")?.let {
                     it.attr("title").ifBlank { it.attr("alt").ifBlank { it.text() } }
-                }?.trim() ?: linkElem.text().trim()
+                }?.trim()?.ifBlank { linkElem.attr("title").ifBlank { linkElem.text() } }?.trim() ?: "Playvid Video"
 
-                if (title.isBlank() || title.length < 2) continue
+                if (title.isBlank() || title.length < 2 || title.equals("Playvid", ignoreCase = true) || title.equals("Playvids", ignoreCase = true)) continue
 
-                val durationText = elem.selectFirst(".duration, .time, .d, .thumb__duration, .badge, .duration-badge")?.text()?.trim()
+                val durationText = container.selectFirst(".duration, .time, .d, .thumb__duration, .badge, .duration-badge")?.text()?.trim()
                 val durationSec = durationText?.let { parseDuration(it) } ?: -1L
-                val uploader = elem.selectFirst(".uploader, .channel, .author, .user")?.text()?.trim() ?: "Playvid HD"
+                val uploader = container.selectFirst(".uploader, .channel, .author, .user")?.text()?.trim() ?: "Playvid HD"
+
+                seenIds.add(videoId)
 
                 val item = VideoItem(
                     id = "playvid:$videoId",
@@ -180,9 +205,37 @@ object PlayvidProvider {
                     thumbnailUrl = thumb,
                     durationSeconds = durationSec,
                     providerId = PROVIDER_ID,
-                    description = "Playvid HD Video Stream"
+                    description = "Playvid HD Stream"
                 )
                 list.add(item)
+            }
+
+            // Regex fallback if Jsoup selection produced no items
+            if (list.isEmpty()) {
+                val hrefRegex = Regex("""href=["']((?:https?://(?:www\.)?playvid(?:s)?\.com)?/(?:v|watch|video|videos)/[^"']+)["']""", RegexOption.IGNORE_CASE)
+                hrefRegex.findAll(html).forEach { match ->
+                    if (list.size >= limit) return@forEach
+                    val matchedHref = match.groupValues[1]
+                    val fullUrl = when {
+                        matchedHref.startsWith("http") -> matchedHref
+                        matchedHref.startsWith("//") -> "https:$matchedHref"
+                        else -> "$BASE_URL/${matchedHref.trimStart('/')}"
+                    }
+                    val videoId = fullUrl.substringAfter("playvids.com/").substringAfter("playvid.com/").trim('/')
+                    if (videoId.isNotBlank() && seenIds.add(videoId)) {
+                        list.add(
+                            VideoItem(
+                                id = "playvid:$videoId",
+                                title = "Playvid Video HD",
+                                uploaderName = "Playvid HD",
+                                thumbnailUrl = null,
+                                durationSeconds = -1L,
+                                providerId = PROVIDER_ID,
+                                description = "Playvid HD Stream"
+                            )
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse Playvid HTML for $url: ${e.message}")
@@ -204,81 +257,138 @@ object PlayvidProvider {
     suspend fun getStreamData(urlOrId: String, context: Context?): StreamData? = withContext(Dispatchers.IO) {
         val cleanId = urlOrId.removePrefix("playvid:").trim('/')
 
-        val targetUrl = when {
-            urlOrId.startsWith("http://") || urlOrId.startsWith("https://") -> urlOrId
-            cleanId.startsWith("http://") || cleanId.startsWith("https://") -> cleanId
-            cleanId.startsWith("watch/") -> "$BASE_URL/$cleanId"
-            cleanId.startsWith("video/") -> "$BASE_URL/$cleanId"
-            else -> "$BASE_URL/watch/$cleanId"
+        val candidateUrls = mutableListOf<String>()
+        if (urlOrId.startsWith("http://") || urlOrId.startsWith("https://")) {
+            candidateUrls.add(urlOrId)
+        } else if (cleanId.startsWith("http://") || cleanId.startsWith("https://")) {
+            candidateUrls.add(cleanId)
+        } else if (cleanId.startsWith("v/") || cleanId.startsWith("watch/") || cleanId.startsWith("video/") || cleanId.startsWith("videos/")) {
+            candidateUrls.add("$BASE_URL/$cleanId")
+            candidateUrls.add("https://www.playvid.com/$cleanId")
+        } else {
+            candidateUrls.add("$BASE_URL/v/$cleanId")
+            candidateUrls.add("$BASE_URL/watch/$cleanId")
+            candidateUrls.add("$BASE_URL/video/$cleanId")
+            candidateUrls.add("$BASE_URL/$cleanId")
         }
 
+        var targetUrl = candidateUrls.first()
         var directTitle = "Playvid HD Video"
         var directThumb: String? = null
+        var iframeEmbedUrl: String? = null
 
-        // 1. Direct page extraction
-        try {
-            val req = Request.Builder()
-                .url(targetUrl)
-                .build()
+        val availableOptions = mutableListOf<PlayableStreamOption>()
 
-            val html = httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
-            }
+        // 1. Fetch main video page and extract flashvars & direct stream URLs
+        for (candidate in candidateUrls) {
+            try {
+                val req = Request.Builder()
+                    .url(candidate)
+                    .build()
 
-            if (!html.isNullOrBlank()) {
-                val doc = Jsoup.parse(html)
-                doc.selectFirst("h1, meta[property='og:title']")?.let {
-                    val t = it.attr("content").ifBlank { it.text() }.trim()
-                    if (t.isNotBlank()) directTitle = t
+                val html = httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
                 }
 
-                directThumb = doc.selectFirst("meta[property='og:image']")?.attr("content")
+                if (!html.isNullOrBlank()) {
+                    targetUrl = candidate
+                    val doc = Jsoup.parse(html)
+                    doc.selectFirst("h1, meta[property='og:title']")?.let {
+                        val t = it.attr("content").ifBlank { it.text() }.trim()
+                        if (t.isNotBlank()) directTitle = t
+                    }
 
-                val match = Regex("""(?:video_url|videoUrl|stream_url|file|video_src|source_url)\s*[:=]\s*['"]([^'"]+)['"]""").find(html)
-                    ?: Regex("""<source[^>]+src=['"]([^'"]+)['"]""").find(html)
-                    ?: Regex("""["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)["']""").find(html)
+                    directThumb = doc.selectFirst("meta[property='og:image']")?.attr("content")?.let {
+                        if (it.startsWith("//")) "https:$it" else if (it.startsWith("/")) "$BASE_URL$it" else it
+                    }
 
-                if (match != null) {
-                    val rawUrl = match.groupValues[1].replace("\\/", "/")
-                    val fullUrl = if (rawUrl.startsWith("//")) "https:$rawUrl" else rawUrl
-                    if (fullUrl.startsWith("http")) {
-                        val isHls = fullUrl.contains(".m3u8")
-                        val streamOption = PlayableStreamOption(
-                            qualityLabel = if (isHls) "Auto HLS" else "1080p HD",
-                            format = if (isHls) "m3u8" else "mp4",
-                            isMuxed = true,
-                            videoUrl = fullUrl,
-                            providerType = ProviderType.DIRECT,
-                            headers = defaultHeaders,
-                            qualityCategory = "1080p"
-                        )
-                        return@withContext StreamData(
-                            videoId = urlOrId,
-                            videoUrl = fullUrl,
-                            title = directTitle,
-                            channelName = "Playvid HD",
-                            thumbnailUrl = directThumb,
-                            providerId = PROVIDER_ID,
-                            providerType = ProviderType.DIRECT,
-                            availableStreamOptions = listOf(streamOption),
-                            selectedStreamOption = streamOption,
-                            headers = defaultHeaders
-                        )
+                    // Check for iframe player URL in page
+                    doc.selectFirst("iframe[src*='embed']")?.attr("src")?.let { embedSrc ->
+                        iframeEmbedUrl = when {
+                            embedSrc.startsWith("//") -> "https:$embedSrc"
+                            embedSrc.startsWith("/") -> "$BASE_URL$embedSrc"
+                            else -> embedSrc
+                        }
+                    }
+
+                    // Extract flashvars parameters
+                    val flashvars = KvsFlashvarsDecoder.parseFlashvars(html)
+                    val licenseCode = flashvars["license_code"]
+
+                    // Parse stream URLs from flashvars
+                    val streamFromFV = extractStreamsFromFlashvars(flashvars, licenseCode)
+                    availableOptions.addAll(streamFromFV)
+
+                    // If flashvars didn't yield options, parse raw regex matches from page HTML
+                    if (availableOptions.isEmpty()) {
+                        val rawOptions = extractStreamsFromRawHtml(html, licenseCode)
+                        availableOptions.addAll(rawOptions)
+                    }
+
+                    if (availableOptions.isNotEmpty() || !directTitle.contains("Playvid HD")) {
+                        break
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Playvid candidate $candidate extract note: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Playvid direct extract note: ${e.message}")
         }
 
-        // 2. Native YtDlp resolution
+        // 2. Fetch iframe embed page if needed
+        if (availableOptions.isEmpty()) {
+            val embedUrl = iframeEmbedUrl ?: if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$cleanId"
+            try {
+                val req = Request.Builder()
+                    .url(embedUrl)
+                    .build()
+
+                val embedHtml = httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+
+                if (!embedHtml.isNullOrBlank()) {
+                    val embedFlashvars = KvsFlashvarsDecoder.parseFlashvars(embedHtml)
+                    val licenseCode = embedFlashvars["license_code"]
+                    val embedStreams = extractStreamsFromFlashvars(embedFlashvars, licenseCode)
+                    availableOptions.addAll(embedStreams)
+
+                    if (availableOptions.isEmpty()) {
+                        val rawEmbedStreams = extractStreamsFromRawHtml(embedHtml, licenseCode)
+                        availableOptions.addAll(rawEmbedStreams)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Playvid embed page extract note: ${e.message}")
+            }
+        }
+
+        // 3. Return native streams if found
+        if (availableOptions.isNotEmpty()) {
+            val primaryOption = availableOptions.first()
+            return@withContext StreamData(
+                videoId = urlOrId,
+                videoUrl = primaryOption.videoUrl ?: targetUrl,
+                title = directTitle,
+                channelName = "Playvid HD",
+                thumbnailUrl = directThumb,
+                providerId = PROVIDER_ID,
+                providerType = primaryOption.providerType,
+                availableStreamOptions = availableOptions,
+                selectedStreamOption = primaryOption,
+                headers = defaultHeaders
+            )
+        }
+
+        // 4. Fallback to native yt-dlp resolution
         if (context != null) {
             try {
                 val ytdlResult = YtDlpResolver.extractStreamInfo(context, targetUrl)
                 if (ytdlResult is YouTubeExtractorHelper.ExtractionResult.Success) {
                     return@withContext ytdlResult.streamData.copy(
                         providerId = PROVIDER_ID,
-                        channelName = "Playvid HD"
+                        title = directTitle.ifBlank { ytdlResult.streamData.title },
+                        channelName = "Playvid HD",
+                        thumbnailUrl = directThumb ?: ytdlResult.streamData.thumbnailUrl
                     )
                 }
             } catch (e: Exception) {
@@ -286,9 +396,8 @@ object PlayvidProvider {
             }
         }
 
-        // 3. Resilient HD stream resolution
-        // 3. Fallback to Playvid Web Embed Player
-        val embedUrl = if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$cleanId"
+        // 5. Fallback to Playvid Web Embed Player
+        val embedUrl = iframeEmbedUrl ?: if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$cleanId"
         val embedOption = PlayableStreamOption(
             qualityLabel = "Playvid Web Player (HD)",
             format = "embed",
@@ -304,6 +413,7 @@ object PlayvidProvider {
             videoUrl = embedUrl,
             title = directTitle,
             channelName = "Playvid HD",
+            thumbnailUrl = directThumb,
             providerId = PROVIDER_ID,
             providerType = ProviderType.EMBED,
             availableStreamOptions = listOf(embedOption),
@@ -312,32 +422,87 @@ object PlayvidProvider {
         )
     }
 
-    private fun getCuratedPlayvidCatalog(limit: Int, page: Int): List<VideoItem> {
-        val curated = listOf(
-            Triple("playvid_glamour_studio_1", "Exclusive VIP Fashion Model Intimate Studio Session (1080p HD)", "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_hotel_romance_2", "Romantic Luxury Penthouse Weekend Rendezvous & Sensual Massage", "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_beach_sunset_3", "Tropical Island Balcony Private Encounter at Sunset (Full HD)", "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_amateur_debut_4", "Beautiful College Girl Sensual First Audition (1080p Ultra HD)", "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_lingerie_lounge_5", "Silk & Satin Lingerie Model Private Villa Showcase", "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_spa_wellness_6", "Aromatherapy Hot Springs Relaxation & Sensual Spa Experience", "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_bedroom_delight_7", "Cozy Sunday Morning Romantic Bedside Cuddles & Passion", "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_european_model_8", "Parisian Glamour Model Exclusive Fashion Diary (1080p)", "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_midnight_special_9", "Midnight Candlelight Private Romance & Sweet Whispers", "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=600&auto=format&fit=crop&q=80"),
-            Triple("playvid_luxury_suite_10", "Executive Suite Private Photoshoot & Sensual Connection", "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&auto=format&fit=crop&q=80")
+    private fun extractStreamsFromFlashvars(flashvars: Map<String, String>, licenseCode: String?): List<PlayableStreamOption> {
+        val options = mutableListOf<PlayableStreamOption>()
+        val seenUrls = mutableSetOf<String>()
+
+        // Check video_urls][1080p], video_urls][720p], etc.
+        for ((key, value) in flashvars) {
+            if (value.isBlank() || !value.contains("http") && !value.contains("function/")) continue
+
+            val lowerKey = key.lowercase()
+            if (lowerKey.contains("video_url") || lowerKey.contains("video_alt_url") || lowerKey.contains("file")) {
+                val decodedUrl = KvsFlashvarsDecoder.decodeKvsUrl(value, licenseCode)
+                val fullUrl = if (decodedUrl.startsWith("//")) "https:$decodedUrl" else decodedUrl
+
+                if (fullUrl.startsWith("http") && !seenUrls.contains(fullUrl)) {
+                    seenUrls.add(fullUrl)
+                    val quality = when {
+                        lowerKey.contains("1080") -> "1080p Full HD"
+                        lowerKey.contains("720") -> "720p HD"
+                        lowerKey.contains("480") -> "480p SD"
+                        lowerKey.contains("360") -> "360p"
+                        lowerKey.contains("alt") -> "720p HD (Alt)"
+                        fullUrl.contains(".m3u8") -> "Auto HLS"
+                        else -> "1080p HD"
+                    }
+                    val isHls = fullUrl.contains(".m3u8")
+
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = quality,
+                            format = if (isHls) "m3u8" else "mp4",
+                            isMuxed = true,
+                            videoUrl = fullUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = defaultHeaders,
+                            sourceName = "Playvid Direct"
+                        )
+                    )
+                }
+            }
+        }
+
+        return options
+    }
+
+    private fun extractStreamsFromRawHtml(html: String, licenseCode: String?): List<PlayableStreamOption> {
+        val options = mutableListOf<PlayableStreamOption>()
+        val seenUrls = mutableSetOf<String>()
+
+        val patterns = listOf(
+            Regex("""(?:video_url|videoUrl|stream_url|file|video_src|source_url)\s*[:=]\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE),
+            Regex("""<source[^>]+src=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE),
+            Regex("""["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE)
         )
 
-        return curated.take(limit).mapIndexed { idx, (vid, title, thumb) ->
-            VideoItem(
-                id = "playvid:$vid",
-                title = title,
-                uploaderName = "Playvid HD Official",
-                uploaderUrl = "playvid_official",
-                thumbnailUrl = thumb,
-                durationSeconds = 1500L + (idx * 150L),
-                viewCount = 520_000L + (idx * 38_000L),
-                providerId = PROVIDER_ID,
-                description = "Playvid HD Verified Video Stream"
-            )
+        for (pattern in patterns) {
+            pattern.findAll(html).forEach { match ->
+                val rawUrl = match.groupValues[1]
+                val decoded = KvsFlashvarsDecoder.decodeKvsUrl(rawUrl, licenseCode)
+                val fullUrl = if (decoded.startsWith("//")) "https:$decoded" else decoded
+
+                if (fullUrl.startsWith("http") && !seenUrls.contains(fullUrl)) {
+                    val lower = fullUrl.lowercase()
+                    if (lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("/get_file/")) {
+                        seenUrls.add(fullUrl)
+                        val isHls = lower.contains(".m3u8")
+                        options.add(
+                            PlayableStreamOption(
+                                qualityLabel = if (isHls) "Auto HLS" else "1080p HD",
+                                format = if (isHls) "m3u8" else "mp4",
+                                isMuxed = true,
+                                videoUrl = fullUrl,
+                                providerType = ProviderType.DIRECT,
+                                headers = defaultHeaders,
+                                sourceName = "Playvid Direct"
+                            )
+                        )
+                    }
+                }
+            }
         }
+
+        return options
     }
 }

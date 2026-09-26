@@ -161,7 +161,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (fetched.isNotEmpty()) {
-                    val translated = com.example.util.UniversalTranslator.translateVideoItemList(fetched)
+                    val filteredFetched = fetched.filter { com.example.util.LanguageFilterHelper.isAllowedVideoItem(it) }
+                    val translated = com.example.util.UniversalTranslator.translateVideoItemList(filteredFetched)
                     if (forceRefresh) {
                         _videoItems.value = translated
                         com.example.util.HomeFeedCacheManager.saveCachedFeed(ctx, translated)

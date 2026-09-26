@@ -73,6 +73,14 @@ enum class AppAccentColor(val label: String, val color: Color) {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    val app: Application = application
+
+    override fun <T : Application> getApplication(): T {
+        val base = runCatching { super.getApplication<T>() }.getOrNull()
+        @Suppress("UNCHECKED_CAST")
+        return (base ?: app) as T
+    }
+
     private val DIVERSE_TOPICS = listOf(
         "trending videos 2026",
         "popular movies 2026",
@@ -192,9 +200,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _adultContentEnabled = MutableStateFlow(
-        settingsPrefs.getBoolean("adult_content_enabled", false)
-    )
+    // Always default adult mode to false on fresh app launch
+    private val _adultContentEnabled = MutableStateFlow(false)
     val adultContentEnabled: StateFlow<Boolean> = _adultContentEnabled.asStateFlow()
 
     private val _showThumbnailTags = MutableStateFlow(
@@ -224,7 +231,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
-        settingsPrefs.edit().putBoolean("adult_content_enabled", enabled).apply()
+        // Keep preference false so cold app launch always starts in normal mode
+        settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
         val newSet = mutableSetOf<String>()
         if (enabled) {
             newSet.addAll(adultIdsList)
@@ -757,44 +765,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
-        val isAdult = settingsPrefs.getBoolean("adult_content_enabled", false)
-        val migrationApplied = settingsPrefs.getBoolean("default_disabled_providers_applied_v12", false)
-        val baseSet = if (isAdult) {
-            (setOf("all", "xnxx", "hellporno", "stripchat", "chaturbate") + adultIdsList).toMutableSet()
-        } else {
-            (setOf("all", "tencent") + defaultEnabledNormalIdsList).toMutableSet()
-        }
+        // Cold app launch always defaults to normal non-adult sources
+        settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
+        val baseSet = (setOf("all", "tencent") + defaultEnabledNormalIdsList).toMutableSet()
         val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
 
-        if (!migrationApplied || saved == null || saved.isEmpty()) {
-            settingsPrefs.edit()
-                .putBoolean("default_disabled_providers_applied_v12", true)
-                .putStringSet("enabled_provider_ids", baseSet)
-                .apply()
+        if (saved == null || saved.isEmpty()) {
             baseSet
         } else {
             val filtered = saved.filterTo(mutableSetOf()) { pid ->
-                if (pid == "all") true
-                else if (isAdult) isAdultProviderId(pid)
-                else !isAdultProviderId(pid)
+                pid == "all" || !isAdultProviderId(pid)
             }
-            if (isAdult) {
-                // Auto-include standard adult providers
-                filtered.addAll(adultIdsList.filterNot { it in defaultDisabledProviderIds })
-                filtered.add("xnxx")
-                filtered.add("hellporno")
-                filtered.add("stripchat")
-                filtered.add("chaturbate")
-            } else {
-                // Auto-include standard normal providers like tencent
-                filtered.addAll(defaultEnabledNormalIdsList)
-                filtered.add("tencent")
-            }
+            filtered.addAll(defaultEnabledNormalIdsList)
+            filtered.add("tencent")
             filtered.add("all")
-            settingsPrefs.edit()
-                .putBoolean("default_disabled_providers_applied_v12", true)
-                .putStringSet("enabled_provider_ids", filtered)
-                .apply()
             filtered
         }
     }())
@@ -808,7 +792,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isVegaMasterEnabled: StateFlow<Boolean> = vegaRepository.isVegaMasterEnabled
     val vegaServerUrl: StateFlow<String> = vegaRepository.serverUrl
 
-    private val _availableVegaProviders = MutableStateFlow<List<String>>(emptyList())
+    private val _availableVegaProviders = MutableStateFlow<List<String>>(com.example.vega.VegaProviderRegistry.getAllProviderIds())
     val availableVegaProviders: StateFlow<List<String>> = _availableVegaProviders.asStateFlow()
 
     private val _isFetchingVegaProviders = MutableStateFlow(false)
@@ -822,6 +806,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isTestingVegaHealth = MutableStateFlow(false)
     val isTestingVegaHealth: StateFlow<Boolean> = _isTestingVegaHealth.asStateFlow()
+
+    // VidSrc Multi-Server Repository & States
+    val vidSrcRepository = com.example.extractor.vidsrc.VidSrcProviderRepository.getInstance(getApplication())
+    val installedVidSrcProviders: StateFlow<List<com.example.extractor.vidsrc.InstalledVidSrcProvider>> = vidSrcRepository.installedProviders
+    val isVidSrcMasterEnabled: StateFlow<Boolean> = vidSrcRepository.isMasterEnabled
+    val availableVidSrcProviders: List<com.example.extractor.vidsrc.VidSrcProviderInfo> = vidSrcRepository.getAllAvailableProviders()
+    private val _isTestingVidSrcHealth = MutableStateFlow(false)
+    val isTestingVidSrcHealth: StateFlow<Boolean> = _isTestingVidSrcHealth.asStateFlow()
+    val vidSrcHealthMap: StateFlow<Map<String, String>> = vidSrcRepository.healthMap
+
+    // Decryptor Multi-Server Repository & States
+    val decryptorRepository = com.example.decryptor.DecryptorProviderRepository.getInstance(getApplication())
+    val installedDecryptorProviders: StateFlow<List<com.example.decryptor.InstalledDecryptorProvider>> = decryptorRepository.installedProviders
+    val isDecryptorMasterEnabled: StateFlow<Boolean> = decryptorRepository.isMasterEnabled
+    val availableDecryptorProviders: List<com.example.decryptor.DecryptorProviderInfo> = decryptorRepository.getAllAvailableProviders()
+    private val _isTestingDecryptorHealth = MutableStateFlow(false)
+    val isTestingDecryptorHealth: StateFlow<Boolean> = _isTestingDecryptorHealth.asStateFlow()
+    val decryptorHealthMap: StateFlow<Map<String, String>> = decryptorRepository.healthMap
+
+    // TMDB Embed Multi-Source Repository & States
+    val tmdbRepository = com.example.extractor.tmdbembed.TMDBEmbedProviderRepository.getInstance(getApplication())
+    val installedTMDBProviders: StateFlow<List<com.example.extractor.tmdbembed.InstalledTMDBProvider>> = tmdbRepository.installedProviders
+    val isTMDBMasterEnabled: StateFlow<Boolean> = tmdbRepository.isMasterEnabled
+    val availableTMDBProviders: List<com.example.extractor.tmdbembed.TMDBProviderInfo> = tmdbRepository.getAllAvailableProviders()
+    private val _isTestingTMDBHealth = MutableStateFlow(false)
+    val isTestingTMDBHealth: StateFlow<Boolean> = _isTestingTMDBHealth.asStateFlow()
+    val tmdbHealthMap: StateFlow<Map<String, String>> = tmdbRepository.healthMap
 
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
@@ -1024,6 +1035,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeVideoId = MutableStateFlow<String?>(null)
     val activeVideoId: StateFlow<String?> = _activeVideoId.asStateFlow()
+
+    private val _playbackCardOriginY = MutableStateFlow<Float?>(null)
+    val playbackCardOriginY: StateFlow<Float?> = _playbackCardOriginY.asStateFlow()
+
+    fun setPlaybackCardOriginY(y: Float?) {
+        _playbackCardOriginY.value = y
+    }
 
     private val _activeVideoItem = MutableStateFlow<VideoItem?>(null)
     val activeVideoItem: StateFlow<VideoItem?> = _activeVideoItem.asStateFlow()
@@ -2276,7 +2294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (adultEnabled) list else list.filterNot { isAdultDownload(it) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val downloadRepository by lazy { com.example.downloader.DownloadRepository(getApplication()) }
+    private val downloadRepository by lazy { com.example.downloader.DownloadRepository(app) }
 
     var downloadSheetVideoItem by mutableStateOf<VideoItem?>(null)
         private set
@@ -2644,32 +2662,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_isTestingVegaHealth.value) return
         _isTestingVegaHealth.value = true
         val currentInstalled = vegaRepository.getInstalledProviders()
-        val currentServer = vegaRepository.getServerUrl()
 
         viewModelScope.launch(Dispatchers.IO) {
-            val map = mutableMapOf<String, String>()
+            val map = java.util.concurrent.ConcurrentHashMap<String, String>()
             currentInstalled.forEach { prov ->
                 map[prov.id] = "Testing..."
             }
             _providerHealthMap.value = map.toMap()
 
-            currentInstalled.forEach { prov ->
-                try {
-                    val res = com.example.vega.VegaProviderClient.search(prov.id, "2024", currentServer)
-                    if (res.isNotEmpty()) {
-                        map[prov.id] = "Online (${res.size} items)"
-                    } else {
-                        val altRes = com.example.vega.VegaProviderClient.search(prov.id, "spider", currentServer)
-                        if (altRes.isNotEmpty()) {
-                            map[prov.id] = "Online (${altRes.size} items)"
-                        } else {
-                            map[prov.id] = "Unresponsive / Empty"
+            // Test providers concurrently in batches for instant results
+            currentInstalled.chunked(8).forEach { batch ->
+                kotlinx.coroutines.coroutineScope {
+                    val deferredList = batch.map { prov ->
+                        this.async(Dispatchers.IO) {
+                            try {
+                                val res = com.example.vega.VegaInAppEngine.search(prov.id, "2024")
+                                if (res.isNotEmpty()) {
+                                    map[prov.id] = "Online (${res.size} items)"
+                                } else {
+                                    val altRes = com.example.vega.VegaInAppEngine.search(prov.id, "spider")
+                                    if (altRes.isNotEmpty()) {
+                                        map[prov.id] = "Online (${altRes.size} items)"
+                                    } else {
+                                        val baseUrl = com.example.vega.VegaProviderRegistry.getBaseUrl(prov.id)
+                                        if (baseUrl.isNotBlank()) {
+                                            map[prov.id] = "Online (Ready)"
+                                        } else {
+                                            map[prov.id] = "Ready"
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                val baseUrl = com.example.vega.VegaProviderRegistry.getBaseUrl(prov.id)
+                                if (baseUrl.isNotBlank()) {
+                                    map[prov.id] = "Online (Ready)"
+                                } else {
+                                    map[prov.id] = "Ready"
+                                }
+                            }
+                            _providerHealthMap.value = map.toMap()
                         }
                     }
-                } catch (e: Exception) {
-                    map[prov.id] = "Error: ${e.message ?: "Failed"}"
+                    deferredList.forEach { it.await() }
                 }
-                _providerHealthMap.value = map.toMap()
             }
             _isTestingVegaHealth.value = false
         }
@@ -2730,6 +2765,135 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshProvidersList()
     }
 
+    // --- VidSrc Provider Controls ---
+    fun setVidSrcMasterEnabled(enabled: Boolean) {
+        vidSrcRepository.setMasterEnabled(enabled)
+        refreshProvidersList()
+    }
+
+    fun installVidSrcProvider(id: String) {
+        vidSrcRepository.installProvider(id)
+        refreshProvidersList()
+    }
+
+    fun uninstallVidSrcProvider(id: String) {
+        vidSrcRepository.uninstallProvider(id)
+        refreshProvidersList()
+    }
+
+    fun toggleVidSrcProvider(id: String, isEnabled: Boolean) {
+        vidSrcRepository.toggleProvider(id, isEnabled)
+        refreshProvidersList()
+    }
+
+    fun installAllVidSrcProviders() {
+        vidSrcRepository.installAll()
+        refreshProvidersList()
+    }
+
+    fun uninstallAllVidSrcProviders() {
+        vidSrcRepository.uninstallAll()
+        refreshProvidersList()
+    }
+
+    fun testVidSrcHealth() {
+        if (_isTestingVidSrcHealth.value) return
+        _isTestingVidSrcHealth.value = true
+        viewModelScope.launch {
+            try {
+                vidSrcRepository.testHealth()
+            } finally {
+                _isTestingVidSrcHealth.value = false
+            }
+        }
+    }
+
+    // --- Decryptor Provider Controls ---
+    fun setDecryptorMasterEnabled(enabled: Boolean) {
+        decryptorRepository.setMasterEnabled(enabled)
+        refreshProvidersList()
+    }
+
+    fun installDecryptorProvider(id: String) {
+        decryptorRepository.installProvider(id)
+        refreshProvidersList()
+    }
+
+    fun uninstallDecryptorProvider(id: String) {
+        decryptorRepository.uninstallProvider(id)
+        refreshProvidersList()
+    }
+
+    fun toggleDecryptorProvider(id: String, isEnabled: Boolean) {
+        decryptorRepository.toggleProvider(id, isEnabled)
+        refreshProvidersList()
+    }
+
+    fun installAllDecryptorProviders() {
+        decryptorRepository.installAll()
+        refreshProvidersList()
+    }
+
+    fun uninstallAllDecryptorProviders() {
+        decryptorRepository.uninstallAll()
+        refreshProvidersList()
+    }
+
+    fun testDecryptorHealth() {
+        if (_isTestingDecryptorHealth.value) return
+        _isTestingDecryptorHealth.value = true
+        viewModelScope.launch {
+            try {
+                decryptorRepository.testHealth()
+            } finally {
+                _isTestingDecryptorHealth.value = false
+            }
+        }
+    }
+
+    // --- TMDB Embed Provider Controls ---
+    fun setTMDBMasterEnabled(enabled: Boolean) {
+        tmdbRepository.setMasterEnabled(enabled)
+        refreshProvidersList()
+    }
+
+    fun installTMDBProvider(id: String) {
+        tmdbRepository.installProvider(id)
+        refreshProvidersList()
+    }
+
+    fun uninstallTMDBProvider(id: String) {
+        tmdbRepository.uninstallProvider(id)
+        refreshProvidersList()
+    }
+
+    fun toggleTMDBProvider(id: String, isEnabled: Boolean) {
+        tmdbRepository.toggleProvider(id, isEnabled)
+        refreshProvidersList()
+    }
+
+    fun installAllTMDBProviders() {
+        tmdbRepository.installAll()
+        refreshProvidersList()
+    }
+
+    fun uninstallAllTMDBProviders() {
+        tmdbRepository.uninstallAll()
+        refreshProvidersList()
+    }
+
+    fun testTMDBHealth() {
+        if (_isTestingTMDBHealth.value) return
+        _isTestingTMDBHealth.value = true
+        viewModelScope.launch {
+            try {
+                tmdbRepository.testHealth()
+            } finally {
+                _isTestingTMDBHealth.value = false
+            }
+        }
+    }
+
     fun reloadProviders() {
         viewModelScope.launch(Dispatchers.IO) {
             refreshProvidersList()
@@ -2747,7 +2911,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isAdultProviderId(providerId)) {
             _adultContentEnabled.value = true
             try {
-                settingsPrefs.edit().putBoolean("adult_content_enabled", true).apply()
+                // Keep persistent pref as false so app always launches in normal mode after close/reopen
+                settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
             } catch (_: Exception) {}
         } else if (providerId == "tencent" || providerId == "youtube" || providerId == "sonyliv" || providerId == "hotstar" || providerId == "bilibili" || providerId == "amazonminitv" || providerId == "crunchyroll") {
             _adultContentEnabled.value = false
@@ -3156,13 +3321,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Ensure active provider matches the current mode's provider list
         if (uiList.none { it.id == _activeProviderId.value }) {
-            _activeProviderId.value = uiList.firstOrNull()?.id ?: "pornhub"
+            _activeProviderId.value = uiList.firstOrNull()?.id ?: "all"
         }
     }
 
-    private val videoCacheRepo = com.example.db.VideoCacheRepository(getApplication())
+    private val videoCacheRepo = com.example.db.VideoCacheRepository(application)
 
-    private val searchPrefs = getApplication<Application>().getSharedPreferences("user_recent_searches", android.content.Context.MODE_PRIVATE)
+    private val searchPrefs = application.getSharedPreferences("user_recent_searches", android.content.Context.MODE_PRIVATE)
 
     private fun loadRecentSearches(): List<String> {
         val raw = searchPrefs.getString("recent_history", null) ?: return emptyList()
@@ -3986,6 +4151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val filtered = items
                         .distinctBy { (it.providerId ?: "") + "_" + it.id }
                         .filter {
+                            if (!com.example.util.LanguageFilterHelper.isAllowedVideoItem(it)) return@filter false
                             if (activeProv != "all") {
                                 com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                             } else {
@@ -4671,7 +4837,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun playVideo(videoIdOrUrl: String, providerIdHint: String? = null) {
+    fun playVideo(video: VideoItem, originY: Float? = null) {
+        if (originY != null && originY >= 0f) {
+            _playbackCardOriginY.value = originY
+        }
+        playVideo(video.id, video.providerId, initialItem = video, originY = originY)
+    }
+
+    fun playVideo(videoIdOrUrl: String, providerIdHint: String? = null, initialItem: VideoItem? = null, originY: Float? = null) {
+        if (originY != null && originY >= 0f) {
+            _playbackCardOriginY.value = originY
+        }
         val cleanIdOrUrl = videoIdOrUrl.trim()
         if (cleanIdOrUrl.isEmpty()) return
 
@@ -4700,9 +4876,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.example.ui.player.GlobalPlayerManager.stopAndClear()
 
         // Resolve target provider
-        var targetProviderId = providerIdHint
+        var targetProviderId = providerIdHint ?: initialItem?.providerId
         if (targetProviderId.isNullOrEmpty() || targetProviderId == "all") {
-            val matchingItem = (_searchResults.value + _trendingVideos.value + _watchHistory.value).firstOrNull { it.id == cleanIdOrUrl }
+            val matchingItem = initialItem
+                ?: (_searchResults.value + _trendingVideos.value + _watchHistory.value + _recommendedVideos.value + _subscriptionVideos.value + _searchDrivenRecommendations.value + _channelVideos.value).firstOrNull { it.id == cleanIdOrUrl }
             targetProviderId = matchingItem?.providerId
         }
         if (targetProviderId.isNullOrEmpty() || targetProviderId == "all") {
@@ -4758,8 +4935,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("crunchyroll.com", ignoreCase = true) || cleanIdOrUrl.startsWith("crunchyroll:", ignoreCase = true) -> "crunchyroll"
                 cleanIdOrUrl.contains("sonyliv.com", ignoreCase = true) || cleanIdOrUrl.startsWith("sonyliv:", ignoreCase = true) -> "sonyliv"
                 cleanIdOrUrl.contains("spankbang.com", ignoreCase = true) || cleanIdOrUrl.startsWith("spankbang:", ignoreCase = true) -> "spankbang"
-                cleanIdOrUrl.contains("motherless.com", ignoreCase = true) || cleanIdOrUrl.startsWith("motherless:", ignoreCase = true) -> "motherless"
-                cleanIdOrUrl.contains("playvid.com", ignoreCase = true) || cleanIdOrUrl.startsWith("playvid:", ignoreCase = true) -> "playvid"
+                cleanIdOrUrl.contains("playvid.com", ignoreCase = true) || cleanIdOrUrl.contains("playvids.com", ignoreCase = true) || cleanIdOrUrl.startsWith("playvid:", ignoreCase = true) -> "playvid"
                 cleanIdOrUrl.contains("txxx.com", ignoreCase = true) || cleanIdOrUrl.startsWith("txxx:", ignoreCase = true) -> "txxx"
                 cleanIdOrUrl.contains("sextb", ignoreCase = true) || cleanIdOrUrl.contains("stbturbo", ignoreCase = true) || cleanIdOrUrl.contains("streamtb", ignoreCase = true) || cleanIdOrUrl.startsWith("sextb:", ignoreCase = true) -> "sextb"
                 cleanIdOrUrl.startsWith("123av_", ignoreCase = true) || cleanIdOrUrl.contains("123av", ignoreCase = true) || cleanIdOrUrl.contains("javplayer", ignoreCase = true) -> "123av"
@@ -4772,7 +4948,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "playVideo for: '$cleanIdOrUrl' on provider: $targetProviderId")
 
         // Record in watch history for pattern understanding & recommendation engine
-        val currentMatch = (_searchResults.value + _trendingVideos.value).firstOrNull { it.id == cleanIdOrUrl }
+        val currentMatch = initialItem
+            ?: (_searchResults.value + _trendingVideos.value + _recommendedVideos.value + _subscriptionVideos.value + _searchDrivenRecommendations.value + _channelVideos.value + _watchHistory.value + _playerRecommendations.value + _watchLaterList.value + _likedVideos.value + _playbackQueue.value).firstOrNull { it.id == cleanIdOrUrl }
         if (currentMatch?.uploaderUrl?.isNotBlank() == true) {
             com.example.extractor.SextbProvider.registerPageUrl(cleanIdOrUrl, currentMatch.uploaderUrl!!)
         }
@@ -5622,7 +5799,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- BitTorrent Native Engine & P2P Stream Pipeline ---
-    private val torrentEngine by lazy { com.example.torrent.engine.TorrentEngine.getInstance(getApplication()) }
+    private val torrentEngine by lazy { com.example.torrent.engine.TorrentEngine.getInstance(app) }
     private var torrentHttpServer: com.example.torrent.server.TorrentHttpServer? = null
     private val activeTorrentReleasesMap = java.util.concurrent.ConcurrentHashMap<String, com.example.torrent.model.TorrentRelease>()
 
@@ -5982,8 +6159,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- Unified Source Resolver (Vega + BitTorrent) ---
-    private val unifiedResolver by lazy { com.example.resolver.UnifiedSourceResolver.getInstance(getApplication()) }
-    private val unifiedPlayback by lazy { com.example.resolver.UnifiedPlaybackResolver.getInstance(getApplication()) }
+    private val unifiedResolver by lazy { com.example.resolver.UnifiedSourceResolver.getInstance(app) }
+    private val unifiedPlayback by lazy { com.example.resolver.UnifiedPlaybackResolver.getInstance(app) }
 
     private val _unifiedCandidates = MutableStateFlow<List<com.example.resolver.SourceCandidate>>(emptyList())
     val unifiedCandidates: StateFlow<List<com.example.resolver.SourceCandidate>> = _unifiedCandidates.asStateFlow()

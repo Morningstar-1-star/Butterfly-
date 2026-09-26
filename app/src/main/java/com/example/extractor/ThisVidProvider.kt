@@ -308,8 +308,11 @@ object ThisVidProvider {
         val embedUrl = if (numericId.isNotBlank()) "$BASE_URL/embed/$numericId/" else targetUrl
         val videoSources = mutableListOf<PlayableStreamOption>()
 
-        // 1. Direct HTML stream extraction from target and embed pages (only authentic unobfuscated direct streams)
-        val directFromTarget = extractDirectStreamsFromHtml(fetchedHtml)
+        val flashvars = KvsFlashvarsDecoder.parseFlashvars(fetchedHtml)
+        val licenseCode = flashvars["license_code"]
+
+        // 1. Direct HTML stream extraction from target and embed pages
+        val directFromTarget = extractDirectStreamsFromHtml(fetchedHtml, licenseCode)
         videoSources.addAll(directFromTarget)
 
         if (videoSources.isEmpty() && embedUrl != targetUrl) {
@@ -322,7 +325,9 @@ object ThisVidProvider {
                     if (resp.isSuccessful) resp.body?.string() else null
                 }
                 if (!embedHtml.isNullOrBlank()) {
-                    val directFromEmbed = extractDirectStreamsFromHtml(embedHtml)
+                    val embedFv = KvsFlashvarsDecoder.parseFlashvars(embedHtml)
+                    val embedLicense = embedFv["license_code"] ?: licenseCode
+                    val directFromEmbed = extractDirectStreamsFromHtml(embedHtml, embedLicense)
                     videoSources.addAll(directFromEmbed)
                 }
             } catch (e: Exception) {
@@ -392,7 +397,7 @@ object ThisVidProvider {
         )
     }
 
-    private fun extractDirectStreamsFromHtml(html: String): List<PlayableStreamOption> {
+    private fun extractDirectStreamsFromHtml(html: String, licenseCode: String? = null): List<PlayableStreamOption> {
         val results = mutableListOf<PlayableStreamOption>()
         if (html.isBlank()) return results
 
@@ -418,8 +423,8 @@ object ThisVidProvider {
             pattern.findAll(html).forEach { match ->
                 var raw = match.groupValues[1]
                 raw = unescapeUrl(raw)
-                if (raw.startsWith("function/") || raw.contains("function/")) {
-                    return@forEach
+                if (raw.contains("function/")) {
+                    raw = KvsFlashvarsDecoder.decodeKvsUrl(raw, licenseCode)
                 }
                 if (raw.startsWith("//")) raw = "https:$raw"
                 if (raw.startsWith("/")) raw = "$BASE_URL$raw"

@@ -1,18 +1,16 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,7 +21,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -31,24 +28,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.model.CaptionOption
 import com.example.model.CastMember
 import com.example.model.MediaDetailInfo
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
-import com.example.model.VideoTrailerClip
+import com.example.model.VideoItem
 import com.example.ui.animation.bounceClick
 import com.example.util.TMDBHelper
 import kotlinx.coroutines.launch
 
-enum class MediaSubTab {
-    CAST_AND_CREW,
-    SCREENSHOTS,
-    TRAILERS_AND_CLIPS
-}
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoDetailsSection(
     streamData: StreamData? = null,
@@ -77,18 +68,16 @@ fun VideoDetailsSection(
     onServersClick: (() -> Unit)? = null,
     onTitleDrag: ((deltaY: Float) -> Unit)? = null,
     onTitleDragEnd: ((totalDy: Float) -> Unit)? = null,
+    commentsCount: Int = 0,
+    topCommentSnippet: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var isDescriptionExpanded by remember { mutableStateOf(false) }
+    var showDescriptionSheet by remember { mutableStateOf(false) }
+    var showMoreActionsSheet by remember { mutableStateOf(false) }
     var isQualityMenuExpanded by remember { mutableStateOf(false) }
     var isCaptionMenuExpanded by remember { mutableStateOf(false) }
-    var selectedSubTab by remember { mutableStateOf(MediaSubTab.CAST_AND_CREW) }
-    var zoomScreenshotUrl by remember { mutableStateOf<String?>(null) }
     var selectedCastMemberForFilmography by remember { mutableStateOf<CastMember?>(null) }
     var showOriginalTitle by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
-    var showTranslatedDescription by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
-    var isTranslatingDescription by remember(streamData?.videoId, previewItem?.id) { mutableStateOf(false) }
-    var descriptionTranslationText by remember(streamData?.videoId, previewItem?.id) { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     var titleTranslation by remember(streamData?.videoId, previewItem?.id) {
         mutableStateOf<com.example.util.TranslationResult?>(null)
@@ -124,21 +113,17 @@ fun VideoDetailsSection(
         }
     }
 
-    var forceTmdbLookup by remember(currentVideoId, currentTitle) { mutableStateOf(false) }
-    var mediaDetails by remember(currentVideoId, currentTitle, forceTmdbLookup) {
+    var mediaDetails by remember(currentVideoId, currentTitle) {
         mutableStateOf<MediaDetailInfo?>(null)
     }
 
-    LaunchedEffect(currentVideoId, currentTitle, currentProviderId, forceTmdbLookup) {
+    LaunchedEffect(currentVideoId, currentTitle, currentProviderId) {
         if (currentTitle.isNotBlank()) {
             mediaDetails = TMDBHelper.fetchMediaDetails(
                 rawTitle = currentTitle,
                 videoId = currentVideoId,
-                providerId = currentProviderId,
-                forceTmdb = forceTmdbLookup
+                providerId = currentProviderId
             )
-        } else {
-            mediaDetails = null
         }
     }
 
@@ -147,14 +132,8 @@ fun VideoDetailsSection(
         else {
             val hash = kotlin.math.abs(currentTitle.hashCode())
             val estimated = if (currentViewCount > 0) (currentViewCount * 0.085).toLong() else (12500L + (hash % 85000))
-            estimated.coerceAtLeast(1840L)
+            estimated.coerceAtLeast(397L)
         }
-    }
-
-    val baseDislikes = remember(baseLikes, currentTitle) {
-        val hash = kotlin.math.abs(currentTitle.hashCode())
-        val estimated = (baseLikes * 0.028).toLong() + (hash % 350)
-        estimated.coerceAtLeast(42L)
     }
 
     val formattedLikes = remember(baseLikes, isLiked) {
@@ -164,11 +143,15 @@ fun VideoDetailsSection(
         else "$total"
     }
 
-    val formattedDislikes = remember(baseDislikes, isDisliked) {
-        val total = if (isDisliked) baseDislikes + 1 else baseDislikes
-        if (total >= 1_000_000) String.format("%.1fM", total / 1_000_000.0)
-        else if (total >= 1000) "${total / 1000}K"
-        else "$total"
+    val viewCountText = remember(currentViewCount) {
+        if (currentViewCount > 0) {
+            val count = currentViewCount
+            if (count >= 1_000_000) "${String.format("%.1f", count / 1_000_000.0)}M views"
+            else if (count >= 1_000) "${String.format("%.1f", count / 1000.0)}k views"
+            else "$count views"
+        } else {
+            "8.8k views"
+        }
     }
 
     val accurateDate = remember(currentUploadDate, mediaDetails) {
@@ -179,100 +162,88 @@ fun VideoDetailsSection(
             val parsed = TMDBHelper.formatDateToLong(currentUploadDate)
             if (parsed.isNotBlank()) parsed else currentUploadDate
         } else {
-            ""
+            "10 hr ago"
         }
     }
 
-    val viewCountText = remember(currentViewCount) {
-        if (currentViewCount > 0) {
-            val count = currentViewCount
-            if (count >= 1_000_000) "${String.format("%.1f", count / 1_000_000.0)}M views"
-            else if (count >= 1_000) "${count / 1_000}K views"
-            else "$count views"
+    val brandInfo = remember(currentChannelName, currentChannelAvatarUrl, currentTitle) {
+        com.example.util.ChannelLogoHelper.getBrandInfo(currentChannelName, currentChannelAvatarUrl, currentTitle)
+    }
+    val displayChannelName = remember(currentChannelName, brandInfo.brandName) {
+        if (currentChannelName.isBlank() || currentChannelName.lowercase().contains("tv network") || currentChannelName == "T") {
+            brandInfo.brandName
         } else {
-            ""
+            currentChannelName
+        }
+    }
+    val displaySubCount = remember(currentSubscriberCountText, brandInfo.subscriberCountText) {
+        if (!currentSubscriberCountText.isNullOrEmpty() && currentSubscriberCountText != "Subscribers") {
+            currentSubscriberCountText
+        } else {
+            brandInfo.subscriberCountText
         }
     }
 
-    val titlePullDownModifier = if (onTitleDrag != null && onTitleDragEnd != null) {
-        Modifier.pointerInput(onTitleDrag, onTitleDragEnd) {
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                var totalDy = 0f
-                var totalDx = 0f
-                var lastY = down.position.y
-                var isDragging = false
-                val touchSlop = viewConfiguration.touchSlop
+    val handleName = remember(displayChannelName) {
+        val clean = displayChannelName.replace(" ", "").uppercase()
+        if (clean.startsWith("@")) clean else "@$clean"
+    }
 
-                do {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    val currentY = change.position.y
-                    val deltaY = currentY - lastY
-                    lastY = currentY
-                    totalDy += deltaY
-                    totalDx += (change.position.x - change.previousPosition.x)
+    val topTagsList = remember(streamData?.tags, mediaDetails?.genres) {
+        val tags = streamData?.tags?.takeIf { it.isNotEmpty() } ?: mediaDetails?.genres ?: emptyList()
+        tags.take(3)
+    }
 
-                    if (!isDragging && totalDy > touchSlop && totalDy > kotlin.math.abs(totalDx) * 1.1f) {
-                        isDragging = true
-                    }
-
-                    if (isDragging) {
-                        change.consume()
-                        onTitleDrag(deltaY)
-                    }
-                } while (event.changes.any { it.pressed })
-
-                if (isDragging) {
-                    onTitleDragEnd(totalDy)
-                }
-            }
-        }
-    } else Modifier
+    val metadataLine = remember(handleName, formattedLikes, viewCountText, accurateDate, topTagsList) {
+        val tagsStr = topTagsList.take(2).joinToString(" ") { if (it.startsWith("#")) it else "#$it" }
+        listOf(handleName, "$formattedLikes likes", viewCountText, accurateDate, tagsStr)
+            .filter { it.isNotBlank() }
+            .joinToString("  ") + " ...more"
+    }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(titlePullDownModifier)
-            .padding(16.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        // Video Title & Translation Toggle Row: only show for foreign languages (not English, not Hindi)
-        val hasTitleTranslation = remember(titleTranslation, rawTitle) {
-            titleTranslation != null &&
-            titleTranslation?.detectedLanguage != "en" &&
-            titleTranslation?.detectedLanguage != "hi" &&
-            !titleTranslation?.translatedEN.isNullOrBlank() &&
-            titleTranslation?.translatedEN != rawTitle
-        }
-
+        // 1. VIDEO TITLE (Clickable to open Description)
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDescriptionSheet = true },
+            verticalAlignment = Alignment.Top
         ) {
             Text(
                 text = currentTitle,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 19.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 25.sp
+                    lineHeight = 23.sp
                 ),
                 color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f, fill = false)
+                modifier = Modifier.weight(1f)
             )
 
+            val hasTitleTranslation = remember(titleTranslation, rawTitle) {
+                titleTranslation != null &&
+                titleTranslation?.detectedLanguage != "en" &&
+                titleTranslation?.detectedLanguage != "hi" &&
+                !titleTranslation?.translatedEN.isNullOrBlank() &&
+                titleTranslation?.translatedEN != rawTitle
+            }
+
             if (hasTitleTranslation && rawTitle.isNotBlank()) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     modifier = Modifier.clickable { showOriginalTitle = !showOriginalTitle }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.Translate,
@@ -280,9 +251,10 @@ fun VideoDetailsSection(
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(12.dp)
                         )
+                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = if (showOriginalTitle) "Translated" else "Original",
-                            fontSize = 11.sp,
+                            text = if (showOriginalTitle) "EN" else "Orig",
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -291,44 +263,31 @@ fun VideoDetailsSection(
             }
         }
 
-        // Views & Exact Release Date
-        val metadataSubText = remember(viewCountText, accurateDate) {
-            listOf(viewCountText, accurateDate).filter { it.isNotBlank() }.joinToString(" • ")
-        }
-        if (metadataSubText.isNotBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = metadataSubText,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Spacer(modifier = Modifier.height(4.dp))
 
-        Spacer(modifier = Modifier.height(14.dp))
+        // 2. METADATA SUB-LINE: @Channel  Likes  Views  Time  #Tag ...more
+        Text(
+            text = metadataLine,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFFAAAAAA)
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDescriptionSheet = true }
+        )
 
-        // Channel Info Row with Brand/Studio Logo support
-        val brandInfo = remember(currentChannelName, currentChannelAvatarUrl, currentTitle) {
-            com.example.util.ChannelLogoHelper.getBrandInfo(currentChannelName, currentChannelAvatarUrl, currentTitle)
-        }
-        val displayChannelName = remember(currentChannelName, brandInfo.brandName) {
-            if (currentChannelName.isBlank() || currentChannelName.lowercase().contains("tv network") || currentChannelName == "T") {
-                brandInfo.brandName
-            } else {
-                currentChannelName
-            }
-        }
-        val displaySubCount = remember(currentSubscriberCountText, brandInfo.subscriberCountText) {
-            if (!currentSubscriberCountText.isNullOrEmpty() && currentSubscriberCountText != "Subscribers") {
-                currentSubscriberCountText
-            } else {
-                brandInfo.subscriberCountText
-            }
-        }
+        Spacer(modifier = Modifier.height(12.dp))
 
+        // 3. CHANNEL ROW (Avatar, Name, Subscribe Pill) & ACTION BUTTONS
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Left: Channel Avatar + Name + Subscribe Button
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -339,7 +298,7 @@ fun VideoDetailsSection(
                 val logoUrl = brandInfo.logoUrls.firstOrNull() ?: currentChannelAvatarUrl
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(brandInfo.backgroundColor),
                     contentAlignment = Alignment.Center
@@ -361,124 +320,49 @@ fun VideoDetailsSection(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = displayChannelName,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Verified",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
-                        text = displaySubCount,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = displayChannelName,
+                        style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
 
-            // Subscribe Button with animated color & bell notification toggle
-            val subBgColor by animateColorAsState(
-                targetValue = if (isSubscribed) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f) else MaterialTheme.colorScheme.primary,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                label = "subBgColor"
-            )
-            val subContentColor by animateColorAsState(
-                targetValue = if (isSubscribed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                label = "subContentColor"
-            )
+                Spacer(modifier = Modifier.width(8.dp))
 
-            Surface(
-                onClick = onSubscribeClick,
-                shape = RoundedCornerShape(24.dp),
-                color = subBgColor,
-                contentColor = subContentColor,
-                shadowElevation = if (isSubscribed) 0.dp else 4.dp,
-                border = if (isSubscribed) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) else null,
-                modifier = Modifier
-                    .bounceClick(scaleDown = 0.88f) { onSubscribeClick() }
-            ) {
-                AnimatedContent(
-                    targetState = isSubscribed,
-                    transitionSpec = {
-                        (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.82f)) togetherWith
-                                (fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 1.15f))
-                    },
-                    label = "subscribeContentTransition",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                ) { subscribed ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                // YouTube Style Subscribe Pill
+                Surface(
+                    onClick = onSubscribeClick,
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (isSubscribed) Color(0xFF272727) else Color.White,
+                    contentColor = if (isSubscribed) Color(0xFFAAAAAA) else Color.Black,
+                    modifier = Modifier
+                        .height(32.dp)
+                        .bounceClick(scaleDown = 0.90f) { onSubscribeClick() }
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     ) {
-                        if (subscribed) {
-                            Icon(
-                                imageVector = Icons.Filled.NotificationsActive,
-                                contentDescription = "Subscribed",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = "Subscribed",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = subContentColor
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Outlined.Notifications,
-                                contentDescription = "Subscribe",
-                                tint = subContentColor,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = "Subscribe",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = subContentColor
-                            )
-                        }
+                        Text(
+                            text = if (isSubscribed) "Subscribed" else "Subscribe",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (isSubscribed) Color(0xFFAAAAAA) else Color.Black
+                        )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Liquid Glass Action Bar with Spring Interactive Buttons
-        val likeIconColor by animateColorAsState(
-            targetValue = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "likeColor"
-        )
-        val dislikeIconColor by animateColorAsState(
-            targetValue = if (isDisliked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "dislikeColor"
-        )
-
-        val likeScale by animateFloatAsState(
-            targetValue = if (isLiked) 1.18f else 1.0f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMediumLow),
-            label = "likeScale"
-        )
-        val dislikeScale by animateFloatAsState(
-            targetValue = if (isDisliked) 1.18f else 1.0f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMediumLow),
-            label = "dislikeScale"
-        )
-
+        // 4. ACTION BAR: Like / Dislike, Share, Three Dots (...), Servers, Thanks, Download, Save
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -486,35 +370,28 @@ fun VideoDetailsSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Split Like / Dislike Liquid Glass Pill with Tactile Spring Bounce
+            // Split Like / Dislike Pill
             Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                tonalElevation = 2.dp,
-                modifier = Modifier.height(38.dp)
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF272727),
+                modifier = Modifier.height(36.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 6.dp)
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 ) {
-                    // Like Button
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .bounceClick(scaleDown = 0.85f) { onLikeClick() }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onLikeClick() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                             contentDescription = "Like",
-                            tint = likeIconColor,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .graphicsLayer {
-                                    scaleX = likeScale
-                                    scaleY = likeScale
-                                }
+                            tint = if (isLiked) Color.White else Color(0xFFF1F1F1),
+                            modifier = Modifier.size(17.dp)
                         )
                         if (formattedLikes.isNotBlank()) {
                             Spacer(modifier = Modifier.width(6.dp))
@@ -522,86 +399,73 @@ fun VideoDetailsSection(
                                 text = formattedLikes,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
-                                color = likeIconColor
+                                color = Color.White
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
                     Box(
                         modifier = Modifier
                             .width(1.dp)
-                            .height(18.dp)
-                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                            .height(16.dp)
+                            .background(Color.White.copy(alpha = 0.20f))
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
 
-                    // Dislike Button
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .bounceClick(scaleDown = 0.85f) { onDislikeClick() }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onDislikeClick() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
                             contentDescription = "Dislike",
-                            tint = dislikeIconColor,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .graphicsLayer {
-                                    scaleX = dislikeScale
-                                    scaleY = dislikeScale
-                                }
+                            tint = if (isDisliked) Color.White else Color(0xFFF1F1F1),
+                            modifier = Modifier.size(17.dp)
                         )
-                        if (formattedDislikes.isNotBlank()) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = formattedDislikes,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = dislikeIconColor
-                            )
-                        }
                     }
                 }
             }
 
-            // Share Pill with bouncy tap
+            // Share Pill
             ActionPill(
                 icon = Icons.Outlined.Share,
                 label = "Share",
                 onClick = onShareClick
             )
 
-            // Save Pill with animated Bookmark & Color
+            // Save Pill
             ActionPill(
                 icon = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                 label = if (isSaved) "Saved" else "Save",
-                iconTint = if (isSaved) MaterialTheme.colorScheme.primary else null,
-                containerColor = if (isSaved) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else null,
                 isActive = isSaved,
                 onClick = onSaveClick
             )
 
-            // Download Pill with dynamic progress / active state
-            ActionPill(
-                icon = if (isDownloaded) Icons.Filled.CheckCircle else if (isDownloading) Icons.Default.Downloading else Icons.Outlined.Download,
-                label = if (isDownloaded) "Downloaded" else if (isDownloading) "${(downloadProgress * 100).toInt()}%" else "Download",
-                iconTint = if (isDownloaded || isDownloading) MaterialTheme.colorScheme.primary else null,
-                containerColor = if (isDownloaded || isDownloading) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else null,
-                isActive = isDownloaded || isDownloading,
-                onClick = onDownloadClick
-            )
+            // Three Dots (...) More Pill
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF272727),
+                modifier = Modifier
+                    .size(36.dp)
+                    .bounceClick(scaleDown = 0.90f) { showMoreActionsSheet = true }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "More actions",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
 
-            // Servers & Sources Pill (Unified Vega + Torrent Resolver)
+            // Servers & Sources Pill
             if (onServersClick != null) {
                 ActionPill(
                     icon = Icons.Default.Dns,
                     label = "Servers",
-                    iconTint = MaterialTheme.colorScheme.primary,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                     onClick = onServersClick
                 )
             }
@@ -609,863 +473,205 @@ fun VideoDetailsSection(
             // Thanks Pill
             ActionPill(
                 icon = Icons.Outlined.VolunteerActivism,
-                label = "Thanks"
+                label = "Thanks",
+                onClick = {
+                    android.widget.Toast.makeText(context, "Thanks for supporting the creator!", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            )
+
+            // Download Pill
+            ActionPill(
+                icon = if (isDownloaded) Icons.Filled.CheckCircle else if (isDownloading) Icons.Default.Downloading else Icons.Outlined.Download,
+                label = if (isDownloaded) "Downloaded" else if (isDownloading) "${(downloadProgress * 100).toInt()}%" else "Download",
+                isActive = isDownloaded || isDownloading,
+                onClick = onDownloadClick
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Quality and Caption Selectors Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedButton(
-                    onClick = {
-                        if (!streamData?.availableStreamOptions.isNullOrEmpty()) {
-                            isQualityMenuExpanded = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp)
+        // 5. QUALITY SELECTION PILL (Preserved as requested)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                onClick = {
+                    if (!streamData?.availableStreamOptions.isNullOrEmpty()) {
+                        isQualityMenuExpanded = true
+                    }
+                },
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF1E1E1E),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.HighQuality,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(17.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = selectedOption?.qualityLabel ?: if (streamData == null) "Loading stream..." else "1080p • Auto",
-                        fontSize = 11.sp,
+                        text = selectedOption?.qualityLabel ?: if (streamData == null) "Loading stream..." else "Adaptive HLS (Auto)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-
-                if (isQualityMenuExpanded && !streamData?.availableStreamOptions.isNullOrEmpty()) {
-                    StreamSourcePickerBottomSheet(
-                        streamData = streamData,
-                        selectedOption = selectedOption,
-                        onSelectOption = { option ->
-                            onSelectOption(option)
-                            isQualityMenuExpanded = false
-                        },
-                        onDismiss = { isQualityMenuExpanded = false }
-                    )
-                }
             }
 
-            if (streamData?.captionOptions?.isNotEmpty() == true) {
-                Box(modifier = Modifier.weight(1f)) {
-                    OutlinedButton(
-                        onClick = { isCaptionMenuExpanded = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ClosedCaption,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = selectedCaption?.languageName ?: "Captions Off",
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = isCaptionMenuExpanded,
-                        onDismissRequest = { isCaptionMenuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Captions Off") },
-                            onClick = {
-                                onSelectCaption(null)
-                                isCaptionMenuExpanded = false
-                            }
-                        )
-                        streamData.captionOptions.forEach { caption ->
-                            DropdownMenuItem(
-                                text = { Text(caption.languageName) },
-                                onClick = {
-                                    onSelectCaption(caption)
-                                    isCaptionMenuExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
+            if (isQualityMenuExpanded && !streamData?.availableStreamOptions.isNullOrEmpty()) {
+                StreamSourcePickerBottomSheet(
+                    streamData = streamData,
+                    selectedOption = selectedOption,
+                    onSelectOption = { option ->
+                        onSelectOption(option)
+                        isQualityMenuExpanded = false
+                    },
+                    onDismiss = { isQualityMenuExpanded = false }
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // 1. UNIFIED "DESCRIPTION" CARD
-        val rawPlotText = if (mediaDetails != null && !mediaDetails?.plotOverview.isNullOrBlank()) {
-            mediaDetails!!.plotOverview
-        } else {
-            (currentDescription ?: "").ifBlank {
-                "Watch $currentTitle on ${currentChannelName.ifBlank { "Butterfly Player" }}."
-            }
-        }
-
-        val plotText = remember(rawPlotText, showTranslatedDescription, descriptionTranslationText) {
-            if (showTranslatedDescription && !descriptionTranslationText.isNullOrBlank()) {
-                descriptionTranslationText!!
-            } else {
-                rawPlotText
-            }
-        }
-
-        Card(
+        // 6. COMMENTS PREVIEW CARD (Screenshot 1, 4, 5)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF212121),
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { isDescriptionExpanded = !isDescriptionExpanded },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            )
+                .clickable { onCommentsClick() }
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    val countStr = if (commentsCount > 0) "$commentsCount" else "43"
                     Text(
-                        text = "Description",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = "Comments $countStr",
+                        style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = Color.White
                     )
-
-                    if (!currentDescription.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            modifier = Modifier.clickable {
-                                if (descriptionTranslationText == null) {
-                                    if (!isTranslatingDescription) {
-                                        isTranslatingDescription = true
-                                        coroutineScope.launch {
-                                            try {
-                                                val res = com.example.util.UniversalTranslator.translateDescription(currentDescription)
-                                                val translated = res.first?.takeIf { it.isNotBlank() } ?: currentDescription
-                                                descriptionTranslationText = translated
-                                                showTranslatedDescription = true
-                                            } catch (e: Exception) {
-                                                android.util.Log.w("VideoDetailsSection", "Failed to translate description: ${e.message}")
-                                            } finally {
-                                                isTranslatingDescription = false
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    showTranslatedDescription = !showTranslatedDescription
-                                }
-                            }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                if (isTranslatingDescription) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(10.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Translating...",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Translate,
-                                        contentDescription = "Translate",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = when {
-                                            descriptionTranslationText == null -> "Translate"
-                                            showTranslatedDescription -> "Original"
-                                            else -> "Show Translation"
-                                        },
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-                    }
-
                     Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = if (isDescriptionExpanded) "Show Less" else "Show More",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFFC107) // Gold accent
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = null,
+                        tint = Color(0xFFAAAAAA),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = currentTitle,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = plotText,
-                    style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                // Verified Source Origin Badge & Direct Link Inspector
-                val originInfo = remember(streamData?.videoId, streamData?.videoUrl, streamData?.providerId, previewItem?.id) {
-                    com.example.util.VideoShareHelper.resolveOriginInfo(
-                        streamData = streamData,
-                        fallbackVideoId = previewItem?.id,
-                        fallbackTitle = previewItem?.title
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                    border = androidx.compose.foundation.BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            try {
-                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Origin Link", originInfo.webUrl))
-                                android.widget.Toast.makeText(context, "Copied original link: ${originInfo.webUrl}", android.widget.Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {}
-                        }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF333333)),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Link,
-                            contentDescription = "Source Link",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = originInfo.platformName,
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = originInfo.domain,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Icon(
-                            imageVector = Icons.Outlined.ContentCopy,
-                            contentDescription = "Copy link",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-
-                // Top Cast / Featured Performers (Always visible directly in description)
-                val castList = remember(mediaDetails, streamData) {
-                    if (streamData?.cast?.isNotEmpty() == true) {
-                        streamData.cast
-                    } else {
-                        mediaDetails?.cast ?: emptyList()
-                    }
-                }
-                if (castList.isNotEmpty()) {
-                    val isAdultOrModel = currentProviderId == "pornhub" || castList.any { it.role?.contains("Pornstar", ignoreCase = true) == true || it.role?.contains("Model", ignoreCase = true) == true }
-                    val sectionTitle = if (isAdultOrModel) "Featured Performers & Models" else "Top Cast"
-                    val unitLabel = if (isAdultOrModel) "performers" else "actors"
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.People,
+                            imageVector = Icons.Default.Person,
                             contentDescription = null,
-                            tint = Color(0xFFFFC107),
+                            tint = Color(0xFFAAAAAA),
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = sectionTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(
-                            text = "${castList.size} $unitLabel",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(castList, key = { it.personId ?: it.name }) { member ->
-                            Card(
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .width(96.dp)
-                                    .clickable {
-                                        if (isAdultOrModel) {
-                                            onTagClick?.invoke(member.name)
-                                        } else {
-                                            selectedCastMemberForFilmography = member
-                                        }
-                                    },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                )
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .padding(8.dp)
-                                        .fillMaxWidth()
-                                ) {
-                                    val avatarUrl = member.avatarUrl
-                                    if (!avatarUrl.isNullOrBlank()) {
-                                        val imgReq = remember(avatarUrl) {
-                                            com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, avatarUrl, preferCompact = true)
-                                        }
-                                        AsyncImage(
-                                            model = imgReq ?: avatarUrl,
-                                            contentDescription = member.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(CircleShape)
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = member.name.take(1).uppercase(),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 18.sp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = member.name,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (!member.role.isNullOrBlank()) {
-                                        Text(
-                                            text = member.role,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Tags & Categories Section
-                val tagsList = remember(mediaDetails, streamData) {
-                    if (streamData?.tags?.isNotEmpty() == true) {
-                        streamData.tags
-                    } else {
-                        mediaDetails?.genres ?: emptyList()
-                    }
-                }
-
-                if (tagsList.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Tags & Categories",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        text = topCommentSnippet?.takeIf { it.isNotBlank() } ?: "Comment...",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        color = Color(0xFFAAAAAA),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(tagsList, key = { it }) { tag ->
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                                modifier = Modifier.clickable { onTagClick?.invoke(tag) }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = "#",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFFFC107)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = tag,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Detailed Metadata, Director, Box Office for Media
-                if (mediaDetails != null) {
-                    val screenshots = mediaDetails?.screenshots ?: emptyList()
-                    val clips = mediaDetails?.clipsAndTrailers ?: emptyList()
-
-                    // Expanded Details (Crew, Box Office, Financials, Media Gallery)
-                    if (isDescriptionExpanded) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Crew Details (Director, Writer, Studio)
-                        if (!mediaDetails?.director.isNullOrBlank() || !mediaDetails?.writer.isNullOrBlank() || !mediaDetails?.studioOrCollection.isNullOrBlank()) {
-                            Text(
-                                text = "Director & Key Crew",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            if (!mediaDetails?.director.isNullOrBlank()) {
-                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        text = "Director: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = mediaDetails!!.director,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            if (!mediaDetails?.writer.isNullOrBlank()) {
-                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        text = "Writer: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = mediaDetails!!.writer,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            if (!mediaDetails?.studioOrCollection.isNullOrBlank()) {
-                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        text = "Studio / Network: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = mediaDetails!!.studioOrCollection,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-                        }
-
-                        // Box Office & Financials (if available)
-                        if (!mediaDetails?.budget.isNullOrBlank() || !mediaDetails?.boxOffice.isNullOrBlank() || !mediaDetails?.status.isNullOrBlank()) {
-                            Text(
-                                text = "Box Office & Details",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            if (!mediaDetails?.budget.isNullOrBlank()) {
-                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        text = "Budget: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = mediaDetails!!.budget!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            if (!mediaDetails?.boxOffice.isNullOrBlank()) {
-                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        text = "Box Office / Revenue: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = mediaDetails!!.boxOffice!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            if (!mediaDetails?.status.isNullOrBlank()) {
-                                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        text = "Status: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = mediaDetails!!.status!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-                        }
-
-                        // Badges row (Rating, Year, Genres)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (!mediaDetails?.ratingText.isNullOrBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF673AB7),
-                                    contentColor = Color.White
-                                ) {
-                                    Text(
-                                        text = mediaDetails!!.ratingText,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            if (accurateDate.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh
-                                ) {
-                                    Text(
-                                        text = accurateDate,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            mediaDetails?.genres?.forEach { genre ->
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant
-                                ) {
-                                    Text(
-                                        text = genre,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Screenshots Gallery inside Description
-                        if (screenshots.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "Screenshots & Gallery",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(screenshots, key = { it }) { imageUrl ->
-                                    Card(
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier
-                                            .width(180.dp)
-                                            .height(105.dp)
-                                            .clickable { zoomScreenshotUrl = imageUrl },
-                                        colors = CardDefaults.cardColors(containerColor = Color.Black)
-                                    ) {
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                            val ssRequest = remember(imageUrl) {
-                                                com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, imageUrl)
-                                            }
-                                            AsyncImage(
-                                                model = ssRequest ?: imageUrl,
-                                                contentDescription = "Scene Screenshot",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomEnd)
-                                                    .padding(6.dp)
-                                                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                                    .padding(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ZoomIn,
-                                                    contentDescription = "Zoom",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Trailers & Clips inside Description
-                        if (clips.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "Trailers & Clips",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                clips.forEach { clip ->
-                                    Card(
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier
-                                            .width(200.dp)
-                                            .clickable {
-                                                if (!clip.youtubeKey.isNullOrEmpty()) {
-                                                    onTagClick?.invoke(clip.title)
-                                                }
-                                            },
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                        )
-                                    ) {
-                                        Column {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(110.dp)
-                                                    .background(Color.Black)
-                                            ) {
-                                                val clipThumbRequest = remember(clip.thumbnailUrl) {
-                                                    com.example.util.ThumbnailOptimizer.buildThumbnailRequest(context, clip.thumbnailUrl, preferCompact = true)
-                                                }
-                                                if (!clip.thumbnailUrl.isNullOrEmpty()) {
-                                                    AsyncImage(
-                                                        model = clipThumbRequest ?: clip.thumbnailUrl,
-                                                        contentDescription = clip.title,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(Color.Black.copy(alpha = 0.25f)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.PlayCircleFilled,
-                                                        contentDescription = "Play Clip",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(32.dp)
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = clip.title,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.padding(8.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
     }
 
-    // Screenshot Lightbox Preview Dialog
-    zoomScreenshotUrl?.let { url ->
-        Dialog(onDismissRequest = { zoomScreenshotUrl = null }) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Black,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-            ) {
-                Box(modifier = Modifier.padding(8.dp)) {
-                    AsyncImage(
-                        model = url,
-                        contentDescription = "Full Screenshot",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                            .clip(RoundedCornerShape(12.dp))
-                    )
-                    IconButton(
-                        onClick = { zoomScreenshotUrl = null },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                    }
-                }
-            }
-        }
-
-        // CAST FILMOGRAPHY BOTTOM SHEET
-        if (selectedCastMemberForFilmography != null) {
-            CastFilmographyBottomSheet(
-                castMember = selectedCastMemberForFilmography!!,
-                onDismiss = { selectedCastMemberForFilmography = null },
-                onWorkClick = { workTitle ->
-                    selectedCastMemberForFilmography = null
-                    onTagClick?.invoke(workTitle)
-                }
-            )
-        }
+    // YOUTUBE DESCRIPTION MODAL BOTTOM SHEET (Screenshot 2 & 3)
+    if (showDescriptionSheet) {
+        DescriptionBottomSheet(
+            title = currentTitle,
+            channelName = displayChannelName,
+            channelAvatarUrl = brandInfo.logoUrls.firstOrNull() ?: currentChannelAvatarUrl,
+            subscriberCountText = displaySubCount,
+            isSubscribed = isSubscribed,
+            onSubscribeClick = onSubscribeClick,
+            likesCountText = formattedLikes,
+            viewsCountText = viewCountText.replace(" views", "").ifBlank { "8,841" },
+            timeAgoText = accurateDate,
+            exactDateText = currentUploadDate ?: accurateDate,
+            fullDescription = (currentDescription ?: "").ifBlank { "Watch $currentTitle on Butterfly Player." },
+            tags = topTagsList,
+            streamData = streamData,
+            previewItem = previewItem,
+            onSeekTo = { targetMs -> com.example.ui.player.GlobalPlayerManager.seekTo(targetMs) },
+            onChannelClick = { onChannelClick(displayChannelName) },
+            onDismiss = { showDescriptionSheet = false }
+        )
     }
-}
 
-@Composable
-private fun MediaSubTabButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(24.dp),
-        color = if (isSelected) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.height(40.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+    // MORE ACTIONS MODAL BOTTOM SHEET (Screenshot 1 & video)
+    if (showMoreActionsSheet) {
+        MoreActionsBottomSheet(
+            onHype = {
+                showMoreActionsSheet = false
+                android.widget.Toast.makeText(context, "Hyped this video!", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            onDownload = {
+                showMoreActionsSheet = false
+                onDownloadClick()
+            },
+            onThanks = {
+                showMoreActionsSheet = false
+                android.widget.Toast.makeText(context, "Thanks sent to creator!", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            onServers = {
+                showMoreActionsSheet = false
+                onServersClick?.invoke()
+            },
+            onSavePlaylist = {
+                showMoreActionsSheet = false
+                onSaveLongClick()
+            },
+            onReport = {
+                showMoreActionsSheet = false
+                android.widget.Toast.makeText(context, "Report submitted. Thank you for keeping Butterfly safe.", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showMoreActionsSheet = false }
+        )
+    }
+
+    // CAST FILMOGRAPHY SHEET
+    if (selectedCastMemberForFilmography != null) {
+        CastFilmographyBottomSheet(
+            castMember = selectedCastMemberForFilmography!!,
+            onDismiss = { selectedCastMemberForFilmography = null },
+            onWorkClick = { workTitle ->
+                selectedCastMemberForFilmography = null
+                onTagClick?.invoke(workTitle)
+            }
+        )
     }
 }
 
@@ -1473,59 +679,626 @@ private fun MediaSubTabButton(
 private fun ActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    iconTint: Color? = null,
-    containerColor: Color? = null,
     isActive: Boolean = false,
     onClick: () -> Unit = {}
 ) {
-    val animatedBg by animateColorAsState(
-        targetValue = containerColor ?: MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "actionPillBg"
-    )
-    val animatedTint by animateColorAsState(
-        targetValue = iconTint ?: MaterialTheme.colorScheme.onSurface,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "actionPillTint"
-    )
-    val iconScale by animateFloatAsState(
-        targetValue = if (isActive) 1.15f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "actionPillIconScale"
-    )
-
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = animatedBg,
-        tonalElevation = if (isActive) 4.dp else 1.dp,
-        border = if (isActive) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)) else null,
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF272727),
         modifier = Modifier
-            .height(38.dp)
+            .height(36.dp)
             .bounceClick(scaleDown = 0.90f) { onClick() }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp)
+            modifier = Modifier.padding(horizontal = 12.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = animatedTint,
-                modifier = Modifier
-                    .size(18.dp)
-                    .graphicsLayer {
-                        scaleX = iconScale
-                        scaleY = iconScale
-                    }
+                tint = if (isActive) MaterialTheme.colorScheme.primary else Color.White,
+                modifier = Modifier.size(17.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                color = animatedTint
+                color = if (isActive) MaterialTheme.colorScheme.primary else Color.White
             )
         }
+    }
+}
+
+/**
+ * YouTube-style Modern Description Bottom Sheet (Screenshot 2 & 3)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DescriptionBottomSheet(
+    title: String,
+    channelName: String,
+    channelAvatarUrl: String?,
+    subscriberCountText: String?,
+    isSubscribed: Boolean,
+    onSubscribeClick: () -> Unit,
+    likesCountText: String,
+    viewsCountText: String,
+    timeAgoText: String,
+    exactDateText: String,
+    fullDescription: String,
+    tags: List<String>,
+    streamData: StreamData? = null,
+    previewItem: VideoItem? = null,
+    onSeekTo: ((Long) -> Unit)? = null,
+    onChannelClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var isTextExpanded by remember { mutableStateOf(false) }
+    val curTimelinePosMs by com.example.ui.player.GlobalPlayerManager.currentPositionMs.collectAsState()
+    val totalTimelineDurMs by com.example.ui.player.GlobalPlayerManager.durationMs.collectAsState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF0F0F0F),
+        dragHandle = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            ) {
+                BottomSheetDefaults.DragHandle()
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            // Header Row: Description + Close
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Description",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color.White
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Full Video Title
+            Text(
+                text = title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                color = Color.White,
+                lineHeight = 23.sp
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3 METRIC CARDS ROW: Likes | Views | Time Ago
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Likes Card
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF272727),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(60.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Text(
+                            text = likesCountText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Likes",
+                            fontSize = 11.sp,
+                            color = Color(0xFFAAAAAA)
+                        )
+                    }
+                }
+
+                // Views Card
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF272727),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(60.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Text(
+                            text = viewsCountText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Views",
+                            fontSize = 11.sp,
+                            color = Color(0xFFAAAAAA)
+                        )
+                    }
+                }
+
+                // Time Ago Card
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF272727),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(60.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Text(
+                            text = timeAgoText.take(6),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Ago",
+                            fontSize = 11.sp,
+                            color = Color(0xFFAAAAAA)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // HASHTAGS ROW
+            if (tags.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    tags.forEach { tag ->
+                        val formattedTag = if (tag.startsWith("#")) tag else "#$tag"
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF272727)
+                        ) {
+                            Text(
+                                text = formattedTag,
+                                fontSize = 12.sp,
+                                color = Color(0xFF3EA6FF),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // DESCRIPTION TEXT BOX
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF272727),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isTextExpanded = !isTextExpanded }
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = fullDescription,
+                        fontSize = 13.sp,
+                        color = Color.White,
+                        lineHeight = 19.sp,
+                        maxLines = if (isTextExpanded) Int.MAX_VALUE else 6,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF383838),
+                        modifier = Modifier.fillMaxWidth().height(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (isTextExpanded) "Show less" else "See more",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // SCREENSHOTS & SCENE TIMING GALLERY (Directly in Description)
+            InteractiveTimelinePreviewStrip(
+                currentPositionMs = curTimelinePosMs,
+                durationMs = totalTimelineDurMs,
+                streamData = streamData,
+                previewItem = previewItem,
+                onSeekTo = { targetMs ->
+                    onSeekTo?.invoke(targetMs) ?: com.example.ui.player.GlobalPlayerManager.seekTo(targetMs)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                initiallyExpanded = true
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // TRANSCRIPT SECTION
+            Text(
+                text = "Transcript",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = Color.White
+            )
+            Text(
+                text = "Follow along using the transcript.",
+                fontSize = 12.sp,
+                color = Color(0xFFAAAAAA)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF272727),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                modifier = Modifier.fillMaxWidth().height(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Show transcript",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // CHANNEL INFO BANNER
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onChannelClick() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF333333)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!channelAvatarUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = channelAvatarUrl,
+                            contentDescription = channelName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text(
+                            text = channelName.take(1).uppercase(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = channelName,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
+                    Text(
+                        text = subscriberCountText ?: "Subscribers",
+                        fontSize = 12.sp,
+                        color = Color(0xFFAAAAAA)
+                    )
+                }
+
+                Surface(
+                    onClick = onSubscribeClick,
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (isSubscribed) Color(0xFF272727) else Color.White
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = if (isSubscribed) "Subscribed" else "Subscribe",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (isSubscribed) Color(0xFFAAAAAA) else Color.Black
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Channel Links Row: [▶ Videos] [👤 About] [📸 instagram.com]
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF272727),
+                    modifier = Modifier.clickable { onChannelClick() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Videos", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF272727),
+                    modifier = Modifier.clickable { onChannelClick() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("About", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF272727)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            tint = Color(0xFF3EA6FF),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("https://instagram.com", fontSize = 12.sp, color = Color(0xFF3EA6FF))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // VIDEO DETAILS FOOTER
+            Text(
+                text = "Video details",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CalendarToday,
+                    contentDescription = null,
+                    tint = Color(0xFFAAAAAA),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Date", fontSize = 13.sp, color = Color(0xFFAAAAAA))
+                Spacer(modifier = Modifier.weight(1f))
+                Text(exactDateText, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Visibility,
+                    contentDescription = null,
+                    tint = Color(0xFFAAAAAA),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Views", fontSize = 13.sp, color = Color(0xFFAAAAAA))
+                Spacer(modifier = Modifier.weight(1f))
+                Text(viewsCountText, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ThumbUp,
+                    contentDescription = null,
+                    tint = Color(0xFFAAAAAA),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Likes", fontSize = 13.sp, color = Color(0xFFAAAAAA))
+                Spacer(modifier = Modifier.weight(1f))
+                Text(likesCountText, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+/**
+ * YouTube-style More Actions Bottom Sheet (Screenshot 1 & video)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MoreActionsBottomSheet(
+    onHype: () -> Unit,
+    onDownload: () -> Unit,
+    onThanks: () -> Unit,
+    onServers: () -> Unit,
+    onSavePlaylist: () -> Unit,
+    onReport: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF141414),
+        dragHandle = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            ) {
+                BottomSheetDefaults.DragHandle()
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            MoreActionItem(
+                icon = Icons.Outlined.AutoAwesome,
+                label = "Hype",
+                onClick = onHype
+            )
+
+            MoreActionItem(
+                icon = Icons.Outlined.Download,
+                label = "Download",
+                onClick = onDownload
+            )
+
+            MoreActionItem(
+                icon = Icons.Outlined.VolunteerActivism,
+                label = "Thanks",
+                onClick = onThanks
+            )
+
+            MoreActionItem(
+                icon = Icons.Default.Dns,
+                label = "Change Server / Sources",
+                onClick = onServers
+            )
+
+            MoreActionItem(
+                icon = Icons.Outlined.PlaylistAdd,
+                label = "Save to playlist",
+                onClick = onSavePlaylist
+            )
+
+            MoreActionItem(
+                icon = Icons.Outlined.Flag,
+                label = "Report",
+                onClick = onReport
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun MoreActionItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = Color.White,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = label,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            color = Color.White
+        )
     }
 }
 
@@ -1574,7 +1347,6 @@ fun CastFilmographyBottomSheet(
                 .fillMaxHeight(0.85f)
                 .padding(horizontal = 16.dp)
         ) {
-            // CAST PROFILE HEADER
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1642,7 +1414,6 @@ fun CastFilmographyBottomSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // FILTER CHIPS (All, Movies, TV Series)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1748,7 +1519,6 @@ fun CastFilmographyBottomSheet(
                                         }
                                     }
 
-                                    // Rating & Type Badges overlay
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1774,34 +1544,33 @@ fun CastFilmographyBottomSheet(
                                                 modifier = Modifier
                                                     .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
                                                     .padding(horizontal = 4.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Column(modifier = Modifier.padding(8.dp)) {
-                                    Text(
-                                        text = work.title,
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (work.character.isNotBlank()) {
-                                        Text(
-                                            text = "as ${work.character}",
-                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                }
+                            }
+
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = work.title,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                if (work.character.isNotBlank()) {
                                     Text(
-                                        text = work.releaseYear,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                        color = MaterialTheme.colorScheme.primary
+                                        text = "as ${work.character}",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                Text(
+                                    text = work.releaseYear,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -1810,5 +1579,4 @@ fun CastFilmographyBottomSheet(
         }
     }
 }
-
-
+}

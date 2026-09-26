@@ -203,36 +203,20 @@ fun EmbedWebViewPlayer(
             }
         }
 
-        // Loading Overlay
+        // YouTube-style Lightweight White Buffering Spinner
         AnimatedVisibility(
             visible = isLoading && errorMessage == null,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(150)),
             modifier = Modifier.align(Alignment.Center)
         ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Loading $providerName...",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = Color.White,
-                            fontWeight = FontWeight.Medium
-                        )
-                    )
-                }
-            }
+            CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = Color.White.copy(alpha = 0.95f),
+                trackColor = Color.White.copy(alpha = 0.20f),
+                strokeWidth = 2.8.dp,
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
         }
 
         // Error Banner Overlay

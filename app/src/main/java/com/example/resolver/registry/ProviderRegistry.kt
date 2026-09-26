@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 enum class ProviderCategory {
     MAINSTREAM_VIDEO, // YouTube, Vimeo, Dailymotion, Bilibili, Twitch
     ANIME,            // Hanime1, HiAnime, AniWatch, Nyaa
-    ADULT,            // Pornhub, XVideos, XHamster, Eporner, Jable, MissAV, HQPorner, etc.
+    ADULT,            // Pornhub, XVideos, XHamster, Eporner, Jable, MissAV, Playvids, etc.
     TORRENT_DEBRID,   // MediaFusion, Comet, Yarr, Magnetio, Torrentio
     DIRECT_STREAM,    // Nuvio, Vidsrc, AutoEmbed, SuperStream
     ARCHIVE           // Archive.org

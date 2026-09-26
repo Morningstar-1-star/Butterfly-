@@ -20,6 +20,9 @@ class TorrentSourceAdapter(
     override val priority: Int = 80
 ) : SourceProvider {
 
+    override val timeoutMs: Long
+        get() = 18_000L
+
     companion object {
         private const val TAG = "TorrentSourceAdapter"
     }
@@ -80,8 +83,10 @@ class TorrentSourceAdapter(
                 )
             }
             emit(candidates)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Torrent search error: ${e.message}")
+            Log.w(TAG, "Torrent search note: ${e.message}")
             emit(emptyList<SourceCandidate>())
         }
     }.flowOn(Dispatchers.IO)

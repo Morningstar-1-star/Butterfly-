@@ -57,6 +57,31 @@ object ChannelLogoHelper {
         val combined = "$name $title"
 
         return when {
+            combined.contains("vimeo") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://i.vimeocdn.com/favicon/main-touch_180.png",
+                    "https://vimeo.com/favicon.ico",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Vimeo_Logo.svg/200px-Vimeo_Logo.svg.png"
+                ),
+                brandName = cleanName.ifBlank { "Vimeo" },
+                brandShortText = "VIMEO",
+                backgroundColor = Color(0xFF1AB7EA),
+                textColor = Color.White,
+                subscriberCountText = "Vimeo Creator"
+            )
+
+            combined.contains("vimeo") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://i.vimeocdn.com/favicon/main-touch_180.png",
+                    "https://vimeo.com/favicon.ico",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Vimeo_Logo.svg/200px-Vimeo_Logo.svg.png"
+                ),
+                brandName = cleanName.ifBlank { "Vimeo" },
+                brandShortText = "VIMEO",
+                backgroundColor = Color(0xFF1AB7EA),
+                textColor = Color.White,
+                subscriberCountText = "Vimeo Creator"
+            )
             combined.contains("bilibili") || combined.contains("哔哩哔哩") || combined.contains("bili") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://i0.hdslb.com/bfs/face/member/noface.jpg",
@@ -722,7 +747,7 @@ object ChannelLogoHelper {
         }
     }
 
-    private fun getInitials(name: String): String {
+        private fun getInitials(name: String): String {
         val words = name.trim().split(Regex("[\\s•/_-]+")).filter { it.isNotBlank() }
         return when {
             words.isEmpty() -> "C"
@@ -731,4 +756,3 @@ object ChannelLogoHelper {
         }
     }
 }
-

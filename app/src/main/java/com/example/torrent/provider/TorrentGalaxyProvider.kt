@@ -19,8 +19,9 @@ import java.util.concurrent.TimeUnit
  */
 class TorrentGalaxyProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .dns(com.example.util.SecureDnsManager.appDns)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 ) : TorrentProvider {

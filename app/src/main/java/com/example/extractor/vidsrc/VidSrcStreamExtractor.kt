@@ -83,10 +83,16 @@ object VidSrcStreamExtractor {
         }
 
         val appCtx = context ?: try { MainApplication.appContext } catch (_: Exception) { null }
+        val vidSrcRepo = appCtx?.let { VidSrcProviderRepository.getInstance(it) }
+        if (vidSrcRepo != null && !vidSrcRepo.isMasterEnabled()) {
+            Log.d(TAG, "VidSrc master toggle is disabled in Settings.")
+            return@withContext emptyList()
+        }
+
         val options = mutableListOf<PlayableStreamOption>()
 
         // 1. Primary: Direct API + On-Device WebAssembly Decryption + Host JWT Token
-        if (appCtx != null) {
+        if (appCtx != null && (vidSrcRepo == null || vidSrcRepo.isProviderInstalledAndEnabled("vidsrc_wasm"))) {
             try {
                 val decryptedOptions = resolveViaWasmDecryption(appCtx, cleanId, isTv, season, episode, title, providerName)
                 if (decryptedOptions.isNotEmpty()) {
@@ -98,7 +104,7 @@ object VidSrcStreamExtractor {
         }
 
         // 2. Secondary: Headless sniffer if WASM API is rotating or undergoing maintenance
-        if (options.isEmpty() && appCtx != null) {
+        if (options.isEmpty() && appCtx != null && (vidSrcRepo == null || vidSrcRepo.isProviderInstalledAndEnabled("vidsrc_to"))) {
             val embedUrl = if (isTv) {
                 "https://vidsrc.to/embed/tv/$cleanId/$season/$episode"
             } else {
@@ -127,47 +133,57 @@ object VidSrcStreamExtractor {
             "Origin" to "https://cloudorchestranova.com"
         )
 
+        data class ServerDef(val id: String, val label: String, val url: String, val headers: Map<String, String>)
+
         val multiServerList = if (isTv) {
             listOf(
-                Triple("AutoEmbed • 1080p Ultra HLS", "https://player.autoembed.cc/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
-                Triple("VidLink • 1080p Multi-Server", "https://vidlink.pro/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
-                Triple("VidSrc Pro • 1080p Cloud", "https://vidsrc.to/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.to/")),
-                Triple("SmashyStream • 1080p Fast", "https://embed.smashystream.com/playere.php?tmdb=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://embed.smashystream.com/")),
-                Triple("VidSrc Net • 1080p CDN", "https://vidsrc.net/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
-                Triple("2Embed • 1080p Mirror", "https://www.2embed.cc/embedtv/$cleanId&s=$season&e=$episode", mapOf("Referer" to "https://www.2embed.cc/")),
-                Triple("SuperEmbed • 1080p Stream", "https://multiembed.mov/?video_id=$cleanId&tmdb=1&s=$season&e=$episode", mapOf("Referer" to "https://multiembed.mov/")),
-                Triple("EmbedSu • 1080p VIP", "https://embed.su/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://embed.su/")),
-                Triple("RiveStream • 1080p Stream", "https://rive.stream/embed?type=tv&id=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://rive.stream/"))
+                ServerDef("autoembed", "AutoEmbed • 1080p Ultra HLS", "https://player.autoembed.cc/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
+                ServerDef("vidlink", "VidLink • 1080p Multi-Server", "https://vidlink.pro/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
+                ServerDef("vidsrc_to", "VidSrc Pro • 1080p Cloud", "https://vidsrc.to/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.to/")),
+                ServerDef("smashystream", "SmashyStream • 1080p Fast", "https://embed.smashystream.com/playere.php?tmdb=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://embed.smashystream.com/")),
+                ServerDef("vidsrc_net", "VidSrc Net • 1080p CDN", "https://vidsrc.net/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
+                ServerDef("twoembed", "2Embed • 1080p Mirror", "https://www.2embed.cc/embedtv/$cleanId&s=$season&e=$episode", mapOf("Referer" to "https://www.2embed.cc/")),
+                ServerDef("superembed", "SuperEmbed • 1080p Stream", "https://multiembed.mov/?video_id=$cleanId&tmdb=1&s=$season&e=$episode", mapOf("Referer" to "https://multiembed.mov/")),
+                ServerDef("embedsu", "EmbedSu • 1080p VIP", "https://embed.su/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://embed.su/")),
+                ServerDef("rivestream", "RiveStream • 1080p Stream", "https://rive.stream/embed?type=tv&id=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://rive.stream/")),
+                ServerDef("vidsrc_me", "VidSrc.me • 1080p Mirror", "https://vidsrc.me/embed/tv?tmdb=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://vidsrc.me/")),
+                ServerDef("vidsrc_sbs", "VidSrc SBS • Direct", "https://vidsrc.sbs/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.sbs/"))
             )
         } else {
             listOf(
-                Triple("AutoEmbed • 1080p Ultra HLS", "https://player.autoembed.cc/embed/movie/$cleanId", mapOf("Referer" to "https://player.autoembed.cc/")),
-                Triple("VidLink • 1080p Multi-Server", "https://vidlink.pro/movie/$cleanId", mapOf("Referer" to "https://vidlink.pro/")),
-                Triple("VidSrc Pro • 1080p Cloud", "https://vidsrc.to/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.to/")),
-                Triple("SmashyStream • 1080p Fast", "https://embed.smashystream.com/playere.php?tmdb=$cleanId", mapOf("Referer" to "https://embed.smashystream.com/")),
-                Triple("VidSrc Net • 1080p CDN", "https://vidsrc.net/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.net/")),
-                Triple("2Embed • 1080p Mirror", "https://www.2embed.cc/embed/$cleanId", mapOf("Referer" to "https://www.2embed.cc/")),
-                Triple("SuperEmbed • 1080p Stream", "https://multiembed.mov/?video_id=$cleanId&tmdb=1", mapOf("Referer" to "https://multiembed.mov/")),
-                Triple("EmbedSu • 1080p VIP", "https://embed.su/embed/movie/$cleanId", mapOf("Referer" to "https://embed.su/")),
-                Triple("RiveStream • 1080p Stream", "https://rive.stream/embed?type=movie&id=$cleanId", mapOf("Referer" to "https://rive.stream/"))
+                ServerDef("autoembed", "AutoEmbed • 1080p Ultra HLS", "https://player.autoembed.cc/embed/movie/$cleanId", mapOf("Referer" to "https://player.autoembed.cc/")),
+                ServerDef("vidlink", "VidLink • 1080p Multi-Server", "https://vidlink.pro/movie/$cleanId", mapOf("Referer" to "https://vidlink.pro/")),
+                ServerDef("vidsrc_to", "VidSrc Pro • 1080p Cloud", "https://vidsrc.to/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.to/")),
+                ServerDef("smashystream", "SmashyStream • 1080p Fast", "https://embed.smashystream.com/playere.php?tmdb=$cleanId", mapOf("Referer" to "https://embed.smashystream.com/")),
+                ServerDef("vidsrc_net", "VidSrc Net • 1080p CDN", "https://vidsrc.net/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.net/")),
+                ServerDef("twoembed", "2Embed • 1080p Mirror", "https://www.2embed.cc/embed/$cleanId", mapOf("Referer" to "https://www.2embed.cc/")),
+                ServerDef("superembed", "SuperEmbed • 1080p Stream", "https://multiembed.mov/?video_id=$cleanId&tmdb=1", mapOf("Referer" to "https://multiembed.mov/")),
+                ServerDef("embedsu", "EmbedSu • 1080p VIP", "https://embed.su/embed/movie/$cleanId", mapOf("Referer" to "https://embed.su/")),
+                ServerDef("rivestream", "RiveStream • 1080p Stream", "https://rive.stream/embed?type=movie&id=$cleanId", mapOf("Referer" to "https://rive.stream/")),
+                ServerDef("vidsrc_me", "VidSrc.me • 1080p Mirror", "https://vidsrc.me/embed/movie?tmdb=$cleanId", mapOf("Referer" to "https://vidsrc.me/")),
+                ServerDef("vidsrc_sbs", "VidSrc SBS • Direct", "https://vidsrc.sbs/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.sbs/"))
             )
         }
 
-        multiServerList.forEach { (serverLabel, serverUrl, customHeaders) ->
+        val activeServers = multiServerList.filter { sDef ->
+            vidSrcRepo == null || vidSrcRepo.isProviderInstalledAndEnabled(sDef.id)
+        }
+
+        activeServers.forEach { sDef ->
             val headersMap = HashMap(defaultHeaders)
-            headersMap.putAll(customHeaders)
+            headersMap.putAll(sDef.headers)
             options.add(
                 PlayableStreamOption(
-                    qualityLabel = "[$providerName] $serverLabel",
+                    qualityLabel = "[$providerName] ${sDef.label}",
                     format = "embed",
                     isMuxed = true,
-                    videoUrl = serverUrl,
+                    videoUrl = sDef.url,
                     audioUrl = null,
                     providerType = ProviderType.EMBED,
                     headers = headersMap,
                     sourceName = providerName,
                     qualityCategory = "1080p",
-                    releaseTitle = "$title [$serverLabel]",
+                    releaseTitle = "$title [${sDef.label}]",
                     serverStatus = "Online"
                 )
             )

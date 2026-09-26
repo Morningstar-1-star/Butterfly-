@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import com.example.model.CaptionOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,8 +19,8 @@ object VixSrcExtractor {
     private const val BASE_URL = "https://vixsrc.to"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -39,16 +40,18 @@ object VixSrcExtractor {
                 .build()
 
             val apiBody = client.newCall(apiReq).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext emptyList()
-                resp.body?.string() ?: ""
+                if (!resp.isSuccessful) "" else resp.body?.string() ?: ""
             }
 
-            if (apiBody.isBlank()) return@withContext emptyList()
-            val json = JSONObject(apiBody)
-            val src = json.optString("src", "")
-            if (src.isBlank()) return@withContext emptyList()
+            val json = apiBody.toJsonObjectOrNull()
+            val src = json?.optString("src", "") ?: ""
+            val embedUrl = when {
+                src.isNotBlank() && src.startsWith("http") -> src
+                src.isNotBlank() -> "$BASE_URL$src"
+                request.isTv -> "$BASE_URL/embed/tv/${request.tmdbId}/${request.season}/${request.episode}"
+                else -> "$BASE_URL/embed/movie/${request.tmdbId}"
+            }
 
-            val embedUrl = if (src.startsWith("http")) src else "$BASE_URL$src"
             val embedReq = Request.Builder()
                 .url(embedUrl)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -105,8 +108,9 @@ object VixSrcExtractor {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "VixSrc extraction failed: ${e.message}", e)
+            Log.w(TAG, "VixSrc extraction note: ${e.message}")
         }
         streams
     }
 }
+

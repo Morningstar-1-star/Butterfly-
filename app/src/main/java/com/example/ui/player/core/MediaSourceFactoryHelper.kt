@@ -207,10 +207,10 @@ object MediaSourceFactoryHelper {
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = ref.trimEnd('/')
                         if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_verified=1; country=US; language=en; ft_mature=1; consent=1"
                     }
-                    lowerTarget.contains("hqporner") || lowerTarget.contains("hqplayer") || streamData?.providerId == "hqporner" || streamData?.providerId == "hqplayer" -> {
-                        reqHeaders["Referer"] = "https://hqporner.com/"
-                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://hqporner.com"
-                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_verified=1; country=US; consent=1"
+                    (lowerTarget.contains("playvid") || lowerTarget.contains("playvids") || streamData?.providerId == "playvid") -> {
+                        reqHeaders["Referer"] = "https://www.playvids.com/"
+                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://www.playvids.com"
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1"
                     }
                     lowerTarget.contains("spankbang") || lowerTarget.contains("sb-cd.com") || lowerTarget.contains("spankcdn") || streamData?.providerId == "spankbang" -> {
                         reqHeaders["Referer"] = "https://spankbang.com/"
@@ -222,11 +222,6 @@ object MediaSourceFactoryHelper {
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://stripchat.com"
                         if (!reqHeaders.keys.any { it.equals("Accept", ignoreCase = true) }) reqHeaders["Accept"] = "*/*"
                         reqHeaders["User-Agent"] = customUserAgent ?: NetworkManager.DEFAULT_USER_AGENT
-                    }
-                    (lowerTarget.contains("motherless.com") || lowerTarget.contains("motherlessmedia") || lowerTarget.contains("cdn.motherless") || streamData?.providerId == "motherless") -> {
-                        reqHeaders["Referer"] = "https://motherless.com/"
-                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://motherless.com"
-                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "content_filter=0; member=1; age_verified=1; country=US; consent=1"
                     }
                     (lowerTarget.contains("txxx") || lowerTarget.contains("txxx.com") || lowerTarget.contains("txxx.tube") || lowerTarget.contains("tubecdn.com") || lowerTarget.contains("ahcdn.com") || streamData?.providerId == "txxx") -> {
                         reqHeaders["Referer"] = "https://txxx.com/"

@@ -93,7 +93,8 @@ object YouTubeExtractorHelper {
                             null
                         }
                         val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
-                        VideoItem(
+                        val uploadDate = item.textualUploadDate ?: item.uploadDate?.offsetDateTime()?.toString()
+                        val videoItem = VideoItem(
                             id = vId,
                             title = item.name ?: "YouTube Video",
                             uploaderName = item.uploaderName ?: "YouTube",
@@ -101,9 +102,11 @@ object YouTubeExtractorHelper {
                             uploaderAvatarUrl = uploaderAvatar,
                             viewCount = item.viewCount,
                             durationSeconds = item.duration,
+                            uploadDate = uploadDate,
                             thumbnailUrl = thumb,
                             providerId = "youtube"
                         )
+                        if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(videoItem)) videoItem else null
                     } ?: emptyList()
                 if (items.isNotEmpty()) {
                     Log.i(TAG, "Fetched ${items.size} trending videos via NewPipe Kiosk")
@@ -195,7 +198,8 @@ object YouTubeExtractorHelper {
                         null
                     }
                     val uploaderUrl = try { item.uploaderUrl } catch (e: Exception) { null }
-                    VideoItem(
+                    val uploadDate = item.textualUploadDate ?: item.uploadDate?.offsetDateTime()?.toString()
+                    val videoItem = VideoItem(
                         id = vId,
                         title = item.name ?: "YouTube Video",
                         uploaderName = item.uploaderName ?: "YouTube",
@@ -203,9 +207,11 @@ object YouTubeExtractorHelper {
                         uploaderAvatarUrl = uploaderAvatar,
                         viewCount = item.viewCount,
                         durationSeconds = item.duration,
+                        uploadDate = uploadDate,
                         thumbnailUrl = thumb,
                         providerId = "youtube"
                     )
+                    if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(videoItem)) videoItem else null
                 } ?: emptyList()
             if (items.isNotEmpty()) {
                 Log.i(TAG, "Fetched ${items.size} search results for '$cleanQuery' via NewPipe")

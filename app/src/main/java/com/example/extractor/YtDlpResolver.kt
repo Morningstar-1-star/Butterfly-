@@ -88,7 +88,6 @@ object YtDlpResolver {
             u.startsWith("4tube:") ||
             u.startsWith("tnaflix:") ||
             u.startsWith("spankbang:") ||
-            u.startsWith("motherless:") ||
             u.startsWith("playvid:") ||
             u.startsWith("txxx:") ||
             u.startsWith("crunchyroll:") ||
@@ -98,8 +97,6 @@ object YtDlpResolver {
             u.startsWith("hanime:") ||
             u.startsWith("noodlemagazine:") ||
             u.startsWith("noodlemag:") ||
-            u.startsWith("hqporner:") ||
-            u.startsWith("hqplayer:") ||
             u.startsWith("tencent:") ||
             u.startsWith("vqq:") ||
             u.startsWith("vqq:video") ||
@@ -159,14 +156,12 @@ object YtDlpResolver {
             "eporner.com",
             "tnaflix.com",
             "spankbang.com",
-            "motherless.com",
-            "playvid.com",
+            "playvid.com", "playvids.com",
             "txxx.com",
             "crunchyroll.com",
             "sonyliv.com",
             "hanime1.me", "hanime1.com", "hanime.tv",
             "noodlemagazine.com",
-            "hqporner.com", "hqporner.tv",
             "archive.org",
             "hotstar.com", "jiohotstar.com",
             "amazon.in/minitv", "minitv",
@@ -288,13 +283,9 @@ object YtDlpResolver {
                     val id = targetUrl.substringAfter(":").trim('/')
                     if (id.startsWith("http")) id else if (id.contains("/video/")) "https://spankbang.com/$id" else "https://spankbang.com/$id/video/"
                 }
-                targetUrl.startsWith("motherless:", ignoreCase = true) -> {
-                    val id = targetUrl.substringAfter(":").trim('/')
-                    if (id.startsWith("http")) id else "https://motherless.com/$id"
-                }
                 targetUrl.startsWith("playvid:", ignoreCase = true) -> {
                     val id = targetUrl.substringAfter(":").trim('/')
-                    if (id.startsWith("http")) id else if (id.startsWith("watch/")) "https://www.playvid.com/$id" else "https://www.playvid.com/watch/$id"
+                    if (id.startsWith("http")) id else if (id.startsWith("v/") || id.startsWith("watch/") || id.startsWith("video/")) "https://www.playvids.com/$id" else "https://www.playvids.com/v/$id"
                 }
                 targetUrl.startsWith("txxx:", ignoreCase = true) -> {
                     val id = targetUrl.substringAfter(":").trim('/')
@@ -534,14 +525,6 @@ object YtDlpResolver {
                     domainHeaders["Referer"] = "https://thisvid.com/"
                     domainHeaders["Origin"] = "https://thisvid.com"
                     domainHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1"
-                }
-                lowerUrl.contains("hqporner.com") || lowerUrl.contains("hqporner.tv") || lowerUrl.startsWith("hqporner:") || lowerUrl.startsWith("hqplayer:") -> {
-                    request.addOption("--add-header", "Referer: https://hqporner.com/")
-                    request.addOption("--add-header", "Origin: https://hqporner.com")
-                    request.addOption("--add-header", "Cookie: age_verified=1; country=US; consent=1")
-                    domainHeaders["Referer"] = "https://hqporner.com/"
-                    domainHeaders["Origin"] = "https://hqporner.com"
-                    domainHeaders["Cookie"] = "age_verified=1; country=US; consent=1"
                 }
                 lowerUrl.contains("hotstar.com") || lowerUrl.contains("jiohotstar.com") -> {
                     request.addOption("--add-header", "Referer: https://www.hotstar.com/")

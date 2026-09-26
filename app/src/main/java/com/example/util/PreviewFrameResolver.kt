@@ -22,27 +22,21 @@ object PreviewFrameResolver {
 
     /**
      * Checks if this video supports horizontal scrub teaser frames.
-     * All video sources support preview/storyboard frames.
+     * Returns true ONLY if the provider actually supports dynamic scene previews (e.g. Adult tubes with storyboard CDNs)
+     * or if explicit multi-frame storyboard preview thumbnails are present.
      */
     fun supportsScrubbing(video: VideoItem): Boolean {
-        if (video.previewThumbnails.size > 1) return true
-        val rawThumb = video.thumbnailUrl?.trim() ?: return false
         val provider = (video.providerId ?: "").lowercase()
-        val thumbLower = rawThumb.lowercase()
-
-        return provider.contains("spankbang") || thumbLower.contains("spankbang") || thumbLower.contains("sb-cd.com") || thumbLower.contains("spankcdn") ||
-               provider.contains("xnxx") || thumbLower.contains("xnxx") || thumbLower.contains("xnxx-cdn") ||
-               provider.contains("hellporno") || thumbLower.contains("hellporno") ||
-               provider.contains("eporner") || thumbLower.contains("eporner.com") ||
-               provider.contains("xvideos") || thumbLower.contains("xvideos") ||
-               provider.contains("pornhub") || thumbLower.contains("phncdn.com") ||
-               provider.contains("redtube") || thumbLower.contains("redtube") || thumbLower.contains("rdtcdn.com") ||
-               provider.contains("4tube") || thumbLower.contains("4tube") || thumbLower.contains("ttcache.com") ||
-               provider.contains("youporn") || thumbLower.contains("youporn") ||
-               provider.contains("rule34") || thumbLower.contains("rule34video") ||
-               provider.contains("youtube") || thumbLower.contains("ytimg.com") ||
-               provider.contains("bilibili") || thumbLower.contains("hdslb.com") ||
-               rawThumb.isNotBlank()
+        val nonSupporting = listOf("youtube", "vimeo", "dailymotion", "tencent", "qq", "wetv", "bilibili", "twitch", "torrent", "tmdb", "anilist", "jikan", "vega", "vegacloud", "vidsrc", "vidrock", "archiveorg", "mxplayer", "sonyliv", "hotstar", "disney", "discovery", "amazon", "amazonminitv", "curiositystream", "crunchyroll", "all")
+        if (provider in nonSupporting) return false
+        val isAdultTube = com.example.util.SourceTagHelper.isAdultSource(provider) ||
+                provider in listOf("spankbang", "eporner", "xvideos", "xnxx", "hellporno", "pornhub", "thumbzilla", "xhamster", "redtube", "youporn", "4tube", "rule34", "rule34video", "thisvid", "playvid", "txxx")
+        if (isAdultTube) {
+            if (video.previewThumbnails.size > 1) return true
+            val frames = resolvePreviewFrames(video)
+            return frames.size > 1
+        }
+        return false
     }
 
     /**
@@ -267,19 +261,18 @@ object PreviewFrameResolver {
             }
         }
 
-        // 11. YOUTUBE (storyboard frames)
-        if (provider.contains("youtube") || thumbLower.contains("ytimg.com") || thumbLower.contains("youtube.com")) {
-            val ytIdMatch = Regex("""vi(?:_webp)?/([a-zA-Z0-9_-]{11})/""").find(rawThumb)
-            if (ytIdMatch != null) {
-                val yId = ytIdMatch.groupValues[1]
-                return listOf(
-                    "https://i.ytimg.com/vi/$yId/hqdefault.jpg",
-                    "https://i.ytimg.com/vi/$yId/hq1.jpg",
-                    "https://i.ytimg.com/vi/$yId/hq2.jpg",
-                    "https://i.ytimg.com/vi/$yId/hq3.jpg",
-                    "https://i.ytimg.com/vi/$yId/sddefault.jpg",
-                    "https://i.ytimg.com/vi/$yId/mqdefault.jpg"
-                )
+        // 10. THISVID & PLAYVIDS & TXXX (10-16 storyboard cuts)
+        if (provider.contains("thisvid") || provider.contains("playvid") || provider.contains("txxx") ||
+            thumbLower.contains("thisvid") || thumbLower.contains("playvid") || thumbLower.contains("txxx") || thumbLower.contains("ahcdn.com")) {
+            val kvsMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
+            if (kvsMatcher != null) {
+                val ext = kvsMatcher.groupValues[2]
+                val base = rawThumb.substring(0, kvsMatcher.range.first)
+                return (1..12).map { idx -> "$base/$idx.$ext" }
+            }
+            if (rawThumb.contains("/preview.jpg")) {
+                val base = rawThumb.substringBeforeLast("/preview.jpg")
+                return (1..12).map { idx -> "$base/$idx.jpg" }
             }
         }
 

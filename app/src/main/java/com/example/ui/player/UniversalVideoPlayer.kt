@@ -58,6 +58,12 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.model.CaptionOption
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.CachePolicy
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
 import kotlinx.coroutines.delay
@@ -178,6 +184,7 @@ fun UniversalVideoPlayer(
 
     // Gesture Controls State
     val coroutineScope = rememberCoroutineScope()
+    var isAutoBrightness by remember { mutableStateOf(true) }
     var brightnessLevel by remember { mutableFloatStateOf(0.7f) }
     var volumeLevel by remember { mutableFloatStateOf(0.7f) }
     var gestureNoticeText by remember { mutableStateOf<String?>(null) }
@@ -358,7 +365,8 @@ fun UniversalVideoPlayer(
                     accumulatedDx = 0f
                     accumulatedDy = 0f
                     dragStartPosMs = GlobalPlayerManager.currentPositionMs.value
-                    initialBrightness = brightnessLevel
+                    val currentSysBri = getSystemBrightness(context)
+                    initialBrightness = if (isAutoBrightness) currentSysBri else brightnessLevel
                     initialVolume = volumeLevel
                     isDraggingHorizontally = false
                     isDraggingVertically = false
@@ -443,14 +451,51 @@ fun UniversalVideoPlayer(
                                     if (isLeftZone) {
                                         activeVerticalGestureType = "BRIGHTNESS"
                                         val delta = -accumulatedDy / totalHeight
-                                        brightnessLevel = (initialBrightness + delta).coerceIn(0.05f, 1.0f)
-                                        verticalGestureValue = brightnessLevel
+                                        val rawBrightness = initialBrightness + delta
                                         val activity = context as? Activity
                                             ?: (context as? ContextWrapper)?.baseContext as? Activity
-                                        activity?.let { act ->
-                                            val lp = act.window.attributes
-                                            lp.screenBrightness = brightnessLevel
-                                            act.window.attributes = lp
+
+                                        if (isAutoBrightness) {
+                                            // When in auto brightness, swiping up past threshold switches to manual brightness
+                                            if (delta > 0.05f) {
+                                                isAutoBrightness = false
+                                                brightnessLevel = (initialBrightness + delta).coerceIn(0.01f, 1.0f)
+                                                verticalGestureValue = brightnessLevel
+                                                activity?.let { act ->
+                                                    val lp = act.window.attributes
+                                                    lp.screenBrightness = brightnessLevel
+                                                    act.window.attributes = lp
+                                                }
+                                            } else {
+                                                // Kept swiping down or holding -> stays in auto brightness
+                                                isAutoBrightness = true
+                                                verticalGestureValue = 0f
+                                                activity?.let { act ->
+                                                    val lp = act.window.attributes
+                                                    lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                                                    act.window.attributes = lp
+                                                }
+                                            }
+                                        } else {
+                                            // When in manual brightness, dragging down all the way snaps to Auto brightness
+                                            if (rawBrightness <= 0.02f) {
+                                                isAutoBrightness = true
+                                                verticalGestureValue = 0f
+                                                activity?.let { act ->
+                                                    val lp = act.window.attributes
+                                                    lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                                                    act.window.attributes = lp
+                                                }
+                                            } else {
+                                                isAutoBrightness = false
+                                                brightnessLevel = rawBrightness.coerceIn(0.01f, 1.0f)
+                                                verticalGestureValue = brightnessLevel
+                                                activity?.let { act ->
+                                                    val lp = act.window.attributes
+                                                    lp.screenBrightness = brightnessLevel
+                                                    act.window.attributes = lp
+                                                }
+                                            }
                                         }
                                     } else if (isRightZone) {
                                         activeVerticalGestureType = "VOLUME"
@@ -619,6 +664,47 @@ fun UniversalVideoPlayer(
                 modifier = hostModifier
             )
 
+            // YouTube-style seamless thumbnail cover:
+            // Displayed while buffering / before first frame renders so the player is NEVER a black box!
+            val currentStream = streamData ?: activeStreamData
+            val effectiveThumbnailUrl = currentStream?.thumbnailUrl?.takeIf { it.isNotBlank() }
+                ?: previewItem?.thumbnailUrl?.takeIf { it.isNotBlank() }
+                ?: (if (videoId != null && videoId.length == 11 && !videoId.startsWith("http")) "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" else null)
+
+            val isPlayingCenter by GlobalPlayerManager.isPlaying.collectAsState()
+            val shouldShowThumbnailCover = !firstFrameRendered && playerError == null
+            val thumbnailAlpha by animateFloatAsState(
+                targetValue = if (shouldShowThumbnailCover && !effectiveThumbnailUrl.isNullOrBlank()) 1f else 0f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                label = "youtube_thumbnail_crossfade"
+            )
+
+            if (thumbnailAlpha > 0f && !effectiveThumbnailUrl.isNullOrBlank()) {
+                Box(
+                    modifier = hostModifier
+                        .graphicsLayer { alpha = thumbnailAlpha },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(currentPlayerContext)
+                            .data(effectiveThumbnailUrl)
+                            .crossfade(false)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // Subtle scrim for perfect white spinner contrast against light thumbnails
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.20f))
+                    )
+                }
+            }
+
             // Real-time GPU Video Effects Overlay
             val videoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
             VideoEffectsOverlay(
@@ -626,35 +712,17 @@ fun UniversalVideoPlayer(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Buffering & Torrent Live Telemetry Overlay
+            // YouTube Lightweight White Buffering Spinner Overlay
             if (showLoadingIndicator && playerError == null) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(20.dp),
+                        .align(Alignment.Center),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        val isTorrent = streamOption?.providerType == com.example.model.ProviderType.TORRENT ||
-                                streamOption?.videoUrl?.contains("/stream") == true ||
-                                activeStreamData?.providerId == "torrent"
-                        val statusMsg = if (isTorrent && torrentStats.infoHash.isNotBlank()) {
-                            if (torrentStats.state == com.example.torrent.model.TorrentEngineState.FETCHING_METADATA) {
-                                "Retrieving swarm metadata..."
-                            } else {
-                                val speedKb = torrentStats.downloadSpeedBps / 1024
-                                val speedStr = if (speedKb > 1024) String.format("%.1f MB/s", speedKb / 1024f) else "$speedKb KB/s"
-                                val seedsDisplay = if (torrentStats.activeSeeders > 0) "${torrentStats.activeSeeders} seeds" else "${torrentStats.connectedPeers} peers"
-                                "P2P: $seedsDisplay • $speedStr"
-                            }
-                        } else {
-                            "Buffering stream..."
-                        }
-                        GlowingBufferingIndicator(statusText = statusMsg)
-                    }
+                    YouTubeBufferingIndicator(
+                        size = 38.dp,
+                        strokeWidth = 2.8.dp
+                    )
                 }
             }
 
@@ -927,9 +995,9 @@ fun UniversalVideoPlayer(
 
             // YouTube-Style Center Controls (Previous, Play/Pause, Next)
             AnimatedVisibility(
-                visible = areControlsVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                visible = areControlsVisible && !showLoadingIndicator,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(150)),
                 modifier = Modifier.align(Alignment.Center)
             ) {
                 val isCurrentlyPlayingCenter by GlobalPlayerManager.isPlaying.collectAsState()
@@ -2707,10 +2775,14 @@ fun UniversalVideoPlayer(
                     modifier = Modifier.fillMaxHeight()
                 ) {
                     Icon(
-                        imageVector = if (activeVerticalGestureType == "BRIGHTNESS") Icons.Default.BrightnessMedium
-                                      else if (verticalGestureValue == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        imageVector = if (activeVerticalGestureType == "BRIGHTNESS") {
+                            if (isAutoBrightness) Icons.Default.BrightnessAuto
+                            else if (verticalGestureValue < 0.33f) Icons.Default.BrightnessLow
+                            else if (verticalGestureValue < 0.66f) Icons.Default.BrightnessMedium
+                            else Icons.Default.BrightnessHigh
+                        } else if (verticalGestureValue == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = if (activeVerticalGestureType == "BRIGHTNESS" && isAutoBrightness) Color(0xFF64B5F6) else Color.White,
                         modifier = Modifier.size(22.dp)
                     )
 
@@ -2726,17 +2798,25 @@ fun UniversalVideoPlayer(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .fillMaxHeight(verticalGestureValue.coerceIn(0f, 1f))
+                                .fillMaxHeight(
+                                    if (activeVerticalGestureType == "BRIGHTNESS" && isAutoBrightness) {
+                                        getSystemBrightness(context).coerceIn(0.15f, 1f)
+                                    } else {
+                                        verticalGestureValue.coerceIn(0f, 1f)
+                                    }
+                                )
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(Color.White)
+                                .background(
+                                    if (activeVerticalGestureType == "BRIGHTNESS" && isAutoBrightness) Color(0xFF64B5F6) else Color.White
+                                )
                         )
                     }
 
                     Text(
-                        text = "${(verticalGestureValue * 100).toInt()}%",
-                        color = Color.White,
+                        text = if (activeVerticalGestureType == "BRIGHTNESS" && isAutoBrightness) "Auto" else "${(verticalGestureValue * 100).toInt()}%",
+                        color = if (activeVerticalGestureType == "BRIGHTNESS" && isAutoBrightness) Color(0xFF64B5F6) else Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
+                        fontSize = if (activeVerticalGestureType == "BRIGHTNESS" && isAutoBrightness) 10.sp else 11.sp
                     )
                 }
             }
@@ -2820,68 +2900,31 @@ private fun toggleFullscreen(context: Context) {
 }
 
 @Composable
+fun YouTubeBufferingIndicator(
+    modifier: Modifier = Modifier,
+    size: androidx.compose.ui.unit.Dp = 40.dp,
+    strokeWidth: androidx.compose.ui.unit.Dp = 2.8.dp
+) {
+    Box(
+        modifier = modifier.size(size),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(size),
+            color = Color.White.copy(alpha = 0.95f),
+            trackColor = Color.White.copy(alpha = 0.20f),
+            strokeWidth = strokeWidth,
+            strokeCap = StrokeCap.Round
+        )
+    }
+}
+
+@Composable
 fun GlowingBufferingIndicator(
     statusText: String = "Loading stream...",
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "buffering_rotation")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-
-    Box(
-        modifier = modifier
-            .size(110.dp)
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .graphicsLayer { rotationZ = rotation },
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val strokeWidth = 4.dp.toPx()
-                    drawArc(
-                        color = Color(0xFF00E5FF).copy(alpha = 0.25f),
-                        startAngle = 0f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                    )
-                    drawArc(
-                        brush = androidx.compose.ui.graphics.Brush.sweepGradient(
-                            listOf(Color(0xFF00E5FF), Color(0xFF1DE9B6), Color(0xFF2979FF))
-                        ),
-                        startAngle = -90f,
-                        sweepAngle = 270f,
-                        useCenter = false,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = statusText,
-                color = Color.White.copy(alpha = 0.90f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-            )
-        }
-    }
+    YouTubeBufferingIndicator(modifier = modifier)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -3103,5 +3146,18 @@ fun AspectRatioSettingsSheet(
                 }
             }
         }
+    }
+}
+
+private fun getSystemBrightness(context: Context): Float {
+    return try {
+        val cr = context.contentResolver
+        val brightnessInt = android.provider.Settings.System.getInt(
+            cr,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS
+        )
+        (brightnessInt / 255f).coerceIn(0.01f, 1.0f)
+    } catch (e: Exception) {
+        0.5f
     }
 }

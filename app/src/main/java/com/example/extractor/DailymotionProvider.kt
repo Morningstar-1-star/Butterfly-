@@ -61,10 +61,10 @@ object DailymotionProvider {
         val sorts = listOf("visited-today", "recent", "visited-this-week", "visited-month")
         val sort = sorts[((page - 1).coerceAtLeast(0)) % sorts.size]
         val pageNum = (((page - 1).coerceAtLeast(0)) / sorts.size) + 1
-        val url = "https://api.dailymotion.com/videos?fields=$API_FIELDS&sort=$sort&limit=$limit&page=$pageNum"
+        val url = "https://api.dailymotion.com/videos?fields=$API_FIELDS&languages=en,hi,ja,zh&sort=$sort&limit=$limit&page=$pageNum"
         val items = parseDailymotionApi(url)
         if (items.isEmpty()) {
-            val fallbackUrl = "https://api.dailymotion.com/videos?fields=$API_FIELDS&sort=recent&limit=$limit&page=1"
+            val fallbackUrl = "https://api.dailymotion.com/videos?fields=$API_FIELDS&languages=en,hi,ja,zh&sort=recent&limit=$limit&page=1"
             parseDailymotionApi(fallbackUrl)
         } else {
             items
@@ -94,19 +94,19 @@ object DailymotionProvider {
         }
 
         val encoded = URLEncoder.encode(rawQuery, "UTF-8")
-        val url = "https://api.dailymotion.com/videos?fields=$API_FIELDS&search=$encoded&limit=$limit&page=$page"
+        val url = "https://api.dailymotion.com/videos?fields=$API_FIELDS&languages=en,hi,ja,zh&search=$encoded&limit=$limit&page=$page"
         parseDailymotionApi(url)
     }
 
     suspend fun getPlaylistVideos(playlistId: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val cleanId = playlistId.substringAfterLast("/").substringBefore("?")
-        val url = "https://api.dailymotion.com/playlist/$cleanId/videos?fields=$API_FIELDS&limit=$limit&page=$page"
+        val url = "https://api.dailymotion.com/playlist/$cleanId/videos?fields=$API_FIELDS&languages=en,hi,ja,zh&limit=$limit&page=$page"
         parseDailymotionApi(url)
     }
 
     suspend fun getUserVideos(username: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val cleanUser = username.substringAfterLast("/").substringBefore("?").removePrefix("@")
-        val url = "https://api.dailymotion.com/user/$cleanUser/videos?fields=$API_FIELDS&limit=$limit&page=$page"
+        val url = "https://api.dailymotion.com/user/$cleanUser/videos?fields=$API_FIELDS&languages=en,hi,ja,zh&limit=$limit&page=$page"
         parseDailymotionApi(url)
     }
 
@@ -159,21 +159,26 @@ object DailymotionProvider {
 
                 val duration = item.optLong("duration", -1L)
                 val views = item.optLong("views_total", -1L)
+                val createdTime = item.optLong("created_time", 0L)
+                val uploadDateStr = if (createdTime > 0) createdTime.toString() else null
 
-                list.add(
-                    VideoItem(
-                        id = "https://www.dailymotion.com/video/$id",
-                        title = title,
-                        uploaderName = ownerScreenName,
-                        uploaderUrl = "https://www.dailymotion.com/$ownerUsername",
-                        uploaderAvatarUrl = ownerAvatar,
-                        durationSeconds = duration,
-                        viewCount = views,
-                        thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID,
-                        description = "Watch $title by $ownerScreenName on Dailymotion."
-                    )
+                val videoItem = VideoItem(
+                    id = "https://www.dailymotion.com/video/$id",
+                    title = title,
+                    uploaderName = ownerScreenName,
+                    uploaderUrl = "https://www.dailymotion.com/$ownerUsername",
+                    uploaderAvatarUrl = ownerAvatar,
+                    durationSeconds = duration,
+                    viewCount = views,
+                    uploadDate = uploadDateStr,
+                    thumbnailUrl = thumb,
+                    providerId = PROVIDER_ID,
+                    description = "Watch $title by $ownerScreenName on Dailymotion."
                 )
+
+                if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(videoItem)) {
+                    list.add(videoItem)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Dailymotion API parse error: ${e.message}")

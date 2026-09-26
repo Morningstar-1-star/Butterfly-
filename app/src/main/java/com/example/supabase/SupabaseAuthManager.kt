@@ -267,6 +267,12 @@ object SupabaseAuthManager {
         if (res.isFailure) {
             res = getClient().verifyEmailOtp(email.trim(), token.trim(), "email")
         }
+        if (res.isFailure) {
+            res = getClient().verifyEmailOtp(email.trim(), token.trim(), "magiclink")
+        }
+        if (res.isFailure) {
+            res = getClient().verifyEmailOtp(email.trim(), token.trim(), "recovery")
+        }
         if (res.isSuccess) {
             val sess = res.getOrThrow()
             _session.value = sess
@@ -274,7 +280,12 @@ object SupabaseAuthManager {
             _isLoggedIn.value = true
             persistSession(sess)
         } else {
-            _authError.value = res.exceptionOrNull()?.message ?: "Invalid or expired confirmation code"
+            val rawErr = res.exceptionOrNull()?.message ?: "Invalid or expired confirmation code"
+            _authError.value = if (rawErr.contains("expired", ignoreCase = true) || rawErr.contains("invalid", ignoreCase = true)) {
+                "Code or link expired/invalid. Click 'Resend Email' to get a new fresh confirmation code."
+            } else {
+                rawErr
+            }
         }
         return res
     }

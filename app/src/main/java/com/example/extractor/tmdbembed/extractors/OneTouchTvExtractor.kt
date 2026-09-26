@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -25,8 +26,8 @@ object OneTouchTvExtractor {
     private val AES_IV = "im72charPassword".toByteArray(Charsets.UTF_8)
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private fun decryptOneTouch(encoded: String): String {
@@ -47,7 +48,7 @@ object OneTouchTvExtractor {
             val decrypted = cipher.doFinal(cipherBytes)
             String(decrypted, Charsets.UTF_8)
         } catch (e: Exception) {
-            Log.e(TAG, "OneTouch decrypt error: ${e.message}")
+            Log.w(TAG, "OneTouch decrypt note: ${e.message}")
             ""
         }
     }
@@ -72,12 +73,10 @@ object OneTouchTvExtractor {
 
             if (body.isBlank()) return@withContext emptyList()
             val decrypted = if (body.startsWith("{") || body.startsWith("[")) body else decryptOneTouch(body)
-            if (decrypted.isBlank()) return@withContext emptyList()
-
-            val json = JSONObject(decrypted)
+            val json = decrypted.toJsonObjectOrNull() ?: return@withContext emptyList()
             val results = json.optJSONArray("results") ?: json.optJSONArray("data")
             if (results != null && results.length() > 0) {
-                val item = results.getJSONObject(0)
+                val item = results.optJSONObject(0) ?: return@withContext emptyList()
                 val streamUrl = item.optString("stream_url", item.optString("url", ""))
                 if (streamUrl.isNotBlank() && streamUrl.startsWith("http")) {
                     streams.add(
@@ -96,8 +95,9 @@ object OneTouchTvExtractor {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "OneTouchTV extraction failed: ${e.message}", e)
+            Log.w(TAG, "OneTouchTV extraction note: ${e.message}")
         }
         streams
     }
 }
+

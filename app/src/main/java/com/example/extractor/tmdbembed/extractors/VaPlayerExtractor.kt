@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.extractor.tmdbembed.ExtractedStream
 import com.example.extractor.tmdbembed.TMDBEmbedSource
 import com.example.extractor.tmdbembed.TMDBMediaRequest
+import com.example.extractor.tmdbembed.toJsonObjectOrNull
 import com.example.model.CaptionOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,8 +20,8 @@ object VaPlayerExtractor {
     private const val TMDB_API_KEY = "844781e64eb5904944883492e8038b34"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -32,8 +33,8 @@ object VaPlayerExtractor {
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext null
                 val body = resp.body?.string() ?: return@withContext null
-                val json = JSONObject(body)
-                val imdb = json.optString("imdb_id", "")
+                val json = body.toJsonObjectOrNull()
+                val imdb = json?.optString("imdb_id", "") ?: ""
                 if (imdb.isNotBlank()) imdb else null
             }
         } catch (e: Exception) {
@@ -74,8 +75,7 @@ object VaPlayerExtractor {
                 resp.body?.string() ?: ""
             }
 
-            if (body.isBlank()) return@withContext emptyList()
-            val json = JSONObject(body)
+            val json = body.toJsonObjectOrNull() ?: return@withContext emptyList()
             val data = json.optJSONObject("data") ?: return@withContext emptyList()
 
             val headers = mapOf(
@@ -119,7 +119,7 @@ object VaPlayerExtractor {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "VaPlayer extraction failed: ${e.message}", e)
+            Log.w(TAG, "VaPlayer extraction note: ${e.message}")
         }
         streams
     }

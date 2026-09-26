@@ -2,5 +2,7 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="lens_cache" path="lens/" />
     <cache-path name="image_cache" path="images/" />
+    <cache-path name="updates_cache" path="updates/" />
     <external-cache-path name="external_lens_cache" path="lens/" />
+    <external-cache-path name="external_updates_cache" path="updates/" />
 </paths>

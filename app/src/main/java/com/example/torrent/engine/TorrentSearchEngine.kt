@@ -33,15 +33,16 @@ import java.util.concurrent.TimeUnit
  */
 class TorrentSearchEngine(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .dns(com.example.util.SecureDnsManager.appDns)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 ) {
 
     companion object {
         private const val TAG = "TorrentSearchEngine"
-        private const val PROVIDER_TIMEOUT_MS = 12_000L
+        private const val PROVIDER_TIMEOUT_MS = 6_500L
 
         @Volatile
         private var instance: TorrentSearchEngine? = null

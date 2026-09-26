@@ -47,7 +47,10 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
     BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
-    VEGA("Vega Movies & Series", "Movie extensions, anime providers & add-ons", Icons.Outlined.Movie),
+    VEGA("Vega Movies & Series", "All 52+ in-app movie extensions & anime providers", Icons.Outlined.Movie),
+    VIDSRC("VidSrc Sources", "VidLink, AutoEmbed, Smashy & cloud mirrors", Icons.Outlined.VideoLibrary),
+    DECRYPTOR("Decryptor Sources", "Vidhide, Turbo, Nxsha & fast servers", Icons.Outlined.LockOpen),
+    TMDB_EMBED("TMDB Sources", "VixSrc, Showbox, Videasy & VIP servers", Icons.Outlined.MovieCreation),
     ADULT_18("18+ Content", "Adult content mode & mature sources", Icons.Outlined.Explicit),
     SMART_SKIP("SponsorBlock", "Auto-skip sponsored segments, intros & filler", Icons.Outlined.FastForward),
     HISTORY_PRIVACY("History & Privacy", "Watch history, search cache & blocked channels", Icons.Outlined.History),
@@ -186,12 +189,14 @@ fun SettingsScreen(
         }
     }
 
-    BackHandler(enabled = currentCategory != null) {
+    BackHandler(enabled = true) {
         if (parentCategory != null) {
             currentCategory = parentCategory
             parentCategory = null
-        } else {
+        } else if (currentCategory != null) {
             currentCategory = null
+        } else {
+            onBackClick()
         }
     }
 
@@ -252,6 +257,9 @@ fun SettingsScreen(
                     SettingsCategory.PROWLARR_INDEXERS,
                     SettingsCategory.SUBTITLE_PROVIDERS,
                     SettingsCategory.VEGA,
+                    SettingsCategory.VIDSRC,
+                    SettingsCategory.DECRYPTOR,
+                    SettingsCategory.TMDB_EMBED,
                     SettingsCategory.ADULT_18,
                     SettingsCategory.SMART_SKIP,
                     SettingsCategory.HISTORY_PRIVACY,
@@ -262,7 +270,7 @@ fun SettingsScreen(
                 // ROOT YOUTUBE-STYLE SETTINGS LIST
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 4.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp)
                 ) {
                     items(rootCategories) { category ->
                         val dynamicSubtitle = when (category) {
@@ -271,6 +279,10 @@ fun SettingsScreen(
                             SettingsCategory.BATTERY_SAVER -> if (isPowerSaveActive) "Active ($batteryLevel% • Eco Power Mode)" else "Optimizations, RAM & battery saver ($batteryLevel%)"
                             SettingsCategory.PLAYBACK -> "${defaultResolutionPref.value} • ${doubleTapSeekPref.intValue}s seek"
                             SettingsCategory.SUBTITLE_PROVIDERS -> "SubDL, OpenSubtitles, SubtitleCat & Bazarr"
+                            SettingsCategory.VEGA -> "${viewModel.installedVegaProviders.collectAsState().value.size} extensions installed • Built-in"
+                            SettingsCategory.VIDSRC -> "${viewModel.installedVidSrcProviders.collectAsState().value.size} servers active • Multi-mirror"
+                            SettingsCategory.DECRYPTOR -> "${viewModel.installedDecryptorProviders.collectAsState().value.size} servers active • HLS decoder"
+                            SettingsCategory.TMDB_EMBED -> "${viewModel.installedTMDBProviders.collectAsState().value.size} sources active • VIP extractors"
                             SettingsCategory.ADULT_18 -> if (adultContentEnabled) "Enabled (18+ sources only)" else "Disabled"
                             SettingsCategory.DNS_NETWORK -> if (viewModel.isSecureDnsEnabled.collectAsState().value) viewModel.selectedDnsProvider.collectAsState().value.displayName else "Disabled (ISP)"
                             else -> category.subtitle
@@ -891,12 +903,10 @@ fun SettingsScreen(
                                     "thisvid" to "ThisVid",
                                     "tnaflix" to "TNAFlix",
                                     "spankbang" to "SpankBang",
-                                    "motherless" to "Motherless",
                                     "playvid" to "Playvid",
                                     "txxx" to "TXXX",
                                     "eporner" to "Eporner",
                                     "hanime1" to "Hanime1 Anime",
-                                    "hqporner" to "HQPorner 4K",
                                     "redtube" to "RedTube",
                                     "xhamster" to "XHamster",
                                     "beeg" to "Beeg",
@@ -1867,11 +1877,8 @@ fun SettingsScreen(
                         val installedVega by viewModel.installedVegaProviders.collectAsState()
                         val availableVega by viewModel.availableVegaProviders.collectAsState()
                         val isFetching by viewModel.isFetchingVegaProviders.collectAsState()
-                        val currentServerUrl by viewModel.vegaServerUrl.collectAsState()
                         val healthMap by viewModel.providerHealthMap.collectAsState()
                         val isTestingHealth by viewModel.isTestingVegaHealth.collectAsState()
-
-                        var serverUrlInput by remember(currentServerUrl) { mutableStateOf(currentServerUrl) }
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -1915,7 +1922,7 @@ fun SettingsScreen(
                                 }
                             }
 
-                            // 1. Server Settings Card
+                            // In-App Native Engine Status Card
                             item {
                                 Card(
                                     modifier = Modifier
@@ -1926,32 +1933,36 @@ fun SettingsScreen(
                                     )
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp)) {
-                                        Text(
-                                            text = "VEGA MEDIASERVER CONFIGURATION",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        OutlinedTextField(
-                                            value = serverUrlInput,
-                                            onValueChange = { serverUrlInput = it },
-                                            label = { Text("Server Host URL") },
-                                            placeholder = { Text("https://butterfly-mediaserver-1.onrender.com") },
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.End
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Button(
-                                                onClick = { viewModel.updateVegaServerUrl(serverUrlInput) }
+                                            Text(
+                                                text = "100% IN-APP NATIVE SOURCES",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                             ) {
-                                                Text("Save & Connect")
+                                                Text(
+                                                    text = "⚡ Built-in Native / 0s Delay",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
                                             }
                                         }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "All 52+ Vega scrapers & extractors run locally inside Butterfly. Zero cold-start delay, 100% in-app execution, and direct stream link resolution.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
@@ -2126,12 +2137,764 @@ fun SettingsScreen(
                         }
                     }
 
+                    SettingsCategory.VIDSRC -> {
+                        val isVidSrcMasterEnabled by viewModel.isVidSrcMasterEnabled.collectAsState()
+                        val installedVidSrc by viewModel.installedVidSrcProviders.collectAsState()
+                        val availableVidSrc = viewModel.availableVidSrcProviders
+                        val healthMap by viewModel.vidSrcHealthMap.collectAsState()
+                        val isTestingHealth by viewModel.isTestingVidSrcHealth.collectAsState()
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            // Master VidSrc Toggle Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isVidSrcMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.setVidSrcMasterEnabled(!isVidSrcMasterEnabled) }
+                                            .padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                            Text(
+                                                text = "Enable VidSrc Sources",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (isVidSrcMasterEnabled) "VidSrc multi-server mirrors and WASM HLS decryptors are active." else "VidSrc is disabled. All cloud mirrors and direct stream extractions are stopped.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isVidSrcMasterEnabled,
+                                            onCheckedChange = { viewModel.setVidSrcMasterEnabled(it) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // In-App Native Engine Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "100% IN-APP VIDSRC SERVERS",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Built-in Native / 0s Delay",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "On-device WebAssembly decryptor & 12+ high-speed cloud streaming mirrors. Direct master HLS resolution with zero cold-start delay.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Installed VidSrc Section
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "INSTALLED SERVERS (${installedVidSrc.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (installedVidSrc.isNotEmpty()) {
+                                            TextButton(onClick = { viewModel.uninstallAllVidSrcProviders() }) {
+                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.testVidSrcHealth() },
+                                            enabled = !isTestingHealth
+                                        ) {
+                                            if (isTestingHealth) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Testing...")
+                                            } else {
+                                                Text("Test Health")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (installedVidSrc.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "No VidSrc servers installed. Choose from available servers below.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                            } else {
+                                items(installedVidSrc) { vp ->
+                                    val health = healthMap[vp.id]
+                                    val subtitleText = if (health != null) {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
+                                    } else {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { viewModel.toggleVidSrcProvider(vp.id, !vp.isEnabled) }
+                                                .padding(end = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = vp.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = subtitleText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Switch(
+                                                checked = vp.isEnabled,
+                                                onCheckedChange = { viewModel.toggleVidSrcProvider(vp.id, it) }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            IconButton(onClick = { viewModel.uninstallVidSrcProvider(vp.id) }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = "Uninstall ${vp.name}",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Available VidSrc Section
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "AVAILABLE SERVERS (${availableVidSrc.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Button(
+                                        onClick = { viewModel.installAllVidSrcProviders() },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Install All")
+                                    }
+                                }
+                            }
+
+                            items(availableVidSrc) { sInfo ->
+                                val isInstalled = installedVidSrc.any { it.id == sInfo.id }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            text = sInfo.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = sInfo.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (isInstalled) viewModel.uninstallVidSrcProvider(sInfo.id)
+                                            else viewModel.installVidSrcProvider(sInfo.id)
+                                        },
+                                        colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
+                                    ) {
+                                        Text(if (isInstalled) "Uninstall" else "Install")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsCategory.DECRYPTOR -> {
+                        val isDecryptorMasterEnabled by viewModel.isDecryptorMasterEnabled.collectAsState()
+                        val installedDecryptor by viewModel.installedDecryptorProviders.collectAsState()
+                        val availableDecryptor = viewModel.availableDecryptorProviders
+                        val healthMap by viewModel.decryptorHealthMap.collectAsState()
+                        val isTestingHealth by viewModel.isTestingDecryptorHealth.collectAsState()
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            // Master Decryptor Toggle Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isDecryptorMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.setDecryptorMasterEnabled(!isDecryptorMasterEnabled) }
+                                            .padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                            Text(
+                                                text = "Enable Decryptor Sources",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (isDecryptorMasterEnabled) "Decryptor multi-server HLS extractors and cinema servers are active." else "Decryptor is disabled. All stream resolutions are stopped.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isDecryptorMasterEnabled,
+                                            onCheckedChange = { viewModel.setDecryptorMasterEnabled(it) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // In-App Native Engine Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "100% IN-APP DECRYPTOR SERVERS",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Built-in Native / 0s Delay",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Direct HLS extraction across Vidhide, Turbo, Nxsha, Lulustream & Fast CDN. Zero buffering, adaptive quality, and instant start.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Installed Decryptor Section
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "INSTALLED SERVERS (${installedDecryptor.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (installedDecryptor.isNotEmpty()) {
+                                            TextButton(onClick = { viewModel.uninstallAllDecryptorProviders() }) {
+                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.testDecryptorHealth() },
+                                            enabled = !isTestingHealth
+                                        ) {
+                                            if (isTestingHealth) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Testing...")
+                                            } else {
+                                                Text("Test Health")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (installedDecryptor.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "No Decryptor servers installed. Choose from available servers below.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                            } else {
+                                items(installedDecryptor) { vp ->
+                                    val health = healthMap[vp.id]
+                                    val subtitleText = if (health != null) {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
+                                    } else {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { viewModel.toggleDecryptorProvider(vp.id, !vp.isEnabled) }
+                                                .padding(end = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = vp.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = subtitleText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Switch(
+                                                checked = vp.isEnabled,
+                                                onCheckedChange = { viewModel.toggleDecryptorProvider(vp.id, it) }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            IconButton(onClick = { viewModel.uninstallDecryptorProvider(vp.id) }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = "Uninstall ${vp.name}",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Available Decryptor Section
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "AVAILABLE SERVERS (${availableDecryptor.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Button(
+                                        onClick = { viewModel.installAllDecryptorProviders() },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Install All")
+                                    }
+                                }
+                            }
+
+                            items(availableDecryptor) { sInfo ->
+                                val isInstalled = installedDecryptor.any { it.id == sInfo.id }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            text = sInfo.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = sInfo.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (isInstalled) viewModel.uninstallDecryptorProvider(sInfo.id)
+                                            else viewModel.installDecryptorProvider(sInfo.id)
+                                        },
+                                        colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
+                                    ) {
+                                        Text(if (isInstalled) "Uninstall" else "Install")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsCategory.TMDB_EMBED -> {
+                        val isTMDBMasterEnabled by viewModel.isTMDBMasterEnabled.collectAsState()
+                        val installedTMDB by viewModel.installedTMDBProviders.collectAsState()
+                        val availableTMDB = viewModel.availableTMDBProviders
+                        val healthMap by viewModel.tmdbHealthMap.collectAsState()
+                        val isTestingHealth by viewModel.isTestingTMDBHealth.collectAsState()
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            // Master TMDB Toggle Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isTMDBMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.setTMDBMasterEnabled(!isTMDBMasterEnabled) }
+                                            .padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                            Text(
+                                                text = "Enable TMDB Sources",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (isTMDBMasterEnabled) "TMDB multi-server embed & direct streams are active." else "TMDB sources are disabled. Embed and VIP stream resolvers are stopped.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isTMDBMasterEnabled,
+                                            onCheckedChange = { viewModel.setTMDBMasterEnabled(it) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // In-App Native Engine Card
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "100% IN-APP TMDB SOURCES",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Built-in Native / 0s Delay",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "VixSrc, NetMirror, Videasy, Vidlink, Showbox & 13 VIP native scrapers. Fast playback with adaptive multi-resolution support.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Installed TMDB Section
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "INSTALLED SOURCES (${installedTMDB.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (installedTMDB.isNotEmpty()) {
+                                            TextButton(onClick = { viewModel.uninstallAllTMDBProviders() }) {
+                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.testTMDBHealth() },
+                                            enabled = !isTestingHealth
+                                        ) {
+                                            if (isTestingHealth) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Testing...")
+                                            } else {
+                                                Text("Test Health")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (installedTMDB.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "No TMDB sources installed. Choose from available sources below.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                            } else {
+                                items(installedTMDB) { vp ->
+                                    val health = healthMap[vp.id]
+                                    val subtitleText = if (health != null) {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
+                                    } else {
+                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { viewModel.toggleTMDBProvider(vp.id, !vp.isEnabled) }
+                                                .padding(end = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = vp.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = subtitleText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Switch(
+                                                checked = vp.isEnabled,
+                                                onCheckedChange = { viewModel.toggleTMDBProvider(vp.id, it) }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            IconButton(onClick = { viewModel.uninstallTMDBProvider(vp.id) }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = "Uninstall ${vp.name}",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Available TMDB Section
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "AVAILABLE SOURCES (${availableTMDB.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Button(
+                                        onClick = { viewModel.installAllTMDBProviders() },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Install All")
+                                    }
+                                }
+                            }
+
+                            items(availableTMDB) { sInfo ->
+                                val isInstalled = installedTMDB.any { it.id == sInfo.id }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            text = sInfo.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = sInfo.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (isInstalled) viewModel.uninstallTMDBProvider(sInfo.id)
+                                            else viewModel.installTMDBProvider(sInfo.id)
+                                        },
+                                        colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
+                                    ) {
+                                        Text(if (isInstalled) "Uninstall" else "Install")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     SettingsCategory.INTEGRATIONS -> {
                         var tmdbKeyInput by remember { mutableStateOf(com.example.util.AppConfig.getTmdbApiKey()) }
                         var subdlKeyInput by remember { mutableStateOf(com.example.util.AppConfig.getSubdlApiKey()) }
                         var openSubKeyInput by remember { mutableStateOf(com.example.util.AppConfig.getOpenSubtitlesApiKey()) }
                         var torrentioUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getTorrentioBaseUrl()) }
-                        var vegaUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getVegaServerUrl()) }
                         var debridKeyInput by remember { mutableStateOf(com.example.util.AppConfig.getDebridApiKey()) }
                         var poTokenServerUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getPoTokenServerUrl()) }
                         var poTokenInput by remember { mutableStateOf(com.example.util.AppConfig.getCustomPoToken()) }
@@ -2466,13 +3229,13 @@ fun SettingsScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp)) {
                                         Text(
-                                            text = "TORRENTIO, VEGA & DEBRID RESOLVERS",
+                                            text = "TORRENTIO & DEBRID RESOLVERS",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                         Text(
-                                            text = "Configure custom Torrentio endpoints, Vega stream mirrors, or Stremio Real-Debrid / AllDebrid manifest tokens.\nTip: Users with Real-Debrid can set URL to https://torrentio.strem.fun/realdebrid=YOURAPIKEY or enter API key below.",
+                                            text = "Configure custom Torrentio endpoints or Stremio Real-Debrid / AllDebrid manifest tokens.\nTip: Users with Real-Debrid can set URL to https://torrentio.strem.fun/realdebrid=YOURAPIKEY or enter API key below.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(vertical = 6.dp)
@@ -2482,15 +3245,6 @@ fun SettingsScreen(
                                             onValueChange = { torrentioUrlInput = it },
                                             label = { Text("Torrentio Base URL / Manifest") },
                                             placeholder = { Text("https://torrentio.strem.fun") },
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        OutlinedTextField(
-                                            value = vegaUrlInput,
-                                            onValueChange = { vegaUrlInput = it },
-                                            label = { Text("Vega Server / Add-on URL") },
-                                            placeholder = { Text("https://vega.strem.fun") },
                                             singleLine = true,
                                             modifier = Modifier.fillMaxWidth()
                                         )
@@ -2510,9 +3264,7 @@ fun SettingsScreen(
                                             OutlinedButton(
                                                 onClick = {
                                                     com.example.util.AppConfig.setTorrentioBaseUrl(context, com.example.util.AppConfig.DEFAULT_TORRENTIO_BASE_URL)
-                                                    com.example.util.AppConfig.setVegaServerUrl(context, com.example.util.AppConfig.DEFAULT_VEGA_SERVER_URL)
                                                     torrentioUrlInput = com.example.util.AppConfig.DEFAULT_TORRENTIO_BASE_URL
-                                                    vegaUrlInput = com.example.util.AppConfig.DEFAULT_VEGA_SERVER_URL
                                                     Toast.makeText(context, "Reset URLs to defaults", Toast.LENGTH_SHORT).show()
                                                 }
                                             ) {
@@ -2521,7 +3273,6 @@ fun SettingsScreen(
                                             Button(
                                                 onClick = {
                                                     com.example.util.AppConfig.setTorrentioBaseUrl(context, torrentioUrlInput)
-                                                    com.example.util.AppConfig.setVegaServerUrl(context, vegaUrlInput)
                                                     com.example.util.AppConfig.setDebridApiKey(context, debridKeyInput)
                                                     Toast.makeText(context, "Streaming providers saved!", Toast.LENGTH_SHORT).show()
                                                 }
@@ -3873,6 +4624,9 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.ABOUT -> {
+                        val updateState by com.example.util.AppUpdateManager.updateState.collectAsState()
+                        val scope = rememberCoroutineScope()
+
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
@@ -3889,16 +4643,187 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 Text(
-                                    text = "Version 2.4.0 (Stable)",
+                                    text = "Version ${com.example.util.AppUpdateManager.currentVersionName} (Build ${com.example.util.AppUpdateManager.currentVersionCode})",
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Spacer(modifier = Modifier.height(24.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = "A modern, lightweight multimedia streaming and playback client engineered with Jetpack Compose & Media3 ExoPlayer.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
                                 )
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                // APP UPDATES CARD
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.SystemUpdate,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = "App Updates",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp
+                                                )
+                                                Text(
+                                                    text = "Source: Morningstar-1-star/Butterfly-",
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        when (val state = updateState) {
+                                            is com.example.util.UpdateCheckState.Idle -> {
+                                                Button(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            com.example.util.AppUpdateManager.checkForUpdates(context)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text("Check for Updates")
+                                                }
+                                            }
+
+                                            is com.example.util.UpdateCheckState.Checking -> {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                    modifier = Modifier.padding(vertical = 8.dp)
+                                                ) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                                    Text("Checking GitHub for latest release...", fontSize = 14.sp)
+                                                }
+                                            }
+
+                                            is com.example.util.UpdateCheckState.UpToDate -> {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                ) {
+                                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50))
+                                                    Text("You are on the latest version (v${state.currentVersion})", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            com.example.util.AppUpdateManager.checkForUpdates(context)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Text("Check Again")
+                                                }
+                                            }
+
+                                            is com.example.util.UpdateCheckState.UpdateAvailable -> {
+                                                val release = state.release
+                                                Surface(
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp)) {
+                                                        Text("🚀 New Version Available: v${release.versionName}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                        if (release.releaseNotes.isNotBlank()) {
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Text(
+                                                                text = release.releaseNotes.take(300),
+                                                                fontSize = 12.sp,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Button(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            com.example.util.AppUpdateManager.downloadAndInstall(context, release)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Icon(Icons.Default.GetApp, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text("Download & Install Update")
+                                                }
+                                            }
+
+                                            is com.example.util.UpdateCheckState.Downloading -> {
+                                                Column(modifier = Modifier.fillMaxWidth()) {
+                                                    Text("Downloading Update (${state.progressPercent}%)...", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    LinearProgressIndicator(
+                                                        progress = { state.progressPercent / 100f },
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                            }
+
+                                            is com.example.util.UpdateCheckState.ReadyToInstall -> {
+                                                Text("Download finished! Ready to install update.", fontSize = 13.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Button(
+                                                    onClick = {
+                                                        com.example.util.AppUpdateManager.triggerApkInstallation(context, state.apkFile)
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text("Install Update Now")
+                                                }
+                                            }
+
+                                            is com.example.util.UpdateCheckState.Error -> {
+                                                Text(state.message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            com.example.util.AppUpdateManager.checkForUpdates(context)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Text("Retry Check")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

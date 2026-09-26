@@ -3,6 +3,7 @@ package com.example.torrent.provider
 import android.util.Log
 import com.example.torrent.model.TorrentResult
 import com.example.torrent.protocol.MagnetParser
+import com.example.util.SecureDnsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -14,12 +15,14 @@ import java.util.concurrent.TimeUnit
 
 /**
  * YTS (YIFY) Torrent Indexer Provider.
- * High-speed JSON API for official YTS releases (720p, 1080p, 4K BluRay/WEBRip).
+ * High-speed JSON API for official YTS releases (720p, 1080p, 4K BluRay/WEBRip)
+ * with multi-mirror resilience and Secure DNS fallback.
  */
 class YtsProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .dns(SecureDnsManager.appDns)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
         .build()
 ) : TorrentProvider {
 
@@ -29,7 +32,13 @@ class YtsProvider(
 
     companion object {
         private const val TAG = "YtsProvider"
-        private const val BASE_URL = "https://yts.mx/api/v2/list_movies.json"
+        private val MIRROR_URLS = listOf(
+            "https://yts.mx/api/v2/list_movies.json",
+            "https://yts.rs/api/v2/list_movies.json",
+            "https://yts.do/api/v2/list_movies.json",
+            "https://yts.pm/api/v2/list_movies.json",
+            "https://yts.lt/api/v2/list_movies.json"
+        )
     }
 
     override suspend fun search(query: String, identity: MediaIdentity): List<TorrentResult> = withContext(Dispatchers.IO) {
@@ -48,80 +57,85 @@ class YtsProvider(
 
         if (searchTerm.isBlank()) return@withContext emptyList()
 
-        try {
-            val encodedQuery = URLEncoder.encode(searchTerm, StandardCharsets.UTF_8.name())
-            val url = "$BASE_URL?query_term=$encodedQuery&limit=15"
+        val encodedQuery = URLEncoder.encode(searchTerm, StandardCharsets.UTF_8.name())
 
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Butterfly/1.0")
-                .build()
+        for (baseUrl in MIRROR_URLS) {
+            try {
+                val url = "$baseUrl?query_term=$encodedQuery&limit=15"
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .build()
 
-            val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext emptyList()
+                val resp = client.newCall(req).execute()
+                if (!resp.isSuccessful) continue
 
-            val body = resp.body?.string() ?: return@withContext emptyList()
-            val json = JSONObject(body)
-            val data = json.optJSONObject("data") ?: return@withContext emptyList()
-            val movies = data.optJSONArray("movies") ?: return@withContext emptyList()
+                val body = resp.body?.string() ?: continue
+                val json = JSONObject(body)
+                val data = json.optJSONObject("data") ?: continue
+                val movies = data.optJSONArray("movies") ?: continue
 
-            val results = mutableListOf<TorrentResult>()
+                val results = mutableListOf<TorrentResult>()
 
-            for (i in 0 until movies.length()) {
-                val movie = movies.getJSONObject(i)
-                val movieTitle = movie.optString("title_long", movie.optString("title", identity.title))
-                val movieImdb = movie.optString("imdb_code", "")
+                for (i in 0 until movies.length()) {
+                    val movie = movies.getJSONObject(i)
+                    val movieTitle = movie.optString("title_long", movie.optString("title", identity.title))
+                    val movieImdb = movie.optString("imdb_code", "")
 
-                // If we have an IMDb ID, verify it matches
-                if (!identity.imdbId.isNullOrBlank() && movieImdb.isNotBlank() && !movieImdb.equals(identity.imdbId, ignoreCase = true)) {
-                    continue
-                }
+                    // If we have an IMDb ID, verify it matches
+                    if (!identity.imdbId.isNullOrBlank() && movieImdb.isNotBlank() && !movieImdb.equals(identity.imdbId, ignoreCase = true)) {
+                        continue
+                    }
 
-                val torrents = movie.optJSONArray("torrents") ?: continue
+                    val torrents = movie.optJSONArray("torrents") ?: continue
 
-                for (j in 0 until torrents.length()) {
-                    val torrent = torrents.getJSONObject(j)
-                    val hash = torrent.optString("hash", "").trim()
-                    if (hash.isBlank()) continue
+                    for (j in 0 until torrents.length()) {
+                        val torrent = torrents.getJSONObject(j)
+                        val hash = torrent.optString("hash", "").trim()
+                        if (hash.isBlank()) continue
 
-                    val quality = torrent.optString("quality", "1080p")
-                    val type = torrent.optString("type", "bluray")
-                    val seeders = torrent.optInt("seeds", 0)
-                    val leechers = torrent.optInt("peers", 0)
-                    val sizeFormatted = torrent.optString("size", "")
-                    val sizeBytes = torrent.optLong("size_bytes", 0L)
-                    val videoCodec = torrent.optString("video_codec", "x264")
+                        val quality = torrent.optString("quality", "1080p")
+                        val type = torrent.optString("type", "bluray")
+                        val seeders = torrent.optInt("seeds", 0)
+                        val leechers = torrent.optInt("peers", 0)
+                        val sizeFormatted = torrent.optString("size", "")
+                        val sizeBytes = torrent.optLong("size_bytes", 0L)
+                        val videoCodec = torrent.optString("video_codec", "x264")
 
-                    val releaseTitle = "$movieTitle [$quality] [$type] [YTS.MX]"
-                    val magnetUrl = MagnetParser.buildMagnetUrl(hash, releaseTitle)
+                        val releaseTitle = "$movieTitle [$quality] [$type] [YTS]"
+                        val magnetUrl = MagnetParser.buildMagnetUrl(hash, releaseTitle)
 
-                    val displayQuality = if (quality.contains("2160", ignoreCase = true)) "4K UHD" else quality
+                        val displayQuality = if (quality.contains("2160", ignoreCase = true)) "4K UHD" else quality
 
-                    results.add(
-                        TorrentResult(
-                            title = releaseTitle,
-                            magnet = magnetUrl,
-                            infoHash = hash.lowercase(),
-                            size = sizeBytes,
-                            formattedSize = sizeFormatted,
-                            seeders = seeders,
-                            leechers = leechers,
-                            source = "YTS",
-                            category = "Movies",
-                            quality = displayQuality,
-                            codec = videoCodec,
-                            hdr = if (quality.contains("2160")) "HDR" else "",
-                            audioChannels = "5.1 Surround",
-                            uploadDate = movie.optString("date_uploaded", "")
+                        results.add(
+                            TorrentResult(
+                                title = releaseTitle,
+                                magnet = magnetUrl,
+                                infoHash = hash.lowercase(),
+                                size = sizeBytes,
+                                formattedSize = sizeFormatted,
+                                seeders = seeders,
+                                leechers = leechers,
+                                source = "YTS",
+                                category = "Movies",
+                                quality = displayQuality,
+                                codec = videoCodec,
+                                hdr = if (quality.contains("2160")) "HDR" else "",
+                                audioChannels = "5.1 Surround",
+                                uploadDate = movie.optString("date_uploaded", "")
+                            )
                         )
-                    )
+                    }
                 }
-            }
 
-            results
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching from YTS: ${e.message}")
-            emptyList()
+                if (results.isNotEmpty()) {
+                    return@withContext results
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Mirror $baseUrl attempt note: ${e.message}")
+            }
         }
+
+        emptyList()
     }
 }
