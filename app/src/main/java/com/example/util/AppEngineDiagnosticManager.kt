@@ -307,12 +307,79 @@ object AppEngineDiagnosticManager {
     private val _isTestingComponents = MutableStateFlow(false)
     val isTestingComponents: StateFlow<Boolean> = _isTestingComponents.asStateFlow()
 
+    private val KEY_AUTO_UPDATE_ENABLED = "auto_update_repos_daily"
+    private val KEY_SILENT_DOWNLOAD_ENABLED = "auto_download_repos_silent"
+    private val KEY_LAST_AUTO_UPDATE_TIME = "last_auto_update_timestamp"
+
+    private val _isAutoUpdateEnabled = MutableStateFlow(true)
+    val isAutoUpdateEnabled: StateFlow<Boolean> = _isAutoUpdateEnabled.asStateFlow()
+
+    private val _isSilentDownloadEnabled = MutableStateFlow(true)
+    val isSilentDownloadEnabled: StateFlow<Boolean> = _isSilentDownloadEnabled.asStateFlow()
+
+    private val _lastAutoUpdateTimestamp = MutableStateFlow(0L)
+    val lastAutoUpdateTimestamp: StateFlow<Long> = _lastAutoUpdateTimestamp.asStateFlow()
+
     fun init(context: Context) {
         loadCustomRepos(context)
+        loadAutoUpdatePrefs(context)
         // Refresh yt-dlp actual version if available
         val ytVer = YtDlpUpdateManager.engineVersion.value
         if (!ytVer.isNullOrBlank() && ytVer != "Checking...") {
             updateRepoInstalledVersion("yt-dlp", "v$ytVer")
+        }
+        // Run daily background check if scheduled
+        checkAndRunDailyAutoUpdate(context)
+    }
+
+    private fun loadAutoUpdatePrefs(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        _isAutoUpdateEnabled.value = prefs.getBoolean(KEY_AUTO_UPDATE_ENABLED, true)
+        _isSilentDownloadEnabled.value = prefs.getBoolean(KEY_SILENT_DOWNLOAD_ENABLED, true)
+        _lastAutoUpdateTimestamp.value = prefs.getLong(KEY_LAST_AUTO_UPDATE_TIME, 0L)
+    }
+
+    fun setAutoUpdateEnabled(context: Context, enabled: Boolean) {
+        _isAutoUpdateEnabled.value = enabled
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_AUTO_UPDATE_ENABLED, enabled).apply()
+        if (enabled) {
+            checkAndRunDailyAutoUpdate(context)
+        }
+    }
+
+    fun setSilentDownloadEnabled(context: Context, enabled: Boolean) {
+        _isSilentDownloadEnabled.value = enabled
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_SILENT_DOWNLOAD_ENABLED, enabled).apply()
+    }
+
+    fun checkAndRunDailyAutoUpdate(context: Context) {
+        if (!_isAutoUpdateEnabled.value) return
+        val now = System.currentTimeMillis()
+        val lastCheck = _lastAutoUpdateTimestamp.value
+        val oneDayMillis = 24 * 60 * 60 * 1000L // 24 hours
+        if (now - lastCheck >= oneDayMillis || lastCheck == 0L) {
+            scope.launch {
+                try {
+                    Log.i(TAG, "Running daily automated background repository & engine check...")
+                    checkAllUpdates(context)
+                    // If silent download enabled, auto apply updates
+                    if (_isSilentDownloadEnabled.value) {
+                        kotlinx.coroutines.delay(2000)
+                        val hasUpdates = _repoList.value.any { it.status == RepoUpdateStatus.UPDATE_AVAILABLE }
+                        if (hasUpdates) {
+                            Log.i(TAG, "Updates available! Silently downloading & applying background engine updates...")
+                            updateAllRepos(context)
+                        }
+                    }
+                    _lastAutoUpdateTimestamp.value = now
+                    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    prefs.edit().putLong(KEY_LAST_AUTO_UPDATE_TIME, now).apply()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Daily background update check note: ${e.message}")
+                }
+            }
         }
     }
 

@@ -910,10 +910,23 @@ object CommentExtractorHelper {
                                     val message = item.optString("message", "")
                                     if (message.isBlank()) continue
                                     val author = item.optString("owner.screenname").takeIf { it.isNotBlank() }
+                                        ?: item.optJSONObject("owner")?.optString("screenname")?.takeIf { it.isNotBlank() }
                                         ?: item.optString("owner.username").takeIf { it.isNotBlank() }
+                                        ?: item.optJSONObject("owner")?.optString("username")?.takeIf { it.isNotBlank() }
                                         ?: "Dailymotion Viewer"
-                                    var avatar = item.optString("owner.avatar_120_url", null)
-                                    if (avatar != null && avatar.startsWith("//")) avatar = "https:$avatar"
+
+                                    val ownerUser = item.optString("owner.username").ifBlank {
+                                        item.optJSONObject("owner")?.optString("username") ?: author.replace(" ", "").lowercase()
+                                    }
+
+                                    var avatar = item.optString("owner.avatar_120_url").takeIf { it.isNotBlank() }
+                                        ?: item.optJSONObject("owner")?.optString("avatar_120_url")?.takeIf { it.isNotBlank() }
+
+                                    avatar = when {
+                                        avatar.isNullOrBlank() && ownerUser.isNotBlank() -> "https://www.dailymotion.com/thumbnail/user/$ownerUser"
+                                        avatar != null && avatar.startsWith("//") -> "https:$avatar"
+                                        else -> avatar
+                                    }
                                     val likes = item.optInt("likes_total", 0)
                                     val time = item.optLong("created_time", 0L)
                                     val timeStr = if (time > 0) formatDailymotionTime(time) else "Dailymotion"

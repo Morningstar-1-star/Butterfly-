@@ -115,8 +115,14 @@ object PreviewFrameResolver {
         val provider = (video.providerId ?: "").lowercase()
         val thumbLower = rawThumb.lowercase()
 
-        // 1. SPANKBANG (16 scene screenshots: /1.jpg .. /16.jpg or CDN paths)
+        // 1. SPANKBANG (16 scene screenshots: /1.jpg .. /16.jpg or /1_360.jpg .. /16_360.jpg)
         if (provider.contains("spankbang") || thumbLower.contains("spankbang") || thumbLower.contains("sb-cd.com") || thumbLower.contains("spankcdn")) {
+            val epornerMatcher = Regex("""/(\d+)(_\d+\.jpg)""").find(rawThumb)
+            if (epornerMatcher != null) {
+                val suffix = epornerMatcher.groupValues[2]
+                val base = rawThumb.substring(0, epornerMatcher.range.first)
+                return (1..16).map { idx -> "$base/$idx$suffix" }
+            }
             val sbMatcher = Regex("""/(\d+)\.(jpg|webp|jpeg)""", RegexOption.IGNORE_CASE).find(rawThumb)
             if (sbMatcher != null) {
                 val ext = sbMatcher.groupValues[2]

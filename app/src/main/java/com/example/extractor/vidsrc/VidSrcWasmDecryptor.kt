@@ -95,9 +95,13 @@ object VidSrcWasmDecryptor {
             return emptyList()
         }
 
-        val rawList = decryptedText.split("\n")
-            .map { it.trim() }
-            .filter { it.startsWith("http") }
+        val regex = Regex("""https?://[^\s'"]+?\.m3u8(?:\?[^\s'"]*)?""")
+        val rawList = regex.findAll(decryptedText).map { it.value.trim() }.toList()
+            .ifEmpty {
+                decryptedText.split(Regex("[\n\r]+"))
+                    .map { it.trim() }
+                    .filter { it.startsWith("http") }
+            }
 
         Log.i(TAG, "Successfully decrypted ${rawList.size} master M3U8 stream URLs via WASM")
         return rawList

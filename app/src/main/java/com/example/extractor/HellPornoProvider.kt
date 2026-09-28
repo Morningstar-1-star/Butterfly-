@@ -187,12 +187,34 @@ object HellPornoProvider {
                 seenUrls.add(href)
 
                 val imgEl = card.selectFirst("img")
-                val thumb = imgEl?.attr("data-src")?.takeIf { it.isNotBlank() }
+                var thumb = imgEl?.attr("data-src")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-original")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-webp")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-preview")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-poster")?.takeIf { it.isNotBlank() }
-                    ?: imgEl?.attr("src")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-thumb_url")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-thumb")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-cnt")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-lazy-src")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("src")?.takeIf { it.isNotBlank() && !it.contains("blank.gif") && !it.contains("data:image") }
                     ?: ""
+
+                if (thumb.isBlank()) {
+                    val style = card.attr("style") + " " + (card.selectFirst("[style*='background']")?.attr("style") ?: "")
+                    val bgMatch = Regex("""url\(['"]?([^'")\s]+)['"]?\)""").find(style)
+                    if (bgMatch != null) {
+                        thumb = bgMatch.groupValues[1]
+                    }
+                }
+
+                if (thumb.isBlank()) {
+                    val numId = Regex("""/videos?/(\d+)""").find(href)?.groupValues?.get(1)
+                    if (numId != null) {
+                        val idNum = numId.toLongOrNull() ?: 0L
+                        val folder = (idNum / 1000) * 1000
+                        thumb = "$baseMirror/contents/videos_screenshots/$folder/$numId/preview.jpg"
+                    }
+                }
 
                 val cleanThumb = when {
                     thumb.startsWith("//") -> "https:$thumb"

@@ -457,7 +457,7 @@ fun CommentsPanel(
 
     Surface(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = Color(0xFF0F0F0F),
+        color = Color.Black,
         modifier = modifier.fillMaxSize()
     ) {
         Column(

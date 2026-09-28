@@ -32,12 +32,12 @@ object TMDBEmbedConfig {
     private val healthMap = ConcurrentHashMap<TMDBEmbedSource, TMDBSourceHealth>()
 
     @Volatile
-    var cachedDefaultSourceName: String = "VixSrc"
+    var cachedDefaultSourceName: String = "Vidlink"
 
     private fun getPrefs(context: Context): SharedPreferences {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val def = prefs.getString(KEY_DEFAULT_SOURCE, "vixsrc")
-        cachedDefaultSourceName = TMDBEmbedSource.fromId(def ?: "vixsrc")?.displayName ?: "VixSrc"
+        val def = prefs.getString(KEY_DEFAULT_SOURCE, "vidlink")
+        cachedDefaultSourceName = TMDBEmbedSource.fromId(def ?: "vidlink")?.displayName ?: "Vidlink"
         return prefs
     }
 
@@ -59,7 +59,7 @@ object TMDBEmbedConfig {
 
     fun getDefaultSource(context: Context): TMDBEmbedSource {
         val stored = getPrefs(context).getString(KEY_DEFAULT_SOURCE, null)
-        val src = stored?.let { TMDBEmbedSource.fromId(it) } ?: TMDBEmbedSource.VIXSRC
+        val src = stored?.let { TMDBEmbedSource.fromId(it) } ?: TMDBEmbedSource.VIDLINK
         cachedDefaultSourceName = src.displayName
         return src
     }

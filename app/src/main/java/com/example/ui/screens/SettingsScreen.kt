@@ -38,11 +38,10 @@ import com.example.ui.MainViewModel
 import kotlinx.coroutines.launch
 
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
-    GENERAL("General", "Theme, colors & layout preferences", Icons.Outlined.Palette),
-    LANGUAGE("Language & Translation", "App language, auto-translation & original titles", Icons.Outlined.Translate),
+    GENERAL("General", "Theme, colors, language & layout preferences", Icons.Outlined.Palette),
     PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
     ACCOUNTS_SOURCES("Accounts & Sources", "Tencent Video, YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
-    PROVIDERS("Content Sources", "Manage Tencent Video (v.qq.com), YouTube, Dailymotion & more", Icons.Outlined.Source),
+    PROVIDERS("Content Sources & Providers", "Manage all 100+ sources: Normal, 18+, Vega, VidSrc, Decryptor, TMDB & Torrents", Icons.Outlined.Source),
     PROWLARR_INDEXERS("Prowlarr & Cardigann Indexers", "Manage Prowlarr V11 YAML indexers, test & sync", Icons.Outlined.Radar),
     SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
@@ -124,6 +123,25 @@ fun SettingsScreen(
     var showBatteryCapDialog by remember { mutableStateOf(false) }
     var showBatteryThresholdDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+
+    val prioritizeVideoQuality by playbackPrefs.prioritizeVideoQuality.collectAsState()
+    val disableDrcAudio by playbackPrefs.disableDrcAudio.collectAsState()
+    val disableHdrVideo by playbackPrefs.disableHdrVideo.collectAsState()
+    val forceAvcCodec by playbackPrefs.forceAvcCodec.collectAsState()
+    val videoCodecPreference by playbackPrefs.videoCodecPreference.collectAsState()
+    val decoderMode by playbackPrefs.decoderMode.collectAsState()
+    val forceOriginalAudioLanguage by playbackPrefs.forceOriginalAudioLanguage.collectAsState()
+    val customPlaybackSpeedMenu by playbackPrefs.customPlaybackSpeedMenu.collectAsState()
+    val customPlaybackSpeeds by playbackPrefs.customPlaybackSpeeds.collectAsState()
+    val tapAndHoldSpeed by playbackPrefs.tapAndHoldSpeed.collectAsState()
+    val rememberPlaybackSpeed by playbackPrefs.rememberPlaybackSpeed.collectAsState()
+    val speedChangeNotifications by playbackPrefs.speedChangeNotifications.collectAsState()
+    val ambientModeEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
+    val loopVideoEnabled by playbackPrefs.loopVideoEnabled.collectAsState()
+
+    var showCodecDialog by remember { mutableStateOf(false) }
+    var showDecoderDialog by remember { mutableStateOf(false) }
+    var showTapHoldSpeedDialog by remember { mutableStateOf(false) }
 
     val appDisplayLanguage by viewModel.appDisplayLanguage.collectAsState()
     val autoTranslateMetadata by viewModel.autoTranslateMetadata.collectAsState()
@@ -250,47 +268,25 @@ fun SettingsScreen(
             if (currentCategory == null) {
                 val rootCategories = listOf(
                     SettingsCategory.GENERAL,
-                    SettingsCategory.LANGUAGE,
                     SettingsCategory.PLAYBACK,
                     SettingsCategory.ACCOUNTS_SOURCES,
                     SettingsCategory.PROVIDERS,
-                    SettingsCategory.PROWLARR_INDEXERS,
                     SettingsCategory.SUBTITLE_PROVIDERS,
-                    SettingsCategory.VEGA,
-                    SettingsCategory.VIDSRC,
-                    SettingsCategory.DECRYPTOR,
-                    SettingsCategory.TMDB_EMBED,
-                    SettingsCategory.ADULT_18,
                     SettingsCategory.SMART_SKIP,
                     SettingsCategory.HISTORY_PRIVACY,
                     SettingsCategory.BACKUP_RESTORE,
                     SettingsCategory.ADDITIONAL_SETTINGS,
                     SettingsCategory.ABOUT
                 )
-                // ROOT YOUTUBE-STYLE SETTINGS LIST
+                // ROOT YOUTUBE-STYLE SETTINGS LIST (Single clean bold title with icon)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp)
                 ) {
                     items(rootCategories) { category ->
-                        val dynamicSubtitle = when (category) {
-                            SettingsCategory.GENERAL -> if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Theme" else "AMOLED Dark"
-                            SettingsCategory.LANGUAGE -> (if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English") + if (autoTranslateMetadata) " • Auto-translate ON" else " • Auto-translate OFF"
-                            SettingsCategory.BATTERY_SAVER -> if (isPowerSaveActive) "Active ($batteryLevel% • Eco Power Mode)" else "Optimizations, RAM & battery saver ($batteryLevel%)"
-                            SettingsCategory.PLAYBACK -> "${defaultResolutionPref.value} • ${doubleTapSeekPref.intValue}s seek"
-                            SettingsCategory.SUBTITLE_PROVIDERS -> "SubDL, OpenSubtitles, SubtitleCat & Bazarr"
-                            SettingsCategory.VEGA -> "${viewModel.installedVegaProviders.collectAsState().value.size} extensions installed • Built-in"
-                            SettingsCategory.VIDSRC -> "${viewModel.installedVidSrcProviders.collectAsState().value.size} servers active • Multi-mirror"
-                            SettingsCategory.DECRYPTOR -> "${viewModel.installedDecryptorProviders.collectAsState().value.size} servers active • HLS decoder"
-                            SettingsCategory.TMDB_EMBED -> "${viewModel.installedTMDBProviders.collectAsState().value.size} sources active • VIP extractors"
-                            SettingsCategory.ADULT_18 -> if (adultContentEnabled) "Enabled (18+ sources only)" else "Disabled"
-                            SettingsCategory.DNS_NETWORK -> if (viewModel.isSecureDnsEnabled.collectAsState().value) viewModel.selectedDnsProvider.collectAsState().value.displayName else "Disabled (ISP)"
-                            else -> category.subtitle
-                        }
-
                         YouTubeSettingsRow(
                             title = category.title,
-                            subtitle = dynamicSubtitle,
+                            subtitle = null,
                             icon = category.icon,
                             onClick = { currentCategory = category }
                         )
@@ -606,83 +602,10 @@ fun SettingsScreen(
                     SettingsCategory.GENERAL -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            item {
-                                YouTubeDetailRow(
-                                    title = "App Language",
-                                    subtitle = if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English",
-                                    onClick = { showLanguageDialog = true }
-                                )
-                            }
-                            item {
-                                YouTubeSwitchRow(
-                                    title = "Auto-translate Metadata",
-                                    subtitle = "Automatically translate foreign titles & metadata without altering originals",
-                                    checked = autoTranslateMetadata,
-                                    onCheckedChange = { viewModel.setAutoTranslateMetadata(it) }
-                                )
-                            }
-                            item {
-                                YouTubeDetailRow(
-                                    title = "Theme",
-                                    subtitle = if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Mode" else "AMOLED Dark",
-                                    onClick = { showThemeDialog = true }
-                                )
-                            }
-                            item {
-                                YouTubeDetailRow(
-                                    title = "Secondary Accent Color",
-                                    subtitle = accentColor.label,
-                                    onClick = { showAccentDialog = true }
-                                )
-                            }
-                            item {
-                                val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
-                                YouTubeSwitchRow(
-                                    title = "Butterfly Opening Animation",
-                                    subtitle = "Cinematic animated launch intro on app startup",
-                                    checked = isOpeningAnimationEnabled,
-                                    onCheckedChange = { viewModel.setOpeningAnimationEnabled(it) }
-                                )
-                            }
-                            item {
-                                val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
-                                YouTubeDetailRow(
-                                    title = "Opening Animation Style",
-                                    subtitle = "${openingAnimationStyle.title} • ${openingAnimationStyle.subtitle}",
-                                    onClick = { showAnimationDialog = true }
-                                )
-                            }
-                            item {
-                                val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
-                                YouTubeDetailRow(
-                                    title = "Preview Opening Animation",
-                                    subtitle = "Test ${openingAnimationStyle.title} transition",
-                                    onClick = {
-                                        viewModel.setOpeningAnimationEnabled(true)
-                                        viewModel.replayOpeningAnimation()
-                                    }
-                                )
-                            }
-                            item {
-                                YouTubeSwitchRow(
-                                    title = "Thumbnail Source Tags",
-                                    subtitle = "Show provider badges (e.g. YouTube, Vimeo, 18+) on video cards",
-                                    checked = showThumbnailTags,
-                                    onCheckedChange = { viewModel.setShowThumbnailTags(it) }
-                                )
-                            }
-                        }
-                    }
-
-                    SettingsCategory.LANGUAGE -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // 1. Language Selection Card
+                            // 1. Language & Translation Section Card
                             item {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
@@ -691,7 +614,7 @@ fun SettingsScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                         Text(
-                                            text = "DISPLAY LANGUAGE",
+                                            text = "LANGUAGE & TRANSLATION",
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary,
@@ -700,14 +623,32 @@ fun SettingsScreen(
 
                                         YouTubeDetailRow(
                                             title = "App Interface Language",
-                                            subtitle = if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English (US/UK)",
+                                            subtitle = if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English (US / UK)",
                                             onClick = { showLanguageDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Auto-translate Metadata",
+                                            subtitle = "Automatically detect foreign titles and translate to selected language",
+                                            checked = autoTranslateMetadata,
+                                            onCheckedChange = { viewModel.setAutoTranslateMetadata(it) }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Show Original Native Titles",
+                                            subtitle = "Always display untouched native titles (Japanese, Korean, Chinese, Hindi) alongside translations",
+                                            checked = showOriginalTitles,
+                                            onCheckedChange = { viewModel.setShowOriginalTitles(it) }
                                         )
                                     }
                                 }
                             }
 
-                            // 2. Metadata Translation Controls Card
+                            // 2. Appearance & Theme Section Card
                             item {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
@@ -716,109 +657,65 @@ fun SettingsScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                         Text(
-                                            text = "UNIVERSAL METADATA TRANSLATION",
+                                            text = "APPEARANCE & THEME",
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
 
+                                        YouTubeDetailRow(
+                                            title = "Theme",
+                                            subtitle = if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Mode" else "AMOLED Dark",
+                                            onClick = { showThemeDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Secondary Accent Color",
+                                            subtitle = accentColor.label,
+                                            onClick = { showAccentDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
                                         YouTubeSwitchRow(
-                                            title = "Auto-translate Metadata",
-                                            subtitle = "Automatically detect foreign video/movie titles and translate to English & Hindi",
-                                            checked = autoTranslateMetadata,
-                                            onCheckedChange = { viewModel.setAutoTranslateMetadata(it) }
+                                            title = "Butterfly Opening Animation",
+                                            subtitle = "Cinematic animated launch intro on app startup",
+                                            checked = isOpeningAnimationEnabled,
+                                            onCheckedChange = { viewModel.setOpeningAnimationEnabled(it) }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
+                                        YouTubeDetailRow(
+                                            title = "Opening Animation Style",
+                                            subtitle = "${openingAnimationStyle.title} • ${openingAnimationStyle.subtitle}",
+                                            onClick = { showAnimationDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Preview Opening Animation",
+                                            subtitle = "Test ${openingAnimationStyle.title} transition",
+                                            onClick = {
+                                                viewModel.setOpeningAnimationEnabled(true)
+                                                viewModel.replayOpeningAnimation()
+                                            }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                                         YouTubeSwitchRow(
-                                            title = "Show Original Titles by Default",
-                                            subtitle = "Always display untouched native titles (Japanese, Korean, Chinese, Arabic, etc.) alongside translations",
-                                            checked = showOriginalTitles,
-                                            onCheckedChange = { viewModel.setShowOriginalTitles(it) }
+                                            title = "Thumbnail Source Tags",
+                                            subtitle = "Show provider badges (e.g. YouTube, Vimeo, 18+) on video cards",
+                                            checked = showThumbnailTags,
+                                            onCheckedChange = { viewModel.setShowThumbnailTags(it) }
                                         )
-                                    }
-                                }
-                            }
-
-                            // 3. Engine Architecture & Features Card
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.Translate,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            }
-                                            Column {
-                                                Text(
-                                                    text = "Universal Language Core",
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                Text(
-                                                    text = "Zero Data Loss & Smart Detection",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(14.dp))
-
-                                        Text(
-                                            text = "• Default English: All foreign titles (Japanese, Korean, Chinese, Spanish, etc.) default to English.\n• Hindi Native Respect: Hindi titles are left in native Hindi untouched with zero translation overhead.\n• Clean Titles: Titles are displayed cleanly without secondary translation clutter.\n• High-Speed Local Caching: Translations are cached in Room DB for instant zero-latency loading.",
-                                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-
-                                        Spacer(modifier = Modifier.height(14.dp))
-
-                                        Button(
-                                            onClick = {
-                                                coroutineScope.launch {
-                                                    val testOriginal = "進撃の巨人 The Final Season 完結編"
-                                                    val result = com.example.util.UniversalTranslator.translateTitle(testOriginal)
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Original: $testOriginal\nEN: ${result.translatedEN}",
-                                                        Toast.LENGTH_LONG
-                                                    ).show()
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.primary
-                                            )
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.AutoAwesome,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Test Universal Translation Engine", fontWeight = FontWeight.Bold)
-                                        }
                                     }
                                 }
                             }
@@ -828,124 +725,241 @@ fun SettingsScreen(
                     SettingsCategory.PLAYBACK -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            // 1. VIDEO QUALITY & CODEC EFFICIENCY CARD
                             item {
-                                YouTubeDetailRow(
-                                    title = "Default Video Resolution",
-                                    subtitle = defaultResolutionPref.value,
-                                    onClick = { showResolutionDialog = true }
-                                )
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "VIDEO QUALITY & CODEC EFFICIENCY",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeSwitchRow(
+                                            title = "Prioritize Video Quality",
+                                            subtitle = "Prioritize highest stream bitrate, higher fps and best profile",
+                                            checked = prioritizeVideoQuality,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setPrioritizeVideoQuality(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Video Codec Preference",
+                                            subtitle = when (videoCodecPreference) {
+                                                "AVC_H264" -> "Force AVC / H.264 (Maximum Compatibility & Low Power)"
+                                                "HEVC_H265" -> "Prefer HEVC / H.265 (High Efficiency)"
+                                                "VP9" -> "Prefer Google VP9"
+                                                "AV1" -> "Prefer AV1 (Next-Gen)"
+                                                else -> "Auto (Optimal Hardware Codec Selection)"
+                                            },
+                                            onClick = { showCodecDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Hardware Decoder Engine",
+                                            subtitle = when (decoderMode) {
+                                                "SOFTWARE" -> "Software Decoder (CPU Fallback)"
+                                                "EXO_MEDIACODEC" -> "ExoPlayer Direct MediaCodec"
+                                                else -> "Hardware Acceleration (GPU MediaCodec - Recommended)"
+                                            },
+                                            onClick = { showDecoderDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Disable HDR Video",
+                                            subtitle = "Tone maps HDR to SDR for lower power usage, battery saving and cool playback",
+                                            checked = disableHdrVideo,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setDisableHdrVideo(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Force AVC (H.264) Codec",
+                                            subtitle = "Forces standard H.264 for maximum hardware decoder stability and lowest heat",
+                                            checked = forceAvcCodec,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setForceAvcCodec(it) } }
+                                        )
+                                    }
+                                }
                             }
+
+                            // 2. AUDIO & STREAM TRACKS CARD
                             item {
-                                YouTubeDetailRow(
-                                    title = "Double-Tap to Seek",
-                                    subtitle = "${doubleTapSeekPref.intValue} seconds",
-                                    onClick = { showSeekDialog = true }
-                                )
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "AUDIO & STREAM TRACKS",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeSwitchRow(
+                                            title = "Disable DRC (Dynamic Range Compression)",
+                                            subtitle = "Disables audio DRC compression to maintain original uncompressed dynamic range",
+                                            checked = disableDrcAudio,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setDisableDrcAudio(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Force Original Audio Language",
+                                            subtitle = "Always default to the content's native/original audio stream instead of dubs",
+                                            checked = forceOriginalAudioLanguage,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setForceOriginalAudioLanguage(it) } }
+                                        )
+                                    }
+                                }
                             }
+
+                            // 3. PLAYBACK SPEED & GESTURE CONTROLS CARD
                             item {
-                                YouTubeDetailRow(
-                                    title = "Default Playback Speed",
-                                    subtitle = "${defaultSpeed}x",
-                                    onClick = { showSpeedDialog = true }
-                                )
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "PLAYBACK SPEED & GESTURES",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeDetailRow(
+                                            title = "Default Playback Speed",
+                                            subtitle = "${defaultSpeed}x",
+                                            onClick = { showSpeedDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Custom Playback Speed Menu",
+                                            subtitle = "Enables advanced granular speed slider (0.1x to 4.0x) in player",
+                                            checked = customPlaybackSpeedMenu,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setCustomPlaybackSpeedMenu(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Tap & Hold Speed Boost",
+                                            subtitle = "${tapAndHoldSpeed}x (Speed when holding finger down on video)",
+                                            onClick = { showTapHoldSpeedDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Remember Playback Speed",
+                                            subtitle = "Saves custom playback speed per video or session",
+                                            checked = rememberPlaybackSpeed,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setRememberPlaybackSpeed(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Speed Change HUD Notifications",
+                                            subtitle = "Shows on-screen toast & badge indicator when speed is adjusted",
+                                            checked = speedChangeNotifications,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setSpeedChangeNotifications(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Disable Speed Adjustment for Music",
+                                            subtitle = "Automatically resets playback speed to 1.0x on detected music streams",
+                                            checked = disableSpeedForMusic,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setDisableSpeedForMusic(it) } }
+                                        )
+                                    }
+                                }
                             }
+
+                            // 4. RESOLUTION, AMBIENT & SEEKING CARD
                             item {
-                                YouTubeSwitchRow(
-                                    title = "Disable Speed Adjustment for Music",
-                                    subtitle = "Automatically resets playback speed to 1.0x on music streams",
-                                    checked = disableSpeedForMusic,
-                                    onCheckedChange = { coroutineScope.launch { playbackPrefs.setDisableSpeedForMusic(it) } }
-                                )
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "DISPLAY, AMBIENT & SEEKING",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeDetailRow(
+                                            title = "Default Video Resolution",
+                                            subtitle = defaultResolutionPref.value,
+                                            onClick = { showResolutionDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Double-Tap to Seek",
+                                            subtitle = "${doubleTapSeekPref.intValue} seconds",
+                                            onClick = { showSeekDialog = true }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Ambient Mode Glow",
+                                            subtitle = "Dynamic glowing effect around video player matching video colors",
+                                            checked = ambientModeEnabled,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setAmbientModeEnabled(it) } }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Loop Video by Default",
+                                            subtitle = "Automatically repeat video when playback reaches end",
+                                            checked = loopVideoEnabled,
+                                            onCheckedChange = { coroutineScope.launch { playbackPrefs.setLoopVideoEnabled(it) } }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
 
                     SettingsCategory.ADULT_18 -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            item {
-                                YouTubeSwitchRow(
-                                    title = "18+ Adult Content Mode",
-                                    subtitle = "Enable adult content mode (Home dropdown will show 18+ sources only)",
-                                    checked = adultContentEnabled,
-                                    onCheckedChange = { viewModel.setAdultContentEnabled(it) }
-                                )
-                            }
-                            if (adultContentEnabled) {
-                                item {
-                                    Text(
-                                        text = "ENABLED ADULT PROVIDERS",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                                    )
-                                }
-                                val adultProviders = listOf(
-                                    "xnxx" to "XNXX (HD Adult Video)",
-                                    "hellporno" to "HellPorno (HD Streams)",
-                                    "stripchat" to "Stripchat (Live Webcam Shows)",
-                                    "chaturbate" to "Chaturbate (Live Webcam Cams)",
-                                    "sextb" to "SEXТB (StreamTB)",
-                                    "supjav" to "SupJav (FHD Stream)",
-                                    "123av" to "123AV (JAV & Player)",
-                                    "javtiful" to "Javtiful (JAV)",
-                                    "jav_all" to "All JAV Sources",
-                                    "pornhub" to "Pornhub",
-                                    "xvideos" to "XVideos",
-                                    "cam4" to "CAM4 (Live Shows)",
-                                    "cammodels" to "CamModels (Live)",
-                                    "noodlemagazine" to "NoodleMagazine",
-                                    "thisvid" to "ThisVid",
-                                    "tnaflix" to "TNAFlix",
-                                    "spankbang" to "SpankBang",
-                                    "playvid" to "Playvid",
-                                    "txxx" to "TXXX",
-                                    "eporner" to "Eporner",
-                                    "hanime1" to "Hanime1 Anime",
-                                    "redtube" to "RedTube",
-                                    "xhamster" to "XHamster",
-                                    "beeg" to "Beeg",
-                                    "4tube" to "4tube",
-                                    "rule34video" to "Rule34Video",
-                                    "youporn" to "YouPorn"
-                                )
-                                items(adultProviders) { (id, name) ->
-                                    val isEnabled = enabledProviderIds.contains(id)
-                                    YouTubeSwitchRow(
-                                        title = name,
-                                        subtitle = "Catalog and streams from $name",
-                                        checked = isEnabled,
-                                        onCheckedChange = { viewModel.toggleProviderEnabled(id) }
-                                    )
-                                }
-                            } else {
-                                item {
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                                    ) {
-                                        Column(modifier = Modifier.padding(16.dp)) {
-                                            Text(
-                                                text = "18+ Adult Sources Inactive",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = "Turn on '18+ Adult Content Mode' above to activate sources: XNXX, HellPorno, Stripchat, Chaturbate, SEXТB, SupJav, 123AV, Pornhub, XVideos, and more.",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        UnifiedContentSourcesScreen(
+                            viewModel = viewModel,
+                            onNavigateToCategory = { currentCategory = it }
+                        )
                     }
 
                     SettingsCategory.ACCOUNTS_SOURCES -> {
@@ -957,722 +971,11 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.PROVIDERS -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                        .clickable { currentCategory = SettingsCategory.ACCOUNTS_SOURCES }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Hub,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = "Accounts & Sources",
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.titleSmall
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = MaterialTheme.colorScheme.primary
-                                                ) {
-                                                    Text(
-                                                        text = "Grayjay Engine",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onPrimary,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = "Log into YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFF673AB7).copy(alpha = 0.15f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF673AB7).copy(alpha = 0.35f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                        .clickable { currentCategory = SettingsCategory.PROWLARR_INDEXERS }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF673AB7).copy(alpha = 0.2f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Radar,
-                                                contentDescription = null,
-                                                tint = Color(0xFF9C27B0),
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = "Prowlarr & Cardigann Indexers",
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.titleSmall
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = Color(0xFF9C27B0)
-                                                ) {
-                                                    Text(
-                                                        text = "V11 YAML Engine",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = "Manage Prowlarr indexer definitions, test health & sync mirrors",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFFE91E63).copy(alpha = 0.12f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.35f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                        .clickable { currentCategory = SettingsCategory.ADULT_18 }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFE91E63).copy(alpha = 0.2f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Explicit,
-                                                contentDescription = null,
-                                                tint = Color(0xFFE91E63),
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = "SEXТB & 18+ Adult Sources",
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.titleSmall
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = Color(0xFFE91E63)
-                                                ) {
-                                                    Text(
-                                                        text = if (adultContentEnabled) "ENABLED" else "18+",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                text = "Manage SEXТB (StreamTB), JAV (123AV, Javtiful) & mature tube sources",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Decryptor Multi-Server Provider Card
-                            item {
-                                var decryptorEnabled by remember { mutableStateOf(com.example.util.AppConfig.isDecryptorEnabled()) }
-                                var decryptorUrl by remember { mutableStateOf(com.example.util.AppConfig.getDecryptorBaseUrl()) }
-                                var isEditingUrl by remember { mutableStateOf(false) }
-
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFF00E5FF).copy(alpha = 0.12f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFF00E5FF).copy(alpha = 0.2f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Dns,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFF00E5FF),
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        text = "Decryptor (Nxsha Multi-Server)",
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = MaterialTheme.typography.titleSmall
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = Color(0xFF00E5FF)
-                                                    ) {
-                                                        Text(
-                                                            text = "HLS ENGINE",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = Color.Black,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Text(
-                                                    text = "Extracts TMDB movies & TV shows into multi-server streams (Vidhide, Turbo, Nxsha Fast) for Media3 ExoPlayer",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Switch(
-                                                checked = decryptorEnabled,
-                                                onCheckedChange = {
-                                                    decryptorEnabled = it
-                                                    com.example.util.AppConfig.setDecryptorEnabled(context, it)
-                                                }
-                                            )
-                                        }
-
-                                        if (decryptorEnabled) {
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Text(
-                                                    text = "Endpoint: $decryptorUrl",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = Color.LightGray,
-                                                    maxLines = 1,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                TextButton(
-                                                    onClick = { isEditingUrl = !isEditingUrl }
-                                                ) {
-                                                    Text(if (isEditingUrl) "Close" else "Edit URL", fontSize = 12.sp, color = Color(0xFF00E5FF))
-                                                }
-                                            }
-
-                                            if (isEditingUrl) {
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                OutlinedTextField(
-                                                    value = decryptorUrl,
-                                                    onValueChange = {
-                                                        decryptorUrl = it
-                                                        com.example.util.AppConfig.setDecryptorBaseUrl(context, it)
-                                                    },
-                                                    label = { Text("Decryptor Backend URL") },
-                                                    singleLine = true,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // TMDB Embed Multi-Source Provider Card (13 Selectable Sources)
-                            item {
-                                var tmdbMasterEnabled by remember { mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.isMasterEnabled(context)) }
-                                var defaultSource by remember { mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.getDefaultSource(context)) }
-                                var fallbackEnabled by remember { mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.isFallbackEnabled(context)) }
-                                var showSourceList by remember { mutableStateOf(false) }
-
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFF6200EE).copy(alpha = 0.12f),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 8.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .background(Color(0xFF6200EE), CircleShape),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlayArrow,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        text = "TMDB Embed (13 Sources)",
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = MaterialTheme.typography.titleSmall
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Surface(
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        color = Color(0xFF6200EE)
-                                                    ) {
-                                                        Text(
-                                                            text = "MULTI-SOURCE",
-                                                            fontSize = 9.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = Color.White,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Text(
-                                                    text = "Extracts TMDB movies & TV via Showbox, VixSrc, NetMirror, Videasy, Vidlink, CastleTV & more",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Switch(
-                                                checked = tmdbMasterEnabled,
-                                                onCheckedChange = {
-                                                    tmdbMasterEnabled = it
-                                                    com.example.extractor.tmdbembed.TMDBEmbedConfig.setMasterEnabled(context, it)
-                                                    viewModel.toggleProviderEnabled("tmdb_embed", it)
-                                                }
-                                            )
-                                        }
-
-                                        if (tmdbMasterEnabled) {
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            // Default Source Selection
-                                            Text(
-                                                text = "Default Primary Source: ${defaultSource.displayName}",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-
-                                            LazyRow(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                items(com.example.extractor.tmdbembed.TMDBEmbedSource.allSources) { src ->
-                                                    val isSelected = defaultSource == src
-                                                    FilterChip(
-                                                        selected = isSelected,
-                                                        onClick = {
-                                                            defaultSource = src
-                                                            com.example.extractor.tmdbembed.TMDBEmbedConfig.setDefaultSource(context, src)
-                                                        },
-                                                        label = { Text(src.displayName, fontSize = 11.sp) },
-                                                        colors = FilterChipDefaults.filterChipColors(
-                                                            selectedContainerColor = Color(0xFF6200EE),
-                                                            selectedLabelColor = Color.White
-                                                        )
-                                                    )
-                                                }
-                                            }
-
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            // Fallback Toggle
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = "Auto Fallback to Other Sources",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
-                                                    Text(
-                                                        text = "If default source fails, try next enabled sources automatically",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                Switch(
-                                                    checked = fallbackEnabled,
-                                                    onCheckedChange = {
-                                                        fallbackEnabled = it
-                                                        com.example.extractor.tmdbembed.TMDBEmbedConfig.setFallbackEnabled(context, it)
-                                                    }
-                                                )
-                                            }
-
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            // Toggle Source List Accordion
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable { showSourceList = !showSourceList }
-                                                    .padding(vertical = 4.dp)
-                                            ) {
-                                                Text(
-                                                    text = if (showSourceList) "Hide Per-Source Toggles ▲" else "Configure 13 Sources & Health Status ▼",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-
-                                            if (showSourceList) {
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.forEach { src ->
-                                                    var isSrcEnabled by remember {
-                                                        mutableStateOf(com.example.extractor.tmdbembed.TMDBEmbedConfig.isSourceEnabled(context, src))
-                                                    }
-                                                    val health = com.example.extractor.tmdbembed.TMDBEmbedConfig.getSourceHealth(src)
-
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(vertical = 3.dp)
-                                                    ) {
-                                                        Column(modifier = Modifier.weight(1f)) {
-                                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                Text(
-                                                                    text = src.displayName,
-                                                                    style = MaterialTheme.typography.bodyMedium,
-                                                                    fontWeight = if (src == defaultSource) FontWeight.Bold else FontWeight.Normal
-                                                                )
-                                                                if (src == defaultSource) {
-                                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                                    Text(
-                                                                        text = "(Default)",
-                                                                        fontSize = 10.sp,
-                                                                        color = MaterialTheme.colorScheme.primary
-                                                                    )
-                                                                }
-                                                                Spacer(modifier = Modifier.width(6.dp))
-                                                                // Health badge
-                                                                val badgeColor = when (health.statusText) {
-                                                                    "Online" -> Color(0xFF00C853)
-                                                                    "Degraded" -> Color(0xFFFF9100)
-                                                                    "Failing" -> Color(0xFFFF1744)
-                                                                    else -> Color.Gray
-                                                                }
-                                                                Surface(
-                                                                    shape = RoundedCornerShape(3.dp),
-                                                                    color = badgeColor.copy(alpha = 0.2f)
-                                                                ) {
-                                                                    Text(
-                                                                        text = health.statusText,
-                                                                        fontSize = 9.sp,
-                                                                        color = badgeColor,
-                                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                    )
-                                                                }
-                                                            }
-                                                            Text(
-                                                                text = "${if (src.supportsTv) "Movie & TV" else "Movie"} • Success: ${health.successCount}, Fail: ${health.failureCount}",
-                                                                fontSize = 10.sp,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                            )
-                                                        }
-                                                        Switch(
-                                                            checked = isSrcEnabled,
-                                                            onCheckedChange = {
-                                                                isSrcEnabled = it
-                                                                com.example.extractor.tmdbembed.TMDBEmbedConfig.setSourceEnabled(context, src, it)
-                                                            }
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Featured Tencent Video (v.qq.com) Card
-                            item {
-                                val isTencentEnabled = enabledProviderIds.contains("tencent")
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 8.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = Color(0xFF0052D9).copy(alpha = 0.12f)
-                                    ),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.5.dp,
-                                        Color(0xFF0052D9).copy(alpha = 0.6f)
-                                    )
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    color = Color(0xFF0052D9),
-                                                    modifier = Modifier.size(40.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.LiveTv,
-                                                            contentDescription = "Tencent Video",
-                                                            tint = Color.White,
-                                                            modifier = Modifier.size(22.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Column {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(
-                                                            text = "Tencent Video",
-                                                            style = MaterialTheme.typography.titleMedium,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Surface(
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            color = Color(0xFF0052D9)
-                                                        ) {
-                                                            Text(
-                                                                text = "v.qq.com",
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = Color.White,
-                                                                fontWeight = FontWeight.Bold,
-                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                                fontSize = 10.sp
-                                                            )
-                                                        }
-                                                    }
-                                                    Text(
-                                                        text = "Chinese VIP Dramas, Donghua & Movies",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                            Switch(
-                                                checked = isTencentEnabled,
-                                                onCheckedChange = { viewModel.toggleProviderEnabled("tencent") }
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "Stream official Donghua (Soul Land, Perfect World, Battle Through the Heavens, Joy of Life, The Untamed) & C-Dramas with 1080p HLS playback.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    if (!isTencentEnabled) {
-                                                        viewModel.toggleProviderEnabled("tencent")
-                                                    }
-                                                    viewModel.setAdultContentEnabled(false)
-                                                    viewModel.setActiveProvider("tencent")
-                                                    currentCategory = null
-                                                    viewModel.navigateToScreen(com.example.model.AppScreen.HOME)
-                                                    Toast.makeText(context, "Switched to Tencent Video Home Feed", Toast.LENGTH_SHORT).show()
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0052D9)),
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Open on Homepage", fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            val normalProviders = listOf(
-                                "tencent" to "Tencent Video (v.qq.com)",
-                                "youtube" to "YouTube",
-                                "sonyliv" to "SonyLIV",
-                                "hotstar" to "Hotstar / Jio",
-                                "amazonminitv" to "Amazon miniTV",
-                                "crunchyroll" to "Crunchyroll Anime",
-                                "bilibili" to "Bilibili",
-                                "dailymotion" to "Dailymotion",
-                                "twitch" to "Twitch",
-                                "bigo" to "Bigo Live",
-                                "archive_org" to "Internet Archive",
-                                "vimeo" to "Vimeo",
-                                "bun-tel-meg" to "bun-tel-meg (Telegram, MEGA & Bunkr)",
-                                "torrent" to "BitTorrent (P2P)",
-                                "discoveryplus" to "Discovery+",
-                                "disney" to "Disney / Disney+",
-                                "hbo" to "HBO / Max",
-                                "curiositystream" to "CuriosityStream",
-                                "googledrive" to "Google Drive",
-                                "imdb" to "IMDb (Top Movies & Trailers)",
-                                "mxplayer" to "MX Player",
-                                "popcorntv" to "PopcornTV",
-                                "decryptor" to "Decryptor (Multi-Server HLS)",
-                                "tmdb_embed" to "TMDB Embed (13 Multi-Sources)",
-                                "vidsrc" to "VidSrc (Cloud Stream)"
-                            )
-                            items(normalProviders) { (id, name) ->
-                                val isEnabled = enabledProviderIds.contains(id)
-                                Column {
-                                    YouTubeSwitchRow(
-                                        title = name,
-                                        subtitle = when (id) {
-                                            "bilibili" -> "Bilibili anime, pop culture & dynamic Chinese video streams"
-                                            "tencent" -> "Tencent Video (v.qq.com) Chinese dramas, anime & cinema series"
-                                            "sonyliv" -> "SonyLIV TV shows, live sports, premium web series & cinema"
-                                            "bigo" -> "Bigo Live interactive streams, global broadcasters & video rooms"
-                                            "bun-tel-meg" -> "Telegram Channels, MEGA Folders & Bunkr Albums video links"
-                                            "amazonminitv" -> "Amazon miniTV free web series, comedy, romance & drama"
-                                            "discoveryplus" -> "Discovery+, Science, Animal Planet & TLC docu-series"
-                                            "disney" -> "Disney, Pixar, Marvel, Star Wars & Nat Geo cinema trailers"
-                                            "hbo" -> "HBO Originals, House of the Dragon, Game of Thrones & Max hits"
-                                            "curiositystream" -> "CuriosityStream science, history, space & nature documentaries"
-                                            "googledrive" -> "Stream public and synced Google Drive movies & shared videos"
-                                            "imdb" -> "IMDb Top 250 releases, movie charts & HD trailers"
-                                            "mxplayer" -> "MX Player OTT web series, short films & movies"
-                                            "popcorntv" -> "PopcornTV blockbusters, open movies & 4K cinema releases"
-                                            "decryptor" -> "Nxsha multi-server HLS engine: Vidhide, Turbo & Fast CDNs"
-                                            "tmdb_embed" -> "13 Selectable Sources: VixSrc, NetMirror, Videasy, Vidlink, CastleTV & more"
-                                            "vidsrc" -> "VidSrc high-speed cloud streams, auto-mirrors & HD movies"
-                                            else -> "Streams from $name platform"
-                                        },
-                                        checked = isEnabled,
-                                        onCheckedChange = { viewModel.toggleProviderEnabled(id) }
-                                    )
-                                    if (id == "bun-tel-meg" && isEnabled) {
-                                        TextButton(
-                                            onClick = { currentCategory = SettingsCategory.CLOUD_SOCIAL },
-                                            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
-                                        ) {
-                                            Icon(Icons.Default.AddLink, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Paste & Manage Links (Telegram, MEGA, Bunkr)")
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        UnifiedContentSourcesScreen(
+                            viewModel = viewModel,
+                            onNavigateToCategory = { currentCategory = it }
+                        )
                     }
-
                     SettingsCategory.CLOUD_SOCIAL -> {
                         CloudSocialSettingsScreen(
                             onNavigateBack = { currentCategory = null }
@@ -1872,1022 +1175,14 @@ fun SettingsScreen(
                         }
                     }
 
-                    SettingsCategory.VEGA -> {
-                        val isVegaMasterEnabled by viewModel.isVegaMasterEnabled.collectAsState()
-                        val installedVega by viewModel.installedVegaProviders.collectAsState()
-                        val availableVega by viewModel.availableVegaProviders.collectAsState()
-                        val isFetching by viewModel.isFetchingVegaProviders.collectAsState()
-                        val healthMap by viewModel.providerHealthMap.collectAsState()
-                        val isTestingHealth by viewModel.isTestingVegaHealth.collectAsState()
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            // Master Vega Toggle Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isVegaMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { viewModel.setVegaMasterEnabled(!isVegaMasterEnabled) }
-                                            .padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                            Text(
-                                                text = "Enable Vega Extensions",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = if (isVegaMasterEnabled) "Vega extensions are active. Providers will resolve catalog titles and media links." else "Vega is completely disabled by default. All background processing and server calls are stopped.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Switch(
-                                            checked = isVegaMasterEnabled,
-                                            onCheckedChange = { viewModel.setVegaMasterEnabled(it) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // In-App Native Engine Status Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "100% IN-APP NATIVE SOURCES",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                            ) {
-                                                Text(
-                                                    text = "⚡ Built-in Native / 0s Delay",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "All 52+ Vega scrapers & extractors run locally inside Butterfly. Zero cold-start delay, 100% in-app execution, and direct stream link resolution.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // 2. Installed Extensions Section
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "INSTALLED EXTENSIONS (${installedVega.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (installedVega.isNotEmpty()) {
-                                            TextButton(
-                                                onClick = { viewModel.uninstallAllVegaProviders() }
-                                            ) {
-                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
-                                            }
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                        }
-                                        TextButton(
-                                            onClick = { viewModel.testVegaProvidersHealth() },
-                                            enabled = !isTestingHealth
-                                        ) {
-                                            if (isTestingHealth) {
-                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Testing...")
-                                            } else {
-                                                Text("Test Health")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (installedVega.isEmpty()) {
-                                item {
-                                    Text(
-                                        text = "No Vega extensions installed yet. Browse available extensions below.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                    )
-                                }
-                            } else {
-                                items(installedVega) { vp ->
-                                    val health = healthMap[vp.id]
-                                    val subtitleText = if (health != null) {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
-                                    } else {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
-                                    }
-
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { viewModel.toggleVegaProvider(vp.id, !vp.isEnabled) }
-                                                .padding(end = 8.dp)
-                                        ) {
-                                            Text(
-                                                text = vp.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = subtitleText,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Switch(
-                                                checked = vp.isEnabled,
-                                                onCheckedChange = { viewModel.toggleVegaProvider(vp.id, it) }
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            IconButton(
-                                                onClick = { viewModel.uninstallVegaProvider(vp.id) }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DeleteOutline,
-                                                    contentDescription = "Uninstall ${vp.name}",
-                                                    tint = MaterialTheme.colorScheme.error
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 3. Available Extensions Section
-                            item {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "AVAILABLE EXTENSIONS (${availableVega.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    if (availableVega.isNotEmpty()) {
-                                        Button(
-                                            onClick = { viewModel.installAllVegaProviders() },
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                        ) {
-                                            Text("Install All (50+)")
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (isFetching) {
-                                item {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                    }
-                                }
-                            } else {
-                                items(availableVega) { vId ->
-                                    val isInstalled = installedVega.any { it.id == vId }
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = com.example.vega.VegaProviderClient.formatProviderDisplayName(vId),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                        Button(
-                                            onClick = {
-                                                if (isInstalled) viewModel.uninstallVegaProvider(vId)
-                                                else viewModel.installVegaProvider(vId)
-                                            },
-                                            colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
-                                        ) {
-                                            Text(if (isInstalled) "Uninstall" else "Install")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    SettingsCategory.VIDSRC -> {
-                        val isVidSrcMasterEnabled by viewModel.isVidSrcMasterEnabled.collectAsState()
-                        val installedVidSrc by viewModel.installedVidSrcProviders.collectAsState()
-                        val availableVidSrc = viewModel.availableVidSrcProviders
-                        val healthMap by viewModel.vidSrcHealthMap.collectAsState()
-                        val isTestingHealth by viewModel.isTestingVidSrcHealth.collectAsState()
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            // Master VidSrc Toggle Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isVidSrcMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { viewModel.setVidSrcMasterEnabled(!isVidSrcMasterEnabled) }
-                                            .padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                            Text(
-                                                text = "Enable VidSrc Sources",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = if (isVidSrcMasterEnabled) "VidSrc multi-server mirrors and WASM HLS decryptors are active." else "VidSrc is disabled. All cloud mirrors and direct stream extractions are stopped.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Switch(
-                                            checked = isVidSrcMasterEnabled,
-                                            onCheckedChange = { viewModel.setVidSrcMasterEnabled(it) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // In-App Native Engine Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "100% IN-APP VIDSRC SERVERS",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                            ) {
-                                                Text(
-                                                    text = "⚡ Built-in Native / 0s Delay",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "On-device WebAssembly decryptor & 12+ high-speed cloud streaming mirrors. Direct master HLS resolution with zero cold-start delay.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Installed VidSrc Section
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "INSTALLED SERVERS (${installedVidSrc.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (installedVidSrc.isNotEmpty()) {
-                                            TextButton(onClick = { viewModel.uninstallAllVidSrcProviders() }) {
-                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
-                                            }
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                        }
-                                        TextButton(
-                                            onClick = { viewModel.testVidSrcHealth() },
-                                            enabled = !isTestingHealth
-                                        ) {
-                                            if (isTestingHealth) {
-                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Testing...")
-                                            } else {
-                                                Text("Test Health")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (installedVidSrc.isEmpty()) {
-                                item {
-                                    Text(
-                                        text = "No VidSrc servers installed. Choose from available servers below.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                    )
-                                }
-                            } else {
-                                items(installedVidSrc) { vp ->
-                                    val health = healthMap[vp.id]
-                                    val subtitleText = if (health != null) {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
-                                    } else {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
-                                    }
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { viewModel.toggleVidSrcProvider(vp.id, !vp.isEnabled) }
-                                                .padding(end = 8.dp)
-                                        ) {
-                                            Text(
-                                                text = vp.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = subtitleText,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Switch(
-                                                checked = vp.isEnabled,
-                                                onCheckedChange = { viewModel.toggleVidSrcProvider(vp.id, it) }
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            IconButton(onClick = { viewModel.uninstallVidSrcProvider(vp.id) }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DeleteOutline,
-                                                    contentDescription = "Uninstall ${vp.name}",
-                                                    tint = MaterialTheme.colorScheme.error
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Available VidSrc Section
-                            item {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "AVAILABLE SERVERS (${availableVidSrc.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Button(
-                                        onClick = { viewModel.installAllVidSrcProviders() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("Install All")
-                                    }
-                                }
-                            }
-
-                            items(availableVidSrc) { sInfo ->
-                                val isInstalled = installedVidSrc.any { it.id == sInfo.id }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                        Text(
-                                            text = sInfo.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = sInfo.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Button(
-                                        onClick = {
-                                            if (isInstalled) viewModel.uninstallVidSrcProvider(sInfo.id)
-                                            else viewModel.installVidSrcProvider(sInfo.id)
-                                        },
-                                        colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
-                                    ) {
-                                        Text(if (isInstalled) "Uninstall" else "Install")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    SettingsCategory.DECRYPTOR -> {
-                        val isDecryptorMasterEnabled by viewModel.isDecryptorMasterEnabled.collectAsState()
-                        val installedDecryptor by viewModel.installedDecryptorProviders.collectAsState()
-                        val availableDecryptor = viewModel.availableDecryptorProviders
-                        val healthMap by viewModel.decryptorHealthMap.collectAsState()
-                        val isTestingHealth by viewModel.isTestingDecryptorHealth.collectAsState()
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            // Master Decryptor Toggle Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isDecryptorMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { viewModel.setDecryptorMasterEnabled(!isDecryptorMasterEnabled) }
-                                            .padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                            Text(
-                                                text = "Enable Decryptor Sources",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = if (isDecryptorMasterEnabled) "Decryptor multi-server HLS extractors and cinema servers are active." else "Decryptor is disabled. All stream resolutions are stopped.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Switch(
-                                            checked = isDecryptorMasterEnabled,
-                                            onCheckedChange = { viewModel.setDecryptorMasterEnabled(it) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // In-App Native Engine Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "100% IN-APP DECRYPTOR SERVERS",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                            ) {
-                                                Text(
-                                                    text = "⚡ Built-in Native / 0s Delay",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "Direct HLS extraction across Vidhide, Turbo, Nxsha, Lulustream & Fast CDN. Zero buffering, adaptive quality, and instant start.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Installed Decryptor Section
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "INSTALLED SERVERS (${installedDecryptor.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (installedDecryptor.isNotEmpty()) {
-                                            TextButton(onClick = { viewModel.uninstallAllDecryptorProviders() }) {
-                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
-                                            }
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                        }
-                                        TextButton(
-                                            onClick = { viewModel.testDecryptorHealth() },
-                                            enabled = !isTestingHealth
-                                        ) {
-                                            if (isTestingHealth) {
-                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Testing...")
-                                            } else {
-                                                Text("Test Health")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (installedDecryptor.isEmpty()) {
-                                item {
-                                    Text(
-                                        text = "No Decryptor servers installed. Choose from available servers below.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                    )
-                                }
-                            } else {
-                                items(installedDecryptor) { vp ->
-                                    val health = healthMap[vp.id]
-                                    val subtitleText = if (health != null) {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
-                                    } else {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
-                                    }
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { viewModel.toggleDecryptorProvider(vp.id, !vp.isEnabled) }
-                                                .padding(end = 8.dp)
-                                        ) {
-                                            Text(
-                                                text = vp.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = subtitleText,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Switch(
-                                                checked = vp.isEnabled,
-                                                onCheckedChange = { viewModel.toggleDecryptorProvider(vp.id, it) }
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            IconButton(onClick = { viewModel.uninstallDecryptorProvider(vp.id) }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DeleteOutline,
-                                                    contentDescription = "Uninstall ${vp.name}",
-                                                    tint = MaterialTheme.colorScheme.error
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Available Decryptor Section
-                            item {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "AVAILABLE SERVERS (${availableDecryptor.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Button(
-                                        onClick = { viewModel.installAllDecryptorProviders() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("Install All")
-                                    }
-                                }
-                            }
-
-                            items(availableDecryptor) { sInfo ->
-                                val isInstalled = installedDecryptor.any { it.id == sInfo.id }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                        Text(
-                                            text = sInfo.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = sInfo.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Button(
-                                        onClick = {
-                                            if (isInstalled) viewModel.uninstallDecryptorProvider(sInfo.id)
-                                            else viewModel.installDecryptorProvider(sInfo.id)
-                                        },
-                                        colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
-                                    ) {
-                                        Text(if (isInstalled) "Uninstall" else "Install")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
+                    SettingsCategory.VEGA,
+                    SettingsCategory.VIDSRC,
+                    SettingsCategory.DECRYPTOR,
                     SettingsCategory.TMDB_EMBED -> {
-                        val isTMDBMasterEnabled by viewModel.isTMDBMasterEnabled.collectAsState()
-                        val installedTMDB by viewModel.installedTMDBProviders.collectAsState()
-                        val availableTMDB = viewModel.availableTMDBProviders
-                        val healthMap by viewModel.tmdbHealthMap.collectAsState()
-                        val isTestingHealth by viewModel.isTestingTMDBHealth.collectAsState()
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            // Master TMDB Toggle Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isTMDBMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { viewModel.setTMDBMasterEnabled(!isTMDBMasterEnabled) }
-                                            .padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                            Text(
-                                                text = "Enable TMDB Sources",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = if (isTMDBMasterEnabled) "TMDB multi-server embed & direct streams are active." else "TMDB sources are disabled. Embed and VIP stream resolvers are stopped.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Switch(
-                                            checked = isTMDBMasterEnabled,
-                                            onCheckedChange = { viewModel.setTMDBMasterEnabled(it) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // In-App Native Engine Card
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "100% IN-APP TMDB SOURCES",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                            ) {
-                                                Text(
-                                                    text = "⚡ Built-in Native / 0s Delay",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "VixSrc, NetMirror, Videasy, Vidlink, Showbox & 13 VIP native scrapers. Fast playback with adaptive multi-resolution support.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Installed TMDB Section
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "INSTALLED SOURCES (${installedTMDB.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (installedTMDB.isNotEmpty()) {
-                                            TextButton(onClick = { viewModel.uninstallAllTMDBProviders() }) {
-                                                Text("Uninstall All", color = MaterialTheme.colorScheme.error)
-                                            }
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                        }
-                                        TextButton(
-                                            onClick = { viewModel.testTMDBHealth() },
-                                            enabled = !isTestingHealth
-                                        ) {
-                                            if (isTestingHealth) {
-                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Testing...")
-                                            } else {
-                                                Text("Test Health")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (installedTMDB.isEmpty()) {
-                                item {
-                                    Text(
-                                        text = "No TMDB sources installed. Choose from available sources below.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                    )
-                                }
-                            } else {
-                                items(installedTMDB) { vp ->
-                                    val health = healthMap[vp.id]
-                                    val subtitleText = if (health != null) {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"} • $health"
-                                    } else {
-                                        "Status: ${if (vp.isEnabled) "Active" else "Disabled"}"
-                                    }
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { viewModel.toggleTMDBProvider(vp.id, !vp.isEnabled) }
-                                                .padding(end = 8.dp)
-                                        ) {
-                                            Text(
-                                                text = vp.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = subtitleText,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Switch(
-                                                checked = vp.isEnabled,
-                                                onCheckedChange = { viewModel.toggleTMDBProvider(vp.id, it) }
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            IconButton(onClick = { viewModel.uninstallTMDBProvider(vp.id) }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DeleteOutline,
-                                                    contentDescription = "Uninstall ${vp.name}",
-                                                    tint = MaterialTheme.colorScheme.error
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Available TMDB Section
-                            item {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "AVAILABLE SOURCES (${availableTMDB.size})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Button(
-                                        onClick = { viewModel.installAllTMDBProviders() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("Install All")
-                                    }
-                                }
-                            }
-
-                            items(availableTMDB) { sInfo ->
-                                val isInstalled = installedTMDB.any { it.id == sInfo.id }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                        Text(
-                                            text = sInfo.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = sInfo.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Button(
-                                        onClick = {
-                                            if (isInstalled) viewModel.uninstallTMDBProvider(sInfo.id)
-                                            else viewModel.installTMDBProvider(sInfo.id)
-                                        },
-                                        colors = if (isInstalled) ButtonDefaults.outlinedButtonColors() else ButtonDefaults.buttonColors()
-                                    ) {
-                                        Text(if (isInstalled) "Uninstall" else "Install")
-                                    }
-                                }
-                            }
-                        }
+                        UnifiedContentSourcesScreen(
+                            viewModel = viewModel,
+                            onNavigateToCategory = { currentCategory = it }
+                        )
                     }
 
                     SettingsCategory.INTEGRATIONS -> {
@@ -4192,6 +2487,61 @@ fun SettingsScreen(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            // Section 0: DAILY GITHUB BACKGROUND AUTO-UPDATE
+                            item {
+                                val isAutoUpdateEnabled by com.example.util.AppEngineDiagnosticManager.isAutoUpdateEnabled.collectAsState()
+                                val isSilentDownloadEnabled by com.example.util.AppEngineDiagnosticManager.isSilentDownloadEnabled.collectAsState()
+                                val lastUpdateTimestamp by com.example.util.AppEngineDiagnosticManager.lastAutoUpdateTimestamp.collectAsState()
+                                val lastCheckedFormatted = if (lastUpdateTimestamp > 0) {
+                                    val date = java.util.Date(lastUpdateTimestamp)
+                                    val sdf = java.text.SimpleDateFormat("MMM dd, hh:mm a", java.util.Locale.getDefault())
+                                    sdf.format(date)
+                                } else "Never checked"
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(
+                                            text = "AUTOMATIC BACKGROUND UPDATES",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+
+                                        YouTubeSwitchRow(
+                                            title = "Daily Background Auto-Update",
+                                            subtitle = "Automatically check GitHub repositories & core engines once a day in background",
+                                            checked = isAutoUpdateEnabled,
+                                            onCheckedChange = { com.example.util.AppEngineDiagnosticManager.setAutoUpdateEnabled(context, it) }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeSwitchRow(
+                                            title = "Auto-Download & Install Silently",
+                                            subtitle = "Silently download latest scrapers, yt-dlp signatures and indexer definitions without prompts",
+                                            checked = isSilentDownloadEnabled,
+                                            onCheckedChange = { com.example.util.AppEngineDiagnosticManager.setSilentDownloadEnabled(context, it) }
+                                        )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        YouTubeDetailRow(
+                                            title = "Last Background Update Check",
+                                            subtitle = "$lastCheckedFormatted • Tap to trigger manual background sync now",
+                                            onClick = {
+                                                com.example.util.AppEngineDiagnosticManager.checkAndRunDailyAutoUpdate(context)
+                                                Toast.makeText(context, "Checking GitHub repositories in background...", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             // Section 1: LIVE COMPONENT & PROVIDER TESTS
                             item {
                                 Card(
@@ -5497,6 +3847,130 @@ fun SettingsScreen(
         )
     }
 
+    if (showCodecDialog) {
+        val codecOptions = listOf(
+            "AUTO" to "Auto (Optimal Hardware Selection)",
+            "AVC_H264" to "Force AVC / H.264 (Cool & Battery Friendly)",
+            "HEVC_H265" to "Prefer HEVC / H.265 (High Efficiency)",
+            "VP9" to "Prefer Google VP9",
+            "AV1" to "Prefer AV1 (Next-Gen High Quality)"
+        )
+        AlertDialog(
+            onDismissRequest = { showCodecDialog = false },
+            title = { Text("Video Codec Preference") },
+            text = {
+                Column {
+                    codecOptions.forEach { (code, label) ->
+                        val isSelected = (videoCodecPreference == code)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch { playbackPrefs.setVideoCodecPreference(code) }
+                                    showCodecDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    coroutineScope.launch { playbackPrefs.setVideoCodecPreference(code) }
+                                    showCodecDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCodecDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showDecoderDialog) {
+        val decoderOptions = listOf(
+            "HARDWARE" to "Hardware Acceleration (GPU MediaCodec)",
+            "SOFTWARE" to "Software Decoder (CPU Fallback)",
+            "EXO_MEDIACODEC" to "Force ExoPlayer MediaCodec Pipeline"
+        )
+        AlertDialog(
+            onDismissRequest = { showDecoderDialog = false },
+            title = { Text("Hardware Decoder Engine") },
+            text = {
+                Column {
+                    decoderOptions.forEach { (code, label) ->
+                        val isSelected = (decoderMode == code)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch { playbackPrefs.setDecoderMode(code) }
+                                    showDecoderDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    coroutineScope.launch { playbackPrefs.setDecoderMode(code) }
+                                    showDecoderDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDecoderDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showTapHoldSpeedDialog) {
+        val holdSpeeds = listOf(1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f)
+        AlertDialog(
+            onDismissRequest = { showTapHoldSpeedDialog = false },
+            title = { Text("Tap & Hold Speed Boost") },
+            text = {
+                Column {
+                    holdSpeeds.forEach { spd ->
+                        val isSelected = (tapAndHoldSpeed == spd)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch { playbackPrefs.setTapAndHoldSpeed(spd) }
+                                    showTapHoldSpeedDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    coroutineScope.launch { playbackPrefs.setTapAndHoldSpeed(spd) }
+                                    showTapHoldSpeedDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("${spd}x speed", fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTapHoldSpeedDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showAddRepoDialog) {
         AlertDialog(
             onDismissRequest = { showAddRepoDialog = false },
@@ -5557,7 +4031,7 @@ fun SettingsScreen(
 @Composable
 private fun YouTubeSettingsRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     icon: ImageVector,
     onClick: () -> Unit
 ) {
@@ -5565,7 +4039,7 @@ private fun YouTubeSettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = if (subtitle.isNullOrBlank()) 18.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -5578,15 +4052,18 @@ private fun YouTubeSettingsRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.ArrowForwardIos,

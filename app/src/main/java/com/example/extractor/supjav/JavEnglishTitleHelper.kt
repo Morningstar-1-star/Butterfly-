@@ -43,9 +43,11 @@ object JavEnglishTitleHelper {
         "八木奈々" to "Nana Yagi",
         "八木奈奈" to "Nana Yagi",
         "山岸逢花" to "Aika Yamagishi",
+        "山岸逢华" to "Aika Yamagishi",
         "楪カレン" to "Karen Yuzuriha",
         "楪可怜" to "Karen Yuzuriha",
         "楓ふうあ" to "Fuua Kaede",
+        "枫芙爱" to "Fuua Kaede",
         "七沢みあ" to "Mia Nanasawa",
         "七泽美亚" to "Mia Nanasawa",
         "美谷朱里" to "Akari Mitani",
@@ -83,14 +85,37 @@ object JavEnglishTitleHelper {
         "蒼井そら" to "Sora Aoi",
         "苍井空" to "Sora Aoi",
         "麻美ゆま" to "Yuma Asami",
-        "麻美由真" to "Yuma Asami"
+        "麻美由真" to "Yuma Asami",
+        "鈴村あいり" to "Airi Suzumura",
+        "铃村爱里" to "Airi Suzumura",
+        "篠田ゆう" to "Yuu Shinoda",
+        "筱田优" to "Yuu Shinoda",
+        "上原亜衣" to "Ai Uehara",
+        "上原亚衣" to "Ai Uehara",
+        "天海つばさ" to "Tsubasa Amami",
+        "天海翼" to "Tsubasa Amami",
+        "小早川怜子" to "Reiko Kobayakawa",
+        "風間ゆみ" to "Yumi Kazama",
+        "风间由美" to "Yumi Kazama",
+        "白石茉莉奈" to "Marina Shiraishi",
+        "友田彩也香" to "Ayaka Tomoda",
+        "松下紗栄子" to "Saeko Matsushita",
+        "松下纱荣子" to "Saeko Matsushita",
+        "JULIA" to "Julia",
+        "辻本杏" to "An Tsujimoto",
+        "吉泽明步" to "Akiho Yoshizawa",
+        "吉沢明歩" to "Akiho Yoshizawa",
+        "紗倉まな" to "Mana Sakura",
+        "纱仓真菜" to "Mana Sakura",
+        "本庄鈴" to "Suzu Honjo",
+        "本庄铃" to "Suzu Honjo"
     )
 
     // Japanese / Chinese / Asian Keyword -> English Concept Dictionary
     private val KEYWORD_TRANSLATIONS = listOf(
         Regex("""(?i)(?:中文字幕|中文|字幕|Chinese Sub|Chs|Sub Indo|Indo Sub|Vietsub|Thuyết minh|Thai Sub)""") to "",
         Regex("""(?i)(?:台灣|台湾|Taiwan|Hong Kong|HK|Japan|Tokyo)""") to "Japanese",
-        Regex("""(?i)(?:無修正|無碼|Uncensored Leaked|Uncensored|FC2-PPV)""") to "Uncensored",
+        Regex("""(?i)(?:無修正|無碼|Uncensored Leaked|Uncensored|FC2-PPV|流出)""") to "Uncensored",
         Regex("""(?i)(?:有碼|有修正|Censored)""") to "HD",
         Regex("""(?i)(?:最新|New Release|新作)""") to "New Release",
         Regex("""(?i)(?:完全版|全編|Full Version|Complete)""") to "Complete Edition",
@@ -121,7 +146,13 @@ object JavEnglishTitleHelper {
         Regex("""(?i)(?:専属|独占|プレミアム)""") to "Exclusive Premium Feature",
         Regex("""(?i)(?:ベスト|BEST|総集編|傑作選)""") to "Greatest Hits Special Edition",
         Regex("""(?i)(?:引退|ラスト|卒業)""") to "Farewell Special",
-        Regex("""(?i)(?:復活|カムバック)""") to "Comeback Special Edition"
+        Regex("""(?i)(?:復活|カムバック)""") to "Comeback Special Edition",
+        Regex("""(?i)(?:女友|女友朋友|女朋友|恋人)""") to "Sweetheart Romance",
+        Regex("""(?i)(?:誘惑|誘う)""") to "Seductive Temptation",
+        Regex("""(?i)(?:初体験|初めて)""") to "First Time Experience",
+        Regex("""(?i)(?:媚薬|催眠)""") to "Aphrodisiac Fantasy",
+        Regex("""(?i)(?:密会|逢瀬)""") to "Secret Rendezvous",
+        Regex("""(?i)(?:同級生|先輩|後輩)""") to "Classmate Secret Romance"
     )
 
     // Foreign noise tags to strip entirely

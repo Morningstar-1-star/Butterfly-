@@ -126,67 +126,69 @@ object VidSrcStreamExtractor {
             }
         }
 
-        // 3. Multi-Server Cloud Providers (AutoEmbed, VidLink, VidSrc Pro, SmashyStream, 2Embed, SuperEmbed, Rive, EmbedSu)
-        val defaultHeaders = mapOf(
-            "User-Agent" to DEFAULT_UA,
-            "Referer" to "https://cloudorchestranova.com/",
-            "Origin" to "https://cloudorchestranova.com"
-        )
-
-        data class ServerDef(val id: String, val label: String, val url: String, val headers: Map<String, String>)
-
-        val multiServerList = if (isTv) {
-            listOf(
-                ServerDef("autoembed", "AutoEmbed • 1080p Ultra HLS", "https://player.autoembed.cc/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
-                ServerDef("vidlink", "VidLink • 1080p Multi-Server", "https://vidlink.pro/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
-                ServerDef("vidsrc_to", "VidSrc Pro • 1080p Cloud", "https://vidsrc.to/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.to/")),
-                ServerDef("smashystream", "SmashyStream • 1080p Fast", "https://embed.smashystream.com/playere.php?tmdb=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://embed.smashystream.com/")),
-                ServerDef("vidsrc_net", "VidSrc Net • 1080p CDN", "https://vidsrc.net/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
-                ServerDef("twoembed", "2Embed • 1080p Mirror", "https://www.2embed.cc/embedtv/$cleanId&s=$season&e=$episode", mapOf("Referer" to "https://www.2embed.cc/")),
-                ServerDef("superembed", "SuperEmbed • 1080p Stream", "https://multiembed.mov/?video_id=$cleanId&tmdb=1&s=$season&e=$episode", mapOf("Referer" to "https://multiembed.mov/")),
-                ServerDef("embedsu", "EmbedSu • 1080p VIP", "https://embed.su/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://embed.su/")),
-                ServerDef("rivestream", "RiveStream • 1080p Stream", "https://rive.stream/embed?type=tv&id=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://rive.stream/")),
-                ServerDef("vidsrc_me", "VidSrc.me • 1080p Mirror", "https://vidsrc.me/embed/tv?tmdb=$cleanId&season=$season&episode=$episode", mapOf("Referer" to "https://vidsrc.me/")),
-                ServerDef("vidsrc_sbs", "VidSrc SBS • Direct", "https://vidsrc.sbs/embed/tv/$cleanId/$season/$episode", mapOf("Referer" to "https://vidsrc.sbs/"))
-            )
-        } else {
-            listOf(
-                ServerDef("autoembed", "AutoEmbed • 1080p Ultra HLS", "https://player.autoembed.cc/embed/movie/$cleanId", mapOf("Referer" to "https://player.autoembed.cc/")),
-                ServerDef("vidlink", "VidLink • 1080p Multi-Server", "https://vidlink.pro/movie/$cleanId", mapOf("Referer" to "https://vidlink.pro/")),
-                ServerDef("vidsrc_to", "VidSrc Pro • 1080p Cloud", "https://vidsrc.to/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.to/")),
-                ServerDef("smashystream", "SmashyStream • 1080p Fast", "https://embed.smashystream.com/playere.php?tmdb=$cleanId", mapOf("Referer" to "https://embed.smashystream.com/")),
-                ServerDef("vidsrc_net", "VidSrc Net • 1080p CDN", "https://vidsrc.net/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.net/")),
-                ServerDef("twoembed", "2Embed • 1080p Mirror", "https://www.2embed.cc/embed/$cleanId", mapOf("Referer" to "https://www.2embed.cc/")),
-                ServerDef("superembed", "SuperEmbed • 1080p Stream", "https://multiembed.mov/?video_id=$cleanId&tmdb=1", mapOf("Referer" to "https://multiembed.mov/")),
-                ServerDef("embedsu", "EmbedSu • 1080p VIP", "https://embed.su/embed/movie/$cleanId", mapOf("Referer" to "https://embed.su/")),
-                ServerDef("rivestream", "RiveStream • 1080p Stream", "https://rive.stream/embed?type=movie&id=$cleanId", mapOf("Referer" to "https://rive.stream/")),
-                ServerDef("vidsrc_me", "VidSrc.me • 1080p Mirror", "https://vidsrc.me/embed/movie?tmdb=$cleanId", mapOf("Referer" to "https://vidsrc.me/")),
-                ServerDef("vidsrc_sbs", "VidSrc SBS • Direct", "https://vidsrc.sbs/embed/movie/$cleanId", mapOf("Referer" to "https://vidsrc.sbs/"))
-            )
+        // 3. Direct multi-source HLS extraction (Showbox, VixSrc, NetMirror, Videasy, Vidlink, CastleTV, etc.)
+        if (options.isEmpty() && appCtx != null) {
+            try {
+                if (cleanId.isNotBlank()) {
+                    val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                        tmdbId = cleanId,
+                        mediaType = if (isTv) "tv" else "movie",
+                        title = title,
+                        season = season,
+                        episode = episode
+                    )
+                    val extracted = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(appCtx, tmdbReq)
+                    if (extracted.isNotEmpty()) {
+                        val styledExtracted = extracted.map { opt ->
+                            opt.copy(
+                                qualityLabel = "[$providerName] ${opt.qualityLabel}",
+                                sourceName = providerName
+                            )
+                        }
+                        options.addAll(styledExtracted)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "TMDBEmbedExtractorEngine extraction error: ${e.message}")
+            }
         }
 
-        val activeServers = multiServerList.filter { sDef ->
-            vidSrcRepo == null || vidSrcRepo.isProviderInstalledAndEnabled(sDef.id)
-        }
-
-        activeServers.forEach { sDef ->
-            val headersMap = HashMap(defaultHeaders)
-            headersMap.putAll(sDef.headers)
-            options.add(
-                PlayableStreamOption(
-                    qualityLabel = "[$providerName] ${sDef.label}",
-                    format = "embed",
-                    isMuxed = true,
-                    videoUrl = sDef.url,
-                    audioUrl = null,
-                    providerType = ProviderType.EMBED,
-                    headers = headersMap,
-                    sourceName = providerName,
-                    qualityCategory = "1080p",
-                    releaseTitle = "$title [${sDef.label}]",
-                    serverStatus = "Online"
+        // 4. Real Direct Media & High-Speed P2P Stream Resolution (No webview embeds)
+        if (options.isEmpty()) {
+            try {
+                val mediaIdentity = com.example.torrent.provider.MediaIdentity(
+                    title = title.ifBlank { cleanId },
+                    mediaType = if (isTv) "tv" else "movie",
+                    season = season,
+                    episode = episode,
+                    tmdbId = cleanId.takeIf { it.all { c -> c.isDigit() } }
                 )
-            )
+                val torrentReleases = com.example.torrent.provider.TorrentProviderManager.getInstance()
+                    .searchReleases(title.ifBlank { cleanId }, mediaIdentity)
+                for (rel in torrentReleases.take(8)) {
+                    val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
+                    val qCat = com.example.util.StreamCategorizer.detectQualityFromText(rel.quality)
+                    val qualitySuffix = if (rel.seeders > 0) " [${rel.seeders} seeds]" else ""
+                    options.add(
+                        PlayableStreamOption(
+                            qualityLabel = "[$providerName] ${rel.quality} • ${rel.provider}$qualitySuffix",
+                            format = if (isDebrid && rel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
+                            isMuxed = true,
+                            videoUrl = rel.magnetUrl,
+                            audioUrl = null,
+                            providerType = if (isDebrid) ProviderType.DIRECT else ProviderType.TORRENT,
+                            sourceName = providerName,
+                            qualityCategory = qCat,
+                            sizeText = rel.formattedSize,
+                            seeders = rel.seeders,
+                            releaseTitle = rel.title,
+                            serverStatus = "Online"
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Direct stream fallback error for $providerName: ${e.message}")
+            }
         }
 
         if (options.isNotEmpty()) {
@@ -329,33 +331,35 @@ object VidSrcStreamExtractor {
                 val tokenBody = tokenResp.body?.string().orEmpty().trim()
                 val token = parseJwtToken(tokenBody)
 
-                val playableUrl = when {
-                    token.isNotBlank() && rawUrl.contains("__TOKEN__") -> rawUrl.replace("__TOKEN__", token)
-                    token.isNotBlank() -> if (rawUrl.contains("?")) "$rawUrl&token=$token" else "$rawUrl?token=$token"
-                    else -> rawUrl
-                }
+                if (token.isNotBlank()) {
+                    val playableUrl = when {
+                        rawUrl.contains("__TOKEN__") -> rawUrl.replace("__TOKEN__", token)
+                        rawUrl.contains("?") -> "$rawUrl&token=$token"
+                        else -> "$rawUrl?token=$token"
+                    }
 
-                val labelSuffix = serverLabels.getOrElse(index) { "Mirror ${index + 1} • Auto HLS" }
-                val label = "[$providerName] $labelSuffix"
+                    val labelSuffix = serverLabels.getOrElse(index) { "Mirror ${index + 1} • Auto HLS" }
+                    val label = "[$providerName] $labelSuffix"
 
-                resultOptions.add(
-                    PlayableStreamOption(
-                        qualityLabel = label,
-                        format = "m3u8",
-                        isMuxed = true,
-                        videoUrl = playableUrl,
-                        providerType = ProviderType.DIRECT,
-                        headers = mapOf(
-                            "Referer" to "https://cloudorchestranova.com/",
-                            "Origin" to "https://cloudorchestranova.com",
-                            "User-Agent" to DEFAULT_UA
-                        ),
-                        sourceName = providerName,
-                        qualityCategory = if (labelSuffix.contains("720p")) "720p" else "1080p",
-                        releaseTitle = "$title [$providerName]",
-                        serverStatus = "Online"
+                    resultOptions.add(
+                        PlayableStreamOption(
+                            qualityLabel = label,
+                            format = "m3u8",
+                            isMuxed = true,
+                            videoUrl = playableUrl,
+                            providerType = ProviderType.DIRECT,
+                            headers = mapOf(
+                                "Referer" to "https://cloudorchestranova.com/",
+                                "Origin" to "https://cloudorchestranova.com",
+                                "User-Agent" to DEFAULT_UA
+                            ),
+                            sourceName = providerName,
+                            qualityCategory = if (labelSuffix.contains("720p")) "720p" else "1080p",
+                            releaseTitle = "$title [$providerName]",
+                            serverStatus = "Online"
+                        )
                     )
-                )
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Error acquiring token for stream $index ($rawUrl): ${e.message}")
             }
@@ -365,15 +369,19 @@ object VidSrcStreamExtractor {
     }
 
     private fun parseJwtToken(text: String): String {
-        if (text.isBlank()) return ""
+        if (text.isBlank() || text.contains("<html", ignoreCase = true) || text.contains("429") || text.contains("Too Many", ignoreCase = true)) return ""
         val clean = text.trim()
         if (clean.startsWith("{") || clean.startsWith("[")) {
             try {
                 val json = JSONObject(clean)
-                return json.optString("token", json.optString("data", json.optString("result", "")))
+                val t = json.optString("token", json.optString("data", json.optString("result", "")))
+                if (t.isNotBlank() && t.contains(".")) return t
             } catch (_: Exception) {}
         }
-        return clean
+        if (clean.contains(".") && clean.length > 20 && !clean.contains(" ") && !clean.contains("<")) {
+            return clean
+        }
+        return ""
     }
 
     /**

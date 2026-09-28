@@ -205,9 +205,26 @@ fun VideoCard(
 
     val effectiveThumbnailUrl = remember(video.thumbnailUrl, video.id, video.providerId) {
         val raw = video.thumbnailUrl?.trim()
+        val optimized = com.example.util.ThumbnailOptimizer.getOptimizedThumbnailUrl(raw)
         when {
+            !optimized.isNullOrBlank() && !optimized.contains("placeholder") && !optimized.contains("blank.gif") && !optimized.contains("loading.gif") -> {
+                optimized
+            }
             !raw.isNullOrBlank() && !raw.contains("placeholder") && !raw.contains("blank.gif") && !raw.contains("loading.gif") && (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("//")) -> {
                 if (raw.startsWith("//")) "https:$raw" else raw
+            }
+            video.providerId == "spankbang" || video.id.startsWith("spankbang:") -> {
+                val fallbackList = listOf(
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18413717/14_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18427667/14_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18390762/12_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18424803/9_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18399853/7_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18356815/14_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18408539/12_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18401966/9_360.jpg"
+                )
+                fallbackList[kotlin.math.abs(video.id.hashCode()) % fallbackList.size]
             }
             video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hq720.jpg"
             (video.providerId == "youtube" || video.providerId == "all") && video.id.contains("v=") -> {
@@ -610,7 +627,20 @@ fun VideoCard(
                 }
 
                 val targetChannelName = remember(video.uploaderName, brandInfo.brandName) {
-                    if (video.uploaderName.isBlank() || video.uploaderName.lowercase().contains("tv network") || video.uploaderName == "T") brandInfo.brandName else video.uploaderName
+                    val sanitized = com.example.extractor.TencentProvider.sanitizeTencentChannelName(video.uploaderName)
+                    val lower = video.uploaderName.lowercase().trim()
+                    val isGenericSource = lower.contains("vidsrc") || lower.contains("decryptor") || lower.contains("tmdb") ||
+                            lower.contains("vixsrc") || lower.contains("vega") || lower.contains("hdhub") ||
+                            lower.contains("katmovie") || lower.contains("cinema release") || lower.contains("popular movie") ||
+                            lower.contains("verified studio") || lower.contains("official creator") || lower.contains("tv network") ||
+                            lower == "t" || lower.contains("wetv") || lower.contains("腾讯") || lower.contains("multi-server") ||
+                            lower.contains("1cinevood") || lower.contains("bollyflix") || lower.contains("movies4u")
+
+                    if (isGenericSource || sanitized.isBlank() || (brandInfo.brandName.isNotBlank() && brandInfo.brandName != "Official Creator")) {
+                        brandInfo.brandName
+                    } else {
+                        sanitized
+                    }
                 }
 
                 Box(
@@ -758,32 +788,6 @@ fun VideoCard(
                         }
                     }
 
-                    if (!video.recommendationReason.isNullOrBlank()) {
-                        val isFullContent = video.recommendationReason.contains("Full Movie") ||
-                                video.recommendationReason.contains("Full Match") ||
-                                video.recommendationReason.contains("Full Episode") ||
-                                video.recommendationReason.contains("Full Video")
-
-                        Spacer(modifier = Modifier.height(3.dp))
-                        androidx.compose.material3.Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (isFullContent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-                            border = if (isFullContent) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)) else null
-                        ) {
-                            Text(
-                                text = video.recommendationReason,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isFullContent) FontWeight.Bold else FontWeight.SemiBold
-                                ),
-                                color = if (isFullContent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
                 }
 
                 // THREE-DOTS CONTEXT MENU BUTTON

@@ -96,7 +96,13 @@ object SupJavParser {
                     val encName = try { java.net.URLEncoder.encode(code.ifBlank { "SupJav" }.take(30), "UTF-8") } catch (_: Exception) { "SupJav" }
                     val uploaderAvatar = brand.logoUrls.firstOrNull()
                         ?: "https://ui-avatars.com/api/?name=$encName&background=3F51B5&color=fff&size=256&bold=true"
-                    val uploaderUrl = "supjav_${code.lowercase().replace(Regex("[^a-z0-9]"), "")}"
+                    val uploaderUrl = pageUrl
+
+                    SupJavResolver.registerPageUrl("supjav_$slug", pageUrl)
+                    SupJavResolver.registerPageUrl(slug, pageUrl)
+                    if (code.isNotBlank()) {
+                        SupJavResolver.registerPageUrl(code, pageUrl)
+                    }
 
                     val previewList = mutableListOf<String>()
                     if (!thumb.isNullOrBlank()) {

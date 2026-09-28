@@ -192,12 +192,14 @@ fun ButterflyOpeningAnimation(
         if (isDark) {
             SolidColor(Color.Black) // Pure AMOLED Pitch Black
         } else {
-            // Vibrant blue gradient
+            // Vibrant blue sky gradient matching Picsart light mode reference
             Brush.verticalGradient(
                 colors = listOf(
-                    Color(0xFF389DF6), // Vibrant cerulean sky
-                    Color(0xFF1E88E5), // Vivid royal azure
-                    Color(0xFF0D47A1)  // Rich deep cobalt
+                    Color(0xFF0D52D4), // Deep royal blue top
+                    Color(0xFF1E88E5), // Vivid royal blue
+                    Color(0xFF42A5F5), // Bright sky blue
+                    Color(0xFF82C3FF), // Soft sky blue
+                    Color(0xFFD0E8FF)  // Soft light blue bottom
                 )
             )
         }
@@ -231,6 +233,32 @@ fun ButterflyOpeningAnimation(
                 },
             contentAlignment = Alignment.Center
         ) {
+            // Dark mode subtle background star particles (matching Gemini black reference)
+            if (isDark) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val starOffsets = listOf(
+                        Offset(size.width * 0.2f, size.height * 0.15f),
+                        Offset(size.width * 0.8f, size.height * 0.12f),
+                        Offset(size.width * 0.35f, size.height * 0.22f),
+                        Offset(size.width * 0.72f, size.height * 0.28f),
+                        Offset(size.width * 0.15f, size.height * 0.38f),
+                        Offset(size.width * 0.85f, size.height * 0.45f),
+                        Offset(size.width * 0.25f, size.height * 0.65f),
+                        Offset(size.width * 0.78f, size.height * 0.72f),
+                        Offset(size.width * 0.12f, size.height * 0.82f),
+                        Offset(size.width * 0.82f, size.height * 0.92f)
+                    )
+                    starOffsets.forEachIndexed { idx, pos ->
+                        val starAlpha = (0.25f + 0.35f * sin((progress / 200f) + idx)).coerceIn(0.1f, 0.7f)
+                        drawCircle(
+                            color = Color.White.copy(alpha = starAlpha),
+                            radius = if (idx % 3 == 0) 2.5f else 1.5f,
+                            center = pos
+                        )
+                    }
+                }
+            }
+
             // Subtle ambient radial glow behind butterfly
             val glowScale = when {
                 progress < 300f -> progress / 300f
@@ -240,13 +268,13 @@ fun ButterflyOpeningAnimation(
 
             Box(
                 modifier = Modifier
-                    .size(280.dp)
+                    .size(320.dp)
                     .scale(glowScale)
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                glowColor.copy(alpha = if (isDark) 0.28f else 0.35f),
-                                glowColor.copy(alpha = if (isDark) 0.08f else 0.12f),
+                                glowColor.copy(alpha = if (isDark) 0.25f else 0.30f),
+                                glowColor.copy(alpha = if (isDark) 0.06f else 0.08f),
                                 Color.Transparent
                             )
                         ),
@@ -263,11 +291,11 @@ fun ButterflyOpeningAnimation(
                 )
             }
 
-            // Main Butterfly Container with 3D Flap & Transform
+            // Main Butterfly Container with 3D Flap & Transform (Expanded size to 220dp)
             val totalScale = entranceScale * zoomScale
             Box(
                 modifier = Modifier
-                    .size(150.dp)
+                    .size(220.dp)
                     .graphicsLayer {
                         scaleX = totalScale
                         scaleY = totalScale
@@ -348,40 +376,6 @@ fun ButterflyOpeningAnimation(
                         color = butterflyColor,
                         topLeft = Offset(0f, topY),
                         size = Size(size.width, bodyHeight)
-                    )
-                }
-            }
-
-            // Subtle elegant app branding indicator at bottom (fades out as butterfly launches)
-            val brandAlpha = when {
-                progress < 250f -> (progress / 250f).coerceIn(0f, 1f)
-                progress < 950f -> 1f
-                else -> (1f - (progress - 950f) / 150f).coerceIn(0f, 1f)
-            }
-
-            if (brandAlpha > 0.05f) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 54.dp)
-                        .alpha(brandAlpha),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "BUTTERFLY",
-                        color = if (isDark) Color.White.copy(alpha = 0.9f) else Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 5.sp,
-                        fontFamily = FontFamily.SansSerif
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Next-Gen Video Player",
-                        color = if (isDark) glowColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 1.sp
                     )
                 }
             }

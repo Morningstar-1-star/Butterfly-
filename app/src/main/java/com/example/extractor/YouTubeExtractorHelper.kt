@@ -433,8 +433,11 @@ object YouTubeExtractorHelper {
             )
         }
 
-        val isSupJav = providerId == "supjav" || urlOrId.contains("supjav.com") || urlOrId.contains("supjav.net") ||
+        val isSupJav = providerId == "supjav" || urlOrId.contains("supjav.com") || urlOrId.contains("supjav.mom") ||
+                urlOrId.contains("supjav.biz") || urlOrId.contains("supjav.net") ||
                 urlOrId.contains("supjav.org") || urlOrId.contains("supjav.cc") || urlOrId.contains("supjav.tv") ||
+                urlOrId.contains("supjav.vip") || urlOrId.contains("supjav.xyz") || urlOrId.contains("supjav.site") ||
+                urlOrId.contains("supjav.link") || urlOrId.contains("supjav.co") || urlOrId.contains("supjav.in") ||
                 urlOrId.contains("tvlogy") || urlOrId.startsWith("supjav_", ignoreCase = true) || urlOrId.startsWith("supjav:", ignoreCase = true)
         if (isSupJav) {
             val supjavData = SupJavProvider.getStreamData(urlOrId, context)

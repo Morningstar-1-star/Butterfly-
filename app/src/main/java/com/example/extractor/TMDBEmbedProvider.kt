@@ -77,13 +77,16 @@ object TMDBEmbedProvider {
                         }
 
                         val itemId = "$currentProviderId:$mediaType:$tmdbId"
-                        val uploader = if (year.isNotBlank()) "$sourceName • $year" else sourceName
+                        val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, mediaType == "tv")
+                        val uploader = studioBrand.brandName.ifBlank { if (year.isNotBlank()) "$sourceName • $year" else sourceName }
+                        val studioAvatar = studioBrand.logoUrls.firstOrNull()
 
                         items.add(
                             VideoItem(
                                 id = itemId,
                                 title = title,
                                 uploaderName = uploader,
+                                uploaderAvatarUrl = studioAvatar,
                                 durationSeconds = -1L,
                                 viewCount = (obj.optInt("vote_count", 0) * 100L).coerceAtLeast(1000L),
                                 uploadDate = year,
@@ -164,13 +167,16 @@ object TMDBEmbedProvider {
                         }
 
                         val itemId = "$currentProviderId:$mediaType:$tmdbId"
-                        val uploader = if (year.isNotBlank()) "$sourceName • $year" else sourceName
+                        val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, mediaType == "tv")
+                        val uploader = studioBrand.brandName.ifBlank { if (year.isNotBlank()) "$sourceName • $year" else sourceName }
+                        val studioAvatar = studioBrand.logoUrls.firstOrNull()
 
                         items.add(
                             VideoItem(
                                 id = itemId,
                                 title = title,
                                 uploaderName = uploader,
+                                uploaderAvatarUrl = studioAvatar,
                                 durationSeconds = -1L,
                                 viewCount = (obj.optInt("vote_count", 0) * 100L).coerceAtLeast(1000L),
                                 uploadDate = year,

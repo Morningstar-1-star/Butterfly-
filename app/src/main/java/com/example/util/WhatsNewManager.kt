@@ -26,6 +26,41 @@ object WhatsNewManager {
 
     val RELEASES: List<VersionRelease> = listOf(
         VersionRelease(
+            versionName = "0.0.3-alpha",
+            versionCode = 3,
+            releaseDate = "September 2026",
+            headline = "Stream Source Overhauls, Supabase Sync & Performance",
+            categories = listOf(
+                ChangelogCategory(
+                    title = "Source Fixes & Native Streams",
+                    icon = Icons.Default.PlayCircle,
+                    items = listOf(
+                        "SupJav Direct Playback: Fixed 0:00 buffering issue with robust URL routing and multi-server resolution.",
+                        "HellPorno Thumbnails: Full image preview support with dedicated CDN referer and cookie authorization.",
+                        "Playvids Full Catalog & Direct Streams: Multi-page real catalog browsing and native MP4/HLS playback without web embeds.",
+                        "TNAFlix Authentic Source: Cleaned up Eporner fallback and restored authentic TNAFlix video feeds and streaming.",
+                        "ThisVid Playback: Resolved HTTP 404 stream error with automatic KVS token handling and session headers."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "Cloud Sync & Account",
+                    icon = Icons.Default.CloudSync,
+                    items = listOf(
+                        "Supabase Bidirectional Sync: Real-time synchronization of watch history, bookmarks, liked videos, playlists, and settings across all devices.",
+                        "Instant Login Sync: Automatic data pull and offline change upload upon sign-in."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "App Experience",
+                    icon = Icons.Default.AutoAwesome,
+                    items = listOf(
+                        "Accurate Update Checker: No false update prompts once you are on the latest version.",
+                        "Ultra-smooth Activity Transitions: Fluid entry and exit animations."
+                    )
+                )
+            )
+        ),
+        VersionRelease(
             versionName = "0.0.2-alpha",
             versionCode = 2,
             releaseDate = "September 2026",
@@ -83,10 +118,7 @@ object WhatsNewManager {
      * Checks if the app has just been updated to a new version code.
      */
     fun shouldShowWhatsNew(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val lastSeenVersion = prefs.getInt(KEY_LAST_SEEN_VERSION, 0)
-        // If lastSeenVersion is lower than current build version, show the what's new dialog
-        return lastSeenVersion < BuildConfig.VERSION_CODE
+        return false
     }
 
     /**

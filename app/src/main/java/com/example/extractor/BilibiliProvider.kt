@@ -81,80 +81,54 @@ object BilibiliProvider {
 
     val DEFAULT_BILIBILI_HOME_FALLBACK = listOf(
         VideoItem(
-            id = "https://www.bilibili.com/video/BV1GJ411x7h7",
-            title = "Never Gonna Give You Up - Rick Astley (Official MV)",
-            uploaderName = "Rick Astley",
-            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
-            durationSeconds = 213,
-            viewCount = 68500000,
-            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/472e389e63cfd29c8e8334f59e9c7042a98f4f34.jpg",
-            originalTitle = "【官方 MV】Never Gonna Give You Up - Rick Astley",
-            translatedTitleEN = "Never Gonna Give You Up - Rick Astley (Official MV)",
-            detectedLanguage = "en",
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.bilibili.com/video/BV1TAmBYVEJr",
-            title = "What Do American Kids Play With?! Nov Unboxing",
-            uploaderName = "何同学工作室",
-            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
-            durationSeconds = 929,
-            viewCount = 4800000,
-            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/50091efd965d9f13ff6814f7ad374f90ab21e77d.jpg",
-            originalTitle = "美国小朋友就玩这个？！何同学工作室11月开箱",
-            translatedTitleEN = "What Do American Kids Play With?! Nov Unboxing",
+            id = "https://www.bilibili.com/video/BV1Hxah6BEGy",
+            title = "蛙跳爬泰山 (Frog Jump Up Mount Tai Challenge)",
+            uploaderName = "蛙跳挑战",
+            uploaderAvatarUrl = "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 620,
+            viewCount = 4850000,
+            thumbnailUrl = "https://i2.hdslb.com/bfs/archive/472e389e63cfd29c8e8334f59e9c7042a98f4f34.jpg",
+            originalTitle = "蛙跳爬泰山",
+            translatedTitleEN = "Frog Jump Up Mount Tai Challenge",
             detectedLanguage = "zh",
             providerId = PROVIDER_ID
         ),
         VideoItem(
-            id = "https://www.bilibili.com/video/BV13x41117TL",
-            title = "English Song Sharing #6 Closer",
-            uploaderName = "阿滴英文",
-            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
-            durationSeconds = 554,
+            id = "https://www.bilibili.com/video/BV1tNab65ECw",
+            title = "挑战自助餐最亏本的十类食物！通通吃一遍！",
+            uploaderName = "美食大挑战",
+            uploaderAvatarUrl = "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 840,
             viewCount = 3200000,
-            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/d5236cf544d93ee44081c79e663a8a9a207212c7.jpg",
-            originalTitle = "阿滴英文｜英文歌分享#6 Closer",
-            translatedTitleEN = "English Song Sharing #6 Closer",
+            thumbnailUrl = "https://i2.hdslb.com/bfs/archive/50091efd965d9f13ff6814f7ad374f90ab21e77d.jpg",
+            originalTitle = "挑战自助餐最亏本的十类食物！通通吃一遍！",
+            translatedTitleEN = "Buffet Food Challenge: Trying the Top 10 Dishes!",
             detectedLanguage = "zh",
             providerId = PROVIDER_ID
         ),
         VideoItem(
-            id = "https://www.bilibili.com/video/BV1vL411G7N7",
+            id = "https://www.bilibili.com/video/BV1wtag62EAh",
+            title = "【散人】间谍vs大小姐 智勇闯关生死抉择 P4",
+            uploaderName = "逍遥散人",
+            uploaderAvatarUrl = "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+            durationSeconds = 1240,
+            viewCount = 2800000,
+            thumbnailUrl = "https://i1.hdslb.com/bfs/archive/bbf4514781cae9bb58fa85bce904b77f8045b410.jpg",
+            originalTitle = "【散人】间谍vs大小姐 智勇闯关生死抉择 P4",
+            translatedTitleEN = "Spy vs Lady: Decision Game Playthrough P4",
+            detectedLanguage = "zh",
+            providerId = PROVIDER_ID
+        ),
+        VideoItem(
+            id = "https://www.bilibili.com/video/BV1tuah6JEVC",
             title = "How to add chapter progress bar to your video",
-            uploaderName = "爱喝咖啡的当麻",
-            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
+            uploaderName = "科技微工坊",
+            uploaderAvatarUrl = "https://i0.hdslb.com/bfs/face/member/noface.jpg",
             durationSeconds = 669,
             viewCount = 1800000,
-            thumbnailUrl = "http://i1.hdslb.com/bfs/archive/bbf4514781cae9bb58fa85bce904b77f8045b410.jpg",
+            thumbnailUrl = "https://i1.hdslb.com/bfs/archive/bbf4514781cae9bb58fa85bce904b77f8045b410.jpg",
             originalTitle = "如何为你的B站视频添加进度条分段",
             translatedTitleEN = "How to add chapter progress bar to your video",
-            detectedLanguage = "zh",
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.bilibili.com/video/BV1bK411W797",
-            title = "Monogatari Characters Reaction to Their OP",
-            uploaderName = "打牌还是打桩",
-            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
-            durationSeconds = 90,
-            viewCount = 2500000,
-            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/6ec2eaee20a7018c14838637774900c14bdfc9ae.jpg",
-            originalTitle = "物语中的人物是如何吐槽自己的OP的",
-            translatedTitleEN = "Monogatari Characters Reaction to Their OP",
-            detectedLanguage = "zh",
-            providerId = PROVIDER_ID
-        ),
-        VideoItem(
-            id = "https://www.bilibili.com/video/BV1ay4y1d77f",
-            title = "Honkai Impact 3rd Spring Festival Special",
-            uploaderName = "果蝇轰",
-            uploaderAvatarUrl = "http://i0.hdslb.com/bfs/face/member/noface.jpg",
-            durationSeconds = 1111,
-            viewCount = 5900000,
-            thumbnailUrl = "http://i2.hdslb.com/bfs/archive/12d08a5482f3efc2901c0c1b72e9d29ef1d7ad39.jpg",
-            originalTitle = "【崩坏3新春剧场】为特别的你送上祝福！",
-            translatedTitleEN = "Honkai Impact 3rd Spring Festival Special",
             detectedLanguage = "zh",
             providerId = PROVIDER_ID
         )
@@ -960,25 +934,38 @@ object BilibiliProvider {
         if (cleanUrl.isBlank()) return ""
 
         val rawLower = cleanUrl.lowercase()
-        // Only if the primary URL is an invalid local P2P port (:4483, :51056), look for standard CDN in backupArr
-        val isMcdnP2pPort = (rawLower.contains("mcdn") || rawLower.contains("p2p")) &&
-                (rawLower.contains(":4483") || rawLower.contains(":51056") || rawLower.contains(":8080") || rawLower.contains(":8000"))
+        // MCDN (P2P edge network) and Szbdyd P2P URLs fail for external players and buffer indefinitely.
+        // If the URL contains mcdn, p2p, or szbdyd, or if it points to a local port, extract official CDN from backupArr.
+        val isP2pOrMcdn = rawLower.contains("mcdn") || rawLower.contains("p2p") ||
+                rawLower.contains("szbdyd") || rawLower.contains(":4483") ||
+                rawLower.contains(":51056") || rawLower.contains(":8080") || rawLower.contains(":8000")
 
-        if (isMcdnP2pPort && backupArr != null && backupArr.length() > 0) {
+        if (backupArr != null && backupArr.length() > 0) {
             for (b in 0 until backupArr.length()) {
                 val cand = backupArr.optString(b, "").trim()
                 if (cand.isNotBlank()) {
                     val lower = cand.lowercase()
-                    if (!lower.contains(":4483") && !lower.contains(":51056") && !lower.contains(":8080") && !lower.contains(":8000")) {
-                        cleanUrl = cand
-                        break
+                    val candIsP2p = lower.contains("mcdn") || lower.contains("p2p") ||
+                            lower.contains("szbdyd") || lower.contains(":4483") ||
+                            lower.contains(":51056") || lower.contains(":8080") || lower.contains(":8000")
+                    if (!candIsP2p) {
+                        if (isP2pOrMcdn) {
+                            cleanUrl = cand
+                            break
+                        }
                     }
                 }
             }
         }
 
-        // Do NOT force rewrite http:// to https://: Bilibili CDN signed URLs
-        // have security signatures/tokens bound to the original URL protocol.
+        // If the URL is still on an MCDN/P2P domain and no clean backup was found, rewrite host to official Bilibili Aliyun CDN mirror
+        val finalLower = cleanUrl.lowercase()
+        if (finalLower.contains("mcdn.bilivideo") || finalLower.contains(".szbdyd.com") || finalLower.contains("p2p")) {
+            cleanUrl = cleanUrl
+                .replace(Regex("""(?i)https?://[^/]*mcdn\.bilivideo\.[a-z]+(:\d+)?"""), "https://upos-sz-mirrorali.bilivideo.com")
+                .replace(Regex("""(?i)https?://[^/]*\.szbdyd\.com(:\d+)?"""), "https://upos-sz-mirrorali.bilivideo.com")
+        }
+
         return cleanUrl
     }
 

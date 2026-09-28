@@ -566,6 +566,30 @@ object JavVideoExtractor {
         )
     }
 
+    suspend fun resolveStreamsForCode(code: String): List<PlayableStreamOption> = withContext(Dispatchers.IO) {
+        val options = mutableListOf<PlayableStreamOption>()
+        val cleanCode = code.trim().uppercase()
+        if (cleanCode.isBlank()) return@withContext emptyList()
+
+        try {
+            // 1. Try 123av
+            val avStream = extractStream("123av_$cleanCode")
+            if (avStream != null && avStream.availableStreamOptions.isNotEmpty()) {
+                options.addAll(avStream.availableStreamOptions)
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 2. Try Sextb
+            val sexStream = SextbProvider.getStreamData("sextb_$cleanCode")
+            if (sexStream != null && sexStream.availableStreamOptions.isNotEmpty()) {
+                options.addAll(sexStream.availableStreamOptions)
+            }
+        } catch (_: Exception) {}
+
+        options.distinctBy { it.videoUrl }
+    }
+
     /**
      * Curated catalog of authentic Japanese Adult Video releases with real English titles.
      */

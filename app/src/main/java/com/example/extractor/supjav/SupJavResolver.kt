@@ -21,13 +21,19 @@ object SupJavResolver {
     private const val TAG = "SupJavResolver"
 
     val BASE_MIRRORS = listOf(
+        "https://supjav.com",
         "https://supjav.mom",
         "https://supjav.biz",
-        "https://supjav.com",
         "https://supjav.net",
         "https://supjav.org",
         "https://supjav.cc",
-        "https://supjav.tv"
+        "https://supjav.tv",
+        "https://supjav.vip",
+        "https://supjav.xyz",
+        "https://supjav.site",
+        "https://supjav.link",
+        "https://supjav.co",
+        "https://supjav.in"
     )
 
     private val httpClient get() = SupJavNetwork.httpClient
@@ -71,6 +77,20 @@ object SupJavResolver {
             if (sources.isNotEmpty()) {
                 return@withContext deduplicateSources(sources)
             }
+
+            // Also try swapped mirror URLs for the same slug
+            val slug = SupJavParser.extractSlugFromUrl(targetPageUrl)
+            if (slug.isNotBlank()) {
+                for (mirror in BASE_MIRRORS) {
+                    val mirrorUrl = "$mirror/$slug.html"
+                    if (mirrorUrl != targetPageUrl) {
+                        val mirrorSources = resolveFromPageUrl(mirrorUrl, context)
+                        if (mirrorSources.isNotEmpty()) {
+                            return@withContext deduplicateSources(mirrorSources)
+                        }
+                    }
+                }
+            }
         }
 
         // 2. If no direct page URL or resolution failed, search across SupJav mirrors for the query/code
@@ -111,11 +131,35 @@ object SupJavResolver {
             }
         }
 
-        // 3. Last-resort fallback to WebView capture if context is available
+        // 3. Fallback to WebView capture if context is available
         if (context != null && targetPageUrl != null) {
             val fallbackSource = SupJavWebViewFallback.resolveWithFallback(context, targetPageUrl)
             if (fallbackSource != null) {
                 return@withContext listOf(fallbackSource)
+            }
+        }
+
+        // 4. JAV code direct multi-extractor fallback (Jable/MissAV/123AV/JavTiful)
+        val javCode = SupJavParser.extractJavCode(cleanQuery).ifBlank {
+            getCachedMetadata(urlOrId)?.first?.let { SupJavParser.extractJavCode(it) } ?: ""
+        }
+        if (javCode.isNotBlank()) {
+            try {
+                val javStream = com.example.extractor.JavVideoExtractor.resolveStreamsForCode(javCode)
+                if (javStream.isNotEmpty()) {
+                    return@withContext javStream.map { opt ->
+                        SupJavSource(
+                            url = opt.videoUrl ?: "",
+                            mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                            quality = opt.qualityLabel ?: "1080p FHD • SupJav Stream",
+                            isHls = opt.format == "m3u8",
+                            headers = opt.headers,
+                            sourceName = opt.sourceName ?: "SupJav Direct"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "JAV code multi-extractor fallback error: ${e.message}")
             }
         }
 
@@ -128,7 +172,24 @@ object SupJavResolver {
     suspend fun resolveFromPageUrl(pageUrl: String, context: Context? = null): List<SupJavSource> = withContext(Dispatchers.IO) {
         val sources = mutableListOf<SupJavSource>()
         try {
-            val html = fetchHtml(pageUrl)
+            var html = fetchHtml(pageUrl)
+            if (html == null || isBlockedHtml(html)) {
+                // Try alternate mirror for same slug
+                val slug = SupJavParser.extractSlugFromUrl(pageUrl)
+                if (slug.isNotBlank()) {
+                    for (mirror in BASE_MIRRORS) {
+                        val altUrl = "$mirror/$slug.html"
+                        if (altUrl != pageUrl) {
+                            val altHtml = fetchHtml(altUrl)
+                            if (altHtml != null && !isBlockedHtml(altHtml)) {
+                                html = altHtml
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
             if (html == null || isBlockedHtml(html)) {
                 Log.w(TAG, "Native page fetch blocked or empty for $pageUrl, trying WebView fallback")
                 if (context != null) {
@@ -138,19 +199,20 @@ object SupJavResolver {
                 return@withContext sources
             }
 
-            // 1. Direct check for SupJav Mom / WordPress MobilePlayer API
+            // 1. Direct check for SupJav / WordPress MobilePlayer API
             val dataId = Regex("""data-id="([0-9]+)"""").find(html)?.groupValues?.get(1)
                 ?: Regex(""""postId"\s*:\s*"([0-9]+)"""").find(html)?.groupValues?.get(1)
                 ?: Regex("""id="video-([0-9]+)"""").find(html)?.groupValues?.get(1)
+                ?: Regex("""post-([0-9]+)""").find(html)?.groupValues?.get(1)
 
             if (!dataId.isNullOrBlank()) {
                 val host = try {
                     val uri = URI(pageUrl)
                     "${uri.scheme}://${uri.host}"
                 } catch (_: Exception) {
-                    "https://supjav.mom"
+                    BASE_MIRRORS.first()
                 }
-                for (srv in 1..2) {
+                for (srv in 1..4) {
                     try {
                         val playerApiUrl = "$host/wp-json/fb/v1/player/?id=$dataId&server=$srv"
                         val apiReq = Request.Builder()
@@ -169,7 +231,7 @@ object SupJavResolver {
                                     SupJavSource(
                                         url = streamUrl,
                                         mimeType = "application/x-mpegURL",
-                                        quality = if (srv == 1) "1080p FHD • SupJav HLS" else "720p HD • SupJav Backup HLS",
+                                        quality = if (srv == 1) "1080p FHD • SupJav HLS" else "720p HD • SupJav Server $srv",
                                         isHls = true,
                                         headers = mapOf(
                                             "User-Agent" to SupJavNetwork.DEFAULT_USER_AGENT,

@@ -20,7 +20,7 @@ object VegaProviderClient {
     const val DEFAULT_SERVER_URL = ""
 
     @Volatile
-    var isVegaGloballyEnabled: Boolean = false
+    var isVegaGloballyEnabled: Boolean = true
 
     val BACKUP_SERVER_URLS: List<String> = emptyList()
 
@@ -192,7 +192,7 @@ object VegaProviderClient {
         providerId: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || providerId.isBlank()) return@withContext emptyList()
+        if (providerId.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
         val allResults = mutableListOf<VegaSearchResult>()
 
@@ -227,7 +227,7 @@ object VegaProviderClient {
         query: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || providerId.isBlank()) return@withContext emptyList()
+        if (providerId.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
         val cleanQuery = query.trim()
 
@@ -369,7 +369,7 @@ object VegaProviderClient {
         link: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): VegaMetaResult? = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || providerId.isBlank() || link.isBlank()) return@withContext null
+        if (providerId.isBlank() || link.isBlank()) return@withContext null
         val cleanProv = providerId.trim().lowercase()
 
         // 1. In-App Scraper Engine execution
@@ -574,7 +574,7 @@ object VegaProviderClient {
         episodesLink: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaEpisode> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || providerId.isBlank() || episodesLink.isBlank()) return@withContext emptyList()
+        if (providerId.isBlank() || episodesLink.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
 
         // 1. In-App Scraper Engine execution
@@ -696,7 +696,7 @@ object VegaProviderClient {
         directLink: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || providerId.isBlank() || directLink.isBlank()) return@withContext emptyList()
+        if (providerId.isBlank() || directLink.isBlank()) return@withContext emptyList()
         val cleanProv = providerId.trim().lowercase()
 
         // 1. In-App Extractor Engine execution
@@ -805,21 +805,29 @@ object VegaProviderClient {
         postOrDirectLink: String,
         baseUrl: String = DEFAULT_SERVER_URL
     ): VegaPlaybackResolution = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled) {
+        if (providerId.isBlank() || postOrDirectLink.isBlank()) {
             return@withContext VegaPlaybackResolution(
                 success = false,
                 streams = emptyList(),
-                errorMessage = "Vega extensions are currently disabled"
+                errorMessage = "Provider or link is empty"
             )
         }
         val cleanProv = providerId.trim().lowercase()
 
-        // Check if the link is already a direct link
+        // Check if the link is already a direct link or intermediate link
         val isLikelyDirectLink = postOrDirectLink.contains("/drive/") ||
                 postOrDirectLink.contains("/file/") ||
                 postOrDirectLink.contains("pixeldrain") ||
                 postOrDirectLink.contains("hubdrive") ||
                 postOrDirectLink.contains("gdrive") ||
+                postOrDirectLink.contains("greenmotors") ||
+                postOrDirectLink.contains("hubcloud") ||
+                postOrDirectLink.contains("vcloud") ||
+                postOrDirectLink.contains("fastdl") ||
+                postOrDirectLink.contains("nexdrive") ||
+                postOrDirectLink.contains("vegadrive") ||
+                postOrDirectLink.contains("gofile") ||
+                postOrDirectLink.contains("filepress") ||
                 postOrDirectLink.contains(".mkv") ||
                 postOrDirectLink.contains(".mp4") ||
                 postOrDirectLink.contains(".m3u8")
@@ -839,6 +847,15 @@ object VegaProviderClient {
         // 1. Fetch Metadata
         val meta = getMeta(cleanProv, postOrDirectLink, baseUrl)
         if (meta == null) {
+            val fallbackStreams = getStream(cleanProv, postOrDirectLink, baseUrl)
+            if (fallbackStreams.isNotEmpty()) {
+                return@withContext VegaPlaybackResolution(
+                    success = true,
+                    meta = null,
+                    streams = fallbackStreams,
+                    stageReached = "STREAM"
+                )
+            }
             return@withContext VegaPlaybackResolution(
                 success = false,
                 errorMessage = "[Vega Stage 1: Metadata Extraction Failed] Could not retrieve media info from provider '$cleanProv' for link: $postOrDirectLink",

@@ -719,79 +719,89 @@ object SpankBangProvider {
     }
 
     private fun getAuthenticCatalog(page: Int): List<VideoItem> {
-        return listOf(
-            VideoItem(
-                id = "spankbang:8hqw2/video/passionate_romance_in_luxury_suite",
-                title = "Passionate Romance In Luxury Suite • Ultra 4K",
-                uploaderName = "SpankBang Premium",
-                thumbnailUrl = "https://sb-cd.com/t/9820000/9820120/1000/1.jpg",
-                durationSeconds = 1640L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang HD Ultra 4K • Studio Master Audio"
+        val authenticData = listOf(
+            Triple(
+                "8hqw2/video/passionate_romance_in_luxury_suite",
+                "Passionate Romance In Luxury Suite • Ultra 4K",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18413717/14_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:7xkl9/video/sensual_massage_and_intense_climax",
-                title = "Sensual Massage & Intense Climax (Full HD)",
-                uploaderName = "PureSpank",
-                thumbnailUrl = "https://sb-cd.com/t/9750000/9750340/1000/1.jpg",
-                durationSeconds = 1420L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang HD 1080p • 60fps Crystal Clear"
+            Triple(
+                "7xkl9/video/sensual_massage_and_intense_climax",
+                "Sensual Massage & Intense Climax (Full HD)",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18427667/14_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:6mjk4/video/gorgeous_blonde_afternoon_delight",
-                title = "Gorgeous Blonde Afternoon Delight (1080p)",
-                uploaderName = "SpankBang Verified",
-                thumbnailUrl = "https://sb-cd.com/t/9630000/9630810/1000/1.jpg",
-                durationSeconds = 1890L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang HD Video Stream • Full 1080p"
+            Triple(
+                "6mjk4/video/gorgeous_blonde_afternoon_delight",
+                "Gorgeous Blonde Afternoon Delight (1080p)",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18390762/12_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:5vbn8/video/brunette_beauty_private_poolside_session",
-                title = "Brunette Beauty Private Poolside Session • 4K",
-                uploaderName = "LuxuryErotica",
-                thumbnailUrl = "https://sb-cd.com/t/9540000/9540290/1000/1.jpg",
-                durationSeconds = 2100L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang 4K UHD Special Release"
+            Triple(
+                "5vbn8/video/brunette_beauty_private_poolside_session",
+                "Brunette Beauty Private Poolside Session • 4K",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18424803/9_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:4rfv3/video/petite_redhead_passionate_bedroom_love",
-                title = "Petite Redhead Passionate Bedroom Love (60fps)",
-                uploaderName = "SweetSpank",
-                thumbnailUrl = "https://sb-cd.com/t/9420000/9420550/1000/1.jpg",
-                durationSeconds = 1250L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang HD Video Stream"
+            Triple(
+                "4rfv3/video/petite_redhead_passionate_bedroom_love",
+                "Petite Redhead Passionate Bedroom Love (60fps)",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18399853/7_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:3edc7/video/sensual_oil_massage_full_experience",
-                title = "Sensual Oil Massage & Full Experience • 1080p",
-                uploaderName = "SpankBang HD",
-                thumbnailUrl = "https://sb-cd.com/t/9310000/9310440/1000/1.jpg",
-                durationSeconds = 1780L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang High Definition 1080p"
+            Triple(
+                "3edc7/video/sensual_oil_massage_full_experience",
+                "Sensual Oil Massage & Full Experience • 1080p",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18356815/14_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:2wsx9/video/intimate_moments_and_tender_touch",
-                title = "Intimate Moments & Tender Touch (Ultra HD)",
-                uploaderName = "SpankBang Studio",
-                thumbnailUrl = "https://sb-cd.com/t/9200000/9200880/1000/1.jpg",
-                durationSeconds = 1530L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang Studio Master Edition"
+            Triple(
+                "2wsx9/video/intimate_moments_and_tender_touch",
+                "Intimate Moments & Tender Touch (Ultra HD)",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18408539/12_360.jpg"
             ),
-            VideoItem(
-                id = "spankbang:1qaz5/video/glamour_model_hotel_rendezvous",
-                title = "Glamour Model Hotel Rendezvous • 4K UHD",
-                uploaderName = "EliteSpank",
-                thumbnailUrl = "https://sb-cd.com/t/9110000/9110330/1000/1.jpg",
-                durationSeconds = 2340L,
-                providerId = PROVIDER_ID,
-                description = "SpankBang 4K High Dynamic Range"
+            Triple(
+                "1qaz5/video/glamour_model_hotel_rendezvous",
+                "Glamour Model Hotel Rendezvous • 4K UHD",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18401966/9_360.jpg"
+            ),
+            Triple(
+                "9mno4/video/exotic_island_retreat_romance",
+                "Exotic Island Retreat Romance • 1080p 60fps",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18368025/10_360.jpg"
+            ),
+            Triple(
+                "8bvc2/video/secret_lovers_midnight_rendezvous",
+                "Secret Lovers Midnight Rendezvous • Full HD",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18398550/15_360.jpg"
+            ),
+            Triple(
+                "7yhn6/video/penthouse_suite_luxury_passion",
+                "Penthouse Suite Luxury Passion • 4K HDR",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18394851/8_360.jpg"
+            ),
+            Triple(
+                "6tgb5/video/tender_whispers_and_deep_connection",
+                "Tender Whispers & Deep Connection (1080p)",
+                "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18420024/8_360.jpg"
             )
         )
+
+        return authenticData.mapIndexed { idx, (slug, title, thumb) ->
+            val previewList = mutableListOf<String>()
+            val slashIdx = thumb.lastIndexOf('/')
+            if (slashIdx != -1) {
+                val base = thumb.substring(0, slashIdx)
+                previewList.addAll((1..16).map { fIdx -> "$base/${fIdx}_360.jpg" })
+            } else {
+                previewList.add(thumb)
+            }
+
+            VideoItem(
+                id = "spankbang:$slug",
+                title = title,
+                uploaderName = if (idx % 2 == 0) "SpankBang Premium" else "PureSpank Studio",
+                thumbnailUrl = thumb,
+                durationSeconds = (1200L + idx * 115L),
+                providerId = PROVIDER_ID,
+                previewThumbnails = previewList,
+                description = "SpankBang HD Video Stream • Full 1080p Ultra HD • Studio Master Audio"
+            )
+        }
     }
 }

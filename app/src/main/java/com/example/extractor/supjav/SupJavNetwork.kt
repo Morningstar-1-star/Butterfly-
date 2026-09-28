@@ -98,6 +98,9 @@ object SupJavNetwork {
                 if (original.header("Sec-Fetch-Site") == null) {
                     requestBuilder.header("Sec-Fetch-Site", "cross-site")
                 }
+                if (original.url.host.contains("supjav")) {
+                    requestBuilder.header("Cookie", "lang=en; language=en; wp_lang=en_US; age_verified=1")
+                }
 
                 chain.proceed(requestBuilder.build())
             }

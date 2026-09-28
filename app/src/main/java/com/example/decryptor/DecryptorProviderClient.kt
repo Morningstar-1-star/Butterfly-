@@ -278,10 +278,11 @@ object DecryptorProviderClient {
         active.forEach { sDef ->
             val hdrs = HashMap(defaultHeaders)
             hdrs.putAll(sDef.headers)
+            val isDirectMedia = sDef.url.contains(".m3u8", ignoreCase = true) || sDef.url.contains(".mp4", ignoreCase = true)
             servers.add(
                 DecryptorServer(
                     name = sDef.name,
-                    type = "embed",
+                    type = if (isDirectMedia) "m3u8" else "embed",
                     quality = "1080p",
                     proxyUrl = null,
                     url = sDef.url,

@@ -208,7 +208,7 @@ object VegaInAppEngine {
             }
 
             val linkList = mutableListOf<VegaLinkList>()
-            val downloadAnchors = doc.select("a.dwd-button, a.btn, a[href*='drive'], a[href*='fastdl'], a[href*='hubcloud'], a[href*='vcloud'], a[href*='nexdrive'], a[href*='gdflix'], a[href*='pixeldrain'], a[href*='gofile']")
+            val downloadAnchors = doc.select("a.dwd-button, a.btn, a.maxbutton, a.btn-download, a.download-btn, a[href*='drive'], a[href*='fastdl'], a[href*='hubcloud'], a[href*='vcloud'], a[href*='nexdrive'], a[href*='gdflix'], a[href*='pixeldrain'], a[href*='gofile'], a[href*='greenmotors'], a[href*='homelander'], a[href*='filepress'], a[href*='filebee'], a[href*='buzzheavier'], a[href*='superfast'], a[href*='download'], a[href*='dl'], a[href*='link']")
 
             val qualityBuckets = mutableMapOf<String, MutableList<VegaDirectLink>>()
 

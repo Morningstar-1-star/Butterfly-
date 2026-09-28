@@ -21,6 +21,7 @@ import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import androidx.core.animation.doOnEnd
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import android.content.Intent
 import android.widget.Toast
@@ -43,10 +44,30 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         splashScreen.setOnExitAnimationListener { splashScreenView ->
-            splashScreenView.remove()
+            try {
+                val fadeOut = android.animation.ObjectAnimator.ofFloat(
+                    splashScreenView.view,
+                    android.view.View.ALPHA,
+                    1f,
+                    0f
+                ).apply {
+                    interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+                    duration = 180L
+                    doOnEnd { splashScreenView.remove() }
+                }
+                fadeOut.start()
+            } catch (_: Exception) {
+                splashScreenView.remove()
+            }
         }
 
         super.onCreate(savedInstanceState)
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, R.anim.app_open_enter, R.anim.app_open_exit)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.app_open_enter, R.anim.app_open_exit)
+        }
         enableEdgeToEdge()
         setupHighRefreshRate()
 
@@ -108,38 +129,20 @@ class MainActivity : ComponentActivity() {
             val showOpeningAnimation by viewModel.showOpeningAnimation.collectAsState()
             val isOpeningAnimationEnabled by viewModel.isOpeningAnimationEnabled.collectAsState()
             val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
-            var showWhatsNewDialog by remember { mutableStateOf(false) }
-
-            // Trigger "What's New" when the app was updated
-            LaunchedEffect(Unit) {
-                if (WhatsNewManager.shouldShowWhatsNew(context)) {
-                    showWhatsNewDialog = true
-                }
-            }
-
             MyApplicationTheme(
                 themeMode = themeMode,
                 accentColor = accentColor
             ) {
-                // Safety watchdog: ensure opening animation is guaranteed to dismiss quickly (450ms)
+                // Safety watchdog: ensure opening animation finishes smoothly without premature cut-off
                 LaunchedEffect(showOpeningAnimation, isOpeningAnimationEnabled) {
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        kotlinx.coroutines.delay(450L)
+                        kotlinx.coroutines.delay(1450L)
                         viewModel.dismissOpeningAnimation()
                     }
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(viewModel = viewModel)
-
-                    if (showWhatsNewDialog) {
-                        WhatsNewDialog(
-                            onDismiss = {
-                                WhatsNewManager.markWhatsNewAsSeen(context)
-                                showWhatsNewDialog = false
-                            }
-                        )
-                    }
 
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
                         when (openingAnimationStyle) {
@@ -386,6 +389,16 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
                 }
             }
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, R.anim.app_close_enter, R.anim.app_close_exit)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.app_close_enter, R.anim.app_close_exit)
         }
     }
 

@@ -52,11 +52,24 @@ object MediaSourceFactoryHelper {
             .build()
     }
 
+    val tencentMediaClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .dns(okhttp3.Dns.SYSTEM)
+            .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(MediaHeaderHelper.mediaHeaderInterceptor)
+            .addNetworkInterceptor(MediaHeaderHelper.networkHeaderInterceptor)
+            .build()
+    }
+
     val extractorsFactory: DefaultExtractorsFactory by lazy {
         DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
-            .setMp4ExtractorFlags(Mp4Extractor.FLAG_READ_SEF_DATA)
-            .setFragmentedMp4ExtractorFlags(FragmentedMp4Extractor.FLAG_ENABLE_EMSG_TRACK)
     }
 
     val errorHandlingPolicy: LoadErrorHandlingPolicy = object : DefaultLoadErrorHandlingPolicy(3) {
@@ -236,6 +249,25 @@ object MediaSourceFactoryHelper {
                         reqHeaders["Referer"] = "https://www.hotstar.com/"
                         reqHeaders["Origin"] = "https://www.hotstar.com"
                     }
+                    (lowerTarget.contains("thisvid") || lowerTarget.contains("thisvid.com") || lowerTarget.contains("tvid") || streamData?.providerId == "thisvid") -> {
+                        reqHeaders["Referer"] = "https://thisvid.com/"
+                        reqHeaders["Origin"] = "https://thisvid.com"
+                        reqHeaders["Cookie"] = "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1"
+                        reqHeaders["Accept"] = "*/*"
+                        if (customUserAgent == null) customUserAgent = NetworkManager.DEFAULT_USER_AGENT
+                    }
+                    (lowerTarget.contains("tnaflix") || lowerTarget.contains("tnaflix.com") || streamData?.providerId == "tnaflix") -> {
+                        reqHeaders["Referer"] = "https://www.tnaflix.com/"
+                        reqHeaders["Origin"] = "https://www.tnaflix.com"
+                        reqHeaders["Cookie"] = "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1"
+                        reqHeaders["Accept"] = "*/*"
+                    }
+                    (lowerTarget.contains("hellporno") || lowerTarget.contains("hellporno.com") || lowerTarget.contains("hellporno.net") || lowerTarget.contains("hellporno.tv") || streamData?.providerId == "hellporno") -> {
+                        reqHeaders["Referer"] = "https://hellporno.com/"
+                        reqHeaders["Origin"] = "https://hellporno.com"
+                        reqHeaders["Cookie"] = "age_verified=1; has_consent=1; country=US"
+                        reqHeaders["Accept"] = "*/*"
+                    }
                     lowerTarget.contains("supjav") || lowerTarget.contains("tvlogy") || lowerTarget.contains("supplayer") ||
                     lowerTarget.contains("streamwish") || lowerTarget.contains("wishembed") || lowerTarget.contains("awish") ||
                     lowerTarget.contains("dwish") || lowerTarget.contains("strwish") || lowerTarget.contains("cdnwish") ||
@@ -285,7 +317,16 @@ object MediaSourceFactoryHelper {
                 lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos") ||
                 lowerTarget.contains("bcache") || lowerTarget.contains("mirrorakam") ||
                 streamData?.providerId == "bilibili"
-        val client = if (isBili) bilibiliMediaClient else okHttpClient
+        val isTencent = lowerTarget.contains("qq.com") || lowerTarget.contains("tc.qq.com") ||
+                lowerTarget.contains("v.qq.com") || lowerTarget.contains("myqcloud.com") ||
+                lowerTarget.contains("wetv.vip") || lowerTarget.contains("qpic.cn") ||
+                lowerTarget.contains("gtimg.com") ||
+                streamData?.providerId == "tencent" || streamData?.providerId == "vqq"
+        val client = when {
+            isBili -> bilibiliMediaClient
+            isTencent -> tencentMediaClient
+            else -> okHttpClient
+        }
         val dsFactory = OkHttpDataSource.Factory(client)
         userAgent?.let { dsFactory.setUserAgent(it) }
         if (reqHeaders.isNotEmpty()) {

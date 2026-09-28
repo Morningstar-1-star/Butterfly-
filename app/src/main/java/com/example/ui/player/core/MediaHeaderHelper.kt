@@ -54,15 +54,13 @@ object MediaHeaderHelper {
                     urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
                     urlStr.contains("biliintl") -> {
                 val isBiliCdn = urlStr.contains("bilivideo") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
-                        urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo")
+                        urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo") ||
+                        urlStr.contains("akamaized") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") ||
+                        urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam")
 
                 val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-                if (request.header("Referer").isNullOrBlank()) {
-                    builder.header("Referer", biliReferer)
-                }
-                if (request.header("User-Agent").isNullOrBlank()) {
-                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                }
+                builder.header("Referer", biliReferer)
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 builder.header("Accept", "*/*")
                 builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
                 builder.removeHeader("Sec-Fetch-Mode")
@@ -79,6 +77,19 @@ object MediaHeaderHelper {
                     builder.removeHeader("Cookie")
                     builder.removeHeader("cookie")
                 }
+            }
+            urlStr.contains("qq.com") || urlStr.contains("tc.qq.com") || urlStr.contains("v.qq.com") ||
+                    urlStr.contains("gtimg.com") || urlStr.contains("qpic.cn") || urlStr.contains("myqcloud.com") ||
+                    urlStr.contains("wetv.vip") || urlStr.contains("wetvinfo.com") || urlStr.contains("tencent") -> {
+                val tencentReferer = if (urlStr.contains("wetv")) "https://wetv.vip/" else "https://v.qq.com/"
+                builder.header("Referer", tencentReferer)
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                builder.header("Accept", "*/*")
+                builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
+                builder.removeHeader("Origin")
+                builder.removeHeader("origin")
+                builder.removeHeader("Cookie")
+                builder.removeHeader("cookie")
             }
             urlStr.contains("eporner.com") || urlStr.contains("eporner") || urlStr.contains("static-cluster") || urlStr.contains("eporner-cdn") -> {
                 builder.header("Referer", "https://www.eporner.com/")
@@ -316,6 +327,30 @@ object MediaHeaderHelper {
                 builder.header("Referer", "https://javtiful.com/")
                 builder.header("Origin", "https://javtiful.com")
             }
+            urlStr.contains("thisvid") || urlStr.contains("thisvid.com") || urlStr.contains("tvid") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                builder.header("Referer", "https://thisvid.com/")
+                builder.header("Origin", "https://thisvid.com")
+                builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1")
+            }
+            urlStr.contains("tnaflix") || urlStr.contains("tnaflix.com") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                builder.header("Referer", "https://www.tnaflix.com/")
+                builder.header("Origin", "https://www.tnaflix.com")
+                builder.header("Cookie", "age_verified=1; platform=pc; ft_mature=1; consent=1; has_consent=1")
+            }
+            urlStr.contains("hellporno") || urlStr.contains("hellporno.com") || urlStr.contains("hellporno.net") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                builder.header("Referer", "https://hellporno.com/")
+                builder.header("Origin", "https://hellporno.com")
+                builder.header("Cookie", "age_verified=1; has_consent=1; country=US")
+            }
+            urlStr.contains("playvid") || urlStr.contains("playvids") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                builder.header("Referer", "https://www.playvids.com/")
+                builder.header("Origin", "https://www.playvids.com")
+                builder.header("Cookie", "age_confirmed=1; country=US; consent=1")
+            }
             urlStr.contains("supjav") || urlStr.contains("tvlogy") || urlStr.contains("supplayer") || urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") || urlStr.contains("strwish") || urlStr.contains("cdnwish") || urlStr.contains("embedwish") || urlStr.contains("sfastwish") || urlStr.contains("filelions") || urlStr.contains("voe") || urlStr.contains("audaciousdefaulthouse") || urlStr.contains("dood") || urlStr.contains("ds2play") || urlStr.contains("streamtape") || urlStr.contains("tapecontent") || urlStr.contains("stbturbo") || urlStr.contains("streamtb") -> {
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
                 val (ref, orig) = when {
@@ -496,7 +531,7 @@ object MediaHeaderHelper {
 
     val networkHeaderInterceptor = Interceptor { chain ->
         val request = chain.request()
-        val urlStr = request.url.toString()
+        val urlStr = request.url.toString().lowercase()
         val builder = request.newBuilder()
 
         val isBili = urlStr.contains("bilibili") || urlStr.contains("bilivideo") || urlStr.contains("biliapi") ||
@@ -511,18 +546,18 @@ object MediaHeaderHelper {
 
         if (isBili) {
             val isBiliCdn = urlStr.contains("bilivideo") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
-                    urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo")
+                    urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo") ||
+                    urlStr.contains("akamaized") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") ||
+                    urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam")
 
             val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-            if (request.header("Referer").isNullOrBlank()) {
-                builder.header("Referer", biliReferer)
-            }
-            if (request.header("User-Agent").isNullOrBlank()) {
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            }
+            builder.header("Referer", biliReferer)
+            builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             builder.header("Accept", "*/*")
             builder.removeHeader("Origin")
             builder.removeHeader("origin")
+            builder.removeHeader("Sec-Fetch-Site")
+            builder.removeHeader("Sec-Fetch-Mode")
             if (isBiliCdn) {
                 builder.removeHeader("Cookie")
                 builder.removeHeader("cookie")

@@ -8,4 +8,16 @@
         <item name="postSplashScreenTheme">@style/Theme.MyApplication.Main</item>
         <item name="android:windowBackground">#1976D2</item>
     </style>
+
+    <style name="Theme.MyApplication.Main" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">#1976D2</item>
+        <item name="android:windowAnimationStyle">@style/WindowAnimation.Smooth</item>
+    </style>
+
+    <style name="WindowAnimation.Smooth" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/app_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/app_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/app_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/app_close_exit</item>
+    </style>
 </resources>

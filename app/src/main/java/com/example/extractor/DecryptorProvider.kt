@@ -78,12 +78,16 @@ object DecryptorProvider {
                         val voteAvg = obj.optDouble("vote_average", 8.0)
                         val overview = obj.optString("overview", "")
 
+                        val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, false)
+                        val uploader = studioBrand.brandName.ifBlank { "Decryptor • $year • ★${String.format("%.1f", voteAvg)}" }
+                        val studioAvatar = studioBrand.logoUrls.firstOrNull()
+
                         items.add(
                             VideoItem(
                                 id = "decryptor:movie:$tmdbId",
                                 title = title,
-                                uploaderName = "Decryptor • $year • ★${String.format("%.1f", voteAvg)}",
-                                uploaderAvatarUrl = "https://raw.githubusercontent.com/google/material-design-icons/master/png/action/lock_open/materialicons/48dp/2x/baseline_lock_open_black_48dp.png",
+                                uploaderName = uploader,
+                                uploaderAvatarUrl = studioAvatar,
                                 thumbnailUrl = thumbUrl,
                                 uploadDate = releaseDate,
                                 providerId = PROVIDER_ID,
@@ -99,11 +103,15 @@ object DecryptorProvider {
 
         if (items.isEmpty()) {
             FALLBACK_CINEMA_RELEASES.forEach { (tmdbId, title, thumb) ->
+                val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, false)
+                val uploader = studioBrand.brandName.ifBlank { "Decryptor Multi-Server • Cinema 4K" }
+                val studioAvatar = studioBrand.logoUrls.firstOrNull()
                 items.add(
                     VideoItem(
                         id = "decryptor:movie:$tmdbId",
                         title = title,
-                        uploaderName = "Decryptor Multi-Server • Cinema 4K",
+                        uploaderName = uploader,
+                        uploaderAvatarUrl = studioAvatar,
                         thumbnailUrl = thumb,
                         providerId = PROVIDER_ID,
                         description = "Direct 4K and HLS cinema stream with multi-server playback."
@@ -157,11 +165,16 @@ object DecryptorProvider {
                         val year = if (releaseDate.length >= 4) releaseDate.take(4) else "2025"
                         val overview = obj.optString("overview", "")
 
+                        val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, mediaType == "tv")
+                        val uploader = studioBrand.brandName.ifBlank { "Decryptor • $year • ${mediaType.uppercase()}" }
+                        val studioAvatar = studioBrand.logoUrls.firstOrNull()
+
                         items.add(
                             VideoItem(
                                 id = "decryptor:$mediaType:$id",
                                 title = title,
-                                uploaderName = "Decryptor • $year • ${mediaType.uppercase()}",
+                                uploaderName = uploader,
+                                uploaderAvatarUrl = studioAvatar,
                                 thumbnailUrl = thumbUrl,
                                 uploadDate = releaseDate,
                                 providerId = PROVIDER_ID,

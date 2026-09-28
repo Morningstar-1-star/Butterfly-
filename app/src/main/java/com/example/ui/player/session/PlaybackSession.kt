@@ -501,19 +501,6 @@ class PlaybackSession(private val appContext: Context) {
                 val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
                 val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
 
-                val isEmbed = streamOption.format.equals("embed", ignoreCase = true) ||
-                        streamOption.providerType == com.example.model.ProviderType.EMBED ||
-                        (vUrl != null && (vUrl.contains("/embed/", ignoreCase = true) || vUrl.contains("vidsrc.", ignoreCase = true) || vUrl.contains("vidlink.", ignoreCase = true) || vUrl.contains("autoembed.", ignoreCase = true) || vUrl.contains("smashystream.", ignoreCase = true) || vUrl.contains("2embed.", ignoreCase = true) || vUrl.contains("multiembed.", ignoreCase = true)) && !vUrl.contains(".m3u8", ignoreCase = true) && !vUrl.contains(".mp4", ignoreCase = true))
-
-                if (isEmbed) {
-                    Log.i("PlaybackSession", "Active option is an HTML embed ($vUrl). Pausing ExoPlayer for WebView Player delegation.")
-                    player.stop()
-                    player.clearMediaItems()
-                    _isBuffering.value = false
-                    _isPlaying.value = false
-                    return
-                }
-
                 val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
                 if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
                     val cleanCapUrl = sanitizeMediaUrl(captionOption.url)
@@ -564,7 +551,7 @@ class PlaybackSession(private val appContext: Context) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         val audioSource = audioSourceFactory.createMediaSource(audioItem)
                         try {
-                            val mergedSource = MergingMediaSource(true, true, videoSource, audioSource)
+                            val mergedSource = MergingMediaSource(false, false, videoSource, audioSource)
                             player.setMediaSource(mergedSource)
                             mediaSourceSet = true
                         } catch (e: Exception) {

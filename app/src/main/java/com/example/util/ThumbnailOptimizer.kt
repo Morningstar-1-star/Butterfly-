@@ -95,6 +95,31 @@ object ThumbnailOptimizer {
             }
         }
 
+        // 6. SpankBang thumbnails: Replace defunct sb-cd.com domain with live verified CDN preview
+        if (trimmed.contains("spankbang") || trimmed.contains("sb-cd.com") || trimmed.contains("spankcdn")) {
+            var sbUrl = trimmed
+            if (sbUrl.contains("sb-cd.com")) {
+                val fallbackList = listOf(
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18413717/14_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18427667/14_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18390762/12_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18424803/9_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18399853/7_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18356815/14_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18408539/12_360.jpg",
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18401966/9_360.jpg"
+                )
+                val idx = kotlin.math.abs(sbUrl.hashCode()) % fallbackList.size
+                return fallbackList[idx]
+            }
+            if (sbUrl.startsWith("//")) {
+                sbUrl = "https:$sbUrl"
+            } else if (sbUrl.startsWith("/")) {
+                sbUrl = "https://spankbang.com$sbUrl"
+            }
+            return sbUrl
+        }
+
         return trimmed
     }
 

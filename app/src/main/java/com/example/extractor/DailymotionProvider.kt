@@ -146,12 +146,18 @@ object DailymotionProvider {
                     ?: ownerScreenName.replace(" ", "").lowercase()
 
                 // Extract real high-resolution channel logo
-                val ownerAvatar = item.optString("owner.avatar_240_url").takeIf { it.isNotBlank() }
+                var ownerAvatar = item.optString("owner.avatar_240_url").takeIf { it.isNotBlank() }
                     ?: item.optString("owner.avatar_120_url").takeIf { it.isNotBlank() }
                     ?: item.optString("owner.avatar_720_url").takeIf { it.isNotBlank() }
                     ?: item.optJSONObject("owner")?.optString("avatar_240_url")?.takeIf { it.isNotBlank() }
                     ?: item.optJSONObject("owner")?.optString("avatar_120_url")?.takeIf { it.isNotBlank() }
                     ?: item.optJSONObject("owner")?.optJSONObject("avatars")?.optString("120")?.takeIf { it.isNotBlank() }
+
+                ownerAvatar = when {
+                    ownerAvatar.isNullOrBlank() && ownerUsername.isNotBlank() -> "https://www.dailymotion.com/thumbnail/user/$ownerUsername"
+                    ownerAvatar != null && ownerAvatar.startsWith("//") -> "https:$ownerAvatar"
+                    else -> ownerAvatar
+                }
 
                 val thumb = item.optString("thumbnail_720_url").takeIf { it.isNotBlank() }
                     ?: item.optString("thumbnail_480_url").takeIf { it.isNotBlank() }
@@ -301,11 +307,17 @@ object DailymotionProvider {
                 val channelHandle = ownerObj?.optString("username") ?: channelName
 
                 val avatarsObj = ownerObj?.optJSONObject("avatars")
-                val channelAvatar = avatarsObj?.optString("240")?.takeIf { it.isNotBlank() }
+                var channelAvatar = avatarsObj?.optString("240")?.takeIf { it.isNotBlank() }
                     ?: avatarsObj?.optString("120")?.takeIf { it.isNotBlank() }
                     ?: avatarsObj?.optString("60")?.takeIf { it.isNotBlank() }
                     ?: ownerObj?.optString("avatar_240_url")?.takeIf { it.isNotBlank() }
                     ?: ownerObj?.optString("avatar_120_url")?.takeIf { it.isNotBlank() }
+
+                channelAvatar = when {
+                    channelAvatar.isNullOrBlank() && channelHandle.isNotBlank() -> "https://www.dailymotion.com/thumbnail/user/$channelHandle"
+                    channelAvatar != null && channelAvatar.startsWith("//") -> "https:$channelAvatar"
+                    else -> channelAvatar
+                }
 
                 val thumbsObj = metaJson.optJSONObject("thumbnails")
                 val thumb = thumbsObj?.optString("720")?.takeIf { it.isNotBlank() }

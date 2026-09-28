@@ -27,11 +27,26 @@ object ChannelLogoHelper {
         Pair(Color(0xFF37474F), Color.White)  // Blue Grey
     )
 
+    fun getProductionCompanyForTitle(videoTitle: String?, isTv: Boolean = false): BrandLogoInfo {
+        if (videoTitle.isNullOrBlank()) {
+            return getBrandInfo(null, null, null)
+        }
+        val studio = StudioDetector.detectStudio(videoTitle, isTv)
+        return getBrandInfo(studio, null, videoTitle)
+    }
+
     fun getBrandInfo(uploaderName: String?, rawAvatarUrl: String?, videoTitle: String? = null): BrandLogoInfo {
+        val trimmed = uploaderName?.trim().orEmpty()
+        val isTencentSpecific = trimmed.contains("tencent", ignoreCase = true) ||
+                trimmed.contains("腾讯") ||
+                trimmed.contains("wetv", ignoreCase = true) ||
+                trimmed.contains("v.qq", ignoreCase = true)
+
         val cleanName = when {
-            uploaderName.isNullOrBlank() -> "Official Creator"
-            uploaderName.trim().lowercase() == "tv network" -> "Verified Studio"
-            else -> uploaderName.trim()
+            trimmed.isBlank() -> "Official Creator"
+            trimmed.lowercase() == "tv network" -> "Verified Studio"
+            isTencentSpecific -> com.example.extractor.TencentProvider.sanitizeTencentChannelName(trimmed)
+            else -> trimmed
         }
 
         val effectiveAvatar = when {
@@ -40,8 +55,26 @@ object ChannelLogoHelper {
             else -> rawAvatarUrl
         }
 
-        // If a real remote avatar URL is provided, respect it completely
-        if (!effectiveAvatar.isNullOrEmpty() && (effectiveAvatar.startsWith("http://") || effectiveAvatar.startsWith("https://"))) {
+        val isGenericProvider = trimmed.lowercase().let { low ->
+            low.isBlank() || low.contains("vidsrc") || low.contains("decryptor") || low.contains("tmdb") ||
+            low.contains("vixsrc") || low.contains("superembed") || low.contains("vega") || low.contains("hdhub") ||
+            low.contains("katmovie") || low.contains("1cinevood") || low.contains("bollyflix") || low.contains("movies4u") ||
+            low.contains("allmovieshub") || low.contains("world4u") || low.contains("cinema release") ||
+            low.contains("popular movie") || low.contains("verified studio") || low.contains("official creator") ||
+            low.contains("multi-server") || low == "t" || low.contains("tv network")
+        }
+
+        val isGenericAvatar = effectiveAvatar.isNullOrBlank() ||
+            effectiveAvatar.contains("favicon") ||
+            effectiveAvatar.contains("baseline_lock") ||
+            effectiveAvatar.contains("material-design-icons") ||
+            effectiveAvatar.contains("unsplash.com") ||
+            effectiveAvatar.contains("placeholder") ||
+            effectiveAvatar.contains("noface") ||
+            effectiveAvatar.contains("default_avatar")
+
+        // If a real remote creator avatar URL is provided (and it's not a generic placeholder/favicon on a movie feed), respect it completely
+        if (!effectiveAvatar.isNullOrEmpty() && (effectiveAvatar.startsWith("http://") || effectiveAvatar.startsWith("https://")) && !isGenericAvatar && !isGenericProvider) {
             return BrandLogoInfo(
                 logoUrls = listOf(effectiveAvatar),
                 brandName = cleanName,
@@ -56,7 +89,563 @@ object ChannelLogoHelper {
         val title = videoTitle?.lowercase()?.trim() ?: ""
         val combined = "$name $title"
 
+        // Production Studio & Company Matching
         return when {
+            // --- MARVEL STUDIOS ---
+            combined.contains("marvel") || combined.contains("iron man") || combined.contains("avengers") ||
+            combined.contains("captain america") || combined.contains("thor") || combined.contains("black panther") ||
+            combined.contains("doctor strange") || combined.contains("ant-man") || combined.contains("guardians of the galaxy") ||
+            combined.contains("deadpool") || combined.contains("wolverine") || combined.contains("x-men") ||
+            combined.contains("fantastic four") || combined.contains("loki") || combined.contains("wandavision") ||
+            combined.contains("moon knight") || combined.contains("shang-chi") || combined.contains("eternals") ||
+            combined.contains("secret invasion") || combined.contains("the marvels") || combined.contains("she-hulk") ||
+            combined.contains("thunderbolts") || combined.contains("agatha") || combined.contains("what if") ||
+            combined.contains("daredevil") || combined.contains("punisher") || combined.contains("hawkeye") ||
+            combined.contains("mcu") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Marvel_Logo.svg/320px-Marvel_Logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/420.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Marvel_Studios_2016_logo.svg/320px-Marvel_Studios_2016_logo.svg.png"
+                ),
+                brandName = "Marvel Studios",
+                brandShortText = "MARVEL",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "34.1M subscribers • Official Studio"
+            )
+
+            // --- DC STUDIOS / DC COMICS ---
+            combined.contains("superman") || combined.contains("batman") || combined.contains("the dark knight") ||
+            combined.contains("dark knight") || combined.contains("joker") || combined.contains("dc studios") ||
+            combined.contains("dc comics") || combined.contains("wonder woman") || combined.contains("aquaman") ||
+            combined.contains("the flash") || combined.contains("flash ") || combined.contains("justice league") ||
+            combined.contains("suicide squad") || combined.contains("peacemaker") || combined.contains("shazam") ||
+            combined.contains("black adam") || combined.contains("harley quinn") || combined.contains("blue beetle") ||
+            combined.contains("watchmen") || combined.contains("swamp thing") || combined.contains("sandman") ||
+            combined.contains("titans") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/DC_Comics_logo.svg/320px-DC_Comics_logo.svg.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/DC_logo.svg/320px-DC_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/93xA627NdsM6L0Qi4h2y8V1vQn3.png"
+                ),
+                brandName = "DC Studios",
+                brandShortText = "DC",
+                backgroundColor = Color(0xFF0078D4),
+                textColor = Color.White,
+                subscriberCountText = "22.3M subscribers • Official Studio"
+            )
+
+            // --- WARNER BROS. PICTURES ---
+            combined.contains("warner") || combined.contains("wb ") || combined.contains("harry potter") ||
+            combined.contains("fantastic beasts") || combined.contains("matrix") || combined.contains("wonka") ||
+            combined.contains("barbie") || combined.contains("beetlejuice") || combined.contains("mad max") ||
+            combined.contains("furiosa") || combined.contains("tenet") || combined.contains("dune") ||
+            combined.contains("godzilla") || combined.contains("kong") || combined.contains("monsterverse") ||
+            combined.contains("the conjuring") || combined.contains("annabelle") || combined.contains("the nun") ||
+            combined.contains("casablanca") || combined.contains("twister") || combined.contains("blade runner") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Warner_Bros_logo.svg/320px-Warner_Bros_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/ky0xOc5Orh9Z1Nsu0RP490xJ2lm.png"
+                ),
+                brandName = "Warner Bros. Pictures",
+                brandShortText = "WB",
+                backgroundColor = Color(0xFF002B49),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "28.9M subscribers • Official Studio"
+            )
+
+            // --- PIXAR ANIMATION STUDIOS ---
+            combined.contains("pixar") || combined.contains("toy story") || combined.contains("inside out") ||
+            combined.contains("finding nemo") || combined.contains("finding dory") || combined.contains("cars ") ||
+            combined.contains("incredibles") || combined.contains("the incredibles") || combined.contains("monsters inc") ||
+            combined.contains("monsters university") || combined.contains("wall-e") || combined.contains("ratatouille") ||
+            combined.contains("coco") || combined.contains("soul ") || combined.contains("turning red") ||
+            combined.contains("elemental") || combined.contains("lightyear") || combined.contains("luca") ||
+            combined.contains("onward") || combined.contains("brave") || combined.contains("a bug's life") ||
+            combined.contains("good dinosaur") || combined.contains("elio") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Pixar_Animation_Studios_logo.svg/320px-Pixar_Animation_Studios_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/1TjvG00r0167cW40Bf5V9o35yE6.png"
+                ),
+                brandName = "Pixar Animation Studios",
+                brandShortText = "PIXAR",
+                backgroundColor = Color(0xFF003366),
+                textColor = Color.White,
+                subscriberCountText = "15.8M subscribers • Official Studio"
+            )
+
+            // --- WALT DISNEY PICTURES / DISNEY+ ---
+            combined.contains("disney") || combined.contains("walt disney") || combined.contains("frozen") ||
+            combined.contains("moana") || combined.contains("lion king") || combined.contains("the lion king") ||
+            combined.contains("aladdin") || combined.contains("beauty and the beast") || combined.contains("cinderella") ||
+            combined.contains("mulan") || combined.contains("tangled") || combined.contains("zootopia") ||
+            combined.contains("encanto") || combined.contains("wish") || combined.contains("little mermaid") ||
+            combined.contains("the little mermaid") || combined.contains("pinocchio") || combined.contains("peter pan") ||
+            combined.contains("snow white") || combined.contains("bambi") || combined.contains("dumbo") ||
+            combined.contains("jungle book") || combined.contains("the jungle book") || combined.contains("pirates of the caribbean") ||
+            combined.contains("national treasure") || combined.contains("tron") || combined.contains("hocus pocus") ||
+            combined.contains("nightmare before christmas") || combined.contains("cruella") || combined.contains("maleficent") ||
+            combined.contains("wreck-it ralph") || combined.contains("big hero 6") || combined.contains("raya") ||
+            combined.contains("princess and the frog") || combined.contains("mickey mouse") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/320px-Disney%2B_logo.svg.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Walt_Disney_Pictures_2011_logo.svg/320px-Walt_Disney_Pictures_2011_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/wdrCwmRnLFJhEoH8GSfymY85KHT.png"
+                ),
+                brandName = "Walt Disney Pictures",
+                brandShortText = "DISNEY",
+                backgroundColor = Color(0xFF113CCF),
+                textColor = Color.White,
+                subscriberCountText = "52.0M subscribers • Official Studio"
+            )
+
+            // --- LUCASFILM ---
+            combined.contains("lucasfilm") || combined.contains("star wars") || combined.contains("mandalorian") ||
+            combined.contains("the mandalorian") || combined.contains("ahsoka") || combined.contains("andor") ||
+            combined.contains("obi-wan") || combined.contains("boba fett") || combined.contains("bad batch") ||
+            combined.contains("clone wars") || combined.contains("skywalker") || combined.contains("indiana jones") ||
+            combined.contains("willow") || combined.contains("rogue one") || combined.contains("solo: a star wars") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Lucasfilm_logo.svg/320px-Lucasfilm_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/1t5q0jF0rYc05vGZtXlO1cWnE3Q.png"
+                ),
+                brandName = "Lucasfilm",
+                brandShortText = "LUCASFILM",
+                backgroundColor = Color(0xFF18181B),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "19.8M subscribers • Official Studio"
+            )
+
+            // --- 20TH CENTURY STUDIOS / SEARCHLIGHT ---
+            combined.contains("20th century") || combined.contains("fox") || combined.contains("searchlight") ||
+            combined.contains("avatar") || combined.contains("planet of the apes") || combined.contains("kingdom of the planet") ||
+            combined.contains("alien") || combined.contains("alien: romulus") || combined.contains("predator") ||
+            combined.contains("prey") || combined.contains("die hard") || combined.contains("titanic") ||
+            combined.contains("home alone") || combined.contains("ice age") || combined.contains("night at the museum") ||
+            combined.contains("kingsman") || combined.contains("bohemian rhapsody") || combined.contains("the martian") ||
+            combined.contains("grand budapest hotel") || combined.contains("poor things") || combined.contains("shape of water") ||
+            combined.contains("nomadland") || combined.contains("jojo rabbit") || combined.contains("birdman") ||
+            combined.contains("the menu") || combined.contains("free guy") || combined.contains("maze runner") ||
+            combined.contains("logan") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/20th_Century_Studios_logo.svg/320px-20th_Century_Studios_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/h0rjX5v3gn5QI89R62Wc9n8i56k.png"
+                ),
+                brandName = "20th Century Studios",
+                brandShortText = "20TH",
+                backgroundColor = Color(0xFF1E293B),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "22.0M subscribers • Official Studio"
+            )
+
+            // --- UNIVERSAL PICTURES / ILLUMINATION / DREAMWORKS ---
+            combined.contains("universal") || combined.contains("dreamworks") || combined.contains("illumination") ||
+            combined.contains("jurassic") || combined.contains("fast & furious") || combined.contains("fast and furious") ||
+            combined.contains("furious 7") || combined.contains("fate of the furious") || combined.contains("hobbs & shaw") ||
+            combined.contains("despicable me") || combined.contains("minions") || combined.contains("super mario") ||
+            combined.contains("shrek") || combined.contains("kung fu panda") || combined.contains("how to train your dragon") ||
+            combined.contains("madagascar") || combined.contains("puss in boots") || combined.contains("trolls") ||
+            combined.contains("sing ") || combined.contains("secret life of pets") || combined.contains("wicked") ||
+            combined.contains("the grinch") || combined.contains("lorax") || combined.contains("oppenheimer") ||
+            combined.contains("back to the future") || combined.contains("jaws") || combined.contains("e.t.") ||
+            combined.contains("gladiator") || combined.contains("mamma mia") || combined.contains("get out") ||
+            combined.contains("us ") || combined.contains("nope") || combined.contains("twisters") ||
+            combined.contains("five nights at freddy") || combined.contains("fnaf") || combined.contains("m3gan") ||
+            combined.contains("the purge") || combined.contains("bourne") || combined.contains("the fall guy") ||
+            combined.contains("speak no evil") || combined.contains("nosferatu") || combined.contains("wolf man") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Universal_Pictures_logo.svg/320px-Universal_Pictures_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/837bNpkm0hwNt2FFEtIHVOxiOk8.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/DreamWorks_Animation_logo.svg/320px-DreamWorks_Animation_logo.svg.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Illumination_logo.svg/320px-Illumination_logo.svg.png"
+                ),
+                brandName = "Universal Pictures",
+                brandShortText = "UNIVERSAL",
+                backgroundColor = Color(0xFF001F3F),
+                textColor = Color.White,
+                subscriberCountText = "31.0M subscribers • Official Studio"
+            )
+
+            // --- PARAMOUNT PICTURES / NICKELODEON ---
+            combined.contains("paramount") || combined.contains("nickelodeon") || combined.contains("top gun") ||
+            combined.contains("mission: impossible") || combined.contains("mission impossible") || combined.contains("transformers") ||
+            combined.contains("sonic the hedgehog") || combined.contains("sonic") || combined.contains("gladiator ii") ||
+            combined.contains("a quiet place") || combined.contains("quiet place") || combined.contains("scream") ||
+            combined.contains("star trek") || combined.contains("the godfather") || combined.contains("godfather") ||
+            combined.contains("forrest gump") || combined.contains("saving private ryan") || combined.contains("spongebob") ||
+            combined.contains("paw patrol") || combined.contains("ninja turtles") || combined.contains("tmnt") ||
+            combined.contains("mean girls") || combined.contains("smile") || combined.contains("dungeons & dragons") ||
+            combined.contains("babylon") || combined.contains("wolf of wall street") || combined.contains("shutter island") ||
+            combined.contains("yellowstone") || combined.contains("south park") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Paramount_Pictures_logo.svg/320px-Paramount_Pictures_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/fycMZt242LVjagMByZOLUGbCvv3.png"
+                ),
+                brandName = "Paramount Pictures",
+                brandShortText = "PARAMOUNT",
+                backgroundColor = Color(0xFF002B49),
+                textColor = Color.White,
+                subscriberCountText = "26.5M subscribers • Official Studio"
+            )
+
+            // --- SONY PICTURES / COLUMBIA PICTURES ---
+            combined.contains("sony pictures") || combined.contains("columbia pictures") || combined.contains("tristar") ||
+            combined.contains("spider-verse") || combined.contains("into the spider-verse") || combined.contains("across the spider-verse") ||
+            combined.contains("spider-man") || combined.contains("venom") || combined.contains("jumanji") ||
+            combined.contains("ghostbusters") || combined.contains("bad boys") || combined.contains("men in black") ||
+            combined.contains("uncharted") || combined.contains("gran turismo") || combined.contains("karate kid") ||
+            combined.contains("cobra kai") || combined.contains("equalizer") || combined.contains("hotel transylvania") ||
+            combined.contains("smurfs") || combined.contains("resident evil") || combined.contains("underworld") ||
+            combined.contains("zombieland") || combined.contains("21 jump street") || combined.contains("22 jump street") ||
+            combined.contains("social network") || combined.contains("once upon a time in hollywood") || combined.contains("little women") ||
+            combined.contains("baby driver") || combined.contains("da vinci code") || combined.contains("casino royale") ||
+            combined.contains("skyfall") || combined.contains("spectre") || combined.contains("no time to die") ||
+            combined.contains("anyone but you") || combined.contains("it ends with us") || combined.contains("madame web") ||
+            combined.contains("kraven") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Sony_Pictures_logo.svg/320px-Sony_Pictures_logo.svg.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Columbia_Pictures_2024_logo.svg/320px-Columbia_Pictures_2024_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/71BqEFAF4V3qjjMPCpLuyJFB9A.png"
+                ),
+                brandName = "Sony Pictures",
+                brandShortText = "SONY",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "29.8M subscribers • Official Studio"
+            )
+
+            // --- LIONSGATE FILMS ---
+            combined.contains("lionsgate") || combined.contains("summit") || combined.contains("hunger games") ||
+            combined.contains("the hunger games") || combined.contains("songbirds and snakes") || combined.contains("john wick") ||
+            combined.contains("ballerina") || combined.contains("twilight") || combined.contains("saw ") ||
+            combined.contains("saw x") || combined.contains("spiral") || combined.contains("now you see me") ||
+            combined.contains("la la land") || combined.contains("knives out") || combined.contains("expendables") ||
+            combined.contains("the expendables") || combined.contains("rambo") || combined.contains("hacksaw ridge") ||
+            combined.contains("american psycho") || combined.contains("borderlands") || combined.contains("the crow") ||
+            combined.contains("boy kills world") || combined.contains("ungentlemanly warfare") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Lionsgate_logo.svg/320px-Lionsgate_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/16DOo4uBqF71z0178H7803k2jG.png"
+                ),
+                brandName = "Lionsgate Films",
+                brandShortText = "LG",
+                backgroundColor = Color(0xFF1E1B18),
+                textColor = Color(0xFFFFC107),
+                subscriberCountText = "21.2M subscribers • Official Studio"
+            )
+
+            // --- A24 ---
+            combined.contains("a24") || combined.contains("everything everywhere") || combined.contains("civil war") ||
+            combined.contains("the whale") || combined.contains("talk to me") || combined.contains("hereditary") ||
+            combined.contains("midsommar") || combined.contains("uncut gems") || combined.contains("the witch") ||
+            combined.contains("lady bird") || combined.contains("moonlight") || combined.contains("beef") ||
+            combined.contains("past lives") || combined.contains("the iron claw") || combined.contains("iron claw") ||
+            combined.contains("priscilla") || combined.contains("zone of interest") || combined.contains("beau is afraid") ||
+            combined.contains("pearl") || combined.contains("maxxxine") || combined.contains("heretic") ||
+            combined.contains("we live in time") || combined.contains("sing sing") || combined.contains("ex machina") ||
+            combined.contains("the lobster") || combined.contains("the lighthouse") || combined.contains("the green knight") ||
+            combined.contains("green knight") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/A24_logo.svg/320px-A24_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/1ZXsFk98b6ipk91yS9c1k808j.png"
+                ),
+                brandName = "A24",
+                brandShortText = "A24",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "12.6M subscribers • Official Studio"
+            )
+
+            // --- LEGENDARY ENTERTAINMENT ---
+            combined.contains("legendary") || combined.contains("pacific rim") || combined.contains("detective pikachu") ||
+            combined.contains("enola holmes") || combined.contains("interstellar") || combined.contains("inception") ||
+            combined.contains("300") || combined.contains("warcraft") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Legendary_Pictures_logo.svg/320px-Legendary_Pictures_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/b13a776110a12e2c2b3d81017.png"
+                ),
+                brandName = "Legendary Entertainment",
+                brandShortText = "LEGENDARY",
+                backgroundColor = Color(0xFF111827),
+                textColor = Color.White,
+                subscriberCountText = "18.3M subscribers • Official Studio"
+            )
+
+            // --- BLUMHOUSE PRODUCTIONS ---
+            combined.contains("blumhouse") || combined.contains("the black phone") || combined.contains("paranormal activity") ||
+            combined.contains("insidious") || combined.contains("sinister") || combined.contains("halloween ends") ||
+            combined.contains("halloween kills") || combined.contains("invisible man") || combined.contains("split") ||
+            combined.contains("glass") || combined.contains("whiplash") || combined.contains("happy death day") ||
+            combined.contains("imaginary") || combined.contains("night swim") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Blumhouse_Productions_logo.svg/320px-Blumhouse_Productions_logo.svg.png"
+                ),
+                brandName = "Blumhouse Productions",
+                brandShortText = "BH",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.Red,
+                subscriberCountText = "14.8M subscribers • Official Studio"
+            )
+
+            // --- METRO-GOLDWYN-MAYER / AMAZON MGM ---
+            combined.contains("mgm") || combined.contains("metro-goldwyn") || combined.contains("james bond") ||
+            combined.contains("007") || combined.contains("creed") || combined.contains("rocky") ||
+            combined.contains("road house") || combined.contains("red one") || combined.contains("the beekeeper") ||
+            combined.contains("beekeeper") || combined.contains("challengers") || combined.contains("saltburn") ||
+            combined.contains("air ") || combined.contains("robocop") || combined.contains("silence of the lambs") ||
+            combined.contains("the silence of the lambs") || combined.contains("fargo") || combined.contains("vikings") ||
+            combined.contains("handmaid's tale") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Metro-Goldwyn-Mayer_logo.svg/320px-Metro-Goldwyn-Mayer_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/101712a149f131a478c1872a.png"
+                ),
+                brandName = "Metro-Goldwyn-Mayer",
+                brandShortText = "MGM",
+                backgroundColor = Color(0xFF261C14),
+                textColor = Color(0xFFFFD700),
+                subscriberCountText = "24.1M subscribers • Official Studio"
+            )
+
+            // --- NEW LINE CINEMA ---
+            combined.contains("new line") || combined.contains("lord of the rings") || combined.contains("the hobbit") ||
+            combined.contains("hobbit") || combined.contains("war of the rohirrim") || combined.contains("nightmare on elm street") ||
+            combined.contains("rush hour") || combined.contains("elf") || combined.contains("the mask") ||
+            combined.contains("dumb and dumber") || combined.contains("final destination") || combined.contains("mortal kombat") ||
+            combined.contains("san andreas") || combined.contains("rampage") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/New_Line_Cinema_logo.svg/320px-New_Line_Cinema_logo.svg.png"
+                ),
+                brandName = "New Line Cinema",
+                brandShortText = "NLC",
+                backgroundColor = Color(0xFF0F172A),
+                textColor = Color.White,
+                subscriberCountText = "19.4M subscribers • Official Studio"
+            )
+
+            // --- HBO / MAX ---
+            combined.contains("hbo") || combined.contains("max") || combined.contains("game of thrones") ||
+            combined.contains("house of the dragon") || combined.contains("last of us") || combined.contains("the last of us") ||
+            combined.contains("succession") || combined.contains("white lotus") || combined.contains("the white lotus") ||
+            combined.contains("euphoria") || combined.contains("the penguin") || combined.contains("chernobyl") ||
+            combined.contains("sopranos") || combined.contains("the sopranos") || combined.contains("the wire") ||
+            combined.contains("true detective") || combined.contains("westworld") || combined.contains("barry") ||
+            combined.contains("silicon valley") || combined.contains("curb your enthusiasm") || combined.contains("dune: prophecy") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/320px-HBO_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/a3Wd7H11a681c2f90a4176d78c.png"
+                ),
+                brandName = "HBO",
+                brandShortText = "HBO",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "48.5M subscribers • Official Studio"
+            )
+
+            // --- NETFLIX ---
+            combined.contains("netflix") || combined.contains("stranger things") || combined.contains("squid game") ||
+            combined.contains("wednesday") || combined.contains("bridgerton") || combined.contains("one piece live action") ||
+            combined.contains("the witcher") || combined.contains("money heist") || combined.contains("la casa de papel") ||
+            combined.contains("lupin") || combined.contains("the crown") || combined.contains("ozark") ||
+            combined.contains("mindhunter") || combined.contains("black mirror") || combined.contains("dark ") ||
+            combined.contains("outer banks") || combined.contains("queen's gambit") || combined.contains("dahmer") ||
+            combined.contains("baby reindeer") || combined.contains("rebel ridge") || combined.contains("red notice") ||
+            combined.contains("extraction") || combined.contains("glass onion") || combined.contains("the gray man") ||
+            combined.contains("bird box") || combined.contains("klaus") || combined.contains("damsel") ||
+            combined.contains("atlas") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/320px-Netflix_2015_logo.svg.png",
+                    "https://image.tmdb.org/t/p/w300/wwemzKWzjKYJFfCeiB57q3r4Bcm.png"
+                ),
+                brandName = "Netflix",
+                brandShortText = "NETFLIX",
+                backgroundColor = Color(0xFFE50914),
+                textColor = Color.White,
+                subscriberCountText = "68.2M subscribers • Official Studio"
+            )
+
+            // --- APPLE TV+ ---
+            combined.contains("apple tv") || combined.contains("ted lasso") || combined.contains("severance") ||
+            combined.contains("morning show") || combined.contains("the morning show") || combined.contains("for all mankind") ||
+            combined.contains("foundation") || combined.contains("slow horses") || combined.contains("silo") ||
+            combined.contains("pachinko") || combined.contains("black bird") || combined.contains("shrinking") ||
+            combined.contains("hijack") || combined.contains("masters of the air") || combined.contains("presumed innocent") ||
+            combined.contains("killers of the flower moon") || combined.contains("napoleon") || combined.contains("coda") ||
+            combined.contains("tetris") || combined.contains("wolfs") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Apple_TV_Plus_Logo.svg/320px-Apple_TV_Plus_Logo.svg.png"
+                ),
+                brandName = "Apple TV+",
+                brandShortText = "APPLE",
+                backgroundColor = Color(0xFF222222),
+                textColor = Color.White,
+                subscriberCountText = "11.1M subscribers • Official Studio"
+            )
+
+            // --- AMAZON PRIME VIDEO ---
+            combined.contains("prime video") || combined.contains("amazon") || combined.contains("the boys") ||
+            combined.contains("gen v") || combined.contains("rings of power") || combined.contains("reacher") ||
+            combined.contains("invincible") || combined.contains("fallout") || combined.contains("wheel of time") ||
+            combined.contains("the wheel of time") || combined.contains("jack ryan") || combined.contains("terminal list") ||
+            combined.contains("good omens") || combined.contains("mrs. maisel") || combined.contains("fleabag") ||
+            combined.contains("hazbin hotel") || combined.contains("idea of you") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Prime_Video.png/320px-Prime_Video.png"
+                ),
+                brandName = "Prime Video",
+                brandShortText = "PRIME",
+                backgroundColor = Color(0xFF00A8E1),
+                textColor = Color.White,
+                subscriberCountText = "25.3M subscribers • Official Studio"
+            )
+
+            // --- ANIME STUDIOS ---
+            // Studio Ghibli
+            combined.contains("ghibli") || combined.contains("spirited away") || combined.contains("totoro") ||
+            combined.contains("princess mononoke") || combined.contains("howl's moving castle") || combined.contains("howl") ||
+            combined.contains("ponyo") || combined.contains("kiki's delivery") || combined.contains("castle in the sky") ||
+            combined.contains("boy and the heron") || combined.contains("grave of the fireflies") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/Studio_Ghibli_logo.svg/320px-Studio_Ghibli_logo.svg.png"
+                ),
+                brandName = "Studio Ghibli",
+                brandShortText = "GHIBLI",
+                backgroundColor = Color(0xFF0077B6),
+                textColor = Color.White,
+                subscriberCountText = "20.3M subscribers • Official Studio"
+            )
+
+            // Toei Animation
+            combined.contains("toei") || combined.contains("one piece") || combined.contains("dragon ball") ||
+            combined.contains("dragon ball z") || combined.contains("dragon ball super") || combined.contains("dragon ball daima") ||
+            combined.contains("sailor moon") || combined.contains("digimon") || combined.contains("saint seiya") ||
+            combined.contains("slam dunk") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Toei_Animation_logo.svg/320px-Toei_Animation_logo.svg.png"
+                ),
+                brandName = "Toei Animation",
+                brandShortText = "TOEI",
+                backgroundColor = Color(0xFFD32F2F),
+                textColor = Color.White,
+                subscriberCountText = "27.5M subscribers • Official Studio"
+            )
+
+            // ufotable
+            combined.contains("ufotable") || combined.contains("demon slayer") || combined.contains("kimetsu no yaiba") ||
+            combined.contains("mugen train") || combined.contains("swordsmith village") || combined.contains("hashira training") ||
+            combined.contains("fate/stay night") || combined.contains("fate/zero") || combined.contains("kara no kyoukai") ||
+            combined.contains("garden of sinners") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Ufotable_logo.svg/320px-Ufotable_logo.svg.png"
+                ),
+                brandName = "ufotable",
+                brandShortText = "UFOTABLE",
+                backgroundColor = Color(0xFF880E4F),
+                textColor = Color.White,
+                subscriberCountText = "19.2M subscribers • Official Studio"
+            )
+
+            // MAPPA
+            combined.contains("mappa") || combined.contains("jujutsu kaisen") || combined.contains("chainsaw man") ||
+            combined.contains("final season") || combined.contains("hell's paradise") || combined.contains("vinland saga season 2") ||
+            combined.contains("yuri on ice") || combined.contains("dororo") || combined.contains("banana fish") ||
+            combined.contains("kakegurui") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/MAPPA_Logo.svg/320px-MAPPA_Logo.svg.png"
+                ),
+                brandName = "MAPPA",
+                brandShortText = "MAPPA",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "16.4M subscribers • Official Studio"
+            )
+
+            // Studio Pierrot
+            combined.contains("pierrot") || combined.contains("naruto") || combined.contains("shippuden") ||
+            combined.contains("boruto") || combined.contains("bleach") || combined.contains("thousand-year blood war") ||
+            combined.contains("tokyo ghoul") || combined.contains("black clover") || combined.contains("yu yu hakusho") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Studio_Pierrot_logo.svg/320px-Studio_Pierrot_logo.svg.png"
+                ),
+                brandName = "Studio Pierrot",
+                brandShortText = "PIERROT",
+                backgroundColor = Color(0xFFED6C02),
+                textColor = Color.White,
+                subscriberCountText = "11.2M subscribers • Official Studio"
+            )
+
+            // Bones
+            combined.contains("bones") || combined.contains("my hero academia") || combined.contains("fullmetal alchemist") ||
+            combined.contains("fullmetal") || combined.contains("mob psycho") || combined.contains("bungo stray dogs") ||
+            combined.contains("soul eater") || combined.contains("noragami") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Studio_Bones_logo.svg/320px-Studio_Bones_logo.svg.png"
+                ),
+                brandName = "Bones",
+                brandShortText = "BONES",
+                backgroundColor = Color(0xFF1E1E1E),
+                textColor = Color.White,
+                subscriberCountText = "9.8M subscribers • Official Studio"
+            )
+
+            // Kyoto Animation
+            combined.contains("kyoani") || combined.contains("kyoto animation") || combined.contains("violet evergarden") ||
+            combined.contains("silent voice") || combined.contains("a silent voice") || combined.contains("k-on") ||
+            combined.contains("clannad") || combined.contains("sound! euphonium") || combined.contains("miss kobayashi") ||
+            combined.contains("dragon maid") || combined.contains("hyouka") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Kyoto_Animation_logo.svg/320px-Kyoto_Animation_logo.svg.png"
+                ),
+                brandName = "Kyoto Animation",
+                brandShortText = "KYOANI",
+                backgroundColor = Color(0xFFE91E63),
+                textColor = Color.White,
+                subscriberCountText = "14.0M subscribers • Official Studio"
+            )
+
+            // Madhouse
+            combined.contains("madhouse") || combined.contains("death note") || combined.contains("hunter x hunter") ||
+            combined.contains("one punch man") || combined.contains("frieren") || combined.contains("beyond journey's end") ||
+            combined.contains("no game no life") || combined.contains("overlord") || combined.contains("monster") ||
+            combined.contains("perfect blue") || combined.contains("paprika") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Madhouse_logo.svg/320px-Madhouse_logo.svg.png"
+                ),
+                brandName = "Madhouse",
+                brandShortText = "MAD",
+                backgroundColor = Color(0xFF9C27B0),
+                textColor = Color.White,
+                subscriberCountText = "12.1M subscribers • Official Studio"
+            )
+
+            // Wit Studio / CloverWorks
+            combined.contains("wit studio") || combined.contains("cloverworks") || combined.contains("spy x family") ||
+            combined.contains("attack on titan") || combined.contains("vinland saga") || combined.contains("ranking of kings") ||
+            combined.contains("bocchi the rock") || combined.contains("dress-up darling") || combined.contains("promised neverland") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Wit_Studio_logo.svg/320px-Wit_Studio_logo.svg.png",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/CloverWorks_logo.svg/320px-CloverWorks_logo.svg.png"
+                ),
+                brandName = "Wit Studio",
+                brandShortText = "WIT",
+                backgroundColor = Color(0xFF00796B),
+                textColor = Color.White,
+                subscriberCountText = "15.3M subscribers • Official Studio"
+            )
+
+            // Production I.G
+            combined.contains("production i.g") || combined.contains("ginga eiyuu") || combined.contains("galactic heroes") ||
+            combined.contains("legend of the galactic") || combined.contains("psycho-pass") || combined.contains("ghost in the shell") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Production_I.G_logo.svg/200px-Production_I.G_logo.svg.png"
+                ),
+                brandName = "Production I.G",
+                brandShortText = "I.G",
+                backgroundColor = Color(0xFF0288D1),
+                textColor = Color.White,
+                subscriberCountText = "8.9M subscribers • Official Studio"
+            )
+
+            // --- OTHER PLATFORMS ---
             combined.contains("vimeo") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://i.vimeocdn.com/favicon/main-touch_180.png",
@@ -70,18 +659,55 @@ object ChannelLogoHelper {
                 subscriberCountText = "Vimeo Creator"
             )
 
-            combined.contains("vimeo") -> BrandLogoInfo(
-                logoUrls = listOf(
-                    "https://i.vimeocdn.com/favicon/main-touch_180.png",
-                    "https://vimeo.com/favicon.ico",
-                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Vimeo_Logo.svg/200px-Vimeo_Logo.svg.png"
-                ),
-                brandName = cleanName.ifBlank { "Vimeo" },
-                brandShortText = "VIMEO",
-                backgroundColor = Color(0xFF1AB7EA),
-                textColor = Color.White,
-                subscriberCountText = "Vimeo Creator"
-            )
+            combined.contains("tencent") || combined.contains("腾讯") || combined.contains("wetv") || combined.contains("vqq") -> {
+                val isAnim = combined.contains("anim") || combined.contains("donghua") || combined.contains("动漫") ||
+                        combined.contains("soul land") || combined.contains("perfect world") || combined.contains("battle through") ||
+                        combined.contains("swallowed star") || combined.contains("shrouding the heavens") || combined.contains("renegade immortal")
+                val isDrama = combined.contains("drama") || combined.contains("series") || combined.contains("电视剧") ||
+                        combined.contains("剧场") || combined.contains("untamed") || combined.contains("blossoms") || combined.contains("joy of life")
+                val isWeTv = combined.contains("wetv")
+
+                val logos = when {
+                    isAnim -> listOf(
+                        "https://yt3.googleusercontent.com/5VMDdtEdC4OnWS7MoJBSKYTdOyXuuYmAFU36_COU5bJdYfwmSnsfiCequ_QFdxw6uAokzlnuClE=s900-c-k-c0x00ffffff-no-rj",
+                        "https://yt3.googleusercontent.com/BZ0BcoBm1IDjD4a3XbhnHyNZ3MkLnT9FnRxj_ioc6V3yT2nqcCxR0acvzokp7B019c036G5LHQ=s900-c-k-c0x00ffffff-no-rj",
+                        "https://v.qq.com/favicon.ico"
+                    )
+                    isDrama -> listOf(
+                        "https://yt3.googleusercontent.com/aDk0tvbNx7OLTimpt12Nm3cWhpvaJtS_DUCE0Si_poqSthHUAqsPwrfoQ-hb1sPq77TTj5Na=s900-c-k-c0x00ffffff-no-rj",
+                        "https://yt3.googleusercontent.com/BZ0BcoBm1IDjD4a3XbhnHyNZ3MkLnT9FnRxj_ioc6V3yT2nqcCxR0acvzokp7B019c036G5LHQ=s900-c-k-c0x00ffffff-no-rj",
+                        "https://v.qq.com/favicon.ico"
+                    )
+                    isWeTv -> listOf(
+                        "https://yt3.googleusercontent.com/iI9wCyPjt51JS1jObvCKs7n9GCxjDVT7w7wVgTs6ehgDwswVysdYxIEbusqigsJADtlJ-72X75c=s900-c-k-c0x00ffffff-no-rj",
+                        "https://yt3.googleusercontent.com/BZ0BcoBm1IDjD4a3XbhnHyNZ3MkLnT9FnRxj_ioc6V3yT2nqcCxR0acvzokp7B019c036G5LHQ=s900-c-k-c0x00ffffff-no-rj",
+                        "https://v.qq.com/favicon.ico"
+                    )
+                    else -> listOf(
+                        "https://yt3.googleusercontent.com/BZ0BcoBm1IDjD4a3XbhnHyNZ3MkLnT9FnRxj_ioc6V3yT2nqcCxR0acvzokp7B019c036G5LHQ=s900-c-k-c0x00ffffff-no-rj",
+                        "https://yt3.googleusercontent.com/5VMDdtEdC4OnWS7MoJBSKYTdOyXuuYmAFU36_COU5bJdYfwmSnsfiCequ_QFdxw6uAokzlnuClE=s900-c-k-c0x00ffffff-no-rj",
+                        "https://v.qq.com/favicon.ico"
+                    )
+                }
+
+                val finalBrandName = when {
+                    cleanName.isNotBlank() && cleanName != "Official Creator" && cleanName != "T" && !cleanName.contains("tv network", ignoreCase = true) -> cleanName
+                    isAnim -> "Tencent Video Animation"
+                    isDrama -> "Tencent Video Drama"
+                    isWeTv -> "WeTV"
+                    else -> "Tencent Video"
+                }
+
+                BrandLogoInfo(
+                    logoUrls = logos,
+                    brandName = finalBrandName,
+                    brandShortText = if (isWeTv) "WETV" else "V.QQ",
+                    backgroundColor = Color(0xFF0052D9),
+                    textColor = Color.White,
+                    subscriberCountText = "12.8M subscribers"
+                )
+            }
+
             combined.contains("bilibili") || combined.contains("哔哩哔哩") || combined.contains("bili") -> BrandLogoInfo(
                 logoUrls = listOf(
                     "https://i0.hdslb.com/bfs/face/member/noface.jpg",
@@ -93,6 +719,33 @@ object ChannelLogoHelper {
                 textColor = Color.White,
                 subscriberCountText = "Bilibili Creator"
             )
+
+            combined.contains("hotstar") || combined.contains("jiohotstar") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Disney%2B_Hotstar_logo.svg/200px-Disney%2B_Hotstar_logo.svg.png"
+                ),
+                brandName = if (name.contains("hotstar", ignoreCase = true)) cleanName else "JioHotstar",
+                brandShortText = "HOTSTAR",
+                backgroundColor = Color(0xFF0F1014),
+                textColor = Color(0xFF0078FF),
+                subscriberCountText = "Official Stream • Verified"
+            )
+
+            combined.contains("amc") -> BrandLogoInfo(
+                logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/AMC_logo_2019.svg/200px-AMC_logo_2019.svg.png"),
+                brandName = "AMC Studios",
+                brandShortText = "AMC",
+                backgroundColor = Color(0xFF000000),
+                textColor = Color.White,
+                subscriberCountText = "19.5M subscribers"
+            )
+
+            // Default: If videoTitle is available and no direct match yet, use StudioDetector
+            videoTitle?.isNotBlank() == true -> {
+                val detected = StudioDetector.detectStudio(videoTitle, isTv = false)
+                val isTv = videoTitle.contains("season", ignoreCase = true) || videoTitle.contains("series", ignoreCase = true)
+                getBrandInfo(detected, null, null)
+            }
             // Major Movie / TV Studios
             combined.contains("new line") -> BrandLogoInfo(
                 logoUrls = listOf("https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/New_Line_Cinema_logo.svg/200px-New_Line_Cinema_logo.svg.png"),

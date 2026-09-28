@@ -49,13 +49,17 @@ object SecureDnsManager {
     val appDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val lowerHost = hostname.lowercase()
-            // Bilibili CDN and API endpoints use Geo-DNS/Anycast that must match the device's native ISP/System DNS
-            // Custom DoH resolvers (Cloudflare, Google) often route Bilibili requests to overseas edge nodes that 403 or throttle.
+            // Bilibili and Tencent / WeTV CDN and API endpoints use Geo-DNS/Anycast that must match the device's native ISP/System DNS
+            // Custom DoH resolvers (Cloudflare, Google) often route these requests to overseas edge nodes that 403, buffer, or throttle.
             if (lowerHost.contains("bilibili") || lowerHost.contains("bilivideo") ||
                 lowerHost.contains("hdslb") || lowerHost.contains("szbdyd") ||
                 lowerHost.contains("mcdn") || lowerHost.contains("upgcxcode") ||
                 lowerHost.contains("upos") || lowerHost.contains("bcache") ||
-                lowerHost.contains("biliapi")
+                lowerHost.contains("biliapi") ||
+                lowerHost.contains("qq.com") || lowerHost.contains("tencent") ||
+                lowerHost.contains("qpic.cn") || lowerHost.contains("gtimg.com") ||
+                lowerHost.contains("myqcloud.com") || lowerHost.contains("wetv.vip") ||
+                lowerHost.contains("wetvinfo.com")
             ) {
                 return try {
                     Dns.SYSTEM.lookup(hostname)

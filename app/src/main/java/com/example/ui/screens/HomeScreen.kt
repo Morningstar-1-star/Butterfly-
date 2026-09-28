@@ -645,27 +645,7 @@ fun HomeScreen(
                                                 )
                                             }
 
-                                            item(
-                                                key = "search_recommendations_shelf",
-                                                contentType = "search_shelf"
-                                            ) {
-                                                SearchDrivenRecommendationsShelf(
-                                                    searchQuery = latestSearchIntent!!,
-                                                    videos = searchDrivenRecommendations,
-                                                    showProviderBadge = showThumbnailTags,
-                                                    onSelectVideo = { video ->
-                                                        viewModel.playVideo(video)
-                                                    },
-                                                    onOpenSearch = { query ->
-                                                        viewModel.updateSearchQuery(query)
-                                                        viewModel.performSearch(query)
-                                                        viewModel.setSearchExpanded(true)
-                                                    },
-                                                    modifier = Modifier.padding(vertical = 12.dp)
-                                                )
-                                            }
-
-                                            if (feedList.size > shelfInsertIndex) {
+                                             if (feedList.size > shelfInsertIndex) {
                                                 items(
                                                     items = feedList.drop(shelfInsertIndex),
                                                     key = { "${it.providerId}_${it.id}" },

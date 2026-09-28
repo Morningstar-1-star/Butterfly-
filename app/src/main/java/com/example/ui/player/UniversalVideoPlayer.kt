@@ -1122,7 +1122,8 @@ fun UniversalVideoPlayer(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                val isLive = totalDurMs <= 0L && (activeStreamData?.hlsUrl != null || activeStreamData?.videoUrl?.contains("m3u8") == true)
+                                val genuineLiveProviders = listOf("stripchat", "chaturbate", "cam4", "cammodels", "bigo_live", "twitch_live")
+                                val isLive = genuineLiveProviders.any { providerId?.lowercase() == it || providerId?.lowercase()?.contains(it) == true } && totalDurMs <= 0L
                                 if (isLive) {
                                     Box(
                                         modifier = Modifier

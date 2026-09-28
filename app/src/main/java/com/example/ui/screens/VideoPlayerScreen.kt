@@ -62,7 +62,6 @@ import com.example.ui.components.DownloadQualityBottomSheet
 import com.example.ui.components.LandscapeRelatedDrawer
 import com.example.ui.player.GlobalPlayerManager
 import com.example.resolver.SourceStreamType
-import com.example.ui.player.EmbedWebViewPlayer
 import com.example.ui.player.UniversalVideoPlayer
 import com.example.ui.ambient.AmbientPlayerGlow
 import com.example.ui.ambient.rememberAmbientPalette
@@ -250,7 +249,7 @@ fun VideoPlayerScreen(
     var relatedContent by remember(activeVideoId) { mutableStateOf<List<com.example.model.VideoItem>>(emptyList()) }
     var hasFinalizedRelatedForVideo by remember(activeVideoId) { mutableStateOf(false) }
 
-    LaunchedEffect(activeVideoId, currentStreamData?.relatedVideos?.size, playerRecommendations.size, shouldRenderDetails) {
+    LaunchedEffect(activeVideoId, currentStreamData?.relatedVideos?.size, playerRecommendations.size, trendingVideos.size, shouldRenderDetails) {
         if (!shouldRenderDetails || activeVideoId == null) return@LaunchedEffect
         val streamRelated = currentStreamData?.relatedVideos?.filter { it.id != activeVideoId } ?: emptyList()
         val pId = providerId ?: currentStreamData?.providerId
@@ -262,17 +261,18 @@ fun VideoPlayerScreen(
             return@LaunchedEffect
         }
 
+        // Trigger background player recommendations fetch if recommendations are empty
+        if (playerRecommendations.isEmpty()) {
+            viewModel.loadMorePlayerRecommendations(currentStreamData)
+        }
+
         val basePool = if (isAdultCurrent) {
-            val raw = if (streamRelated.isNotEmpty()) (streamRelated + playerRecommendations) else (playerRecommendations + streamRelated)
+            val raw = (streamRelated + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
             raw.filter {
                 it.id != activeVideoId && (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId)
             }
         } else {
-            val raw = if (streamRelated.isNotEmpty()) {
-                (streamRelated + playerRecommendations)
-            } else {
-                (playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
-            }
+            val raw = (streamRelated + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
             raw.filter {
                 !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId)
             }
@@ -326,41 +326,6 @@ fun VideoPlayerScreen(
     val activeSourceCandidate by viewModel.activeSourceCandidate.collectAsState()
     val isResolvingUnifiedSources by viewModel.isResolvingUnifiedSources.collectAsState()
     val unifiedStatusMessage by viewModel.unifiedStatusMessage.collectAsState()
-
-    val isOptionEmbed = remember(selectedOption) {
-        val currOpt = selectedOption
-        val url = currOpt?.videoUrl.orEmpty()
-        currOpt?.format.equals("embed", ignoreCase = true) ||
-        currOpt?.providerType == com.example.model.ProviderType.EMBED ||
-        (url.contains("/embed/", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
-        (url.contains("vidsrc.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
-        (url.contains("autoembed.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
-        (url.contains("vidlink.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
-        (url.contains("smashystream.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
-        (url.contains("2embed.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true)) ||
-        (url.contains("multiembed.", ignoreCase = true) && !url.contains(".m3u8", ignoreCase = true) && !url.contains(".mp4", ignoreCase = true))
-    }
-
-    val effectiveEmbedCandidate = remember(activeSourceCandidate, isOptionEmbed, selectedOption, currentStreamData, currentVideoItem) {
-        val currOpt = selectedOption
-        activeSourceCandidate?.takeIf { it.type == SourceStreamType.EMBED_WEBVIEW }
-            ?: if (isOptionEmbed && currOpt != null && !currOpt.videoUrl.isNullOrBlank()) {
-                val vUrl = currOpt.videoUrl
-                com.example.resolver.SourceCandidate(
-                    id = "embed_${vUrl.hashCode()}",
-                    providerId = currOpt.sourceName.ifBlank { "embed" },
-                    providerName = currOpt.sourceName.ifBlank { "Embed Stream" },
-                    serverName = currOpt.qualityLabel,
-                    type = SourceStreamType.EMBED_WEBVIEW,
-                    title = currentStreamData?.title ?: currentVideoItem?.title ?: "Video",
-                    urlOrMagnet = vUrl,
-                    quality = currOpt.qualityCategory.ifBlank { "1080p" },
-                    qualityScore = 1080,
-                    format = "embed",
-                    headers = currOpt.headers
-                )
-            } else null
-    }
 
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -653,14 +618,8 @@ fun VideoPlayerScreen(
                         .background(Color.Black.copy(alpha = 0.22f))
                 )
             }
-            if (effectiveEmbedCandidate != null) {
-                EmbedWebViewPlayer(
-                    candidate = effectiveEmbedCandidate,
-                    onClose = onBackClick,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                UniversalVideoPlayer(
+            // All streams are played natively in UniversalVideoPlayer (no webview embeds)
+            UniversalVideoPlayer(
                 streamOption = selectedOption,
                 hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                 captionOption = selectedCaption,
@@ -708,7 +667,6 @@ fun VideoPlayerScreen(
                 },
                 modifier = Modifier.fillMaxSize()
             )
-            }
 
             // Landscape Related Videos Drawer
             LandscapeRelatedDrawer(
@@ -793,14 +751,8 @@ fun VideoPlayerScreen(
                                         .background(Color.Black.copy(alpha = 0.22f))
                                 )
                             }
-                            if (effectiveEmbedCandidate != null) {
-                                EmbedWebViewPlayer(
-                                    candidate = effectiveEmbedCandidate,
-                                    onClose = minimizePlayerAction,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                UniversalVideoPlayer(
+                            // All streams are played natively in UniversalVideoPlayer (no webview embeds)
+                            UniversalVideoPlayer(
                                 streamOption = selectedOption,
                                 hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
                                 captionOption = selectedCaption,
@@ -907,7 +859,6 @@ fun VideoPlayerScreen(
                                 }
                             }
                         )
-                        }
                     }
 
                     // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS) - SLIDES DOWN & VANISHES INSTANTLY UPON SWIPING DOWN OR EXPANDING!
@@ -946,6 +897,36 @@ fun VideoPlayerScreen(
                                 selectedCaption = selectedCaption,
                                 onSelectOption = { viewModel.selectStreamOption(it) },
                                 onSelectCaption = { viewModel.selectCaptionOption(it) },
+                                onTitleDrag = { deltaY ->
+                                    if (deltaY > 0f) {
+                                        val deltaFraction = deltaY / maxExpandPx
+                                        coroutineScope.launch {
+                                            portraitExpandProgress.snapTo((portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f))
+                                        }
+                                    } else if (portraitExpandProgress.value > 0f) {
+                                        val deltaFraction = deltaY / maxExpandPx
+                                        coroutineScope.launch {
+                                            portraitExpandProgress.snapTo((portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f))
+                                        }
+                                    }
+                                },
+                                onTitleDragEnd = { accumulatedDy ->
+                                    coroutineScope.launch {
+                                        if (portraitExpandProgress.value > 0.22f || accumulatedDy > 35f) {
+                                            isPortraitExpanded = true
+                                            portraitExpandProgress.animateTo(
+                                                1f,
+                                                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
+                                            )
+                                        } else {
+                                            isPortraitExpanded = false
+                                            portraitExpandProgress.animateTo(
+                                                0f,
+                                                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                                            )
+                                        }
+                                    }
+                                },
                                 onTagClick = { tag ->
                                     viewModel.updateSearchQuery(tag)
                                     viewModel.performSearch(tag)
@@ -1030,32 +1011,6 @@ fun VideoPlayerScreen(
                                         }
                                     } else {
                                         showDownloadQualitySheet = true
-                                    }
-                                },
-                                onTitleDrag = { deltaY ->
-                                    coroutineScope.launch {
-                                        val deltaFraction = deltaY / maxExpandPx
-                                        portraitExpandProgress.snapTo(
-                                            (portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f)
-                                        )
-                                    }
-                                },
-                                onTitleDragEnd = { totalDy ->
-                                    coroutineScope.launch {
-                                        val cur = portraitExpandProgress.value
-                                        if (cur > 0.38f || totalDy > 120f) {
-                                            isPortraitExpanded = true
-                                            portraitExpandProgress.animateTo(
-                                                1f,
-                                                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
-                                            )
-                                        } else {
-                                            isPortraitExpanded = false
-                                            portraitExpandProgress.animateTo(
-                                                0f,
-                                                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
-                                            )
-                                        }
                                     }
                                 },
                                 onServersClick = {

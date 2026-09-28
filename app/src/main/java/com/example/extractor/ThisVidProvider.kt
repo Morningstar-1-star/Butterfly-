@@ -393,7 +393,7 @@ object ThisVidProvider {
             selectedStreamOption = primarySource,
             providerId = PROVIDER_ID,
             providerType = primarySource.providerType,
-            headers = primarySource.headers
+            headers = defaultHeaders + primarySource.headers
         )
     }
 

@@ -76,6 +76,8 @@ fun EmbedWebViewPlayer(
     val initialUrl = candidate.urlOrMagnet
     val providerName = candidate.providerName.ifBlank { "Embed Provider" }
 
+    var currentLoadedUrl by remember { mutableStateOf(initialUrl) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -92,10 +94,16 @@ fun EmbedWebViewPlayer(
                     onError = { err -> errorMessage = err },
                     onCustomViewShow = { view -> customViewRef = view },
                     onCustomViewHide = { customViewRef = null }
-                ).also { webViewRef = it }
+                ).also {
+                    webViewRef = it
+                    currentLoadedUrl = initialUrl
+                }
             },
             update = { view ->
-                if (view.url != initialUrl && errorMessage == null) {
+                if (currentLoadedUrl != initialUrl) {
+                    currentLoadedUrl = initialUrl
+                    errorMessage = null
+                    isLoading = true
                     view.loadUrl(initialUrl)
                 }
             },
@@ -415,20 +423,29 @@ private fun createConfiguredWebView(
 }
 
 private fun isAuthorizedEmbedDomain(host: String): Boolean {
+    if (host.isBlank()) return false
     val allowedDomains = listOf(
+        "vixsrc.to",
+        "multiembed.mov",
+        "rive.stream",
+        "smashystream.com",
+        "autoembed.cc",
+        "vidlink.pro",
+        "vidsrc.to",
+        "embed.su",
+        "2embed.cc",
+        "2embed.to",
+        "onetouch.tv",
+        "hdghar.tv",
+        "dahmer.movies",
+        "netmirror.app",
         "thisvid.com",
         "vidrock.net",
         "vidsrc.sbs",
-        "vidlink.pro",
-        "vidsrc.to",
-        "2embed.cc",
-        "2embed.to",
         "vidsrc.me",
         "vidsrcme.ru",
         "secstream.pro",
-        "autoembed.cc",
         "autoembed.to",
-        "embed.su",
         "smashy.stream",
         "cloudnest.pro",
         "vidsrc.cc",
@@ -444,11 +461,13 @@ private fun isAuthorizedEmbedDomain(host: String): Boolean {
         "rabbitstream.net",
         "vizcloud.co",
         "mcloud.to",
-        "dokicloud.one"
+        "dokicloud.one",
+        "superembed.stream",
+        "streamflix.app"
     )
     return allowedDomains.any { domain ->
-        host == domain || host.endsWith(".$domain")
-    }
+        host.contains(domain, ignoreCase = true)
+    } || host.contains("embed", ignoreCase = true) || host.contains("stream", ignoreCase = true) || host.contains("cdn", ignoreCase = true) || host.contains("player", ignoreCase = true)
 }
 
 private fun safelyDisposeWebView(webView: WebView) {

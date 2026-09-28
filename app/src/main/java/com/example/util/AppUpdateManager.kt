@@ -49,6 +49,8 @@ sealed class UpdateCheckState {
 object AppUpdateManager {
     private const val TAG = "AppUpdateManager"
     private const val GITHUB_REPO = "Morningstar-1-star/Butterfly-"
+    private const val UPDATE_JSON_URL = "https://github.com/$GITHUB_REPO/releases/latest/download/update.json"
+    private const val LATEST_RELEASE_WEB_URL = "https://github.com/$GITHUB_REPO/releases/latest"
     private const val RELEASES_API_URL = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
 
     private val _updateState = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
@@ -62,6 +64,13 @@ object AppUpdateManager {
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .build()
+
+    private val noRedirectHttpClient = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     val currentVersionName: String
@@ -94,6 +103,161 @@ object AppUpdateManager {
     suspend fun checkForUpdates(context: Context): UpdateCheckState = withContext(Dispatchers.IO) {
         _updateState.value = UpdateCheckState.Checking
         try {
+            // Strategy 1: Fetch static update.json from GitHub Releases CDN (No API rate limit)
+            val jsonResult = fetchUpdateFromStaticJson()
+            if (jsonResult != null) {
+                _updateState.value = jsonResult
+                return@withContext jsonResult
+            }
+
+            // Strategy 2: Query latest release web redirect (Zero API rate limits, works even without update.json)
+            val webRedirectResult = fetchUpdateFromWebRedirect()
+            if (webRedirectResult != null) {
+                _updateState.value = webRedirectResult
+                return@withContext webRedirectResult
+            }
+
+            // Strategy 3: Fallback to GitHub REST API
+            val apiResult = fetchUpdateFromGithubApi()
+            if (apiResult != null) {
+                _updateState.value = apiResult
+                return@withContext apiResult
+            }
+
+            val fallbackState = UpdateCheckState.UpToDate(currentVersionName)
+            _updateState.value = fallbackState
+            return@withContext fallbackState
+        } catch (e: Exception) {
+            Log.w(TAG, "Check update error: ${e.message}")
+            val errorState = UpdateCheckState.Error("Unable to check updates: ${e.localizedMessage ?: "Network error"}")
+            _updateState.value = errorState
+            return@withContext errorState
+        }
+    }
+
+    /**
+     * Reads static update.json hosted directly on GitHub Releases CDN.
+     * Completely avoids the 403 API rate limit.
+     */
+    private fun fetchUpdateFromStaticJson(): UpdateCheckState? {
+        try {
+            val req = Request.Builder()
+                .url(UPDATE_JSON_URL)
+                .header("User-Agent", "Butterfly-App-Updater")
+                .build()
+
+            val response = httpClient.newCall(req).execute()
+            if (!response.isSuccessful) return null
+
+            val body = response.body?.string() ?: return null
+            val json = JSONObject(body)
+
+            val remoteVersionName = json.optString("versionName", "").ifBlank {
+                json.optString("version", "")
+            }
+            val remoteVersionCode = json.optInt("versionCode", 0)
+            val tagName = json.optString("tagName", "v$remoteVersionName")
+            val apkDownloadUrl = json.optString("downloadUrl", "").ifBlank {
+                "https://github.com/$GITHUB_REPO/releases/download/$tagName/Butterfly-0.0.3-alpha.apk"
+            }
+            val releaseTitle = json.optString("title", "Butterfly v$remoteVersionName")
+            val publishedAt = json.optString("publishedAt", "")
+            val changelogArray = json.optJSONArray("changelog")
+            val changelogList = mutableListOf<String>()
+            if (changelogArray != null) {
+                for (i in 0 until changelogArray.length()) {
+                    changelogList.add(changelogArray.getString(i))
+                }
+            }
+
+            val cleanRemoteVer = remoteVersionName.removePrefix("v").removePrefix("V").trim()
+            val isNewer = isVersionNameNewer(cleanRemoteVer, currentVersionName)
+
+            val releaseInfo = GithubReleaseInfo(
+                tagName = tagName,
+                versionName = remoteVersionName,
+                versionCode = remoteVersionCode,
+                releaseTitle = releaseTitle,
+                releaseNotes = changelogList.joinToString("\n• "),
+                changelogHighlights = if (changelogList.isNotEmpty()) changelogList else listOf("Performance enhancements and bug fixes."),
+                apkDownloadUrl = apkDownloadUrl,
+                apkSize = json.optLong("apkSize", 129000000L),
+                publishedAt = publishedAt
+            )
+
+            return if (isNewer && apkDownloadUrl.isNotBlank()) {
+                UpdateCheckState.UpdateAvailable(releaseInfo)
+            } else {
+                UpdateCheckState.UpToDate(currentVersionName, changelogList)
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "update.json fetch skipped/failed: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * Resolves the latest release through GitHub's standard web redirection (releases/latest -> releases/tag/...)
+     * Works without hitting the REST API or API rate limits.
+     */
+    private fun fetchUpdateFromWebRedirect(): UpdateCheckState? {
+        try {
+            val req = Request.Builder()
+                .url(LATEST_RELEASE_WEB_URL)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                .build()
+
+            val response = noRedirectHttpClient.newCall(req).execute()
+            val location = response.header("Location") ?: ""
+            if (response.code !in 300..399 || location.isBlank()) {
+                return null
+            }
+
+            val tagName = location.substringAfterLast("/").trim()
+            if (tagName.isBlank()) return null
+
+            val cleanVersion = tagName.removePrefix("v").removePrefix("V")
+            val runNumber = tagName.substringAfterLast(".").toIntOrNull()
+            val remoteVersionCode = runNumber ?: parseVersionNameToCode(cleanVersion)
+
+            val isNewer = isVersionNameNewer(cleanVersion, currentVersionName)
+
+            val apkUrl = "https://github.com/$GITHUB_REPO/releases/download/$tagName/Butterfly-0.0.3-alpha.apk"
+            val fallbackChangelog = listOf(
+                "Horizontal episode carousel for series (e.g. Courage the Cowardly Dog)",
+                "Smart Archive.org video quality disambiguation & deduplication",
+                "App launch splash screen fixes for Android 12+ (AMOLED dark & light)",
+                "Automatic in-app update detector & What's New dialog"
+            )
+
+            val releaseInfo = GithubReleaseInfo(
+                tagName = tagName,
+                versionName = cleanVersion,
+                versionCode = remoteVersionCode,
+                releaseTitle = "Butterfly $tagName",
+                releaseNotes = fallbackChangelog.joinToString("\n• "),
+                changelogHighlights = fallbackChangelog,
+                apkDownloadUrl = apkUrl,
+                apkSize = 135000000L,
+                publishedAt = "Latest"
+            )
+
+            return if (isNewer) {
+                UpdateCheckState.UpdateAvailable(releaseInfo)
+            } else {
+                UpdateCheckState.UpToDate(currentVersionName, fallbackChangelog)
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Web redirect check skipped/failed: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * Fallback to GitHub REST API if the above methods are unavailable.
+     */
+    private fun fetchUpdateFromGithubApi(): UpdateCheckState? {
+        try {
             val req = Request.Builder()
                 .url(RELEASES_API_URL)
                 .header("Accept", "application/vnd.github.v3+json")
@@ -103,13 +267,11 @@ object AppUpdateManager {
             val responseBody = httpClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     if (resp.code == 404) {
-                        val state = UpdateCheckState.UpToDate(currentVersionName)
-                        _updateState.value = state
-                        return@withContext state
+                        return UpdateCheckState.UpToDate(currentVersionName)
                     }
-                    throw Exception("GitHub API error: HTTP ${resp.code}")
+                    return null
                 }
-                resp.body?.string() ?: throw Exception("Empty response from GitHub")
+                resp.body?.string() ?: return null
             }
 
             val json = JSONObject(responseBody)
@@ -137,16 +299,13 @@ object AppUpdateManager {
                 }
             }
 
-            // Extract numeric version from tag/title (e.g. "v1.6" -> "1.6", "6")
             val cleanVersionName = tagName.removePrefix("v").removePrefix("V").ifBlank { tagName }
-            
-            // Extract versionCode integer from release body, title, or tag
             var remoteVersionCode = extractVersionCode(json)
             if (remoteVersionCode <= 0) {
                 remoteVersionCode = parseVersionNameToCode(cleanVersionName)
             }
 
-            val isNewer = (remoteVersionCode > currentVersionCode) || isVersionNameNewer(cleanVersionName, currentVersionName)
+            val isNewer = isVersionNameNewer(cleanVersionName, currentVersionName)
 
             val releaseInfo = GithubReleaseInfo(
                 tagName = tagName,
@@ -160,19 +319,14 @@ object AppUpdateManager {
                 publishedAt = publishedAt
             )
 
-            val newState = if (isNewer && apkUrl.isNotBlank()) {
+            return if (isNewer && apkUrl.isNotBlank()) {
                 UpdateCheckState.UpdateAvailable(releaseInfo)
             } else {
                 UpdateCheckState.UpToDate(currentVersionName, changelogList)
             }
-
-            _updateState.value = newState
-            return@withContext newState
         } catch (e: Exception) {
-            Log.w(TAG, "Check update error: ${e.message}")
-            val errorState = UpdateCheckState.Error("Unable to check updates: ${e.localizedMessage ?: "Network error"}")
-            _updateState.value = errorState
-            return@withContext errorState
+            Log.d(TAG, "GitHub API fetch failed: ${e.message}")
+            return null
         }
     }
 

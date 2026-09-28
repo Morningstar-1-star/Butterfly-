@@ -43,12 +43,6 @@ object VegaExtractorEngine {
 
         try {
             when {
-                lower.contains("hubcloud") || lower.contains("hubdrive") || lower.contains("vcloud") || lower.contains("fastdl") || lower.contains("nexdrive") -> {
-                    results.addAll(extractHubCloud(link))
-                }
-                lower.contains("gdflix") || lower.contains("gdrive") || lower.contains("drivebot") -> {
-                    results.addAll(extractGDFlix(link))
-                }
                 lower.contains("pixeldrain.com") -> {
                     extractPixelDrain(link)?.let { results.add(it) }
                 }
@@ -58,15 +52,21 @@ object VegaExtractorEngine {
                 lower.contains("filepress") || lower.contains("filebee") -> {
                     results.addAll(extractFilepress(link))
                 }
-                lower.contains(".mkv") || lower.contains(".mp4") || lower.contains(".m3u8") || lower.contains("video-downloads.googleusercontent.com") -> {
+                lower.contains("gdflix") || lower.contains("gdrive") || lower.contains("drivebot") -> {
+                    results.addAll(extractGDFlix(link))
+                }
+                lower.contains("hubcloud") || lower.contains("hubdrive") || lower.contains("vcloud") || lower.contains("fastdl") || lower.contains("nexdrive") || lower.contains("vegadrive") || lower.contains("greenmotors") -> {
+                    results.addAll(extractHubCloud(link))
+                }
+                lower.endsWith(".mkv") || lower.endsWith(".mp4") || lower.endsWith(".m3u8") || lower.contains(".m3u8?") || lower.contains(".mp4?") || lower.contains("video-downloads.googleusercontent.com") -> {
                     results.add(createDirectStream(link, "Direct Stream"))
                 }
                 else -> {
-                    // Try generic page fetch or HubCloud fallback
+                    // Try parsing HTML for download/media buttons
                     val generic = extractHubCloud(link)
                     if (generic.isNotEmpty()) {
                         results.addAll(generic)
-                    } else if (link.startsWith("http://") || link.startsWith("https://")) {
+                    } else if (isValidMediaUrl(link)) {
                         results.add(createDirectStream(link, "Direct Stream"))
                     }
                 }
@@ -78,7 +78,15 @@ object VegaExtractorEngine {
         return@withContext results.distinctBy { it.url }
     }
 
-    private suspend fun extractHubCloud(targetUrl: String): List<VegaStreamResult> = withContext(Dispatchers.IO) {
+    private fun isValidMediaUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return lower.contains(".mp4") || lower.contains(".mkv") || lower.contains(".m3u8") ||
+                lower.contains(".webm") || lower.contains(".avi") || lower.contains("video-downloads") ||
+                lower.contains("storage.googleapis.com") || lower.contains("blob:")
+    }
+
+    private suspend fun extractHubCloud(targetUrl: String, depth: Int = 0): List<VegaStreamResult> = withContext(Dispatchers.IO) {
+        if (depth > 2) return@withContext emptyList()
         val streams = mutableListOf<VegaStreamResult>()
         try {
             val req = Request.Builder()
@@ -104,8 +112,7 @@ object VegaExtractorEngine {
                     val first = String(Base64.decode(b64, Base64.DEFAULT), StandardCharsets.UTF_8)
                     val second = String(Base64.decode(first, Base64.DEFAULT), StandardCharsets.UTF_8)
                     if (second.startsWith("http")) {
-                        // Recurse or parse the resolved link
-                        val subStreams = extractHubCloud(second)
+                        val subStreams = extractHubCloud(second, depth + 1)
                         if (subStreams.isNotEmpty()) return@withContext subStreams
                     }
                 } catch (_: Exception) {}
@@ -115,17 +122,21 @@ object VegaExtractorEngine {
             val varUrlPattern = Pattern.compile("var\\s+url\\s*=\\s*['\"]([^'\"]+)['\"]")
             val mUrl = varUrlPattern.matcher(html)
             if (mUrl.find()) {
-                val foundUrl = mUrl.group(1)
+                val foundUrl = mUrl.group(1).orEmpty()
                 if (foundUrl.startsWith("http")) {
-                    streams.add(createDirectStream(foundUrl, "HubCloud High Speed", targetUrl))
+                    if (isValidMediaUrl(foundUrl)) {
+                        streams.add(createDirectStream(foundUrl, "HubCloud High Speed", targetUrl))
+                    } else if (depth < 2) {
+                        streams.addAll(extractHubCloud(foundUrl, depth + 1))
+                    }
                 }
             }
 
-            // 3. Look for Pixeldrain: var pxl = '...'
+            // 3. Look for Pixeldrain: var pxl = '...' or direct pixeldrain links
             val pxlPattern = Pattern.compile("var\\s+pxl\\s*=\\s*['\"]([^'\"]+)['\"]")
             val mPxl = pxlPattern.matcher(html)
             if (mPxl.find()) {
-                val pxlVal = mPxl.group(1).trim()
+                val pxlVal = mPxl.group(1).orEmpty().trim()
                 if (pxlVal.isNotBlank()) {
                     val pxlId = pxlVal.substringAfterLast("/").substringBefore("?")
                     streams.add(
@@ -134,7 +145,10 @@ object VegaExtractorEngine {
                             url = "https://pixeldrain.com/api/file/$pxlId?download",
                             quality = "1080p HD",
                             format = "mp4",
-                            headers = mapOf("Referer" to "https://pixeldrain.com/")
+                            headers = mapOf(
+                                "User-Agent" to USER_AGENT,
+                                "Referer" to "https://pixeldrain.com/"
+                            )
                         )
                     )
                 }
@@ -142,12 +156,11 @@ object VegaExtractorEngine {
 
             // 4. Parse DOM anchors: .server, .btn, buttons
             val doc = Jsoup.parse(html, targetUrl)
-            val anchors = doc.select("a.server, a.btn, a[href*='pixeldrain'], a[href*='fastdl'], a[href*='vcloud'], a[href*='hubcloud'], a[href*='drive'], a[href*='gofile']")
+            val anchors = doc.select("a.server, a.btn, a[href*='pixeldrain'], a[href*='fastdl'], a[href*='vcloud'], a[href*='hubcloud'], a[href*='vegadrive'], a[href*='drive'], a[href*='gofile'], a[href*='nexdrive']")
 
             for (a in anchors) {
                 val href = a.absUrl("href").ifBlank { a.attr("href") }
-                if (href.isBlank()) continue
-                val text = a.text().lowercase()
+                if (href.isBlank() || href == targetUrl) continue
 
                 when {
                     href.contains("pixeldrain.com") -> {
@@ -156,21 +169,29 @@ object VegaExtractorEngine {
                     href.contains("gofile.io") -> {
                         extractGofile(href)?.let { streams.add(it) }
                     }
-                    href.contains("fastdl") || href.contains("fsl.") -> {
-                        streams.add(createDirectStream(href, "FastDL CDN", targetUrl))
-                    }
-                    href.contains(".mkv") || href.contains(".mp4") -> {
+                    href.endsWith(".mkv") || href.endsWith(".mp4") || href.contains(".m3u8") -> {
                         streams.add(createDirectStream(href, "Direct Video CDN", targetUrl))
                     }
                     href.contains("cloudflarestorage") -> {
                         streams.add(createDirectStream(href, "Cloudflare R2 Direct", targetUrl))
                     }
-                    text.contains("instant") || text.contains("download") || text.contains("fast") || text.contains("fhd") -> {
-                        // Probe redirect location
-                        val resolved = resolveRedirectTarget(href, targetUrl)
-                        if (resolved.isNotBlank() && resolved != href && !resolved.contains(targetUrl)) {
-                            streams.add(createDirectStream(resolved, "HubCloud Direct", targetUrl))
-                        }
+                    href.contains("fastdl.zip/embed.php") || href.contains("/embed.php") -> {
+                        streams.add(
+                            VegaStreamResult(
+                                server = "FastDL Embed Player",
+                                url = href,
+                                quality = "1080p HD",
+                                format = "embed",
+                                headers = mapOf(
+                                    "User-Agent" to USER_AGENT,
+                                    "Referer" to targetUrl
+                                )
+                            )
+                        )
+                    }
+                    depth == 0 && (href.contains("nexdrive") || href.contains("vcloud") || href.contains("vegadrive") || href.contains("hubcloud") || href.contains("fastdl")) -> {
+                        val sub = extractHubCloud(href, depth + 1)
+                        streams.addAll(sub)
                     }
                 }
             }

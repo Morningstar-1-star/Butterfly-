@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -21,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -171,10 +173,19 @@ fun VideoDetailsSection(
         com.example.util.ChannelLogoHelper.getBrandInfo(currentChannelName, currentChannelAvatarUrl, currentTitle)
     }
     val displayChannelName = remember(currentChannelName, brandInfo.brandName) {
-        if (currentChannelName.isBlank() || currentChannelName.lowercase().contains("tv network") || currentChannelName == "T") {
+        val sanitized = com.example.extractor.TencentProvider.sanitizeTencentChannelName(currentChannelName)
+        val lower = currentChannelName.lowercase().trim()
+        val isGenericSource = lower.contains("vidsrc") || lower.contains("decryptor") || lower.contains("tmdb") ||
+                lower.contains("vixsrc") || lower.contains("vega") || lower.contains("hdhub") ||
+                lower.contains("katmovie") || lower.contains("cinema release") || lower.contains("popular movie") ||
+                lower.contains("verified studio") || lower.contains("official creator") || lower.contains("tv network") ||
+                lower == "t" || lower.contains("wetv") || lower.contains("腾讯") || lower.contains("multi-server") ||
+                lower.contains("1cinevood") || lower.contains("bollyflix") || lower.contains("movies4u")
+
+        if (isGenericSource || sanitized.isBlank() || (brandInfo.brandName.isNotBlank() && brandInfo.brandName != "Official Creator")) {
             brandInfo.brandName
         } else {
-            currentChannelName
+            sanitized
         }
     }
     val displaySubCount = remember(currentSubscriberCountText, brandInfo.subscriberCountText) {
@@ -207,79 +218,98 @@ fun VideoDetailsSection(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        // 1. VIDEO TITLE (Clickable to open Description)
-        Row(
+        // 1. VIDEO TITLE & METADATA HEADER (Clickable for Description, Draggable for pull-down gesture)
+        var totalDragDy by remember { mutableStateOf(0f) }
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onDescriptionClick?.invoke() ?: run { showDescriptionSheet = true } },
-            verticalAlignment = Alignment.Top
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { totalDragDy = 0f },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            totalDragDy += dragAmount.y
+                            onTitleDrag?.invoke(dragAmount.y)
+                        },
+                        onDragEnd = {
+                            onTitleDragEnd?.invoke(totalDragDy)
+                        },
+                        onDragCancel = {
+                            onTitleDragEnd?.invoke(totalDragDy)
+                        }
+                    )
+                }
+                .clickable { onDescriptionClick?.invoke() ?: run { showDescriptionSheet = true } }
         ) {
-            Text(
-                text = currentTitle,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 23.sp
-                ),
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    text = currentTitle,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 23.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
 
-            val hasTitleTranslation = remember(titleTranslation, rawTitle) {
-                titleTranslation != null &&
-                titleTranslation?.detectedLanguage != "en" &&
-                titleTranslation?.detectedLanguage != "hi" &&
-                !titleTranslation?.translatedEN.isNullOrBlank() &&
-                titleTranslation?.translatedEN != rawTitle
-            }
+                val hasTitleTranslation = remember(titleTranslation, rawTitle) {
+                    titleTranslation != null &&
+                    titleTranslation?.detectedLanguage != "en" &&
+                    titleTranslation?.detectedLanguage != "hi" &&
+                    !titleTranslation?.translatedEN.isNullOrBlank() &&
+                    titleTranslation?.translatedEN != rawTitle
+                }
 
-            if (hasTitleTranslation && rawTitle.isNotBlank()) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    modifier = Modifier.clickable { showOriginalTitle = !showOriginalTitle }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                if (hasTitleTranslation && rawTitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        modifier = Modifier.clickable { showOriginalTitle = !showOriginalTitle }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Translate,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = if (showOriginalTitle) "EN" else "Orig",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Translate,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (showOriginalTitle) "EN" else "Orig",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 2. METADATA SUB-LINE: @Channel  Likes  Views  Time  #Tag ...more
+            Text(
+                text = metadataLine,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFFAAAAAA)
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // 2. METADATA SUB-LINE: @Channel  Likes  Views  Time  #Tag ...more
-        Text(
-            text = metadataLine,
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Normal,
-                color = Color(0xFFAAAAAA)
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onDescriptionClick?.invoke() ?: run { showDescriptionSheet = true } }
-        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -670,7 +700,7 @@ fun DescriptionPanel(
 
     Surface(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = Color(0xFF0F0F0F),
+        color = Color.Black,
         modifier = modifier.fillMaxSize()
     ) {
         Column(
@@ -1160,7 +1190,7 @@ fun DescriptionBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF0F0F0F),
+        containerColor = Color.Black,
         dragHandle = null
     ) {
         DescriptionPanel(

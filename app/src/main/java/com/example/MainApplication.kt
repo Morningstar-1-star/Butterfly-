@@ -178,6 +178,38 @@ class MainApplication : Application() {
                     urlStr.contains("hotstar.com") || urlStr.contains("hotstar-cdn") || urlStr.contains("starott.com") -> {
                         requestBuilder.header("Referer", "https://www.hotstar.com/")
                     }
+                    urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") -> {
+                        requestBuilder.header("Referer", "https://www.dailymotion.com/")
+                    }
+                    urlStr.contains("spankbang") || urlStr.contains("sb-cd") || urlStr.contains("spankcdn") -> {
+                        requestBuilder.header("Referer", "https://spankbang.com/")
+                        requestBuilder.header("Origin", "https://spankbang.com")
+                        requestBuilder.header("Cookie", "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1")
+                    }
+                    urlStr.contains("hellporno") || urlStr.contains("hellporno.com") || urlStr.contains("hellporno.net") || urlStr.contains("hellporno.tv") -> {
+                        requestBuilder.header("Referer", "https://hellporno.com/")
+                        requestBuilder.header("Origin", "https://hellporno.com")
+                        requestBuilder.header("Cookie", "age_verified=1; has_consent=1; country=US")
+                    }
+                    urlStr.contains("thisvid") || urlStr.contains("thisvid.com") || urlStr.contains("tvid") -> {
+                        requestBuilder.header("Referer", "https://thisvid.com/")
+                        requestBuilder.header("Origin", "https://thisvid.com")
+                        requestBuilder.header("Cookie", "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1")
+                    }
+                    urlStr.contains("playvid") || urlStr.contains("playvids") -> {
+                        requestBuilder.header("Referer", "https://www.playvids.com/")
+                        requestBuilder.header("Origin", "https://www.playvids.com")
+                        requestBuilder.header("Cookie", "age_confirmed=1; country=US; consent=1")
+                    }
+                    urlStr.contains("tnaflix") || urlStr.contains("tnaflix.com") -> {
+                        requestBuilder.header("Referer", "https://www.tnaflix.com/")
+                        requestBuilder.header("Origin", "https://www.tnaflix.com")
+                        requestBuilder.header("Cookie", "age_verified=1; consent=1")
+                    }
+                    urlStr.contains("supjav") || urlStr.contains("supjav.mom") || urlStr.contains("supjav.com") || urlStr.contains("supjav.biz") || urlStr.contains("supjav.net") -> {
+                        requestBuilder.header("Referer", "https://supjav.mom/")
+                        requestBuilder.header("Origin", "https://supjav.mom")
+                    }
                 }
 
                 chain.proceed(requestBuilder.build())

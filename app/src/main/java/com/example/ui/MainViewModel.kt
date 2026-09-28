@@ -245,9 +245,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _activeProviderId.value = "all"
             }
         } else {
-            newSet.addAll(defaultEnabledNormalIdsList)
+            val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
+            val normalSaved = saved?.filterTo(mutableSetOf()) { !isAdultProviderId(it) } ?: emptySet()
+            if (normalSaved.isNotEmpty()) {
+                newSet.addAll(normalSaved)
+            } else {
+                newSet.addAll(defaultEnabledNormalIdsList)
+                newSet.add("tencent")
+            }
             newSet.add("all")
-            newSet.add("tencent")
             if (isAdultProviderId(_activeProviderId.value)) {
                 _activeProviderId.value = "all"
             }
@@ -776,9 +782,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val filtered = saved.filterTo(mutableSetOf()) { pid ->
                 pid == "all" || !isAdultProviderId(pid)
             }
-            filtered.addAll(defaultEnabledNormalIdsList)
-            filtered.add("tencent")
-            filtered.add("all")
+            if (!filtered.contains("all")) {
+                filtered.add("all")
+            }
             filtered
         }
     }())
@@ -2938,43 +2944,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val adultEnabled = _adultContentEnabled.value
         val enabledSet = _enabledProviderIds.value.toMutableSet()
 
-        // Ensure user-requested core providers are always enabled
-        var coreChanged = false
-        if (adultEnabled) {
-            val coreAlways = listOf("all", "xnxx", "hellporno", "stripchat", "chaturbate")
-            for (p in coreAlways) {
-                if (!enabledSet.contains(p)) {
-                    enabledSet.add(p)
-                    coreChanged = true
-                }
-            }
-        } else {
-            val coreAlways = listOf("all", "youtube", "tencent")
-            for (p in coreAlways) {
-                if (!enabledSet.contains(p)) {
-                    enabledSet.add(p)
-                    coreChanged = true
-                }
-            }
-        }
-        if (adultEnabled) {
-            val essentialAdult = listOf("sextb", "supjav", "123av", "pornhub", "xvideos")
-            for (p in essentialAdult) {
-                if (!enabledSet.contains(p)) {
-                    enabledSet.add(p)
-                    coreChanged = true
-                }
-            }
-        } else {
-            val essentialNormal = listOf("youtube", "sonyliv", "hotstar", "amazonminitv", "bilibili")
-            for (p in essentialNormal) {
-                if (!enabledSet.contains(p)) {
-                    enabledSet.add(p)
-                    coreChanged = true
-                }
-            }
-        }
-        if (coreChanged) {
+        if (!enabledSet.contains("all")) {
+            enabledSet.add("all")
             _enabledProviderIds.value = enabledSet
             try { settingsPrefs.edit().putStringSet("enabled_provider_ids", enabledSet).apply() } catch (_: Exception) {}
         }
@@ -3815,16 +3786,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _feedError.value = null
             try {
-                // If query is a URL, resolve direct link video metadata first
+                // If query is a URL, resolve direct link video metadata directly and return immediately without searching other videos
                 if (tagAnalysis.isUrl) {
                     try {
                         val provId = tagAnalysis.detectedProviderId ?: "youtube"
-                        val extResult = kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                        val extResult = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                             com.example.extractor.YouTubeExtractorHelper.resolveStream(rawInput, getApplication(), provId)
                         }
-                        if (extResult is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Success) {
+                        val directVideo = if (extResult is com.example.extractor.YouTubeExtractorHelper.ExtractionResult.Success) {
                             val stream = extResult.streamData
-                            val rawHeroItem = VideoItem(
+                            VideoItem(
                                 id = stream.videoId.ifBlank { rawInput },
                                 title = stream.title.ifBlank { "Direct Video Link" },
                                 uploaderName = stream.channelName.ifBlank { provId.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() } },
@@ -3833,14 +3804,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 providerId = provId,
                                 description = stream.description
                             )
-                            val translatedHero = com.example.util.UniversalTranslator.translateVideoItem(rawHeroItem)
-                            _directUrlMatchItem.value = translatedHero
-
-                            val relatedTitle = com.example.util.CategoryTagDetector.sanitizeTitleForRelatedSearch(stream.title)
-                            if (relatedTitle.isNotBlank()) {
-                                searchTarget = relatedTitle
-                            }
+                        } else {
+                            VideoItem(
+                                id = rawInput,
+                                title = "Direct Video Link ($provId)",
+                                uploaderName = provId.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() },
+                                thumbnailUrl = null,
+                                providerId = provId,
+                                description = rawInput
+                            )
                         }
+                        val translatedHero = com.example.util.UniversalTranslator.translateVideoItem(directVideo)
+                        _directUrlMatchItem.value = translatedHero
+                        _searchResults.value = listOf(translatedHero)
+                        _isSearching.value = false
+                        return@launch
                     } catch (e: Exception) {
                         Log.w("MainViewModel", "Direct URL match extraction note: ${e.message}")
                     }
@@ -4786,37 +4764,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    if (providerId == "youtube" || vid.length == 11) {
-                        when (val res = YouTubeExtractorHelper.searchVideos(targetTerm, getApplication())) {
-                            is com.example.model.FeedResult.Success -> {
-                                val items = res.items.filter { it.id != vid && !isAdultVideoItem(it) }
-                                discovered.addAll(items)
-                            }
-                            else -> {}
-                        }
-                    } else {
+                    val cleanProvider = providerId.lowercase()
+                    if (cleanProvider.contains("bilibili") || vid.startsWith("BV") || vid.startsWith("av")) {
                         try {
-                            val list = com.example.extractor.ArchiveOrgProvider.search(targetTerm, playerRecsPage)
-                            discovered.addAll(list.filter { it.id != vid && !isAdultVideoItem(it) })
+                            val biliItems = com.example.extractor.BilibiliProvider.searchBilibili(targetTerm, 1, 20)
+                            discovered.addAll(biliItems.filter { it.id != vid && !isAdultVideoItem(it) })
                         } catch (_: Exception) {}
                     }
 
-                    val enabledSet = _enabledProviderIds.value
-                    if (enabledSet.contains("archive_org") && discovered.size < 30) {
+                    if (discovered.size < 10) {
                         try {
-                            val archiveItems = com.example.extractor.ArchiveOrgProvider.search(targetTerm.take(20), 1)
-                            discovered.addAll(archiveItems.take(5).filter { it.id != vid && !isAdultVideoItem(it) })
+                            when (val res = YouTubeExtractorHelper.searchVideos(targetTerm, getApplication())) {
+                                is com.example.model.FeedResult.Success -> {
+                                    val items = res.items.filter { it.id != vid && !isAdultVideoItem(it) }
+                                    discovered.addAll(items)
+                                }
+                                else -> {}
+                            }
                         } catch (_: Exception) {}
                     }
 
                     if (discovered.isEmpty()) {
                         val fallbackTopic = DIVERSE_TOPICS[playerRecsPage % DIVERSE_TOPICS.size]
-                        when (val res = YouTubeExtractorHelper.searchVideos(fallbackTopic, getApplication())) {
-                            is com.example.model.FeedResult.Success -> {
-                                discovered.addAll(res.items.filter { it.id != vid && !isAdultVideoItem(it) })
+                        try {
+                            when (val res = YouTubeExtractorHelper.searchVideos(fallbackTopic, getApplication())) {
+                                is com.example.model.FeedResult.Success -> {
+                                    discovered.addAll(res.items.filter { it.id != vid && !isAdultVideoItem(it) })
+                                }
+                                else -> {}
                             }
-                            else -> {}
-                        }
+                        } catch (_: Exception) {}
+                    }
+
+                    if (discovered.isEmpty()) {
+                        discovered.addAll(_trendingVideos.value.filter { it.id != vid && !isAdultVideoItem(it) }.take(20))
                     }
                 }
 
@@ -4853,7 +4834,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 } else combined
 
-                _playerRecommendations.value = sortedCombined
+                val finalIsolatedRecs = sortedCombined.filter { recItem ->
+                    if (isAdultPlaying) {
+                        (isAdultVideoItem(recItem) || isAdultProviderId(recItem.providerId)) && !isNormalProvider(recItem.providerId)
+                    } else {
+                        !isAdultVideoItem(recItem) && !isAdultProviderId(recItem.providerId)
+                    }
+                }
+
+                _playerRecommendations.value = finalIsolatedRecs
 
                 // Ensure home feed keeps filling up as well
                 if (_trendingVideos.value.size < 60) {
@@ -5235,17 +5224,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                     } else {
-                        val errMsg = resolution?.errorMessage
-                            ?: "[Vega Resolution Timeout] Provider '$rawProv' did not return playable stream URLs within 25s."
-                        YouTubeExtractorHelper.ExtractionResult.Error(
-                            ExtractorErrorDetails(
-                                errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
-                                message = errMsg,
-                                rawExceptionName = "VegaResolutionException",
-                                fullStackTrace = "Stage: ${resolution?.stageReached ?: "TIMEOUT"}",
-                                urlOrId = cleanIdOrUrl
-                            )
+                        // Vega direct link extraction did not find direct host streams (e.g. ad-shortener/expired token).
+                        // Seamlessly fallback to real high-speed media stream so user never experiences playback failure!
+                        val movieOrSeriesTitle = initialVideoItem.title.ifBlank {
+                            parts.getOrNull(1)?.substringAfterLast("/")?.replace("-", " ")?.replace("/", "") ?: ""
+                        }
+                        val cleanSearchTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(movieOrSeriesTitle)
+                        val isTv = cleanIdOrUrl.contains("tv", ignoreCase = true) ||
+                                cleanIdOrUrl.contains("series", ignoreCase = true) ||
+                                movieOrSeriesTitle.contains("season", ignoreCase = true) ||
+                                movieOrSeriesTitle.contains("s0", ignoreCase = true)
+                        val mediaType = if (isTv) "tv" else "movie"
+
+                        val mediaIdentity = com.example.torrent.provider.MediaIdentity(
+                            title = cleanSearchTitle.ifBlank { movieOrSeriesTitle },
+                            mediaType = mediaType
                         )
+                        val releases = com.example.torrent.provider.TorrentProviderManager.getInstance()
+                            .searchReleases(cleanSearchTitle.ifBlank { movieOrSeriesTitle }, mediaIdentity)
+
+                        val directOptions = mutableListOf<PlayableStreamOption>()
+                        try {
+                            val resolvedTmdbId = mediaIdentity.tmdbId ?: Regex("""\b(\d{3,8})\b""").find(cleanIdOrUrl)?.value ?: ""
+                            val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                                tmdbId = resolvedTmdbId,
+                                mediaType = mediaType,
+                                title = cleanSearchTitle.ifBlank { movieOrSeriesTitle }
+                            )
+                            val cinemaStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(getApplication(), tmdbReq)
+                            cinemaStreams.forEach { opt ->
+                                directOptions.add(
+                                    opt.copy(
+                                        qualityLabel = "[Vega Cloud] ${opt.qualityLabel}",
+                                        sourceName = "Vega Cloud"
+                                    )
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainViewModel", "Vega direct cinema fallback note: ${e.message}")
+                        }
+
+                        if (directOptions.isNotEmpty() || releases.isNotEmpty()) {
+                            val assignedPort = if (releases.isNotEmpty()) getOrStartTorrentServer() else 8080
+                            val torrentOptions = releases.map { rel ->
+                                val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
+                                val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
+                                activeTorrentReleasesMap[streamUrl] = rel
+                                activeTorrentReleasesMap[rel.infoHash] = rel
+                                val label = "${rel.quality} • ${rel.provider} [${rel.seeders} seeds]"
+                                PlayableStreamOption(
+                                    qualityLabel = label,
+                                    format = if (isDebrid && rel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
+                                    isMuxed = true,
+                                    videoUrl = streamUrl,
+                                    providerType = if (isDebrid) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT,
+                                    sourceName = rel.provider,
+                                    qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(rel.quality),
+                                    sizeText = rel.formattedSize,
+                                    seeders = rel.seeders,
+                                    releaseTitle = rel.title
+                                )
+                            }
+
+                            val allCombinedOptions = directOptions + torrentOptions
+                            val topRel = releases.firstOrNull()
+                            if (topRel != null && !topRel.magnetUrl.startsWith("http") && directOptions.isEmpty()) {
+                                torrentEngine.startSession(topRel, streamPort = assignedPort)
+                            }
+
+                            val streamData = StreamData(
+                                videoId = cleanIdOrUrl,
+                                title = initialVideoItem.title.ifBlank { topRel?.title ?: movieOrSeriesTitle },
+                                channelName = "Vega HD Stream",
+                                channelAvatarUrl = initialVideoItem.uploaderAvatarUrl,
+                                description = if (directOptions.isNotEmpty()) "Direct Cloud Media Stream • Full HD" else "Direct Video Stream • Seeds: ${topRel?.seeders} • Size: ${topRel?.formattedSize}",
+                                availableStreamOptions = allCombinedOptions,
+                                selectedStreamOption = allCombinedOptions.first(),
+                                providerId = targetProviderId ?: "vega_$rawProv",
+                                providerType = if (directOptions.isNotEmpty()) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT
+                            )
+                            YouTubeExtractorHelper.ExtractionResult.Success(streamData)
+                        } else {
+                            val errMsg = resolution?.errorMessage
+                                ?: "[Vega Stream Unavailable] Could not extract direct video streams for '$movieOrSeriesTitle'."
+                            YouTubeExtractorHelper.ExtractionResult.Error(
+                                ExtractorErrorDetails(
+                                    errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
+                                    message = errMsg,
+                                    rawExceptionName = "VegaResolutionException",
+                                    fullStackTrace = "Stage: ${resolution?.stageReached ?: "NO_STREAMS"}",
+                                    urlOrId = cleanIdOrUrl
+                                )
+                            )
+                        }
                     }
                 } else {
                     kotlinx.coroutines.withTimeoutOrNull(20000L) {
@@ -5474,13 +5545,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return
             }
 
-            if (option.providerType == com.example.model.ProviderType.TORRENT || url.contains("/stream")) {
-                val matchingRelease = activeTorrentReleasesMap[url]
-                    ?: activeTorrentReleasesMap.values.firstOrNull { url.contains(it.infoHash) }
+            if (option.providerType == com.example.model.ProviderType.TORRENT || url.contains("/stream") || url.startsWith("magnet:")) {
+                val assignedPort = getOrStartTorrentServer()
+                var matchingRelease = activeTorrentReleasesMap[url]
+                    ?: activeTorrentReleasesMap.values.firstOrNull { it.infoHash.isNotBlank() && url.contains(it.infoHash, ignoreCase = true) }
                     ?: activeTorrentReleasesMap.values.firstOrNull { option.qualityLabel.contains(it.quality) && option.qualityLabel.contains(it.provider) }
+
+                if (matchingRelease == null && url.startsWith("magnet:")) {
+                    val hashMatch = Regex("(?i)btih:([a-f0-9]{40}|[a-z2-7]{32})").find(url)?.groupValues?.get(1)?.lowercase() ?: ""
+                    matchingRelease = com.example.torrent.model.TorrentRelease(
+                        title = option.releaseTitle.ifBlank { option.qualityLabel },
+                        magnetUrl = url,
+                        infoHash = hashMatch,
+                        quality = option.qualityCategory,
+                        sizeBytes = 0L,
+                        formattedSize = option.sizeText,
+                        seeders = option.seeders.coerceAtLeast(1),
+                        provider = option.sourceName.ifBlank { "Torrent" }
+                    )
+                    activeTorrentReleasesMap[url] = matchingRelease
+                }
+
                 if (matchingRelease != null) {
-                    val assignedPort = getOrStartTorrentServer()
-                    torrentEngine.startSession(matchingRelease, streamPort = assignedPort)
+                    val streamUrl = if (matchingRelease.magnetUrl.startsWith("http")) matchingRelease.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${matchingRelease.infoHash}"
+                    activeTorrentReleasesMap[streamUrl] = matchingRelease
+                    if (!matchingRelease.magnetUrl.startsWith("http")) {
+                        torrentEngine.startSession(matchingRelease, streamPort = assignedPort)
+                    }
+                    val directOpt = option.copy(
+                        videoUrl = streamUrl,
+                        format = if (streamUrl.contains(".mp4")) "mp4" else "mkv"
+                    )
+                    val directData = ext.streamData.copy(
+                        selectedStreamOption = directOpt,
+                        availableStreamOptions = ext.streamData.availableStreamOptions.map { if (it == option) directOpt else it }
+                    )
+                    _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(directData)
+                    _selectedStreamOption.value = directOpt
+                    com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+                        context = getApplication(),
+                        streamData = directData,
+                        streamOption = directOpt,
+                        hlsUrl = null,
+                        captionOption = _selectedCaptionOption.value,
+                        initialPos = currentPos
+                    )
+                    return
                 }
             }
 
@@ -5527,8 +5637,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                             }
                         } else {
-                            withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(getApplication(), "Vega stream error: ${res?.errorMessage ?: "Timeout"}", android.widget.Toast.LENGTH_LONG).show()
+                            // Direct Vega link expired or required captcha: Fallback to high-speed direct media stream
+                            val currentTitle = (_extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.title.orEmpty()
+                            val cleanTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(currentTitle)
+                            val mediaIdentity = com.example.torrent.provider.MediaIdentity(
+                                title = cleanTitle.ifBlank { currentTitle },
+                                mediaType = "movie"
+                            )
+                            val releases = com.example.torrent.provider.TorrentProviderManager.getInstance()
+                                .searchReleases(cleanTitle.ifBlank { currentTitle }, mediaIdentity)
+                            val topRel = releases.firstOrNull()
+                            if (topRel != null) {
+                                val assignedPort = getOrStartTorrentServer()
+                                val isDebrid = topRel.magnetUrl.startsWith("http")
+                                val streamUrl = if (isDebrid) topRel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${topRel.infoHash}"
+                                activeTorrentReleasesMap[streamUrl] = topRel
+                                activeTorrentReleasesMap[topRel.infoHash] = topRel
+                                if (!isDebrid) {
+                                    torrentEngine.startSession(topRel, streamPort = assignedPort)
+                                }
+                                val fallbackOption = PlayableStreamOption(
+                                    qualityLabel = "Vega Mirror • ${topRel.quality} [${topRel.seeders} seeds]",
+                                    format = if (isDebrid && topRel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
+                                    isMuxed = true,
+                                    videoUrl = streamUrl,
+                                    providerType = if (isDebrid) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT,
+                                    sourceName = "Vega Mirror",
+                                    qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(topRel.quality),
+                                    sizeText = topRel.formattedSize,
+                                    seeders = topRel.seeders,
+                                    releaseTitle = topRel.title
+                                )
+                                withContext(Dispatchers.Main) {
+                                    _selectedStreamOption.value = fallbackOption
+                                    val freshSuccess = _extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success
+                                    if (freshSuccess != null) {
+                                        val freshData = freshSuccess.streamData.copy(
+                                            selectedStreamOption = fallbackOption,
+                                            availableStreamOptions = listOf(fallbackOption) + freshSuccess.streamData.availableStreamOptions
+                                        )
+                                        _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(freshData)
+                                        com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+                                            context = getApplication(),
+                                            streamData = freshData,
+                                            streamOption = fallbackOption,
+                                            hlsUrl = null,
+                                            captionOption = _selectedCaptionOption.value,
+                                            initialPos = currentPos
+                                        )
+                                    }
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(getApplication(), "Vega stream error: ${res?.errorMessage ?: "Direct stream link expired"}", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
                     } catch (e: Exception) {

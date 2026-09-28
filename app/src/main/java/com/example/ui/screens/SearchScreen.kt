@@ -299,8 +299,8 @@ fun SearchScreen(
                 onValueChange = { viewModel.updateSearchQuery(it) },
                 placeholder = {
                     Text(
-                        text = "Search title, tags (#fantasy), or paste video link...",
-                        fontSize = 14.sp,
+                        text = "Search YouTube",
+                        fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 },
@@ -414,100 +414,6 @@ fun SearchScreen(
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f), thickness = 1.dp)
-
-        // CLIPBOARD URL QUICK PASTE BANNER
-        androidx.compose.animation.AnimatedVisibility(
-            visible = clipboardUrlSuggestion != null && searchQuery.isBlank()
-        ) {
-            clipboardUrlSuggestion?.let { clipUrl ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clickable {
-                            viewModel.updateSearchQuery(clipUrl)
-                            viewModel.performSearch(clipUrl)
-                            viewModel.clearClipboardSuggestion()
-                        },
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Cloud,
-                            contentDescription = "Paste Link",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Paste & Search Link: ",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = clipUrl,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        IconButton(
-                            onClick = { viewModel.clearClipboardSuggestion() },
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // DETECTED CATEGORY & GENRE TAG BADGES
-        if (detectedCategoryTags.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                item {
-                    Text(
-                        text = "Tags:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                items(detectedCategoryTags) { tag ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
-                    ) {
-                        Text(
-                            text = "#$tag",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-        }
 
         // HORIZONTAL QUICK FILTER CHIPS (YouTube Style Bar)
         if (searchResults.isNotEmpty()) {
@@ -1136,162 +1042,62 @@ fun SearchScreen(
                 }
             }
         } else {
-            // EMPTY SEARCH QUERY -> CLEAN MODERN RECENT & TRENDING SEARCHES CARDS (Matching user reference)
+            // EMPTY SEARCH QUERY -> CLEAN YOUTUBE-STYLE SEARCH HISTORY & TRENDING LIST (Matching Screenshot 1)
             val topics = if (trendingTopics.isNotEmpty()) trendingTopics else trendingFallbacks
-            val chunkedTopics = remember(topics) { topics.chunked(2) }
 
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                // 1. RECENT SEARCHES CARD (Shown only if user has recent searches)
                 if (recentSearches.isNotEmpty()) {
-                    item(key = "recent_searches_card") {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    items(
+                        items = recentSearches,
+                        key = { "recent_$it" }
+                    ) { queryText ->
+                        val thumbnail = historyThumbnailMap[queryText]
+                        SearchSuggestionRow(
+                            suggestion = SearchSuggestionItem(
+                                query = queryText,
+                                isHistory = true
                             ),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 16.dp)
-                            ) {
-                                // Header: Clock Icon + Title + "CLEAR ALL"
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.History,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "Recent Searches",
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-
-                                    TextButton(
-                                        onClick = { viewModel.clearAllRecentSearches() },
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = "CLEAR ALL",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            letterSpacing = 0.5.sp
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                // Recent Search Pills
-                                @OptIn(ExperimentalLayoutApi::class)
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    recentSearches.forEach { queryText ->
-                                        RecentSearchPill(
-                                            text = queryText,
-                                            onClick = {
-                                                focusManager.clearFocus()
-                                                viewModel.updateSearchQuery(queryText)
-                                                viewModel.performSearch(queryText)
-                                            },
-                                            onDelete = {
-                                                viewModel.removeRecentSearch(queryText)
-                                            }
-                                        )
-                                    }
-                                }
+                            thumbnailUrl = thumbnail,
+                            onClick = {
+                                focusManager.clearFocus()
+                                viewModel.updateSearchQuery(queryText)
+                                viewModel.performSearch(queryText)
+                            },
+                            onInsertQuery = {
+                                viewModel.updateSearchQuery(queryText)
+                            },
+                            onDeleteHistory = {
+                                viewModel.removeRecentSearch(queryText)
                             }
-                        }
+                        )
                     }
-                }
-
-                // 2. TRENDING SEARCHES CARD
-                item(key = "trending_searches_card") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 18.dp)
-                        ) {
-                            Text(
-                                text = "Trending Searches",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // 2-Column Grid Layout for Trending items
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                chunkedTopics.forEach { pair ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        // Left Item
-                                        TrendingSearchItem(
-                                            title = pair[0],
-                                            modifier = Modifier.weight(1f),
-                                            onClick = {
-                                                focusManager.clearFocus()
-                                                viewModel.updateSearchQuery(pair[0])
-                                                viewModel.performSearch(pair[0])
-                                            }
-                                        )
-
-                                        // Right Item
-                                        if (pair.size > 1) {
-                                            TrendingSearchItem(
-                                                title = pair[1],
-                                                modifier = Modifier.weight(1f),
-                                                onClick = {
-                                                    focusManager.clearFocus()
-                                                    viewModel.updateSearchQuery(pair[1])
-                                                    viewModel.performSearch(pair[1])
-                                                }
-                                            )
-                                        } else {
-                                            Spacer(modifier = Modifier.weight(1f))
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                } else {
+                    items(
+                        items = topics,
+                        key = { "topic_$it" }
+                    ) { topic ->
+                        SearchSuggestionRow(
+                            suggestion = SearchSuggestionItem(
+                                query = topic,
+                                isHistory = false,
+                                providerBadge = "Trending"
+                            ),
+                            thumbnailUrl = null,
+                            onClick = {
+                                focusManager.clearFocus()
+                                viewModel.updateSearchQuery(topic)
+                                viewModel.performSearch(topic)
+                            },
+                            onInsertQuery = {
+                                viewModel.updateSearchQuery(topic)
+                            },
+                            onDeleteHistory = {}
+                        )
                     }
                 }
             }

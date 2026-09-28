@@ -73,12 +73,16 @@ object VidSrcProvider {
                         val voteAvg = obj.optDouble("vote_average", 7.8)
                         val overview = obj.optString("overview", "")
 
+                        val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, false)
+                        val uploader = studioBrand.brandName.ifBlank { "VidSrc • $year • ★${String.format("%.1f", voteAvg)}" }
+                        val studioAvatar = studioBrand.logoUrls.firstOrNull()
+
                         items.add(
                             VideoItem(
                                 id = "vidsrc:movie:$tmdbId",
                                 title = title,
-                                uploaderName = "VidSrc • $year • ★${String.format("%.1f", voteAvg)}",
-                                uploaderAvatarUrl = "https://vidsrc.to/favicon.ico",
+                                uploaderName = uploader,
+                                uploaderAvatarUrl = studioAvatar,
                                 thumbnailUrl = thumbUrl,
                                 uploadDate = releaseDate,
                                 providerId = PROVIDER_ID,
@@ -94,11 +98,15 @@ object VidSrcProvider {
 
         if (items.isEmpty()) {
             CURATED_VIDSRC_ITEMS.forEach { (tmdbId, title, thumb) ->
+                val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, false)
+                val uploader = studioBrand.brandName.ifBlank { "VidSrc Cloud Stream" }
+                val studioAvatar = studioBrand.logoUrls.firstOrNull()
                 items.add(
                     VideoItem(
                         id = "vidsrc:movie:$tmdbId",
                         title = title,
-                        uploaderName = "VidSrc Cloud Stream",
+                        uploaderName = uploader,
+                        uploaderAvatarUrl = studioAvatar,
                         thumbnailUrl = thumb,
                         providerId = PROVIDER_ID,
                         description = "VidSrc HD multi-mirror cloud playback."
@@ -148,11 +156,16 @@ object VidSrcProvider {
                         val year = if (releaseDate.length >= 4) releaseDate.take(4) else "2025"
                         val overview = obj.optString("overview", "")
 
+                        val studioBrand = com.example.util.ChannelLogoHelper.getProductionCompanyForTitle(title, mediaType == "tv")
+                        val uploader = studioBrand.brandName.ifBlank { "VidSrc • $year • ${mediaType.uppercase()}" }
+                        val studioAvatar = studioBrand.logoUrls.firstOrNull()
+
                         items.add(
                             VideoItem(
                                 id = "vidsrc:$mediaType:$id",
                                 title = title,
-                                uploaderName = "VidSrc • $year • ${mediaType.uppercase()}",
+                                uploaderName = uploader,
+                                uploaderAvatarUrl = studioAvatar,
                                 thumbnailUrl = thumbUrl,
                                 uploadDate = releaseDate,
                                 providerId = PROVIDER_ID,
@@ -218,41 +231,27 @@ object VidSrcProvider {
             providerName = "VidSrc"
         ).toMutableList()
 
-        // Fallback: Official preview / trailer from TMDB if full cloud stream is not available
-        if (options.isEmpty()) {
+        // Fallback: Real Direct Cloud & Multi-Source Streams (Vidlink, Showbox, Videasy, Torrent)
+        if (options.isEmpty() && context != null) {
             try {
-                val apiKey = AppConfig.TMDB_API_KEY
-                val mType = if (isTv) "tv" else "movie"
-                val vUrl = "https://api.themoviedb.org/3/$mType/$tmdbId/videos?api_key=$apiKey"
-                val vReq = Request.Builder().url(vUrl).header("User-Agent", "Mozilla/5.0").build()
-                val vResp = httpClient.newCall(vReq).execute()
-                val vBody = vResp.body?.string().orEmpty()
-                if (vBody.contains("results")) {
-                    val vResults = JSONObject(vBody).optJSONArray("results")
-                    if (vResults != null && vResults.length() > 0) {
-                        for (i in 0 until vResults.length()) {
-                            val vObj = vResults.optJSONObject(i) ?: continue
-                            val site = vObj.optString("site")
-                            val key = vObj.optString("key")
-                            if (site.equals("YouTube", ignoreCase = true) && key.isNotBlank()) {
-                                val ytRes = YouTubeExtractorHelper.resolveStream("https://www.youtube.com/watch?v=$key", context, "youtube")
-                                if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success) {
-                                    ytRes.streamData.availableStreamOptions.forEach { opt ->
-                                        options.add(
-                                            opt.copy(
-                                                qualityLabel = "[VidSrc] Official Preview • ${opt.qualityLabel}",
-                                                sourceName = "VidSrc Preview"
-                                            )
-                                        )
-                                    }
-                                    break
-                                }
-                            }
-                        }
-                    }
+                val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                    tmdbId = tmdbId,
+                    mediaType = if (isTv) "tv" else "movie",
+                    title = mediaTitle,
+                    season = season,
+                    episode = episode
+                )
+                val extraStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(context, tmdbReq)
+                extraStreams.forEach { opt ->
+                    options.add(
+                        opt.copy(
+                            qualityLabel = "[VidSrc] ${opt.qualityLabel}",
+                            sourceName = "VidSrc Cloud"
+                        )
+                    )
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Fallback trailer resolution error: ${e.message}")
+                Log.w(TAG, "Multi-source direct resolution error for VidSrc: ${e.message}")
             }
         }
 
