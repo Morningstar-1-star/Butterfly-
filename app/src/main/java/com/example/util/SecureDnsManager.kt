@@ -5,6 +5,8 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
@@ -37,9 +39,10 @@ object SecureDnsManager {
     private var isInitialized = false
 
     private val bootstrapClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
-        .writeTimeout(6, TimeUnit.SECONDS)
+        .dns(Dns.SYSTEM)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .writeTimeout(4, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -112,6 +115,7 @@ object SecureDnsManager {
     fun update(context: Context) {
         scope.launch {
             try {
+                dnsCache.clear()
                 val prefs = SecureDnsPreferences.getInstance(context)
                 if (!prefs.isSecureDnsEnabled.value) {
                     delegateDns = Dns.SYSTEM
@@ -289,5 +293,97 @@ object SecureDnsManager {
                 )
             }
         }
+    }
+
+    private fun pingHost(ip: String, port: Int = 443, timeoutMs: Int = 1200): Long {
+        val start = System.nanoTime()
+        return try {
+            java.net.Socket().use { sock ->
+                sock.connect(java.net.InetSocketAddress(ip, port), timeoutMs)
+            }
+            ((System.nanoTime() - start) / 1_000_000L).coerceAtLeast(1L)
+        } catch (_: Exception) {
+            try {
+                val start53 = System.nanoTime()
+                java.net.Socket().use { sock ->
+                    sock.connect(java.net.InetSocketAddress(ip, 53), timeoutMs)
+                }
+                ((System.nanoTime() - start53) / 1_000_000L).coerceAtLeast(1L)
+            } catch (_: Exception) {
+                -1L
+            }
+        }
+    }
+
+    suspend fun measureAllProviderLatencies(context: Context): Map<DnsProvider, Long> = withContext(Dispatchers.IO) {
+        val results = java.util.concurrent.ConcurrentHashMap<DnsProvider, Long>()
+        val providers = DnsProvider.values()
+
+        kotlinx.coroutines.coroutineScope {
+            providers.map { provider ->
+                async {
+                    val startNano = System.nanoTime()
+                    val latency = try {
+                        when (provider) {
+                            DnsProvider.SYSTEM -> {
+                                val ips = try {
+                                    InetAddress.getAllByName("google.com")
+                                } catch (_: Exception) {
+                                    emptyArray<InetAddress>()
+                                }
+                                val elapsedMs = (System.nanoTime() - startNano) / 1_000_000L
+                                if (ips.isNotEmpty()) elapsedMs.coerceAtLeast(1L) else pingHost("8.8.8.8")
+                            }
+                            DnsProvider.CUSTOM -> {
+                                val prefs = SecureDnsPreferences.getInstance(context)
+                                val customUrl = prefs.customDnsUrl.value
+                                if (customUrl.isBlank()) -1L
+                                else {
+                                    val req = okhttp3.Request.Builder()
+                                        .url(if (customUrl.contains("?")) "$customUrl&name=google.com&type=A" else "$customUrl?name=google.com&type=A")
+                                        .header("Accept", "application/dns-json")
+                                        .build()
+                                    bootstrapClient.newCall(req).execute().use { resp ->
+                                        val elapsedMs = (System.nanoTime() - startNano) / 1_000_000L
+                                        if (resp.isSuccessful) elapsedMs.coerceAtLeast(1L) else -1L
+                                    }
+                                }
+                            }
+                            else -> {
+                                val testUrl = when (provider) {
+                                    DnsProvider.CLOUDFLARE -> "https://cloudflare-dns.com/dns-query?name=google.com&type=A"
+                                    DnsProvider.GOOGLE -> "https://dns.google/resolve?name=google.com&type=A"
+                                    DnsProvider.OPENDNS -> "https://doh.opendns.com/dns-query?name=google.com&type=A"
+                                    DnsProvider.ADGUARD -> "https://dns.adguard-dns.com/dns-query?name=google.com&type=A"
+                                    DnsProvider.QUAD9 -> "https://dns.quad9.net/dns-query?name=google.com&type=A"
+                                    DnsProvider.CLEANBROWSING -> "https://doh.cleanbrowsing.org/doh/family-filter/?name=google.com&type=A"
+                                    else -> provider.url
+                                }
+                                val req = okhttp3.Request.Builder()
+                                    .url(testUrl)
+                                    .header("Accept", "application/dns-json")
+                                    .build()
+                                bootstrapClient.newCall(req).execute().use { resp ->
+                                    val elapsedMs = (System.nanoTime() - startNano) / 1_000_000L
+                                    if (resp.isSuccessful) {
+                                        elapsedMs.coerceAtLeast(1L)
+                                    } else {
+                                        val bootstrapIp = provider.bootstrapIps.firstOrNull() ?: "8.8.8.8"
+                                        pingHost(bootstrapIp)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        val bootstrapIp = provider.bootstrapIps.firstOrNull() ?: if (provider == DnsProvider.SYSTEM) "8.8.8.8" else null
+                        if (bootstrapIp != null) pingHost(bootstrapIp) else -1L
+                    }
+                    if (latency > 0) {
+                        results[provider] = latency
+                    }
+                }
+            }.awaitAll()
+        }
+        results
     }
 }

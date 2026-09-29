@@ -212,16 +212,9 @@ fun VideoPlayerScreen(
     }
 
     val firstFrameRendered by GlobalPlayerManager.firstFrameRendered.collectAsState()
-    var isVideoPriorityGracePeriodOver by remember(activeVideoId) { mutableStateOf(false) }
+    var isVideoPriorityGracePeriodOver by remember(activeVideoId) { mutableStateOf(true) }
 
-    LaunchedEffect(activeVideoId) {
-        isVideoPriorityGracePeriodOver = false
-        // YouTube-style prioritized playback: dedicate all system, CPU and network bandwidth to video playback engine first
-        delay(750L)
-        isVideoPriorityGracePeriodOver = true
-    }
-
-    val shouldRenderDetails = firstFrameRendered || isVideoPriorityGracePeriodOver
+    val shouldRenderDetails = true
 
     val playerBackdropThumbnailUrl = remember(currentStreamData, currentVideoItem, activeVideoItem, activeVideoId) {
         val curVidId = activeVideoId

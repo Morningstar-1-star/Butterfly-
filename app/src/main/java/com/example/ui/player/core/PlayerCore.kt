@@ -207,11 +207,14 @@ class PlayerCore(
                     group.mediaTrackGroup,
                     listOf(option.trackIndex)
                 )
-                exo.trackSelectionParameters = exo.trackSelectionParameters
+                val paramsBuilder = exo.trackSelectionParameters
                     .buildUpon()
                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                     .addOverride(override)
-                    .build()
+                if (option.languageCode.isNotBlank()) {
+                    paramsBuilder.setPreferredAudioLanguage(option.languageCode)
+                }
+                exo.trackSelectionParameters = paramsBuilder.build()
                 break
             }
             currentGroupIdx++

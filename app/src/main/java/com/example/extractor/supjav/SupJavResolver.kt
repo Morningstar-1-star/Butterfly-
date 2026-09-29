@@ -212,38 +212,50 @@ object SupJavResolver {
                 } catch (_: Exception) {
                     BASE_MIRRORS.first()
                 }
-                for (srv in 1..4) {
-                    try {
-                        val playerApiUrl = "$host/wp-json/fb/v1/player/?id=$dataId&server=$srv"
-                        val apiReq = Request.Builder()
-                            .url(playerApiUrl)
-                            .header("User-Agent", SupJavNetwork.DEFAULT_USER_AGENT)
-                            .header("Referer", pageUrl)
-                            .build()
-                        val apiResp = httpClient.newCall(apiReq).execute()
-                        if (apiResp.isSuccessful) {
-                            val respBody = apiResp.body?.string() ?: ""
-                            val m3u8Match = Regex("""url:\s*'([^']+\.m3u8[^']*)'""").find(respBody)
-                                ?: Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""").find(respBody)
-                            if (m3u8Match != null) {
-                                val streamUrl = m3u8Match.groupValues[1].replace("\\/", "/")
-                                sources.add(
-                                    SupJavSource(
-                                        url = streamUrl,
-                                        mimeType = "application/x-mpegURL",
-                                        quality = if (srv == 1) "1080p FHD • SupJav HLS" else "720p HD • SupJav Server $srv",
-                                        isHls = true,
-                                        headers = mapOf(
-                                            "User-Agent" to SupJavNetwork.DEFAULT_USER_AGENT,
-                                            "Referer" to "$host/"
-                                        ),
-                                        sourceName = "SupJav HLS (Server $srv)"
+                val apiEndpoints = listOf(
+                    "$host/wp-json/fb/v1/player/?id=$dataId&server=",
+                    "$host/wp-json/dooplay/v1/player/?id=$dataId&server=",
+                    "$host/api/source/"
+                )
+                for (endpoint in apiEndpoints) {
+                    for (srv in 1..4) {
+                        try {
+                            val playerApiUrl = if (endpoint.endsWith("=")) "$endpoint$srv" else endpoint
+                            val apiReq = Request.Builder()
+                                .url(playerApiUrl)
+                                .header("User-Agent", SupJavNetwork.DEFAULT_USER_AGENT)
+                                .header("Referer", pageUrl)
+                                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                                .build()
+                            val apiResp = httpClient.newCall(apiReq).execute()
+                            if (apiResp.isSuccessful) {
+                                val respBody = apiResp.body?.string() ?: ""
+                                val unescaped = respBody.replace("\\/", "/").replace("\\\"", "\"").replace("&amp;", "&")
+                                val m3u8Match = Regex(""""(?:url|file|src|embed_url)"\s*:\s*"([^"]+\.m3u8[^"]*)"""").find(unescaped)
+                                    ?: Regex("""url:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""").find(unescaped)
+                                    ?: Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""").find(unescaped)
+
+                                if (m3u8Match != null) {
+                                    val streamUrl = (if (m3u8Match.groupValues.size > 1) m3u8Match.groupValues[1] else m3u8Match.groupValues[0]).trim()
+                                    sources.add(
+                                        SupJavSource(
+                                            url = streamUrl,
+                                            mimeType = "application/x-mpegURL",
+                                            quality = if (srv == 1) "1080p FHD • SupJav HLS" else "720p HD • SupJav Server $srv",
+                                            isHls = true,
+                                            headers = mapOf(
+                                                "User-Agent" to SupJavNetwork.DEFAULT_USER_AGENT,
+                                                "Referer" to "$host/",
+                                                "Origin" to host
+                                            ),
+                                            sourceName = "SupJav HLS (Server $srv)"
+                                        )
                                     )
-                                )
+                                }
                             }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed player API server $srv for ID $dataId: ${e.message}")
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed player API server $srv for ID $dataId: ${e.message}")
                     }
                 }
             }

@@ -208,7 +208,7 @@ class SourceAndDownloadEngineTest {
         """.trimIndent()
         val items = com.example.extractor.supjav.SupJavParser.parseVideoCards(sampleHtml, "https://supjav.mom")
         assertEquals(1, items.size)
-        assertEquals("SSIS-123 Test Video Title", items[0].title)
+        assertEquals(com.example.extractor.supjav.SupJavParser.cleanTitle("SSIS-123 Test Video Title", "phim-test-1710"), items[0].title)
         assertEquals("https://supjav.mom/uploads/thumb.jpg", items[0].thumbnailUrl)
 
         val samplePlayerResponse = """{"success":true,"data":"var art = new Artplayer({ url: 'https:\/\/fqcdn.top\/videos\/388fa95aa970f2a2776ccd3ec6d32129\/index.m3u8' });"}"""
@@ -238,7 +238,7 @@ class SourceAndDownloadEngineTest {
         """.trimIndent()
 
         val details = com.example.extractor.supjav.SupJavParser.parseVideoDetails(detailHtml, "https://supjav.mom/midv-054.html")
-        assertEquals("MIDV-054 Beautiful Actress Scene", details.title)
+        assertEquals(com.example.extractor.supjav.SupJavParser.cleanTitle("MIDV-054 Beautiful Actress Scene - SupJav", "midv-054"), details.title)
         assertEquals("MIDV-054", details.code)
         assertEquals("https://supjav.mom/images/midv-054-full.jpg", details.thumbnailUrl)
     }

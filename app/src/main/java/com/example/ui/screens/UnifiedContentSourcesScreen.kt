@@ -107,11 +107,7 @@ fun UnifiedContentSourcesScreen(
             UnifiedSourceItem("tencent", "Tencent Video (v.qq.com)", SourcePillCategory.NORMAL, "Official Chinese drama, anime, movies & VIP series with multi-bitrate HLS", enabledProviderIds.contains("tencent"), qualityTag = "1080p FHD", icon = Icons.Outlined.LiveTv),
             UnifiedSourceItem("dailymotion", "Dailymotion", SourcePillCategory.NORMAL, "Global news, trending videos & creator channels", enabledProviderIds.contains("dailymotion"), qualityTag = "1080p HD", icon = Icons.Outlined.VideoLibrary),
             UnifiedSourceItem("bilibili", "Bilibili", SourcePillCategory.NORMAL, "Anime, gaming, creator streams & Danmaku community", enabledProviderIds.contains("bilibili"), qualityTag = "1080p 60FPS", icon = Icons.Outlined.Tv),
-            UnifiedSourceItem("animepahe", "AnimePahe", SourcePillCategory.NORMAL, "High efficiency subbed & dubbed anime episodes", enabledProviderIds.contains("animepahe"), qualityTag = "720p/1080p", icon = Icons.Outlined.Animation),
-            UnifiedSourceItem("gogoanime", "GogoAnime", SourcePillCategory.NORMAL, "Fast anime catalog with multiple video CDN mirrors", enabledProviderIds.contains("gogoanime"), qualityTag = "1080p Stream", icon = Icons.Outlined.Animation),
-            UnifiedSourceItem("vk", "VK Video", SourcePillCategory.NORMAL, "VKontakte social media & community uploaded videos", enabledProviderIds.contains("vk"), qualityTag = "1080p HD", icon = Icons.Outlined.Public),
-            UnifiedSourceItem("archive", "Internet Archive", SourcePillCategory.NORMAL, "Public domain movies, educational broadcasts & archives", enabledProviderIds.contains("archive"), qualityTag = "Direct MP4", icon = Icons.Outlined.AccountBalance),
-            UnifiedSourceItem("w3schools", "Sample Videos", SourcePillCategory.NORMAL, "Test video feeds, Big Buck Bunny & Tears of Steel", enabledProviderIds.contains("w3schools"), qualityTag = "1080p Test", icon = Icons.Outlined.Science)
+            UnifiedSourceItem("archive", "Internet Archive", SourcePillCategory.NORMAL, "Public domain movies, educational broadcasts & archives", enabledProviderIds.contains("archive"), qualityTag = "Direct MP4", icon = Icons.Outlined.AccountBalance)
         )
         defaultNormal
     }
@@ -746,7 +742,7 @@ fun UnifiedContentSourcesScreen(
                 onToggleEnabled = { enabled ->
                     when (item.category) {
                         SourcePillCategory.NORMAL, SourcePillCategory.ADULT -> {
-                            viewModel.toggleProviderEnabled(item.id)
+                            viewModel.toggleProviderEnabled(item.id, enabled)
                         }
                         SourcePillCategory.VEGA -> {
                             viewModel.toggleVegaProvider(item.id, enabled)
@@ -761,7 +757,7 @@ fun UnifiedContentSourcesScreen(
                             viewModel.toggleTMDBProvider(item.id, enabled)
                         }
                         else -> {
-                            viewModel.toggleProviderEnabled(item.id)
+                            viewModel.toggleProviderEnabled(item.id, enabled)
                         }
                     }
                 },

@@ -366,30 +366,21 @@ object ThisVidProvider {
             }
         }
 
-        // 4. Fallback to ThisVid Web Embed Player
-        val finalEmbedUrl = if (embedUrl.isNotBlank()) embedUrl else if (targetUrl.contains("/embed/")) targetUrl else "$BASE_URL/embed/$videoSlug"
-        val embedOption = PlayableStreamOption(
-            qualityLabel = "ThisVid Web Player (HD)",
-            format = "embed",
-            isMuxed = true,
-            videoUrl = finalEmbedUrl,
-            providerType = ProviderType.EMBED,
-            headers = mapOf("User-Agent" to DEFAULT_UA, "Referer" to "$BASE_URL/")
-        )
-
         val directPlayableSources = videoSources.distinctBy { it.videoUrl }
+        if (directPlayableSources.isEmpty()) {
+            Log.w(TAG, "No direct streams found for ThisVid video: $targetUrl")
+            return@withContext null
+        }
 
-        val primarySource = directPlayableSources.firstOrNull() ?: embedOption
-
-        val optionsList = if (directPlayableSources.isNotEmpty()) directPlayableSources else listOf(embedOption)
+        val primarySource = directPlayableSources.first()
 
         StreamData(
             videoId = videoSlug,
-            videoUrl = primarySource.videoUrl ?: embedUrl,
+            videoUrl = primarySource.videoUrl ?: "",
             title = resolvedTitle,
             channelName = resolvedChannel,
             thumbnailUrl = resolvedThumbnail,
-            availableStreamOptions = optionsList,
+            availableStreamOptions = directPlayableSources,
             selectedStreamOption = primarySource,
             providerId = PROVIDER_ID,
             providerType = primarySource.providerType,

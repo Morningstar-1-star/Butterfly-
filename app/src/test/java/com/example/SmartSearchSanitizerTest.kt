@@ -59,10 +59,11 @@ class SmartSearchSanitizerTest {
             correctedQuery = targetQuery
         )
 
-        // The Interstellar videos must be ranked before the random vlog
+        // The Interstellar videos must be ranked before any unrelated vlog
+        assertTrue(ranked.isNotEmpty())
         assertTrue(ranked[0].title.contains("Interstellar"))
         assertTrue(ranked[1].title.contains("Interstellar"))
-        assertEquals("Random Vlog in Hawaii", ranked[2].title)
+        assertTrue(ranked.none { it.id == "1" })
     }
 
     @Test

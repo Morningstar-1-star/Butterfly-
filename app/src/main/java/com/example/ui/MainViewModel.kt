@@ -173,14 +173,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Theme & Appearance Settings
     val secureDnsPrefs = com.example.util.SecureDnsPreferences.getInstance(application)
     val isSecureDnsEnabled: StateFlow<Boolean> = secureDnsPrefs.isSecureDnsEnabled
+    val isMaxProtection: StateFlow<Boolean> = secureDnsPrefs.isMaxProtection
     val selectedDnsProvider: StateFlow<com.example.util.DnsProvider> = secureDnsPrefs.selectedProvider
     val customDnsUrl: StateFlow<String> = secureDnsPrefs.customDnsUrl
 
     private val _dnsTestResult = MutableStateFlow<com.example.util.DnsTestResult?>(null)
     val dnsTestResult: StateFlow<com.example.util.DnsTestResult?> = _dnsTestResult.asStateFlow()
 
+    private val _dnsProviderLatencies = MutableStateFlow<Map<com.example.util.DnsProvider, Long>>(emptyMap())
+    val dnsProviderLatencies: StateFlow<Map<com.example.util.DnsProvider, Long>> = _dnsProviderLatencies.asStateFlow()
+
+    private val _isTestingDnsLatencies = MutableStateFlow(false)
+    val isTestingDnsLatencies: StateFlow<Boolean> = _isTestingDnsLatencies.asStateFlow()
+
     fun setSecureDnsEnabled(enabled: Boolean) {
         secureDnsPrefs.setSecureDnsEnabled(enabled)
+        com.example.util.SecureDnsManager.update(getApplication())
+    }
+
+    fun setMaxProtection(max: Boolean) {
+        secureDnsPrefs.setMaxProtection(max)
         com.example.util.SecureDnsManager.update(getApplication())
     }
 
@@ -194,7 +206,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.example.util.SecureDnsManager.update(getApplication())
     }
 
-    fun runDnsDiagnosticTest(testDomain: String = "pornhub.com") {
+    fun refreshDnsLatencies() {
+        viewModelScope.launch {
+            _isTestingDnsLatencies.value = true
+            _dnsProviderLatencies.value = com.example.util.SecureDnsManager.measureAllProviderLatencies(getApplication())
+            _isTestingDnsLatencies.value = false
+        }
+    }
+
+    fun runDnsDiagnosticTest(testDomain: String = "youtube.com") {
         viewModelScope.launch {
             _dnsTestResult.value = com.example.util.SecureDnsManager.testDnsResolution(getApplication(), testDomain)
         }
@@ -220,7 +240,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         "xhamster", "beeg", "4tube", "rule34video", "youporn"
     )
     private val normalIdsList = listOf(
-        "youtube", "crunchyroll", "sonyliv", "twitch", "bigo", "bilibili", "tencent", "dailymotion", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
+        "youtube", "tencent", "dailymotion", "bilibili", "archive",
+        "crunchyroll", "sonyliv", "twitch", "bigo", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
         "decryptor", "tmdb_embed", "vidsrc"
     )
@@ -233,33 +254,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _adultContentEnabled.value = enabled
         // Keep preference false so cold app launch always starts in normal mode
         settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
-        val newSet = mutableSetOf<String>()
+        val currentSet = _enabledProviderIds.value.toMutableSet()
         if (enabled) {
-            newSet.addAll(adultIdsList)
-            newSet.add("all")
-            newSet.add("xnxx")
-            newSet.add("hellporno")
-            newSet.add("stripchat")
-            newSet.add("chaturbate")
+            // Save current normal providers so they can never be lost
+            val normalOnly = currentSet.filter { !isAdultProviderId(it) }.toSet()
+            if (normalOnly.isNotEmpty()) {
+                settingsPrefs.edit().putStringSet("normal_enabled_provider_ids", normalOnly).apply()
+            }
+            // Load saved adult providers or defaults
+            val savedAdult = settingsPrefs.getStringSet("adult_enabled_provider_ids", null)
+            val adultToEnable = if (savedAdult.isNullOrEmpty()) adultIdsList else savedAdult
+            currentSet.addAll(adultToEnable)
+            currentSet.add("all")
+            currentSet.add("xnxx")
+            currentSet.add("hellporno")
+            currentSet.add("stripchat")
+            currentSet.add("chaturbate")
+            currentSet.add("supjav")
             if (!isAdultProviderId(_activeProviderId.value) && _activeProviderId.value != "all") {
                 _activeProviderId.value = "all"
             }
         } else {
-            val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
-            val normalSaved = saved?.filterTo(mutableSetOf()) { !isAdultProviderId(it) } ?: emptySet()
-            if (normalSaved.isNotEmpty()) {
-                newSet.addAll(normalSaved)
-            } else {
-                newSet.addAll(defaultEnabledNormalIdsList)
-                newSet.add("tencent")
+            // When exiting adult mode: Save adult providers state
+            val adultOnly = currentSet.filter { isAdultProviderId(it) }.toSet()
+            if (adultOnly.isNotEmpty()) {
+                settingsPrefs.edit().putStringSet("adult_enabled_provider_ids", adultOnly).apply()
             }
-            newSet.add("all")
+            // Restore normal providers: ALWAYS ensure normal providers are fully enabled and never wiped!
+            val savedNormal = settingsPrefs.getStringSet("normal_enabled_provider_ids", null)
+            val normalToEnable = if (savedNormal.isNullOrEmpty() || savedNormal.filter { it != "all" && !isAdultProviderId(it) }.size < 2) {
+                defaultEnabledNormalIdsList
+            } else {
+                savedNormal.filter { !isAdultProviderId(it) }
+            }
+            currentSet.addAll(normalToEnable)
+            currentSet.addAll(setOf("youtube", "tencent", "dailymotion", "bilibili", "archive"))
+            currentSet.add("all")
+            // Remove adult providers from the active set
+            currentSet.removeAll(adultIdsList.toSet())
             if (isAdultProviderId(_activeProviderId.value)) {
                 _activeProviderId.value = "all"
             }
         }
-        _enabledProviderIds.value = newSet
-        settingsPrefs.edit().putStringSet("enabled_provider_ids", newSet).apply()
+        _enabledProviderIds.value = currentSet
+        settingsPrefs.edit().putStringSet("enabled_provider_ids", currentSet).apply()
         refreshProvidersList()
         loadTrending(forceRefresh = true)
     }
@@ -275,6 +313,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _enabledProviderIds.value = currentSet
+
+        // Persist separately by type so switching modes NEVER corrupts or disables the other
+        if (isAdultProviderId(providerId)) {
+            val adultOnly = currentSet.filter { isAdultProviderId(it) }.toSet()
+            settingsPrefs.edit().putStringSet("adult_enabled_provider_ids", adultOnly).apply()
+        } else {
+            val normalOnly = currentSet.filter { !isAdultProviderId(it) }.toSet()
+            settingsPrefs.edit().putStringSet("normal_enabled_provider_ids", normalOnly).apply()
+        }
         settingsPrefs.edit().putStringSet("enabled_provider_ids", currentSet).apply()
         refreshProvidersList()
         loadTrending(forceRefresh = true)
@@ -377,23 +424,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             id = "classic_butterfly",
             title = "Classic 3D Butterfly",
             subtitle = "Cinematic 3D butterfly flap & portal zoom transition"
-        ),
-        FAIRY_BUNNY(
-            id = "fairy_bunny",
-            title = "Fairy Butterfly Bunny",
-            subtitle = "Charming bunny with fluttering butterfly wings & celestial flight",
-            badge = "NEW"
-        ),
-        MTV_MOON_FLAG(
-            id = "mtv_moon_flag",
-            title = "MTV Moon Butterfly",
-            subtitle = "Iconic astronaut lunar landing with waving neon butterfly flag & rock sting",
-            badge = "MTV"
         );
 
         companion object {
-            fun fromId(id: String?): OpeningAnimationStyle =
-                entries.find { it.id.equals(id, ignoreCase = true) } ?: CLASSIC_BUTTERFLY
+            fun fromId(id: String?): OpeningAnimationStyle = CLASSIC_BUTTERFLY
         }
     }
 
@@ -409,7 +443,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _openingAnimationStyle = MutableStateFlow(
         OpeningAnimationStyle.fromId(
-            settingsPrefs.getString("opening_animation_style", OpeningAnimationStyle.MTV_MOON_FLAG.id)
+            settingsPrefs.getString("opening_animation_style", OpeningAnimationStyle.CLASSIC_BUTTERFLY.id)
         )
     )
     val openingAnimationStyle: StateFlow<OpeningAnimationStyle> = _openingAnimationStyle.asStateFlow()
@@ -457,6 +491,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         com.example.recommendation.UserActivityMemory.init(application)
         com.example.util.TimeAndDataManager.init(application)
+        com.example.util.SecureDnsManager.init(application)
         viewModelScope.launch(Dispatchers.IO) {
             _appCacheSizeBytes.value = batterySaverManager.calculateCacheSizeBytes()
         }
@@ -773,20 +808,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
         // Cold app launch always defaults to normal non-adult sources
         settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
-        val baseSet = (setOf("all", "tencent") + defaultEnabledNormalIdsList).toMutableSet()
+        val baseSet = (setOf("all", "youtube", "tencent", "dailymotion", "bilibili", "archive") + defaultEnabledNormalIdsList).toMutableSet()
         val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
+        val savedNormal = settingsPrefs.getStringSet("normal_enabled_provider_ids", null)
 
-        if (saved == null || saved.isEmpty()) {
-            baseSet
-        } else {
-            val filtered = saved.filterTo(mutableSetOf()) { pid ->
-                pid == "all" || !isAdultProviderId(pid)
-            }
+        val resolved = if (!savedNormal.isNullOrEmpty() && savedNormal.filter { it != "all" && !isAdultProviderId(it) }.size >= 2) {
+            (savedNormal.filter { !isAdultProviderId(it) } + setOf("all", "youtube", "tencent")).toMutableSet()
+        } else if (saved != null && saved.isNotEmpty()) {
+            val normalInSaved = saved.filter { pid -> pid != "all" && !isAdultProviderId(pid) }
+            val filtered = saved.toMutableSet()
             if (!filtered.contains("all")) {
                 filtered.add("all")
             }
+            if (normalInSaved.size < 2) {
+                filtered.addAll(baseSet)
+            } else {
+                filtered.addAll(setOf("youtube", "tencent", "dailymotion", "bilibili", "archive"))
+            }
             filtered
+        } else {
+            baseSet
         }
+        resolved
     }())
     val enabledProviderIds: StateFlow<Set<String>> = _enabledProviderIds.asStateFlow()
 
@@ -1509,6 +1552,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             com.example.recommendation.UserActivityMemory.recordWatchActivity(enriched, savedFraction, savedPos, 0L, getApplication())
             updateRecommendedVideosAsync()
+            repersonalizeHomeFeed()
         }
     }
 
@@ -1562,6 +1606,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         updateRecommendedVideosAsync()
+        repersonalizeHomeFeed()
     }
 
     fun toggleDislikeVideo(videoId: String) {
@@ -1586,8 +1631,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Instantly remove disliked video from visible recommendations
             _playerRecommendations.value = _playerRecommendations.value.filterNot { it.id == videoId }
             _recommendedVideos.value = _recommendedVideos.value.filterNot { it.id == videoId }
+            _trendingVideos.value = _trendingVideos.value.filterNot { it.id == videoId }
         }
         updateRecommendedVideosAsync()
+        repersonalizeHomeFeed()
     }
 
     fun setLikedVideoIds(ids: Set<String>) {
@@ -1609,6 +1656,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setRecentSearches(searches: List<String>) {
         _recentSearches.value = searches
         saveRecentSearches(searches)
+        refreshSearchDrivenRecommendations()
+        repersonalizeHomeFeed()
     }
 
     fun clearRecentSearches() {
@@ -1631,7 +1680,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Smart Multi-Signal Recommendation Engine Pipeline:
      * Ranks videos using multi-signal taste vectors, completion ratios,
-     * search intent & search tokens, channel affinity, time-of-day circadian learning, and channel diversity caps.
+     * search intent & search tokens, subscribed creators affinity, time-of-day circadian learning, and channel diversity caps.
      */
     private fun getLiveTasteVector(candidatePool: List<VideoItem> = emptyList()): com.example.recommendation.SmartRecommendationEngine.TasteVector {
         return com.example.recommendation.SmartRecommendationEngine.computeTasteVector(
@@ -1644,8 +1693,94 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             recentSearches = _recentSearches.value,
             watchPositionMsMap = _watchPositionMsMap.value,
             userPlaylists = _userPlaylists.value,
-            candidatePool = candidatePool
+            candidatePool = candidatePool,
+            subscribedChannels = _subscribedChannels.value,
+            likedVideos = _likedVideos.value
         )
+    }
+
+    /**
+     * Dynamically repersonalizes the home screen feed when user likes, dislikes,
+     * watches, searches, subscribes, or saves videos, mirroring the official YouTube app.
+     */
+    fun repersonalizeHomeFeed() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val adultEnabled = _adultContentEnabled.value
+                val current = _trendingVideos.value
+                val freshDiscovered = mutableListOf<VideoItem>()
+
+                // 1. Proactively query fresh videos for latest subscribed creators
+                val topSubs = _subscribedChannels.value.take(4)
+                for (sub in topSubs) {
+                    try {
+                        val results = YouTubeExtractorHelper.searchYouTube(sub.name, getApplication()).take(5)
+                        freshDiscovered.addAll(results)
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Proactively query fresh videos for latest searches
+                val latestSearch = _recentSearches.value.firstOrNull { it.isNotBlank() }
+                if (!latestSearch.isNullOrBlank()) {
+                    try {
+                        val searchResults = if (adultEnabled) {
+                            com.example.extractor.MultiSourceProvider.search(getApplication(), "xnxx", latestSearch, 6)
+                        } else {
+                            YouTubeExtractorHelper.searchYouTube(latestSearch, getApplication()).take(6)
+                        }
+                        freshDiscovered.addAll(searchResults)
+                    } catch (_: Exception) {}
+                }
+
+                // 3. Proactively query fresh videos for recently liked creators / topics
+                val latestLiked = _likedVideos.value.take(3)
+                for (liked in latestLiked) {
+                    if (liked.uploaderName.isNotBlank() && liked.uploaderName != "YouTube") {
+                        try {
+                            val channelVideos = YouTubeExtractorHelper.searchYouTube(liked.uploaderName, getApplication()).take(4)
+                            freshDiscovered.addAll(channelVideos)
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // 4. Proactively query fresh videos for recently watched video topic
+                val latestWatched = _watchHistory.value.firstOrNull()
+                if (latestWatched != null && latestWatched.title.isNotBlank()) {
+                    val cleanKeywords = com.example.util.SmartTagExtractor.extractSemanticKeywords(latestWatched).take(2).joinToString(" ")
+                    if (cleanKeywords.isNotBlank()) {
+                        try {
+                            val topicVideos = YouTubeExtractorHelper.searchYouTube(cleanKeywords, getApplication()).take(5)
+                            freshDiscovered.addAll(topicVideos)
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                val candidatePool = (freshDiscovered + current + _subscriptionVideos.value.take(15) + _searchDrivenRecommendations.value.take(10))
+                    .distinctBy { (it.providerId ?: "") + "_" + it.id }
+                    .filterNot { isBlockedVideo(it) }
+                    .filter {
+                        if (adultEnabled) (isAdultVideoItem(it) || isAdultProviderId(it.providerId)) && !isNormalProvider(it.providerId)
+                        else !isAdultVideoItem(it) && !isAdultProviderId(it.providerId)
+                    }
+
+                val taste = getLiveTasteVector(candidatePool = candidatePool)
+                val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+                    candidates = candidatePool,
+                    tasteVector = taste,
+                    activeVideo = null,
+                    blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value + _dislikedVideoIds.value + com.example.recommendation.UserActivityMemory.getDislikedVideoIds(),
+                    blockedChannels = _notInterestedChannels.value + com.example.recommendation.UserActivityMemory.getDislikedChannels()
+                )
+                if (ranked.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _trendingVideos.value = ranked
+                        _recommendedVideos.value = ranked.take(25)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "repersonalizeHomeFeed error", e)
+            }
+        }
     }
 
     fun getRecommendedVideos(): List<VideoItem> {
@@ -1850,6 +1985,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Log.e("MainViewModel", "Error adding to Watch Later", t)
                 }
             }
+            repersonalizeHomeFeed()
         }
     }
 
@@ -2031,6 +2167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else pl
         }
         updateRecommendedVideosAsync()
+        repersonalizeHomeFeed()
     }
 
     fun removeFromPlaylist(playlistId: String, video: VideoItem) {
@@ -2169,6 +2306,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         loadSubscriptionFeed()
+        repersonalizeHomeFeed()
     }
 
     private var subscriptionFeedJob: Job? = null
@@ -4216,7 +4354,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         index++
                     }
-                    return if (balancedList.isNotEmpty()) balancedList else filtered
+                    val baseList = if (balancedList.isNotEmpty()) balancedList else filtered
+                    if (activeProv == "all") {
+                        val taste = getLiveTasteVector(candidatePool = baseList)
+                        if (taste.totalInteractions > 0 || taste.searchTokens.isNotEmpty() || _subscribedChannels.value.isNotEmpty() || _likedVideoIds.value.isNotEmpty()) {
+                            val blendedCandidates = (baseList + _subscriptionVideos.value.take(12) + _searchDrivenRecommendations.value.take(8))
+                                .distinctBy { (it.providerId ?: "") + "_" + it.id }
+                                .filterNot { isBlockedVideo(it) }
+                                .filter {
+                                    if (adultEnabled) isAdultVideoItem(it) && !isNormalProvider(it.providerId)
+                                    else !isAdultVideoItem(it) && !isAdultProviderId(it.providerId)
+                                }
+                            val ranked = com.example.recommendation.SmartRecommendationEngine.rankCandidateVideos(
+                                candidates = blendedCandidates,
+                                tasteVector = taste,
+                                activeVideo = null,
+                                blockedVideoIds = _hiddenVideoIds.value + _notInterestedVideoIds.value + _dislikedVideoIds.value + com.example.recommendation.UserActivityMemory.getDislikedVideoIds(),
+                                blockedChannels = _notInterestedChannels.value + com.example.recommendation.UserActivityMemory.getDislikedChannels()
+                            )
+                            if (ranked.isNotEmpty()) return ranked
+                        }
+                    }
+                    return baseList
                 }
 
                 // --- MULTI-TIER SCHEDULING WITH GLOBAL CONCURRENCY & CIRCUIT BREAKER ---
@@ -4770,9 +4929,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val biliItems = com.example.extractor.BilibiliProvider.searchBilibili(targetTerm, 1, 20)
                             discovered.addAll(biliItems.filter { it.id != vid && !isAdultVideoItem(it) })
                         } catch (_: Exception) {}
+                    } else if (cleanProvider.contains("tencent") || cleanProvider.contains("vqq")) {
+                        try {
+                            val tencentItems = com.example.extractor.MultiSourceProvider.search(getApplication(), "tencent", targetTerm, 15, 1)
+                            discovered.addAll(tencentItems.filter { it.id != vid && !isAdultVideoItem(it) })
+                        } catch (_: Exception) {}
+                    } else if (cleanProvider in setOf("animepahe", "gogoanime")) {
+                        try {
+                            val animeItems = com.example.extractor.MultiSourceProvider.search(getApplication(), cleanProvider, targetTerm, 15, 1)
+                            discovered.addAll(animeItems.filter { it.id != vid && !isAdultVideoItem(it) })
+                        } catch (_: Exception) {}
+                    } else if (cleanProvider in setOf("dailymotion", "vimeo", "archive", "archive_org")) {
+                        try {
+                            val provItems = com.example.extractor.MultiSourceProvider.search(getApplication(), cleanProvider, targetTerm, 15, 1)
+                            discovered.addAll(provItems.filter { it.id != vid && !isAdultVideoItem(it) })
+                        } catch (_: Exception) {}
+                    } else if (cleanProvider.startsWith("vidsrc") || cleanProvider.startsWith("tmdb") || cleanProvider.startsWith("decryptor")) {
+                        try {
+                            val tmdbItems = com.example.extractor.MultiSourceProvider.search(getApplication(), "tmdb", targetTerm, 10, 1)
+                            discovered.addAll(tmdbItems.filter { it.id != vid && !isAdultVideoItem(it) })
+                        } catch (_: Exception) {}
                     }
 
-                    if (discovered.size < 10) {
+                    if (discovered.size < 12) {
                         try {
                             when (val res = YouTubeExtractorHelper.searchVideos(targetTerm, getApplication())) {
                                 is com.example.model.FeedResult.Success -> {
@@ -5354,6 +5533,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             thumbnailUrl = streamThumb ?: _activeVideoItem.value?.thumbnailUrl,
                             uploaderAvatarUrl = result.streamData.channelAvatarUrl ?: _activeVideoItem.value?.uploaderAvatarUrl
                         )
+                    }
+                    if (result.streamData.relatedVideos.isNotEmpty()) {
+                        _playerRecommendations.value = result.streamData.relatedVideos
                     }
                     loadTvSeasons(result.streamData)
 

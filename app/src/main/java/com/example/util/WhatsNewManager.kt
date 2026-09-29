@@ -26,6 +26,39 @@ object WhatsNewManager {
 
     val RELEASES: List<VersionRelease> = listOf(
         VersionRelease(
+            versionName = "0.0.4-alpha",
+            versionCode = 4,
+            releaseDate = "September 2026",
+            headline = "Player Multi-Audio Fixes, Instant Related Videos & Cleaned Sources",
+            categories = listOf(
+                ChangelogCategory(
+                    title = "Video Player & Multi-Audio",
+                    icon = Icons.Default.Audiotrack,
+                    items = listOf(
+                        "Multi-Audio Stream Fix: Selected audio language (English dubs, etc.) stays locked and persists smoothly across seeking and skipping.",
+                        "Precise Scrubbing: Fixed full progress bar glitch during initial playback load and seeking.",
+                        "Transient Stream Auto-Recovery: Seamless position resume without resetting player state or losing audio tracks."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "Lightning Fast Related Videos",
+                    icon = Icons.Default.Bolt,
+                    items = listOf(
+                        "Instant Related Feed: Bottom video recommendations load and render instantly with 0ms delay.",
+                        "Smart Catalog Deduplication: Streamlined related recommendations matching your content."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "Source Cleanup & Updates",
+                    icon = Icons.Default.CleaningServices,
+                    items = listOf(
+                        "Removed Phantom Sources: Cleaned up dead and placeholder source cards for a pristine stream catalog.",
+                        "Enhanced Background Updater: Live progress notification support during APK download."
+                    )
+                )
+            )
+        ),
+        VersionRelease(
             versionName = "0.0.3-alpha",
             versionCode = 3,
             releaseDate = "September 2026",

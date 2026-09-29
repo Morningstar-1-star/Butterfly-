@@ -107,7 +107,9 @@ object SmartRecommendationEngine {
         recentSearches: List<String> = emptyList(),
         watchPositionMsMap: Map<String, Long> = emptyMap(),
         userPlaylists: List<com.example.model.UserPlaylist> = emptyList(),
-        candidatePool: List<VideoItem> = emptyList()
+        candidatePool: List<VideoItem> = emptyList(),
+        subscribedChannels: List<com.example.model.SubscribedChannel> = emptyList(),
+        likedVideos: List<VideoItem> = emptyList()
     ): TasteVector {
         val catScores = mutableMapOf<String, Float>()
         val chanScores = mutableMapOf<String, Float>()
@@ -116,6 +118,20 @@ object SmartRecommendationEngine {
         val searchTokens = mutableSetOf<String>()
         val cleanSearchTerms = mutableListOf<String>()
         var interactions = 0
+
+        // Subscribed Channels Affinity (Direct strong creator loyalty signals)
+        for (sub in subscribedChannels) {
+            val subName = sub.name.lowercase(Locale.ROOT).trim()
+            if (subName.isNotBlank()) {
+                chanScores[subName] = (chanScores[subName] ?: 0f) + 60.0f
+                chanWatchCounts[subName] = (chanWatchCounts[subName] ?: 0) + 5
+                interactions += 2
+            }
+            val subHandle = sub.handle.lowercase(Locale.ROOT).trim()
+            if (subHandle.isNotBlank()) {
+                chanScores[subHandle] = (chanScores[subHandle] ?: 0f) + 60.0f
+            }
+        }
 
         // Baseline Language Preferences: Promote Chinese, Japanese, Hindi, English out of the box
         langScores["en"] = 8.0f
@@ -286,7 +302,7 @@ object SmartRecommendationEngine {
             langScores[lang.code] = (langScores[lang.code] ?: 0f) + weightMultiplier
         }
 
-        val allKnownVideos = (watchHistory + bookmarks + userPlaylists.flatMap { it.videos } + candidatePool).distinctBy { it.id }
+        val allKnownVideos = (watchHistory + bookmarks + likedVideos + userPlaylists.flatMap { it.videos } + candidatePool).distinctBy { it.id }
 
         // 3. Evaluate Liked Videos (Massive Channel & Category Boost)
         for (likedId in likedVideoIds) {

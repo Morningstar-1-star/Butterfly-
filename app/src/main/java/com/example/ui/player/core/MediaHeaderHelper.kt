@@ -58,9 +58,15 @@ object MediaHeaderHelper {
                         urlStr.contains("akamaized") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") ||
                         urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam")
 
-                val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-                builder.header("Referer", biliReferer)
-                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                val existingRef = request.header("Referer") ?: request.header("referer")
+                if (existingRef.isNullOrBlank()) {
+                    val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
+                    builder.header("Referer", biliReferer)
+                }
+                val existingUaBili = request.header("User-Agent")
+                if (existingUaBili.isNullOrBlank() || existingUaBili.startsWith("okhttp", ignoreCase = true)) {
+                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                }
                 builder.header("Accept", "*/*")
                 builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
                 builder.removeHeader("Sec-Fetch-Mode")
@@ -351,8 +357,15 @@ object MediaHeaderHelper {
                 builder.header("Origin", "https://www.playvids.com")
                 builder.header("Cookie", "age_confirmed=1; country=US; consent=1")
             }
+            urlStr.contains("thisvid") || urlStr.contains("thisvid.com") -> {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                builder.header("Referer", "https://thisvid.com/")
+                builder.header("Origin", "https://thisvid.com")
+                builder.header("Cookie", "age_verified=1; platform=pc; has_consent=1; kt_ips=1; kt_is_visited=1")
+            }
             urlStr.contains("supjav") || urlStr.contains("tvlogy") || urlStr.contains("supplayer") || urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") || urlStr.contains("strwish") || urlStr.contains("cdnwish") || urlStr.contains("embedwish") || urlStr.contains("sfastwish") || urlStr.contains("filelions") || urlStr.contains("voe") || urlStr.contains("audaciousdefaulthouse") || urlStr.contains("dood") || urlStr.contains("ds2play") || urlStr.contains("streamtape") || urlStr.contains("tapecontent") || urlStr.contains("stbturbo") || urlStr.contains("streamtb") -> {
                 builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                val dynamicHost = "${request.url.scheme}://${request.url.host}"
                 val (ref, orig) = when {
                     urlStr.contains("tvlogy") || urlStr.contains("supplayer") -> "https://tvlogy.to/" to "https://tvlogy.to"
                     urlStr.contains("streamwish") || urlStr.contains("wishembed") || urlStr.contains("awish") || urlStr.contains("dwish") || urlStr.contains("strwish") || urlStr.contains("cdnwish") || urlStr.contains("embedwish") || urlStr.contains("sfastwish") || urlStr.contains("filelions") -> "https://streamwish.to/" to "https://streamwish.to"
@@ -360,12 +373,12 @@ object MediaHeaderHelper {
                     urlStr.contains("dood") || urlStr.contains("ds2play") -> "https://dood.to/" to "https://dood.to"
                     urlStr.contains("streamtape") || urlStr.contains("tapecontent") -> "https://streamtape.com/" to "https://streamtape.com"
                     urlStr.contains("stbturbo") || urlStr.contains("streamtb") -> "https://stbturbo.xyz/" to "https://stbturbo.xyz"
-                    else -> "https://supjav.com/" to "https://supjav.com"
+                    else -> "$dynamicHost/" to dynamicHost
                 }
-                if (request.header("Referer") == null) {
+                if (request.header("Referer").isNullOrBlank()) {
                     builder.header("Referer", ref)
                 }
-                if (request.header("Origin") == null) {
+                if (request.header("Origin").isNullOrBlank()) {
                     builder.header("Origin", orig)
                 }
             }

@@ -82,8 +82,8 @@ object TnaFlixProvider {
             Log.w(TAG, "TNAFlix live getHome note: ${e.message}")
         }
 
-        // 2. Authentic TNAFlix fallback catalog
-        getAuthenticTnaFlixCatalog(safePage).take(limit)
+        // 2. Fallback empty if scraping failed
+        emptyList()
     }
 
     suspend fun search(query: String, limit: Int = 30, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -110,65 +110,7 @@ object TnaFlixProvider {
             Log.w(TAG, "TNAFlix live search note: ${e.message}")
         }
 
-        // 2. Search authentic TNAFlix catalog
-        getAuthenticTnaFlixCatalog(1).filter {
-            it.title.contains(clean, ignoreCase = true) || it.uploaderName.contains(clean, ignoreCase = true)
-        }.take(limit)
-    }
-
-    private fun getAuthenticTnaFlixCatalog(page: Int): List<VideoItem> {
-        return listOf(
-            VideoItem(
-                id = "tnaflix:video1049281/intimate-hotel-rendezvous-and-passion",
-                title = "Intimate Hotel Rendezvous & Romantic Passion (Full 1080p)",
-                uploaderName = "TNAFlix Premium",
-                uploaderUrl = "https://www.tnaflix.com/members/TnaFlixPremium",
-                thumbnailUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80",
-                durationSeconds = 1740L,
-                providerId = PROVIDER_ID,
-                description = "TNAFlix Exclusive 1080p Stream"
-            ),
-            VideoItem(
-                id = "tnaflix:video1038192/sensual-oil-massage-and-sweet-whispers",
-                title = "Sensual Oil Massage & Sweet Whispers • Ultra HD",
-                uploaderName = "TNAFlix Studio",
-                uploaderUrl = "https://www.tnaflix.com/members/TnaFlixStudio",
-                thumbnailUrl = "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&auto=format&fit=crop&q=80",
-                durationSeconds = 2250L,
-                providerId = PROVIDER_ID,
-                description = "TNAFlix Studio Master Edition"
-            ),
-            VideoItem(
-                id = "tnaflix:video1027164/brunette-beauty-private-sunset-session",
-                title = "Brunette Beauty Private Sunset Session (60fps)",
-                uploaderName = "TNAFlix Verified",
-                uploaderUrl = "https://www.tnaflix.com/members/TnaFlixVerified",
-                thumbnailUrl = "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&auto=format&fit=crop&q=80",
-                durationSeconds = 1620L,
-                providerId = PROVIDER_ID,
-                description = "TNAFlix Crystal Clear Stream"
-            ),
-            VideoItem(
-                id = "tnaflix:video1018293/glamour-model-luxury-suite-encounter",
-                title = "Glamour Model Luxury Suite Encounter • 4K UHD",
-                uploaderName = "PureTnaFlix",
-                uploaderUrl = "https://www.tnaflix.com/members/PureTnaFlix",
-                thumbnailUrl = "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600&auto=format&fit=crop&q=80",
-                durationSeconds = 2040L,
-                providerId = PROVIDER_ID,
-                description = "TNAFlix Ultra HD Special"
-            ),
-            VideoItem(
-                id = "tnaflix:video1009182/passionate-lovers-cozy-evening-session",
-                title = "Passionate Lovers Cozy Evening Session • 1080p",
-                uploaderName = "TNAFlix HD",
-                uploaderUrl = "https://www.tnaflix.com/members/TnaFlixHD",
-                thumbnailUrl = "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=600&auto=format&fit=crop&q=80",
-                durationSeconds = 1890L,
-                providerId = PROVIDER_ID,
-                description = "TNAFlix High Speed Stream"
-            )
-        )
+        emptyList()
     }
 
     private fun parseHtml(url: String, limit: Int): List<VideoItem> {
@@ -183,13 +125,13 @@ object TnaFlixProvider {
             } ?: return emptyList()
 
             val doc = Jsoup.parse(html)
-            val items = doc.select(".video-item, .item, .thumb, div[data-vid], article, .thumb-block, .grid-item")
+            val items = doc.select(".video-item, .item, .thumb, div[data-vid], article, .thumb-block, .grid-item, div.video_box, div.vid_box")
 
             for (elem in items) {
                 if (list.size >= limit) break
-                val linkElem = elem.selectFirst("a[href*='/video/'], a[href*='/watch/'], a.thumb, a[href^='/']") ?: continue
+                val linkElem = elem.selectFirst("a[href*='/video/'], a[href*='/watch/'], a[href*='/amateur-porn/'], a[href*='video'], a.thumb, a[href^='/']") ?: continue
                 val rawHref = linkElem.attr("href")
-                if (rawHref.isBlank() || rawHref.contains("/search") || rawHref.contains("/categories")) continue
+                if (rawHref.isBlank() || rawHref.contains("/search") || rawHref.contains("/categories") || rawHref.contains("/pornstar")) continue
 
                 val fullUrl = when {
                     rawHref.startsWith("http://") || rawHref.startsWith("https://") -> rawHref

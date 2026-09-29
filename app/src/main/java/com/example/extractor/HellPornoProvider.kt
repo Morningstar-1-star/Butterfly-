@@ -92,9 +92,7 @@ object HellPornoProvider {
             Log.w(TAG, "HellPorno live getHome note: ${e.message}")
         }
 
-        val authenticFallback = getAuthenticCatalog(safePage)
-        feedCache[cacheKey] = Pair(System.currentTimeMillis(), authenticFallback)
-        authenticFallback.take(limit)
+        emptyList()
     }
 
     suspend fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -135,13 +133,6 @@ object HellPornoProvider {
             }
         } catch (e: Exception) {
             Log.w(TAG, "HellPorno live search note: ${e.message}")
-        }
-
-        val filteredFallback = getAuthenticCatalog(1).filter {
-            it.title.contains(clean, ignoreCase = true) || it.uploaderName.contains(clean, ignoreCase = true)
-        }
-        if (filteredFallback.isNotEmpty()) {
-            return@withContext filteredFallback.take(limit)
         }
 
         emptyList()
@@ -194,6 +185,8 @@ object HellPornoProvider {
                     ?: imgEl?.attr("data-poster")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-thumb_url")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-thumb")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-bg")?.takeIf { it.isNotBlank() }
+                    ?: imgEl?.attr("data-background")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-cnt")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("data-lazy-src")?.takeIf { it.isNotBlank() }
                     ?: imgEl?.attr("src")?.takeIf { it.isNotBlank() && !it.contains("blank.gif") && !it.contains("data:image") }
@@ -208,15 +201,15 @@ object HellPornoProvider {
                 }
 
                 if (thumb.isBlank()) {
-                    val numId = Regex("""/videos?/(\d+)""").find(href)?.groupValues?.get(1)
-                    if (numId != null) {
-                        val idNum = numId.toLongOrNull() ?: 0L
-                        val folder = (idNum / 1000) * 1000
-                        thumb = "$baseMirror/contents/videos_screenshots/$folder/$numId/preview.jpg"
+                    val srcset = imgEl?.attr("srcset") ?: imgEl?.attr("data-srcset") ?: ""
+                    if (srcset.isNotBlank()) {
+                        val firstSrc = srcset.substringBefore(" ").substringBefore(",")
+                        if (firstSrc.isNotBlank()) thumb = firstSrc
                     }
                 }
 
                 val cleanThumb = when {
+                    thumb.isBlank() -> ""
                     thumb.startsWith("//") -> "https:$thumb"
                     thumb.startsWith("/") -> "$baseMirror$thumb"
                     else -> thumb
@@ -435,55 +428,5 @@ object HellPornoProvider {
         }
 
         null
-    }
-
-    private fun getAuthenticCatalog(page: Int): List<VideoItem> {
-        return listOf(
-            VideoItem(
-                id = "https://hellporno.com/videos/1029384/sensual_oil_massage_and_passionate_climax/",
-                title = "Sensual Oil Massage & Passionate Climax • Ultra 4K",
-                uploaderName = "HellPorno HD",
-                thumbnailUrl = "https://hellporno.com/contents/videos_screenshots/1029000/1029384/preview.jpg",
-                durationSeconds = 1780L,
-                providerId = PROVIDER_ID,
-                description = "HellPorno 4K Ultra HD Release"
-            ),
-            VideoItem(
-                id = "https://hellporno.com/videos/1028475/intimate_moments_and_tender_touch/",
-                title = "Intimate Moments & Tender Touch (Full 1080p)",
-                uploaderName = "HellPorno Premium",
-                thumbnailUrl = "https://hellporno.com/contents/videos_screenshots/1028000/1028475/preview.jpg",
-                durationSeconds = 1530L,
-                providerId = PROVIDER_ID,
-                description = "HellPorno Studio Master Edition"
-            ),
-            VideoItem(
-                id = "https://hellporno.com/videos/1027192/glamour_model_hotel_rendezvous/",
-                title = "Glamour Model Hotel Rendezvous • 60fps",
-                uploaderName = "HellPorno Verified",
-                thumbnailUrl = "https://hellporno.com/contents/videos_screenshots/1027000/1027192/preview.jpg",
-                durationSeconds = 2340L,
-                providerId = PROVIDER_ID,
-                description = "HellPorno Crystal Clear HDR"
-            ),
-            VideoItem(
-                id = "https://hellporno.com/videos/1026341/passionate_romance_in_luxury_suite/",
-                title = "Passionate Romance In Luxury Suite • 1080p",
-                uploaderName = "PureHellPorno",
-                thumbnailUrl = "https://hellporno.com/contents/videos_screenshots/1026000/1026341/preview.jpg",
-                durationSeconds = 1640L,
-                providerId = PROVIDER_ID,
-                description = "HellPorno High Speed Stream"
-            ),
-            VideoItem(
-                id = "https://hellporno.com/videos/1025819/brunette_beauty_private_poolside_session/",
-                title = "Brunette Beauty Private Poolside Session • 4K",
-                uploaderName = "HellPorno Studio",
-                thumbnailUrl = "https://hellporno.com/contents/videos_screenshots/1025000/1025819/preview.jpg",
-                durationSeconds = 2100L,
-                providerId = PROVIDER_ID,
-                description = "HellPorno 4K UHD Special"
-            )
-        )
     }
 }

@@ -91,10 +91,11 @@ fun YouTubePreciseSeekBar(
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
     var bubbleWidthPx by remember { mutableIntStateOf(0) }
 
-    val safeDuration = durationMs.coerceAtLeast(1L)
-    val displayPosition = if (isDragging) scrubPositionMs else currentPositionMs.coerceIn(0L, safeDuration)
-    val progressFraction = (displayPosition.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
-    val bufferedFraction = (bufferedPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+    val hasValidDuration = durationMs > 0L
+    val safeDuration = if (hasValidDuration) durationMs else 1L
+    val displayPosition = if (isDragging) scrubPositionMs else if (hasValidDuration) currentPositionMs.coerceIn(0L, safeDuration) else 0L
+    val progressFraction = if (hasValidDuration) (displayPosition.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f) else 0f
+    val bufferedFraction = if (hasValidDuration) (bufferedPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f) else 0f
     val hasHeatmap = heatmap != null && heatmap.isNotEmpty
 
     // Animated bar thickness and thumb size for YouTube-authentic feel
@@ -228,7 +229,8 @@ fun YouTubePreciseSeekBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .pointerInput(safeDuration) {
+                .pointerInput(hasValidDuration, safeDuration) {
+                    if (!hasValidDuration) return@pointerInput
                     detectTapGestures(
                         onPress = { offset ->
                             isDragging = true
@@ -245,7 +247,8 @@ fun YouTubePreciseSeekBar(
                         }
                     )
                 }
-                .pointerInput(safeDuration) {
+                .pointerInput(hasValidDuration, safeDuration) {
+                    if (!hasValidDuration) return@pointerInput
                     detectDragGestures(
                         onDragStart = { offset ->
                             isDragging = true

@@ -827,8 +827,12 @@ object YtDlpResolver {
                         fmtHeaders.remove("origin")
                         fmtHeaders.remove("Cookie")
                         fmtHeaders.remove("cookie")
-                        fmtHeaders["Referer"] = "https://www.bilibili.com/"
-                        fmtHeaders["User-Agent"] = DEFAULT_USER_AGENT
+                        if (!fmtHeaders.containsKey("Referer") && !fmtHeaders.containsKey("referer")) {
+                            fmtHeaders["Referer"] = "https://www.bilibili.com/"
+                        }
+                        if (!fmtHeaders.containsKey("User-Agent") && !fmtHeaders.containsKey("user-agent")) {
+                            fmtHeaders["User-Agent"] = DEFAULT_USER_AGENT
+                        }
                         // Preserve exact signed CDN stream URL returned by yt-dlp: do not rewrite http->https
                         finalStreamUrl = streamUrl
                     }

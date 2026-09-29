@@ -29,8 +29,6 @@ import androidx.lifecycle.lifecycleScope
 import com.example.supabase.SupabaseAuthManager
 import com.example.ui.MainViewModel
 import com.example.ui.animation.ButterflyOpeningAnimation
-import com.example.ui.animation.FairyBunnyOpeningAnimation
-import com.example.ui.animation.MtvMoonButterflyOpeningAnimation
 import com.example.ui.components.WhatsNewDialog
 import com.example.ui.screens.HomeScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -145,44 +143,16 @@ class MainActivity : ComponentActivity() {
                     HomeScreen(viewModel = viewModel)
 
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        when (openingAnimationStyle) {
-                            MainViewModel.OpeningAnimationStyle.CLASSIC_BUTTERFLY -> {
-                                ButterflyOpeningAnimation(
-                                    themeMode = themeMode,
-                                    accentColor = accentColor,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .zIndex(9999f),
-                                    onAnimationFinished = {
-                                        viewModel.dismissOpeningAnimation()
-                                    }
-                                )
+                        ButterflyOpeningAnimation(
+                            themeMode = themeMode,
+                            accentColor = accentColor,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(9999f),
+                            onAnimationFinished = {
+                                viewModel.dismissOpeningAnimation()
                             }
-                            MainViewModel.OpeningAnimationStyle.FAIRY_BUNNY -> {
-                                FairyBunnyOpeningAnimation(
-                                    themeMode = themeMode,
-                                    accentColor = accentColor,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .zIndex(9999f),
-                                    onAnimationFinished = {
-                                        viewModel.dismissOpeningAnimation()
-                                    }
-                                )
-                            }
-                            MainViewModel.OpeningAnimationStyle.MTV_MOON_FLAG -> {
-                                MtvMoonButterflyOpeningAnimation(
-                                    themeMode = themeMode,
-                                    accentColor = accentColor,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .zIndex(9999f),
-                                    onAnimationFinished = {
-                                        viewModel.dismissOpeningAnimation()
-                                    }
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }

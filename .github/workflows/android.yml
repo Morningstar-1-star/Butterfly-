@@ -29,6 +29,22 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew || true
 
+      - name: Extract App Version from Gradle
+        id: app_version
+        run: |
+          VERSION_NAME=$(grep -E 'versionName\s*=\s*' app/build.gradle.kts | sed -E 's/.*versionName\s*=\s*"([^"]+)".*/\1/' | tr -d '[:space:]')
+          VERSION_CODE=$(grep -E 'versionCode\s*=\s*' app/build.gradle.kts | sed -E 's/.*versionCode\s*=\s*([0-9]+).*/\1/' | tr -d '[:space:]')
+          if [ -z "$VERSION_NAME" ]; then
+            VERSION_NAME="0.0.4-alpha"
+          fi
+          if [ -z "$VERSION_CODE" ]; then
+            VERSION_CODE="4"
+          fi
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v${VERSION_NAME}.${VERSION_CODE}" >> $GITHUB_ENV
+          echo "Detected App Version: $VERSION_NAME (Code: $VERSION_CODE)"
+
       - name: Prepare Keystore & Build APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 }}
@@ -48,12 +64,12 @@ jobs:
             export STORE_PASSWORD="$STORE_PASSWORD"
             export KEY_PASSWORD="$KEY_PASSWORD"
             ./gradlew :app:assembleRelease --stacktrace
-            cp app/build/outputs/apk/release/*.apk release-apk/Butterfly-0.0.2-alpha.apk
+            cp app/build/outputs/apk/release/*.apk release-apk/Butterfly-${VERSION_NAME}.apk
           else
             echo "Release signing secrets not found in GitHub repository secrets."
             echo "Building with repository fixed keystore for consistent signature..."
             ./gradlew :app:assembleDebug --stacktrace
-            cp app/build/outputs/apk/debug/*.apk release-apk/Butterfly-0.0.2-alpha.apk
+            cp app/build/outputs/apk/debug/*.apk release-apk/Butterfly-${VERSION_NAME}.apk
           fi
 
       - name: Generate update.json Metadata
@@ -63,32 +79,33 @@ jobs:
           APK_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE" 2>/dev/null || echo 135000000)
           CURRENT_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          echo "{\"versionName\": \"0.0.2-alpha\", \"versionCode\": ${{ github.run_number }}, \"tagName\": \"v0.0.2-alpha.${{ github.run_number }}\", \"downloadUrl\": \"https://github.com/Morningstar-1-star/Butterfly-/releases/download/v0.0.2-alpha.${{ github.run_number }}/$APK_NAME\", \"apkName\": \"$APK_NAME\", \"apkSize\": $APK_SIZE, \"publishedAt\": \"$CURRENT_DATE\", \"changelog\": [\"Horizontal episode carousel for TV series (e.g. Courage the Cowardly Dog)\", \"Smart Archive.org video quality disambiguation & deduplication\", \"Launch splash screen fixes for Android 12+ (AMOLED dark & light)\", \"Automatic in-app update detector & What's New dialog\"]}" > release-apk/update.json
+          echo "{\"versionName\": \"$VERSION_NAME\", \"versionCode\": $VERSION_CODE, \"tagName\": \"$RELEASE_TAG\", \"downloadUrl\": \"https://github.com/Morningstar-1-star/Butterfly-/releases/download/$RELEASE_TAG/$APK_NAME\", \"apkName\": \"$APK_NAME\", \"apkSize\": $APK_SIZE, \"publishedAt\": \"$CURRENT_DATE\", \"changelog\": [\"Multi-Audio stream persistence: Selected audio language stays locked across seeks and skips\", \"Precise seekbar progress fraction fix: No more false 100% full progress bar on load\", \"Instant related recommendations with zero playback blocking\", \"Cleaned up inactive sources and modernized opening animations\", \"Live download progress notification in Android notification drawer\"]}" > release-apk/update.json
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Butterfly-0.0.2-alpha-build-${{ github.run_number }}
+          name: Butterfly-${{ env.VERSION_NAME }}-v${{ env.VERSION_CODE }}
           path: release-apk/*
           if-no-files-found: error
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v0.0.2-alpha.${{ github.run_number }}"
-          name: "Butterfly v0.0.2-alpha (Build ${{ github.run_number }})"
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Butterfly v${{ env.VERSION_NAME }} (Build ${{ env.VERSION_CODE }})"
           make_latest: "true"
           files: |
             release-apk/*.apk
             release-apk/update.json
           body: |
-            ## Butterfly v0.0.2-alpha (Build ${{ github.run_number }})
-            versionCode: ${{ github.run_number }}
+            ## Butterfly v${{ env.VERSION_NAME }} (Build ${{ env.VERSION_CODE }})
+            versionCode: ${{ env.VERSION_CODE }}
 
-            ### What's New:
-            - Horizontal episode carousel for TV series (e.g. Courage the Cowardly Dog)
-            - Smart Archive.org quality disambiguation & deduplication
-            - Launch splash screen fixes for Android 12+ (AMOLED dark & light)
-            - Automatic in-app update detector & What's New dialog
+            ### What's New in v${{ env.VERSION_NAME }}:
+            - Multi-Audio stream fix: Selected audio language stays locked across seeking and skipping
+            - Precise seekbar progress fraction fix: No more false 100% full progress bar on load
+            - Instant related video recommendations with zero playback delay
+            - Cleaned phantom/dead sources for a pristine catalog
+            - Modernized opening animation & live status bar download notifications
 
             **Commit:** ${{ github.sha }}

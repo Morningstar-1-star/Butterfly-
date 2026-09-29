@@ -958,14 +958,8 @@ object BilibiliProvider {
             }
         }
 
-        // If the URL is still on an MCDN/P2P domain and no clean backup was found, rewrite host to official Bilibili Aliyun CDN mirror
-        val finalLower = cleanUrl.lowercase()
-        if (finalLower.contains("mcdn.bilivideo") || finalLower.contains(".szbdyd.com") || finalLower.contains("p2p")) {
-            cleanUrl = cleanUrl
-                .replace(Regex("""(?i)https?://[^/]*mcdn\.bilivideo\.[a-z]+(:\d+)?"""), "https://upos-sz-mirrorali.bilivideo.com")
-                .replace(Regex("""(?i)https?://[^/]*\.szbdyd\.com(:\d+)?"""), "https://upos-sz-mirrorali.bilivideo.com")
-        }
-
+        // If candidate non-P2P URL was found in backupArr, cleanUrl is now updated.
+        // DO NOT rewrite host to upos-sz-mirrorali.bilivideo.com as it invalidates the signed query token and causes 403 Forbidden on CDN requests.
         return cleanUrl
     }
 

@@ -148,7 +148,7 @@ object SourceTagHelper {
         if (isGenericOrWrapper && vid.length == 11 && vid.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && !vid.all { it.isDigit() }) {
             // For OTT wrappers, require either a YouTube thumb or not having native domains
             if (pid == "hotstar" || pid == "sonyliv" || pid == "crunchyroll" || pid == "amazonminitv" || pid == "minitv") {
-                return thumb.contains("ytimg") || thumb.contains("ggpht") || desc.contains("youtu") || upUrl.contains("youtu")
+                return thumb.isBlank() || thumb.contains("ytimg") || thumb.contains("ggpht") || desc.contains("youtu") || upUrl.contains("youtu") || (!thumb.contains("hotstar") && !thumb.contains("sonyliv") && !thumb.contains("crunchyroll"))
             }
             return true
         }

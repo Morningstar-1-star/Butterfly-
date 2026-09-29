@@ -89,7 +89,6 @@ object SmartTagExtractor {
                 val disp = it.displayName.lowercase(Locale.ROOT)
                 !cat.contains("torrent") &&
                 !disp.contains("torrent") &&
-                cat != "video" &&
                 cat !in sourceKeywords &&
                 disp !in sourceKeywords &&
                 !cat.contains(".com") && !disp.contains(".com") &&
@@ -99,7 +98,7 @@ object SmartTagExtractor {
             }
 
         val hasTrailer = distinct.any { it.category in setOf("trailer", "movie_trailer", "gameplay_trailer", "anime_trailer") }
-        val hasSeries = distinct.any { it.category == "series" }
+        val hasSeries = distinct.any { it.category in setOf("series", "cdrama", "kdrama", "tv_series") }
         val hasGameplay = distinct.any { it.category == "gameplay" }
         val hasSong = distinct.any { it.category == "song" }
         val hasShortFilm = distinct.any { it.category == "short_film" }
@@ -112,12 +111,16 @@ object SmartTagExtractor {
                 hasSeries && tag.category in setOf("movie", "classic_cinema") -> false
                 // If gameplay is present, drop generic gaming so Gameplay is front and center
                 hasGameplay && tag.category == "gaming" -> false
-                // If song is present, drop redundant generic "music" tag (keep specific genre like lo-fi, hip-hop, acoustic)
+                // If song is present, drop redundant generic "music" tag
                 hasSong && tag.category == "music" -> false
                 // If short film is present, drop generic movie tag
                 hasShortFilm && tag.category == "movie" -> false
                 else -> true
             }
+        }
+
+        if (filtered.isEmpty()) {
+            return listOf(TagInfo("trending", "Trending", "🔥", 10))
         }
 
         return filtered.sortedBy { it.priority }.take(maxTags)
@@ -624,18 +627,110 @@ object SmartTagExtractor {
             detected.add(TagInfo("shorts", "Shorts", "⚡", 4))
         }
 
-        // Incorporate explicit video tags & custom user tags (Unlimited tags support)
+        // Incorporate explicit video tags & custom user tags mapped to rich semantic categories
         for (explicitTag in video.tags) {
             val cleanExp = explicitTag.replace("#", "").trim().lowercase(Locale.ROOT)
             if (cleanExp.length >= 2) {
                 val mapped = mapExplicitTagToCategory(cleanExp)
                 if (mapped != null) {
                     detected.add(mapped)
-                } else if (cleanExp.length in 3..25 && !cleanExp.contains("http") && !cleanExp.contains("torrent")) {
-                    // Custom explicit tag as unlimited dynamic category
-                    val formattedLabel = cleanExp.split(" ", "_", "-")
-                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-                    detected.add(TagInfo(category = cleanExp, displayName = formattedLabel, emoji = "🏷️", priority = 5))
+                }
+            }
+        }
+
+        // ==========================================
+        // 20. INTELLIGENT MULTI-SOURCE DOMAIN INFERENCE
+        // Understand the video from its provider context & structure across all sources
+        // ==========================================
+        when {
+            // A. Chinese Drama & Donghua Sources (Tencent Video v.qq.com, Bilibili)
+            providerLower.contains("tencent") || providerLower.contains("qq") || providerLower.contains("vqq") -> {
+                when {
+                    titleLower.contains("漫") || titleLower.contains("动画") || titleLower.contains("donghua") -> {
+                        detected.add(TagInfo("donghua", "Donghua", "🎌", 1))
+                    }
+                    titleLower.contains("电影") || video.durationSeconds >= 4500 -> {
+                        detected.add(TagInfo("movie", "Chinese Cinema", "🍿", 1))
+                    }
+                    else -> {
+                        detected.add(TagInfo("cdrama", "C-Drama", "📺", 1))
+                    }
+                }
+            }
+            providerLower.contains("bilibili") -> {
+                when {
+                    titleLower.contains("番剧") || titleLower.contains("anime") || titleLower.contains("动画") -> {
+                        detected.add(TagInfo("anime", "Anime & Donghua", "🎌", 1))
+                    }
+                    titleLower.contains("游戏") || titleLower.contains("game") -> {
+                        detected.add(TagInfo("gaming", "Gaming", "🎮", 1))
+                    }
+                    titleLower.contains("音乐") || titleLower.contains("music") || titleLower.contains("mv") -> {
+                        detected.add(TagInfo("music", "Music", "🎵", 1))
+                    }
+                    else -> {
+                        detected.add(TagInfo("anime", "Anime & Danmaku", "🎌", 2))
+                    }
+                }
+            }
+
+            // B. Anime Dedicated Sources (AnimePahe, GogoAnime, Hanime1)
+            providerLower in setOf("animepahe", "gogoanime", "hianime", "aniwatch", "hanime1") -> {
+                detected.add(TagInfo("anime", "Anime", "🎌", 1))
+                if (titleLower.hasWord("movie") || video.durationSeconds >= 4200) {
+                    detected.add(TagInfo("movie", "Anime Movie", "🍿", 2))
+                } else {
+                    detected.add(TagInfo("series", "Anime Series", "📺", 2))
+                }
+            }
+
+            // C. VIP Movies & Series Streaming (VidSrc, TMDB, Decryptor, Torrent, Vega)
+            providerLower in setOf("vidsrc", "tmdb", "tmdb_embed", "decryptor", "torrentio", "1337x", "yts", "torrentgalaxy") || providerLower.startsWith("vega_") -> {
+                if (titleLower.hasWord("s0", "s1", "s2", "s3", "s4", "s5", "episode", "season", "ep") || titleLower.contains("series")) {
+                    detected.add(TagInfo("series", "TV Series", "📺", 1))
+                } else {
+                    detected.add(TagInfo("movie", "Movie", "🍿", 1))
+                }
+            }
+
+            // D. Live Streaming Platforms (Twitch, Bigo Live)
+            providerLower in setOf("twitch", "bigo") -> {
+                detected.add(TagInfo("live_stream", "Live Stream", "🔴", 1))
+                detected.add(TagInfo("gaming", "Gaming", "🎮", 2))
+            }
+
+            // E. Public Domain & Archives (Internet Archive, Archive.org)
+            providerLower in setOf("archive", "archive_org") -> {
+                if (video.durationSeconds >= 3000) {
+                    detected.add(TagInfo("classic_cinema", "Classic Film", "📽️", 1))
+                } else {
+                    detected.add(TagInfo("documentary", "Archive & History", "🏛️", 2))
+                }
+            }
+
+            // F. Adult 18+ Sources (SupJav, 123av, Javtiful, SexTB, XNXX, Eporner, Stripchat, Chaturbate, etc.)
+            isAdultProvider || providerLower in setOf("supjav", "123av", "javtiful", "sextb", "cam4", "cammodels", "noodlemagazine", "thisvid", "tnaflix", "eporner", "xnxx", "hellporno", "pornhub", "xvideos") -> {
+                when {
+                    providerLower in setOf("stripchat", "chaturbate", "cam4", "cammodels") -> {
+                        detected.add(TagInfo("live_cams", "Live Cam", "📹", 1))
+                        detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 2))
+                    }
+                    providerLower in setOf("supjav", "123av", "javtiful", "sextb") || com.example.metadata.JavIdParser.isJavCode(title) -> {
+                        detected.add(TagInfo("jav", "JAV", "🎌", 1))
+                        detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 2))
+                    }
+                    else -> {
+                        detected.add(TagInfo("nsfw_adult", "Adult 18+", "🔞", 1))
+                    }
+                }
+            }
+
+            // G. General Video Fallback if nothing detected yet
+            detected.isEmpty() -> {
+                when {
+                    video.durationSeconds in 1..70 -> detected.add(TagInfo("shorts", "Shorts", "⚡", 2))
+                    video.durationSeconds >= 4800 -> detected.add(TagInfo("movie", "Full Length", "🍿", 2))
+                    else -> detected.add(TagInfo("entertainment", "Entertainment", "✨", 4))
                 }
             }
         }
@@ -644,35 +739,50 @@ object SmartTagExtractor {
     }
 
     private fun mapExplicitTagToCategory(tag: String): TagInfo? {
+        val clean = tag.lowercase(Locale.ROOT).trim()
         return when {
-            tag in setOf("trailer", "trailers", "officialtrailer", "teasertrailer", "teaser", "promo", "pv") -> TagInfo("trailer", "Trailer", "🎬", 1)
-            tag in setOf("reaction", "reacts", "reacting", "react", "recap", "breakdown") -> TagInfo("reaction", "Reaction", "😲", 2)
-            tag in setOf("series", "webseries", "tvseries", "tvshow", "episode", "season", "drama", "kdrama", "cdrama") -> TagInfo("series", "Series", "📺", 2)
-            tag in setOf("gameplay", "walkthrough", "playthrough", "letsplay", "speedrun") -> TagInfo("gameplay", "Gameplay", "🕹️", 2)
-            tag in setOf("gaming", "game", "gamer", "esports") -> TagInfo("gaming", "Gaming", "🎮", 3)
-            tag in setOf("movie", "movies", "film", "films", "cinema", "fullmovie", "shortfilm") -> TagInfo("movie", "Movie", "🍿", 3)
-            tag in setOf("song", "songs", "gana", "geet", "newsong", "musicvideo", "track") -> TagInfo("song", "Song", "🎵", 2)
-            tag in setOf("music", "audio", "soundtrack", "ost", "lofi", "remix", "acoustic") -> TagInfo("music", "Music", "🎧", 3)
-            tag in setOf("tutorial", "howto", "guide", "learn", "course") -> TagInfo("tutorial", "Tutorial", "💡", 3)
-            tag in setOf("review", "unboxing", "handson") -> TagInfo("review", "Review", "⭐", 3)
-            tag in setOf("anime", "manga", "amv", "otaku", "donghua") -> TagInfo("anime", "Anime", "🎌", 2)
-            tag in setOf("animation", "animated", "cartoon", "cartoons", "cgi") -> TagInfo("animation", "Animation", "🎨", 3)
-            tag in setOf("tech", "technology", "gadgets", "ai", "coding", "programming", "software") -> TagInfo("tech", "Tech & AI", "💻", 3)
-            tag in setOf("news", "breakingnews", "politics", "journalism") -> TagInfo("news", "News", "📰", 3)
-            tag in setOf("comedy", "funny", "humor", "meme", "standup", "prank") -> TagInfo("comedy", "Funny & Comedy", "😂", 3)
-            tag in setOf("top10", "top5", "compilation", "bestof", "countdown") -> TagInfo("compilation", "Top 10 & Best", "🏆", 3)
-            tag in setOf("sports", "fitness", "workout", "football", "cricket") -> TagInfo("sports", "Sports & Fitness", "⚽", 4)
-            tag in setOf("recipe", "cooking", "food", "chef") -> TagInfo("food", "Food & Cooking", "🍳", 4)
-            tag in setOf("documentary", "history", "investigation") -> TagInfo("documentary", "Documentary", "📽️", 3)
-            tag in setOf("podcast", "interview", "talkshow") -> TagInfo("podcast", "Podcast", "🎙️", 3)
-            tag in setOf("hentai", "nsfw", "porn", "xxx", "erotic", "18+", "adult") -> TagInfo("nsfw_adult", "Adult 18+", "🔞", 1)
-            tag in setOf("shorts", "tiktok", "reels") -> TagInfo("shorts", "Shorts", "⚡", 4)
+            clean in setOf("trailer", "trailers", "officialtrailer", "teasertrailer", "teaser", "promo", "pv", "sneakpeek") -> TagInfo("trailer", "Trailer", "🎬", 1)
+            clean in setOf("reaction", "reacts", "reacting", "react", "recap", "breakdown") -> TagInfo("reaction", "Reaction", "😲", 2)
+            clean in setOf("series", "webseries", "tvseries", "tvshow", "episode", "season", "drama") -> TagInfo("series", "Series", "📺", 2)
+            clean in setOf("kdrama", "k-drama") -> TagInfo("kdrama", "K-Drama", "🇰🇷", 2)
+            clean in setOf("cdrama", "c-drama") -> TagInfo("cdrama", "C-Drama", "🇨🇳", 2)
+            clean in setOf("gameplay", "walkthrough", "playthrough", "letsplay", "speedrun") -> TagInfo("gameplay", "Gameplay", "🕹️", 2)
+            clean in setOf("gaming", "game", "gamer", "esports") -> TagInfo("gaming", "Gaming", "🎮", 3)
+            clean in setOf("movie", "movies", "film", "films", "cinema", "fullmovie", "shortfilm") -> TagInfo("movie", "Movie", "🍿", 2)
+            clean in setOf("classic", "classic_cinema", "classic_film") -> TagInfo("classic_cinema", "Classic Film", "📽️", 3)
+            clean in setOf("song", "songs", "gana", "geet", "newsong", "musicvideo", "track") -> TagInfo("song", "Song", "🎵", 2)
+            clean in setOf("music", "audio", "soundtrack", "ost", "lofi", "remix", "acoustic", "lo-fi", "hiphop", "hip-hop", "rap", "pop", "rock", "edm", "kpop", "k-pop", "jpop") -> TagInfo("music", "Music", "🎧", 3)
+            clean in setOf("tutorial", "howto", "guide", "learn", "course", "education") -> TagInfo("tutorial", "Tutorial", "💡", 3)
+            clean in setOf("review", "unboxing", "handson") -> TagInfo("review", "Review", "⭐", 3)
+            clean in setOf("anime", "manga", "amv", "otaku", "donghua") -> TagInfo("anime", "Anime", "🎌", 2)
+            clean in setOf("animation", "animated", "cartoon", "cartoons", "cgi") -> TagInfo("animation", "Animation", "🎨", 3)
+            clean in setOf("tech", "technology", "gadgets", "ai", "coding", "programming", "software", "developer") -> TagInfo("tech", "Tech & AI", "💻", 3)
+            clean in setOf("news", "breakingnews", "politics", "journalism") -> TagInfo("news", "News", "📰", 3)
+            clean in setOf("comedy", "funny", "humor", "meme", "standup", "prank") -> TagInfo("comedy", "Funny & Comedy", "😂", 3)
+            clean in setOf("top10", "top5", "compilation", "bestof", "countdown") -> TagInfo("compilation", "Top 10 & Best", "🏆", 3)
+            clean in setOf("sports", "fitness", "workout", "football", "cricket", "nba", "soccer", "ufc") -> TagInfo("sports", "Sports & Fitness", "⚽", 4)
+            clean in setOf("recipe", "cooking", "food", "chef", "streetfood") -> TagInfo("food", "Food & Cooking", "🍳", 4)
+            clean in setOf("documentary", "history", "investigation") -> TagInfo("documentary", "Documentary", "📽️", 3)
+            clean in setOf("podcast", "interview", "talkshow") -> TagInfo("podcast", "Podcast", "🎙️", 3)
+            clean in setOf("action") -> TagInfo("action", "Action", "💥", 3)
+            clean in setOf("adventure") -> TagInfo("adventure", "Adventure", "🗺️", 3)
+            clean in setOf("sci-fi", "scifi", "science fiction") -> TagInfo("scifi", "Sci-Fi", "🚀", 3)
+            clean in setOf("horror", "spooky") -> TagInfo("horror", "Horror", "👻", 3)
+            clean in setOf("thriller", "suspense", "mystery") -> TagInfo("thriller", "Thriller", "🔍", 3)
+            clean in setOf("romance", "romantic", "love") -> TagInfo("romance", "Romance", "💖", 3)
+            clean in setOf("fantasy") -> TagInfo("fantasy", "Fantasy", "🧙", 3)
+            clean in setOf("jav", "javtiful", "supjav") -> TagInfo("jav", "JAV", "🎌", 1)
+            clean in setOf("stripchat", "chaturbate", "livecam", "webcam") -> TagInfo("live_cams", "Live Cam", "📹", 1)
+            clean in setOf("hentai", "nsfw", "porn", "xxx", "erotic", "18+", "adult") -> TagInfo("nsfw_adult", "Adult 18+", "🔞", 1)
+            clean in setOf("shorts", "tiktok", "reels") -> TagInfo("shorts", "Shorts", "⚡", 4)
             else -> null
         }
     }
 
     /**
      * Extracts clean, distinct keywords from a video for search & recommendation matching.
+     * Note: strictly extracts validated semantic categories and legitimate hashtags,
+     * avoiding random title-word copying.
      */
     fun extractSemanticKeywords(video: VideoItem): List<String> {
         val keywords = mutableListOf<String>()
@@ -683,15 +793,7 @@ object SmartTagExtractor {
             "toreent", "magnet", "seeds", "seeders", "leechers", "infohash"
         )
 
-        // Add explicit tags
-        for (tag in video.tags) {
-            val clean = tag.replace("#", "").trim().lowercase(Locale.ROOT)
-            if (clean.length >= 3 && clean !in stopWords) {
-                keywords.add(clean)
-            }
-        }
-
-        // Add hashtags from title & description
+        // 1. Add legitimate hashtags from title & description
         val hashtags = extractHashtags(video.title, video.description)
         for (ht in hashtags) {
             if (ht.length >= 3 && ht !in stopWords) {
@@ -699,20 +801,23 @@ object SmartTagExtractor {
             }
         }
 
-        // Add internal categories
+        // 2. Add real internal semantic categories (e.g. anime, movie, series, gameplay)
         for (cat in extractInternalCategoryTags(video)) {
             keywords.add(cat.category)
             keywords.add(cat.displayName.lowercase(Locale.ROOT))
         }
 
-        // Add tokens from title & uploader
-        val tokens = "${video.title} ${video.uploaderName}"
-            .split(" ", "-", "_", "|", "/", ":", ",", "[", "]", "(", ")")
-            .map { it.replace("#", "").trim().lowercase(Locale.ROOT) }
-            .filter { it.length >= 3 && it !in stopWords && it.any { c -> c.isLetter() } }
+        // 3. Add explicit tags if recognized
+        for (tag in video.tags) {
+            val clean = tag.replace("#", "").trim().lowercase(Locale.ROOT)
+            val mapped = mapExplicitTagToCategory(clean)
+            if (mapped != null) {
+                keywords.add(mapped.category)
+                keywords.add(mapped.displayName.lowercase(Locale.ROOT))
+            }
+        }
 
-        keywords.addAll(tokens)
-        return keywords.distinct().take(15)
+        return keywords.distinct().take(12)
     }
 
     /**

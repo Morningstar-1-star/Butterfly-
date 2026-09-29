@@ -98,6 +98,8 @@ class PlaybackSession(private val appContext: Context) {
     private val _audioTracks = MutableStateFlow<List<AudioTrackOption>>(emptyList())
     val audioTracks: StateFlow<List<AudioTrackOption>> = _audioTracks.asStateFlow()
 
+    private var userPreferredAudioLanguage: String? = null
+
     private val _subtitleMode = MutableStateFlow(SubtitleMode.OFF)
     val subtitleMode: StateFlow<SubtitleMode> = _subtitleMode.asStateFlow()
 
@@ -175,7 +177,7 @@ class PlaybackSession(private val appContext: Context) {
                 _isPlaying.value = false
                 _isBuffering.value = false
                 _playbackEnded.value = true
-                _progressFraction.value = 1f
+                _progressFraction.value = if (_durationMs.value > 0L) 1f else 0f
             } else {
                 _playbackEnded.value = false
             }
@@ -183,7 +185,14 @@ class PlaybackSession(private val appContext: Context) {
 
         override fun onTracksChanged(tracks: Tracks) {
             playerCore?.let { core ->
-                _audioTracks.value = core.parseAudioTracks(tracks)
+                val parsed = core.parseAudioTracks(tracks)
+                _audioTracks.value = parsed
+                userPreferredAudioLanguage?.let { lang ->
+                    val matching = parsed.find { it.languageCode.equals(lang, ignoreCase = true) || it.label.contains(lang, ignoreCase = true) }
+                    if (matching != null && !matching.isSelected) {
+                        core.selectAudioTrack(matching)
+                    }
+                }
             }
         }
 
@@ -201,6 +210,18 @@ class PlaybackSession(private val appContext: Context) {
                 val host = runCatching { android.net.Uri.parse(failedUrl).host }.getOrNull() ?: "unknown"
                 val protocol = runCatching { android.net.Uri.parse(failedUrl).scheme }.getOrNull() ?: "unknown"
                 Log.w("BilibiliDiagnostics", "Bilibili Playback Error: httpStatus=$httpStatus, error=${error.message}, protocol=$protocol, host=$host, failedUrl=${failedUrl?.take(120)}")
+            }
+
+            // If error is transient (e.g. during seek or network timeout on YouTube/HLS), retry on current option first
+            val isTransientSeekOrNetError = (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW)
+            if (isTransientSeekOrNetError && activeData != null && currentOption != null) {
+                val curPos = _currentPositionMs.value.coerceAtLeast(0L)
+                Log.i("PlaybackSession", "Transient playback error $httpStatus on ${currentOption.qualityLabel}, retrying at $curPos ms")
+                _playerError.value = null
+                prepareAndPlay(appContext, activeData, currentOption, initialPos = curPos)
+                return
             }
 
             recoveryManager.markStreamFailed(failedUrl)
@@ -705,7 +726,7 @@ class PlaybackSession(private val appContext: Context) {
     fun seekTo(positionMs: Long) {
         val player = playerCore?.player
         val playerDur = player?.duration?.takeIf { it > 0 && it != C.TIME_UNSET } ?: _durationMs.value
-        val safeMax = if (playerDur > 1000L) playerDur - 500L else if (playerDur > 0L) playerDur else Long.MAX_VALUE
+        val safeMax = if (playerDur > 1000L) (playerDur - 100L) else if (playerDur > 0L) playerDur else Long.MAX_VALUE
         val target = positionMs.coerceIn(0L, safeMax)
 
         _currentPositionMs.value = target
@@ -800,10 +821,12 @@ class PlaybackSession(private val appContext: Context) {
     }
 
     fun selectAudioTrack(option: AudioTrackOption) {
+        userPreferredAudioLanguage = option.languageCode.ifBlank { null }
         playerCore?.selectAudioTrack(option)
     }
 
     fun setPreferredAudioLanguage(languageCode: String) {
+        userPreferredAudioLanguage = if (languageCode != "auto") languageCode else null
         playerCore?.setPreferredAudioLanguage(languageCode)
     }
 

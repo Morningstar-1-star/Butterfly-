@@ -96,9 +96,19 @@ class SecureDnsPreferences private constructor(context: Context) {
     )
     val customDnsUrl: StateFlow<String> = _customDnsUrl.asStateFlow()
 
+    private val _isMaxProtection = MutableStateFlow(
+        prefs.getBoolean(KEY_MAX_PROTECTION, false)
+    )
+    val isMaxProtection: StateFlow<Boolean> = _isMaxProtection.asStateFlow()
+
     fun setSecureDnsEnabled(enabled: Boolean) {
         _isSecureDnsEnabled.value = enabled
         prefs.edit().putBoolean(KEY_SECURE_DNS_ENABLED, enabled).apply()
+    }
+
+    fun setMaxProtection(max: Boolean) {
+        _isMaxProtection.value = max
+        prefs.edit().putBoolean(KEY_MAX_PROTECTION, max).apply()
     }
 
     fun setSelectedProvider(provider: DnsProvider) {
@@ -115,6 +125,7 @@ class SecureDnsPreferences private constructor(context: Context) {
     companion object {
         private const val PREFS_NAME = "butterfly_secure_dns_prefs"
         private const val KEY_SECURE_DNS_ENABLED = "secure_dns_enabled"
+        private const val KEY_MAX_PROTECTION = "secure_dns_max_protection"
         private const val KEY_SELECTED_PROVIDER = "selected_provider"
         private const val KEY_CUSTOM_DNS_URL = "custom_dns_url"
 

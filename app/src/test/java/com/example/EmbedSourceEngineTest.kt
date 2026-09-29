@@ -102,7 +102,7 @@ class EmbedSourceEngineTest {
 
         val candidate = candidates.first()
         assertEquals("vidlink_pro", candidate.providerId)
-        assertEquals(SourceStreamType.HLS, candidate.type)
+        assertEquals(SourceStreamType.EMBED_WEBVIEW, candidate.type)
         assertEquals("https://vidlink.pro/movie/550", candidate.urlOrMagnet)
     }
 

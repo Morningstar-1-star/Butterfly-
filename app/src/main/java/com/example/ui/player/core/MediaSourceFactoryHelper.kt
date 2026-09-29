@@ -149,13 +149,24 @@ object MediaSourceFactoryHelper {
                 streamData?.providerId == "bilibili"
         if (isBilibiliStream) {
             // Bilibili CDN hotlink protection rules:
-            // 1. Canonical Referer MUST be "https://www.bilibili.com/"
-            // 2. Do NOT send fake cookies or origin to media CDN chunks (causes 403 Forbidden)
-            // 3. Keep standard browser User-Agent
+            // Preserve format & streamData headers if available
             val biliCleanHeaders = mutableMapOf<String, String>()
-            biliCleanHeaders["Referer"] = "https://www.bilibili.com/"
+            streamData?.headers?.forEach { (k, v) ->
+                if (!k.equals("Cookie", ignoreCase = true) && !k.equals("Origin", ignoreCase = true) && !k.equals("User-Agent", ignoreCase = true)) {
+                    biliCleanHeaders[k] = v
+                }
+            }
+            specificHeaders.forEach { (k, v) ->
+                if (!k.equals("Cookie", ignoreCase = true) && !k.equals("Origin", ignoreCase = true) && !k.equals("User-Agent", ignoreCase = true)) {
+                    biliCleanHeaders[k] = v
+                }
+            }
+            if (!biliCleanHeaders.containsKey("Referer") && !biliCleanHeaders.containsKey("referer")) {
+                biliCleanHeaders["Referer"] = if (lowerTarget.contains("live") || lowerTarget.contains("gotcha") || lowerTarget.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
+            }
             biliCleanHeaders["Accept"] = "*/*"
             biliCleanHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
+
             val ua = specificHeaders["User-Agent"]
                 ?: streamData?.headers?.get("User-Agent")
                 ?: NetworkManager.DEFAULT_USER_AGENT

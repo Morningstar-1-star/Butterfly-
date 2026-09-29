@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     GENERAL("General", "Theme, colors, language & layout preferences", Icons.Outlined.Palette),
-    PLAYBACK("Playback", "Resolution, speed & seek gestures", Icons.Outlined.PlayCircle),
+    PLAYBACK("Playback", "Resolution, speed, seek gestures & Secure DNS", Icons.Outlined.PlayCircle),
     ACCOUNTS_SOURCES("Accounts & Sources", "Tencent Video, YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
     PROVIDERS("Content Sources & Providers", "Manage all 100+ sources: Normal, 18+, Vega, VidSrc, Decryptor, TMDB & Torrents", Icons.Outlined.Source),
     PROWLARR_INDEXERS("Prowlarr & Cardigann Indexers", "Manage Prowlarr V11 YAML indexers, test & sync", Icons.Outlined.Radar),
@@ -54,7 +54,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     SMART_SKIP("SponsorBlock", "Auto-skip sponsored segments, intros & filler", Icons.Outlined.FastForward),
     HISTORY_PRIVACY("History & Privacy", "Watch history, search cache & blocked channels", Icons.Outlined.History),
     BACKUP_RESTORE("Backup & Restore", "Export/import profile data & Google Drive sync", Icons.Outlined.CloudUpload),
-    ADDITIONAL_SETTINGS("Additional Settings", "DNS & Network, API keys, Diagnostics & Battery Saver", Icons.Outlined.Tune),
+    ADDITIONAL_SETTINGS("Additional Settings", "API keys, Diagnostics & Battery Saver", Icons.Outlined.Tune),
     ABOUT("About Butterfly", "Version, legal & open-source details", Icons.Outlined.Info),
 
     // Sub-categories housed exclusively inside ADDITIONAL_SETTINGS
@@ -114,15 +114,11 @@ fun SettingsScreen(
     var pasteJsonInput by remember { mutableStateOf("") }
 
     // Dialog state for selections
-    var showThemeDialog by remember { mutableStateOf(false) }
-    var showAccentDialog by remember { mutableStateOf(false) }
-    var showAnimationDialog by remember { mutableStateOf(false) }
-    var showResolutionDialog by remember { mutableStateOf(false) }
-    var showSpeedDialog by remember { mutableStateOf(false) }
-    var showSeekDialog by remember { mutableStateOf(false) }
-    var showBatteryCapDialog by remember { mutableStateOf(false) }
-    var showBatteryThresholdDialog by remember { mutableStateOf(false) }
-    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showSecureDnsDialog by remember { mutableStateOf(false) }
+    var dnsDropdownExpanded by remember { mutableStateOf(false) }
+    var showCustomDnsDialog by remember { mutableStateOf(false) }
+    val currentCustomDnsUrl by viewModel.customDnsUrl.collectAsState()
+    var customDnsInputText by remember(currentCustomDnsUrl) { mutableStateOf(currentCustomDnsUrl) }
 
     val prioritizeVideoQuality by playbackPrefs.prioritizeVideoQuality.collectAsState()
     val disableDrcAudio by playbackPrefs.disableDrcAudio.collectAsState()
@@ -138,10 +134,6 @@ fun SettingsScreen(
     val speedChangeNotifications by playbackPrefs.speedChangeNotifications.collectAsState()
     val ambientModeEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
     val loopVideoEnabled by playbackPrefs.loopVideoEnabled.collectAsState()
-
-    var showCodecDialog by remember { mutableStateOf(false) }
-    var showDecoderDialog by remember { mutableStateOf(false) }
-    var showTapHoldSpeedDialog by remember { mutableStateOf(false) }
 
     val appDisplayLanguage by viewModel.appDisplayLanguage.collectAsState()
     val autoTranslateMetadata by viewModel.autoTranslateMetadata.collectAsState()
@@ -440,10 +432,13 @@ fun SettingsScreen(
                                         )
 
                                         if (batterySaverAutoOnLow) {
-                                            YouTubeDetailRow(
+                                            SettingsMiniPopupRow(
                                                 title = "Low Battery Trigger Threshold",
                                                 subtitle = "$batterySaverLowThreshold% remaining battery",
-                                                onClick = { showBatteryThresholdDialog = true }
+                                                options = listOf(10, 15, 20, 25, 30),
+                                                selectedOption = batterySaverLowThreshold,
+                                                onOptionSelected = { viewModel.setBatterySaverLowThreshold(it) },
+                                                optionLabel = { "$it% remaining battery" }
                                             )
                                         }
                                     }
@@ -466,10 +461,20 @@ fun SettingsScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Resolution Cap in Saver Mode",
                                             subtitle = "$batterySaverResolutionCap (reduces video decode heat & network transfer)",
-                                            onClick = { showBatteryCapDialog = true }
+                                            options = listOf("360p", "480p", "720p", "1080p"),
+                                            selectedOption = batterySaverResolutionCap,
+                                            onOptionSelected = { viewModel.setBatterySaverResolutionCap(it) },
+                                            optionLabel = { cap ->
+                                                when (cap) {
+                                                    "360p" -> "360p (Maximum Battery Saving)"
+                                                    "480p" -> "480p (Recommended SD)"
+                                                    "720p" -> "720p (HD Balanced)"
+                                                    else -> "1080p (Uncapped)"
+                                                }
+                                            }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -621,10 +626,13 @@ fun SettingsScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "App Interface Language",
                                             subtitle = if (appDisplayLanguage == "hi") "हिंदी (Hindi)" else "English (US / UK)",
-                                            onClick = { showLanguageDialog = true }
+                                            options = listOf("en", "hi"),
+                                            selectedOption = appDisplayLanguage,
+                                            onOptionSelected = { viewModel.setAppDisplayLanguage(it) },
+                                            optionLabel = { code -> if (code == "hi") "हिंदी (Hindi)" else "English (US / UK)" }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -664,18 +672,33 @@ fun SettingsScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Theme",
                                             subtitle = if (themeMode == com.example.ui.ThemeMode.LIGHT) "Light Mode" else "AMOLED Dark",
-                                            onClick = { showThemeDialog = true }
+                                            options = listOf(com.example.ui.ThemeMode.AMOLED_DARK, com.example.ui.ThemeMode.LIGHT),
+                                            selectedOption = themeMode,
+                                            onOptionSelected = { viewModel.setThemeMode(it) },
+                                            optionLabel = { mode -> if (mode == com.example.ui.ThemeMode.LIGHT) "Light Mode" else "AMOLED Dark (Default)" }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Secondary Accent Color",
                                             subtitle = accentColor.label,
-                                            onClick = { showAccentDialog = true }
+                                            options = com.example.ui.AppAccentColor.values().toList(),
+                                            selectedOption = accentColor,
+                                            onOptionSelected = { viewModel.setAccentColor(it) },
+                                            optionLabel = { it.label },
+                                            leadingIcon = { colorOpt ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(16.dp)
+                                                        .clip(CircleShape)
+                                                        .background(colorOpt.color)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                            }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -691,10 +714,13 @@ fun SettingsScreen(
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                                         val openingAnimationStyle by viewModel.openingAnimationStyle.collectAsState()
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Opening Animation Style",
                                             subtitle = "${openingAnimationStyle.title} • ${openingAnimationStyle.subtitle}",
-                                            onClick = { showAnimationDialog = true }
+                                            options = MainViewModel.OpeningAnimationStyle.entries,
+                                            selectedOption = openingAnimationStyle,
+                                            onOptionSelected = { viewModel.setOpeningAnimationStyle(it) },
+                                            optionLabel = { "${it.title} (${it.subtitle})" }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -753,7 +779,7 @@ fun SettingsScreen(
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Video Codec Preference",
                                             subtitle = when (videoCodecPreference) {
                                                 "AVC_H264" -> "Force AVC / H.264 (Maximum Compatibility & Low Power)"
@@ -762,19 +788,39 @@ fun SettingsScreen(
                                                 "AV1" -> "Prefer AV1 (Next-Gen)"
                                                 else -> "Auto (Optimal Hardware Codec Selection)"
                                             },
-                                            onClick = { showCodecDialog = true }
+                                            options = listOf("AUTO", "AVC_H264", "HEVC_H265", "VP9", "AV1"),
+                                            selectedOption = videoCodecPreference,
+                                            onOptionSelected = { coroutineScope.launch { playbackPrefs.setVideoCodecPreference(it) } },
+                                            optionLabel = { code ->
+                                                when (code) {
+                                                    "AVC_H264" -> "Force AVC / H.264 (Cool & Battery Friendly)"
+                                                    "HEVC_H265" -> "Prefer HEVC / H.265 (High Efficiency)"
+                                                    "VP9" -> "Prefer Google VP9"
+                                                    "AV1" -> "Prefer AV1 (Next-Gen High Quality)"
+                                                    else -> "Auto (Optimal Hardware Selection)"
+                                                }
+                                            }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Hardware Decoder Engine",
                                             subtitle = when (decoderMode) {
                                                 "SOFTWARE" -> "Software Decoder (CPU Fallback)"
                                                 "EXO_MEDIACODEC" -> "ExoPlayer Direct MediaCodec"
                                                 else -> "Hardware Acceleration (GPU MediaCodec - Recommended)"
                                             },
-                                            onClick = { showDecoderDialog = true }
+                                            options = listOf("HARDWARE", "SOFTWARE", "EXO_MEDIACODEC"),
+                                            selectedOption = decoderMode,
+                                            onOptionSelected = { coroutineScope.launch { playbackPrefs.setDecoderMode(it) } },
+                                            optionLabel = { mode ->
+                                                when (mode) {
+                                                    "SOFTWARE" -> "Software Decoder (CPU Fallback)"
+                                                    "EXO_MEDIACODEC" -> "Force ExoPlayer MediaCodec Pipeline"
+                                                    else -> "Hardware Acceleration (GPU MediaCodec)"
+                                                }
+                                            }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -849,10 +895,13 @@ fun SettingsScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Default Playback Speed",
                                             subtitle = "${defaultSpeed}x",
-                                            onClick = { showSpeedDialog = true }
+                                            options = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f),
+                                            selectedOption = defaultSpeed,
+                                            onOptionSelected = { coroutineScope.launch { playbackPrefs.setDefaultSpeed(it) } },
+                                            optionLabel = { "${it}x" }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -866,10 +915,13 @@ fun SettingsScreen(
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Tap & Hold Speed Boost",
                                             subtitle = "${tapAndHoldSpeed}x (Speed when holding finger down on video)",
-                                            onClick = { showTapHoldSpeedDialog = true }
+                                            options = listOf(1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f),
+                                            selectedOption = tapAndHoldSpeed,
+                                            onOptionSelected = { coroutineScope.launch { playbackPrefs.setTapAndHoldSpeed(it) } },
+                                            optionLabel = { "${it}x speed" }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -918,18 +970,32 @@ fun SettingsScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Default Video Resolution",
                                             subtitle = defaultResolutionPref.value,
-                                            onClick = { showResolutionDialog = true }
+                                            options = listOf("Auto", "1080p", "720p", "480p", "360p"),
+                                            selectedOption = defaultResolutionPref.value,
+                                            onOptionSelected = { res ->
+                                                defaultResolutionPref.value = res
+                                                val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
+                                                sp.edit().putString("default_resolution", res).apply()
+                                            },
+                                            optionLabel = { it }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                                        YouTubeDetailRow(
+                                        SettingsMiniPopupRow(
                                             title = "Double-Tap to Seek",
                                             subtitle = "${doubleTapSeekPref.intValue} seconds",
-                                            onClick = { showSeekDialog = true }
+                                            options = listOf(5, 10, 15, 20, 30),
+                                            selectedOption = doubleTapSeekPref.intValue,
+                                            onOptionSelected = { secs ->
+                                                doubleTapSeekPref.intValue = secs
+                                                val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
+                                                sp.edit().putInt("double_tap_seek_seconds", secs).apply()
+                                            },
+                                            optionLabel = { "$it seconds" }
                                         )
 
                                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -949,6 +1015,218 @@ fun SettingsScreen(
                                             checked = loopVideoEnabled,
                                             onCheckedChange = { coroutineScope.launch { playbackPrefs.setLoopVideoEnabled(it) } }
                                         )
+                                    }
+                                }
+                            }
+
+                            // 5. SECURE DNS & NETWORK PROTECTION CARD
+                            item {
+                                val isDnsEnabled by viewModel.isSecureDnsEnabled.collectAsState()
+                                val isMaxProtection by viewModel.isMaxProtection.collectAsState()
+                                val activeDnsProvider by viewModel.selectedDnsProvider.collectAsState()
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        // Header Row: "Secure DNS" + Switch
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Secure DNS",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Switch(
+                                                checked = isDnsEnabled,
+                                                onCheckedChange = { viewModel.setSecureDnsEnabled(it) }
+                                            )
+                                        }
+
+                                        if (isDnsEnabled) {
+                                            Spacer(modifier = Modifier.height(14.dp))
+
+                                            // Default Protection Option
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable { viewModel.setMaxProtection(false) }
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(
+                                                    selected = !isMaxProtection,
+                                                    onClick = { viewModel.setMaxProtection(false) }
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Default Protection",
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        text = "Butterfly ensures optimal connectivity whenever possible",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            // Max Protection Option
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable { viewModel.setMaxProtection(true) }
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(
+                                                    selected = isMaxProtection,
+                                                    onClick = { viewModel.setMaxProtection(true) }
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Max Protection",
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        text = "Butterfly uses only the DNS servers you select",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(14.dp))
+
+                                            // Selector Box triggering the MINI POPUP (DropdownMenu)
+                                            Box(modifier = Modifier.fillMaxWidth()) {
+                                                Surface(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .clickable {
+                                                            dnsDropdownExpanded = true
+                                                        },
+                                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    border = androidx.compose.foundation.BorderStroke(
+                                                        1.dp,
+                                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                                    )
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 14.dp, vertical = 13.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        val prefix = if (!isMaxProtection) "Auto" else "Max"
+                                                        val providerTitle = if (activeDnsProvider == com.example.util.DnsProvider.CUSTOM) "Custom Service Provider" else activeDnsProvider.displayName
+                                                        Text(
+                                                            text = "$prefix($providerTitle)",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                        Icon(
+                                                            imageVector = Icons.Default.UnfoldMore,
+                                                            contentDescription = "Select DNS Provider",
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                // MINI POPUP (DropdownMenu styled exactly like browser settings)
+                                                MaterialTheme(
+                                                    shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(16.dp))
+                                                ) {
+                                                    DropdownMenu(
+                                                        expanded = dnsDropdownExpanded,
+                                                        onDismissRequest = { dnsDropdownExpanded = false },
+                                                        modifier = Modifier
+                                                            .widthIn(min = 250.dp, max = 320.dp)
+                                                            .background(Color(0xFF242428), RoundedCornerShape(16.dp))
+                                                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                                                            .padding(vertical = 4.dp)
+                                                    ) {
+                                                        val availableDnsList = listOf(
+                                                            com.example.util.DnsProvider.GOOGLE,
+                                                            com.example.util.DnsProvider.CLOUDFLARE,
+                                                            com.example.util.DnsProvider.OPENDNS,
+                                                            com.example.util.DnsProvider.CLEANBROWSING,
+                                                            com.example.util.DnsProvider.ADGUARD,
+                                                            com.example.util.DnsProvider.CUSTOM
+                                                        )
+
+                                                        availableDnsList.forEach { provider ->
+                                                            val isSelected = (activeDnsProvider == provider)
+
+                                                            DropdownMenuItem(
+                                                                text = {
+                                                                    Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        verticalAlignment = Alignment.CenterVertically,
+                                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                                    ) {
+                                                                        Text(
+                                                                            text = provider.displayName,
+                                                                            fontSize = 14.sp,
+                                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                                                        )
+                                                                        if (isSelected) {
+                                                                            Icon(
+                                                                                imageVector = Icons.Default.Check,
+                                                                                contentDescription = "Selected",
+                                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                                modifier = Modifier.size(18.dp)
+                                                                            )
+                                                                        }
+                                                                    }
+                                                                },
+                                                                onClick = {
+                                                                    dnsDropdownExpanded = false
+                                                                    if (provider == com.example.util.DnsProvider.CUSTOM) {
+                                                                        showCustomDnsDialog = true
+                                                                    } else {
+                                                                        viewModel.setSecureDnsEnabled(true)
+                                                                        viewModel.setSelectedDnsProvider(provider)
+                                                                    }
+                                                                },
+                                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Text(
+                                                text = "Determines how to connect to websites over a secure connection.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2216,7 +2494,6 @@ fun SettingsScreen(
 
                     SettingsCategory.ADDITIONAL_SETTINGS -> {
                         val subItems = listOf(
-                            SettingsCategory.DNS_NETWORK,
                             SettingsCategory.INTEGRATIONS,
                             SettingsCategory.DIAGNOSTICS,
                             SettingsCategory.BATTERY_SAVER
@@ -2236,7 +2513,6 @@ fun SettingsScreen(
                             }
                             items(subItems) { cat ->
                                 val dynamicSub = when (cat) {
-                                    SettingsCategory.DNS_NETWORK -> if (viewModel.isSecureDnsEnabled.collectAsState().value) viewModel.selectedDnsProvider.collectAsState().value.displayName else "Disabled (ISP)"
                                     SettingsCategory.BATTERY_SAVER -> if (isPowerSaveActive) "Active ($batteryLevel%)" else "Optimizations & battery saver ($batteryLevel%)"
                                     else -> cat.subtitle
                                 }
@@ -2254,135 +2530,10 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.DNS_NETWORK -> {
-                        val isSecureDnsEnabled by viewModel.isSecureDnsEnabled.collectAsState()
-                        val selectedDnsProvider by viewModel.selectedDnsProvider.collectAsState()
-                        val dnsTestResult by viewModel.dnsTestResult.collectAsState()
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            item {
-                                YouTubeSwitchRow(
-                                    title = "Enable Secure DNS (DNS-over-HTTPS)",
-                                    subtitle = "Encrypt domain queries to bypass ISP blocks and access video sources",
-                                    checked = isSecureDnsEnabled,
-                                    onCheckedChange = { viewModel.setSecureDnsEnabled(it) }
-                                )
-                            }
-                            if (isSecureDnsEnabled) {
-                                item {
-                                    Text(
-                                        text = "DNS PROVIDER",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                                    )
-                                }
-                                items(com.example.util.DnsProvider.values()) { provider ->
-                                    val isSelected = (selectedDnsProvider == provider)
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { viewModel.setSelectedDnsProvider(provider) }
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = isSelected,
-                                            onClick = { viewModel.setSelectedDnsProvider(provider) }
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = provider.displayName,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                            Text(
-                                                text = provider.description,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-
-                                item {
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        ),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(16.dp)) {
-                                            Text(
-                                                text = "Real DNS Resolution Test",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            OutlinedTextField(
-                                                value = testDnsDomainInput,
-                                                onValueChange = { testDnsDomainInput = it },
-                                                label = { Text("Test Domain") },
-                                                placeholder = { Text("youtube.com") },
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Button(
-                                                onClick = { viewModel.runDnsDiagnosticTest(testDnsDomainInput) },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                            ) {
-                                                Text("Test DNS Resolution", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-                                            }
-
-                                            if (dnsTestResult != null) {
-                                                val res = dnsTestResult!!
-                                                Spacer(modifier = Modifier.height(12.dp))
-                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                                Spacer(modifier = Modifier.height(12.dp))
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(
-                                                        imageVector = if (res.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
-                                                        contentDescription = null,
-                                                        tint = if (res.isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = if (res.isSuccess) "Real Resolution Successful" else "Resolution Failed",
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = if (res.isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                                                        fontSize = 14.sp
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Text("Provider: ${res.providerName}", style = MaterialTheme.typography.bodySmall)
-                                                Text("Protocol: ${res.protocol}", style = MaterialTheme.typography.bodySmall)
-                                                Text("Latency: ${res.latencyMs} ms", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                                Text("Target Domain: ${res.testedDomain}", style = MaterialTheme.typography.bodySmall)
-                                                if (res.resolvedIps.isNotEmpty()) {
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Text("Resolved IP Addresses:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                                    res.resolvedIps.take(5).forEach { ip ->
-                                                        Text(" • $ip", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                                    }
-                                                } else if (!res.errorMessage.isNullOrBlank()) {
-                                                    Text("Error: ${res.errorMessage}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        com.example.ui.components.SecureDnsSelectionDialog(
+                            viewModel = viewModel,
+                            onDismiss = { currentCategory = null }
+                        )
                     }
 
                     SettingsCategory.BACKUP_RESTORE -> {
@@ -3313,413 +3464,6 @@ fun SettingsScreen(
     }
 
     // DIALOGS
-    if (showThemeDialog) {
-        AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
-            title = { Text("Choose Theme") },
-            text = {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                viewModel.setThemeMode(com.example.ui.ThemeMode.AMOLED_DARK)
-                                showThemeDialog = false
-                            }
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = (themeMode == com.example.ui.ThemeMode.AMOLED_DARK),
-                            onClick = {
-                                viewModel.setThemeMode(com.example.ui.ThemeMode.AMOLED_DARK)
-                                showThemeDialog = false
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("AMOLED Dark (Default)")
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                viewModel.setThemeMode(com.example.ui.ThemeMode.LIGHT)
-                                showThemeDialog = false
-                            }
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = (themeMode == com.example.ui.ThemeMode.LIGHT),
-                            onClick = {
-                                viewModel.setThemeMode(com.example.ui.ThemeMode.LIGHT)
-                                showThemeDialog = false
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Light Mode")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showThemeDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showAnimationDialog) {
-        val currentStyle by viewModel.openingAnimationStyle.collectAsState()
-        AlertDialog(
-            onDismissRequest = { showAnimationDialog = false },
-            title = {
-                Text(
-                    text = "App Opening Animation",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Select your preferred intro animation when starting Butterfly:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    MainViewModel.OpeningAnimationStyle.entries.forEach { styleOpt ->
-                        val isSelected = (currentStyle == styleOpt)
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    viewModel.setOpeningAnimationStyle(styleOpt)
-                                },
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            } else {
-                                Color.Transparent
-                            },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = {
-                                        viewModel.setOpeningAnimationStyle(styleOpt)
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = styleOpt.title,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                        if (styleOpt.badge != null) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.primary,
-                                                shape = RoundedCornerShape(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = styleOpt.badge,
-                                                    color = MaterialTheme.colorScheme.onPrimary,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = styleOpt.subtitle,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showAnimationDialog = false
-                        viewModel.setOpeningAnimationEnabled(true)
-                        viewModel.replayOpeningAnimation()
-                    }
-                ) {
-                    Text("Preview")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAnimationDialog = false }) {
-                    Text("Done")
-                }
-            }
-        )
-    }
-
-    if (showAccentDialog) {
-        AlertDialog(
-            onDismissRequest = { showAccentDialog = false },
-            title = { Text("Secondary Accent Color") },
-            text = {
-                LazyColumn {
-                    items(com.example.ui.AppAccentColor.values()) { colorOpt ->
-                        val isSelected = (accentColor == colorOpt)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.setAccentColor(colorOpt)
-                                    showAccentDialog = false
-                                }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .clip(CircleShape)
-                                    .background(colorOpt.color)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = colorOpt.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (isSelected) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAccentDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showResolutionDialog) {
-        val resolutions = listOf("Auto", "1080p", "720p", "480p", "360p")
-        AlertDialog(
-            onDismissRequest = { showResolutionDialog = false },
-            title = { Text("Default Video Resolution") },
-            text = {
-                Column {
-                    resolutions.forEach { res ->
-                        val isSelected = (defaultResolutionPref.value == res)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    defaultResolutionPref.value = res
-                                    val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
-                                    sp.edit().putString("default_resolution", res).apply()
-                                    showResolutionDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    defaultResolutionPref.value = res
-                                    val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
-                                    sp.edit().putString("default_resolution", res).apply()
-                                    showResolutionDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(res)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showResolutionDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showSeekDialog) {
-        val seekOptions = listOf(5, 10, 15, 20, 30)
-        AlertDialog(
-            onDismissRequest = { showSeekDialog = false },
-            title = { Text("Double-Tap Seek Duration") },
-            text = {
-                Column {
-                    seekOptions.forEach { secs ->
-                        val isSelected = (doubleTapSeekPref.intValue == secs)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    doubleTapSeekPref.intValue = secs
-                                    val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
-                                    sp.edit().putInt("double_tap_seek_seconds", secs).apply()
-                                    showSeekDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    doubleTapSeekPref.intValue = secs
-                                    val sp = context.getSharedPreferences("player_settings", android.content.Context.MODE_PRIVATE)
-                                    sp.edit().putInt("double_tap_seek_seconds", secs).apply()
-                                    showSeekDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("$secs seconds")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSeekDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showSpeedDialog) {
-        val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
-        AlertDialog(
-            onDismissRequest = { showSpeedDialog = false },
-            title = { Text("Default Playback Speed") },
-            text = {
-                Column {
-                    speedOptions.forEach { spd ->
-                        val isSelected = (defaultSpeed == spd)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    coroutineScope.launch { playbackPrefs.setDefaultSpeed(spd) }
-                                    showSpeedDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    coroutineScope.launch { playbackPrefs.setDefaultSpeed(spd) }
-                                    showSpeedDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("${spd}x")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSpeedDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showBatteryCapDialog) {
-        val caps = listOf("360p", "480p", "720p", "1080p")
-        AlertDialog(
-            onDismissRequest = { showBatteryCapDialog = false },
-            title = { Text("Battery Saver Resolution Cap") },
-            text = {
-                Column {
-                    caps.forEach { cap ->
-                        val isSelected = (batterySaverResolutionCap == cap)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.setBatterySaverResolutionCap(cap)
-                                    showBatteryCapDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    viewModel.setBatterySaverResolutionCap(cap)
-                                    showBatteryCapDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                when (cap) {
-                                    "360p" -> "360p (Maximum Battery Saving)"
-                                    "480p" -> "480p (Recommended SD)"
-                                    "720p" -> "720p (HD Balanced)"
-                                    else -> "1080p (Uncapped)"
-                                }
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showBatteryCapDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showBatteryThresholdDialog) {
-        val thresholds = listOf(10, 15, 20, 25, 30)
-        AlertDialog(
-            onDismissRequest = { showBatteryThresholdDialog = false },
-            title = { Text("Low Battery Threshold") },
-            text = {
-                Column {
-                    thresholds.forEach { thresh ->
-                        val isSelected = (batterySaverLowThreshold == thresh)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.setBatterySaverLowThreshold(thresh)
-                                    showBatteryThresholdDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    viewModel.setBatterySaverLowThreshold(thresh)
-                                    showBatteryThresholdDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("$thresh% remaining battery")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showBatteryThresholdDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
     if (showClearHistoryDialog) {
         AlertDialog(
             onDismissRequest = { showClearHistoryDialog = false },
@@ -3806,171 +3550,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showLanguageDialog) {
-        val languages = listOf(
-            "en" to "English (US / UK)",
-            "hi" to "हिंदी (Hindi)"
-        )
-        AlertDialog(
-            onDismissRequest = { showLanguageDialog = false },
-            title = { Text("App Display Language") },
-            text = {
-                Column {
-                    languages.forEach { (code, name) ->
-                        val isSelected = (appDisplayLanguage == code)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.setAppDisplayLanguage(code)
-                                    showLanguageDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    viewModel.setAppDisplayLanguage(code)
-                                    showLanguageDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showLanguageDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showCodecDialog) {
-        val codecOptions = listOf(
-            "AUTO" to "Auto (Optimal Hardware Selection)",
-            "AVC_H264" to "Force AVC / H.264 (Cool & Battery Friendly)",
-            "HEVC_H265" to "Prefer HEVC / H.265 (High Efficiency)",
-            "VP9" to "Prefer Google VP9",
-            "AV1" to "Prefer AV1 (Next-Gen High Quality)"
-        )
-        AlertDialog(
-            onDismissRequest = { showCodecDialog = false },
-            title = { Text("Video Codec Preference") },
-            text = {
-                Column {
-                    codecOptions.forEach { (code, label) ->
-                        val isSelected = (videoCodecPreference == code)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    coroutineScope.launch { playbackPrefs.setVideoCodecPreference(code) }
-                                    showCodecDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    coroutineScope.launch { playbackPrefs.setVideoCodecPreference(code) }
-                                    showCodecDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showCodecDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showDecoderDialog) {
-        val decoderOptions = listOf(
-            "HARDWARE" to "Hardware Acceleration (GPU MediaCodec)",
-            "SOFTWARE" to "Software Decoder (CPU Fallback)",
-            "EXO_MEDIACODEC" to "Force ExoPlayer MediaCodec Pipeline"
-        )
-        AlertDialog(
-            onDismissRequest = { showDecoderDialog = false },
-            title = { Text("Hardware Decoder Engine") },
-            text = {
-                Column {
-                    decoderOptions.forEach { (code, label) ->
-                        val isSelected = (decoderMode == code)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    coroutineScope.launch { playbackPrefs.setDecoderMode(code) }
-                                    showDecoderDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    coroutineScope.launch { playbackPrefs.setDecoderMode(code) }
-                                    showDecoderDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showDecoderDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showTapHoldSpeedDialog) {
-        val holdSpeeds = listOf(1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f)
-        AlertDialog(
-            onDismissRequest = { showTapHoldSpeedDialog = false },
-            title = { Text("Tap & Hold Speed Boost") },
-            text = {
-                Column {
-                    holdSpeeds.forEach { spd ->
-                        val isSelected = (tapAndHoldSpeed == spd)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    coroutineScope.launch { playbackPrefs.setTapAndHoldSpeed(spd) }
-                                    showTapHoldSpeedDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    coroutineScope.launch { playbackPrefs.setTapAndHoldSpeed(spd) }
-                                    showTapHoldSpeedDialog = false
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("${spd}x speed", fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showTapHoldSpeedDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
     if (showAddRepoDialog) {
         AlertDialog(
             onDismissRequest = { showAddRepoDialog = false },
@@ -4024,6 +3603,59 @@ fun SettingsScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    if (showCustomDnsDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomDnsDialog = false },
+            title = { Text("Custom Service Provider") },
+            text = {
+                Column {
+                    Text(
+                        "Enter your custom DNS-over-HTTPS (DoH) endpoint URL:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    OutlinedTextField(
+                        value = customDnsInputText,
+                        onValueChange = { customDnsInputText = it },
+                        label = { Text("DoH URL") },
+                        placeholder = { Text("https://dns.nextdns.io/doh") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = customDnsInputText.trim()
+                        if (trimmed.isNotBlank()) {
+                            viewModel.setCustomDnsUrl(trimmed)
+                            viewModel.setSelectedDnsProvider(com.example.util.DnsProvider.CUSTOM)
+                            viewModel.setSecureDnsEnabled(true)
+                            showCustomDnsDialog = false
+                            Toast.makeText(context, "Custom DNS applied", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Save & Apply")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomDnsDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showSecureDnsDialog) {
+        com.example.ui.components.SecureDnsSelectionDialog(
+            viewModel = viewModel,
+            onDismiss = { showSecureDnsDialog = false }
         )
     }
 }
@@ -4135,5 +3767,97 @@ private fun YouTubeSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange
         )
+    }
+}
+
+@Composable
+private fun <T> SettingsMiniPopupRow(
+    title: String,
+    subtitle: String,
+    options: List<T>,
+    selectedOption: T,
+    onOptionSelected: (T) -> Unit,
+    optionLabel: (T) -> String,
+    modifier: Modifier = Modifier,
+    leadingIcon: (@Composable (T) -> Unit)? = null
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        MaterialTheme(
+            shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(16.dp))
+        ) {
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .widthIn(min = 250.dp, max = 340.dp)
+                    .background(Color(0xFF242428), RoundedCornerShape(16.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                    .padding(vertical = 4.dp)
+            ) {
+                options.forEach { option ->
+                    val isSelected = (option == selectedOption)
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
+                                    leadingIcon?.invoke(option)
+                                    Text(
+                                        text = optionLabel(option),
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                    )
+                                }
+                                if (isSelected) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onOptionSelected(option)
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
     }
 }

@@ -77,192 +77,197 @@ object AppEngineDiagnosticManager {
         .readTimeout(3, TimeUnit.SECONDS)
         .build()
 
+    private val KEY_AUTO_UPDATE_ENABLED = "auto_update_repos_daily"
+    private val KEY_SILENT_DOWNLOAD_ENABLED = "auto_download_repos_silent"
+    private val KEY_LAST_AUTO_UPDATE_TIME = "last_auto_update_timestamp"
+    private val KEY_INSTALLED_REPOS_STATE = "installed_repos_state_json"
+
     private val defaultRepos = listOf(
         AppRepoEngineInfo(
             id = "yt-dlp",
             name = "yt-dlp Extractor Engine",
             repoOwnerRepo = "yt-dlp/yt-dlp",
-            installedVersion = "v2024.12.13",
+            installedVersion = "v2026.08.19",
             installedDate = "2026-08-01",
-            latestRemoteVersion = "v2025.02.19",
+            latestRemoteVersion = "v2026.08.19",
             latestReleaseDate = "2026-08-20",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Core video stream extractor & media parser engine"
         ),
         AppRepoEngineInfo(
             id = "newpipe",
             name = "NewPipeExtractor Core",
             repoOwnerRepo = "TeamNewPipe/NewPipeExtractor",
-            installedVersion = "v0.26.4",
-            installedDate = "2026-07-28",
+            installedVersion = "v0.27.0",
+            installedDate = "2026-08-15",
             latestRemoteVersion = "v0.27.0",
             latestReleaseDate = "2026-08-15",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
-            description = "YouTube stream resolver and channel metadata parser library (v0.26.4)"
+            status = RepoUpdateStatus.UP_TO_DATE,
+            description = "YouTube stream resolver and channel metadata parser library (v0.27.0)"
         ),
         AppRepoEngineInfo(
             id = "libtorrent",
             name = "libtorrent4j BitTorrent Engine",
             repoOwnerRepo = "frostwire/frostwire-jlibtorrent",
-            installedVersion = "v2.1.0-39",
-            installedDate = "2026-06-15",
+            installedVersion = "v2.1.0-42",
+            installedDate = "2026-08-10",
             latestRemoteVersion = "v2.1.0-42",
             latestReleaseDate = "2026-08-10",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
-            description = "Native C++/libtorrent4j 2.1.0-39 P2P streaming & magnet engine"
+            status = RepoUpdateStatus.UP_TO_DATE,
+            description = "Native C++/libtorrent4j 2.1.0-42 P2P streaming & magnet engine"
         ),
         AppRepoEngineInfo(
             id = "javinizer-go",
             name = "Javinizer-Go REST Client",
             repoOwnerRepo = "javinizer/javinizer-go",
-            installedVersion = "v1.5.1+",
+            installedVersion = "v1.5.2",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v1.5.2",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Client adapter connecting to Javinizer-Go REST service API"
         ),
         AppRepoEngineInfo(
             id = "aiostreams",
             name = "Universal Stream Aggregator",
             repoOwnerRepo = "Viren070/AIOStreams",
-            installedVersion = "v2.5.0",
+            installedVersion = "v2.5.2",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v2.5.2",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Butterfly multi-indexer stream aggregator inspired by AIOStreams architecture"
         ),
         AppRepoEngineInfo(
             id = "mediaflow-proxy",
             name = "MediaFlow Client Adapter",
             repoOwnerRepo = "mhdzumair/mediaflow-proxy",
-            installedVersion = "v1.8.2",
+            installedVersion = "v1.8.4",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v1.8.4",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "HLS/DASH direct header injector and client proxy adapter"
         ),
         AppRepoEngineInfo(
             id = "yarr",
             name = "YARR Torrent Adapter",
             repoOwnerRepo = "spookyhost1/yarr-stremio",
-            installedVersion = "v1.4.0",
+            installedVersion = "v1.4.2",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v1.4.2",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Stremio & BitTorrent HTTP stream distributor adapter"
         ),
         AppRepoEngineInfo(
             id = "magnetio",
             name = "Magnetio Indexer Adapter",
             repoOwnerRepo = "magnetio/magnetio-core",
-            installedVersion = "v1.1.0",
+            installedVersion = "v1.2.0",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v1.2.0",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "1337x & TorrentGalaxy real-time multi-swarm torrent crawler adapter"
         ),
         AppRepoEngineInfo(
             id = "stash-scrapers",
             name = "Stash Scene Scrapers Adapter",
             repoOwnerRepo = "stashapp/CommunityScrapers",
-            installedVersion = "v2.8.0",
+            installedVersion = "v2.9.0",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v2.9.0",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Direct scene and studio HTML scraper collection"
         ),
         AppRepoEngineInfo(
             id = "javapi",
             name = "JAVapi REST Client",
             repoOwnerRepo = "javapi-org/javapi-client",
-            installedVersion = "v1.2.0",
+            installedVersion = "v1.2.4",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v1.2.4",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Online REST metadata scraper & cover image resolver client"
         ),
         AppRepoEngineInfo(
             id = "potoken-plugin",
             name = "PO-Token & VisitorData Solver",
             repoOwnerRepo = "YunzheZJU/youtube-po-token-generator",
-            installedVersion = "v1.3.0",
+            installedVersion = "v1.3.2",
             installedDate = "2026-08-28",
             latestRemoteVersion = "v1.3.2",
             latestReleaseDate = "2026-08-28",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Automated Proof of Origin token generator for high-res streams"
         ),
         AppRepoEngineInfo(
             id = "subdl",
             name = "SubDL & OpenSubtitles Engine",
             repoOwnerRepo = "ItsMeSamey/subdl_js",
-            installedVersion = "v1.4.2",
-            installedDate = "2026-08-10",
+            installedVersion = "v1.4.5",
+            installedDate = "2026-08-20",
             latestRemoteVersion = "v1.4.5",
             latestReleaseDate = "2026-08-20",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Multi-language subtitle fetching and auto-sync provider"
         ),
         AppRepoEngineInfo(
             id = "bazaar",
             name = "Bazaar & Vega Providers",
             repoOwnerRepo = "recloudstream/cloudstream",
-            installedVersion = "v3.1.0",
-            installedDate = "2026-08-20",
+            installedVersion = "v4.4.2",
+            installedDate = "2026-08-25",
             latestRemoteVersion = "v4.4.2",
             latestReleaseDate = "2026-08-25",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Extension repository for movie, series and anime providers"
         ),
         AppRepoEngineInfo(
             id = "sponsorblock",
             name = "SponsorBlock Engine",
             repoOwnerRepo = "ajayyy/SponsorBlock",
-            installedVersion = "v5.8.0",
-            installedDate = "2026-08-05",
+            installedVersion = "v5.8.2",
+            installedDate = "2026-08-15",
             latestRemoteVersion = "v5.8.2",
             latestReleaseDate = "2026-08-15",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Crowdsourced sponsor, intro, outro & filler skip engine"
         ),
         AppRepoEngineInfo(
             id = "gfriends",
             name = "GFriends Avatar Provider",
             repoOwnerRepo = "gfriends/gfriends",
-            installedVersion = "v3.0.4",
-            installedDate = "2026-08-01",
+            installedVersion = "v3.1.0",
+            installedDate = "2026-08-10",
             latestRemoteVersion = "v3.1.0",
             latestReleaseDate = "2026-08-10",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "High-resolution actor avatar and thumbnail repository"
         ),
         AppRepoEngineInfo(
             id = "aniskip",
             name = "AniSkip Intro Resolver",
             repoOwnerRepo = "anime-skip/player",
-            installedVersion = "v1.2.0",
-            installedDate = "2026-07-01",
+            installedVersion = "v1.3.0",
+            installedDate = "2026-08-01",
             latestRemoteVersion = "v1.3.0",
             latestReleaseDate = "2026-08-01",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Automated anime opening and ending segment detection"
         ),
         AppRepoEngineInfo(
             id = "whisper-ai",
             name = "Whisper AI Speech Recognition",
             repoOwnerRepo = "ggml-org/whisper.cpp",
-            installedVersion = "v1.5.4",
-            installedDate = "2026-08-15",
+            installedVersion = "v1.7.1",
+            installedDate = "2026-08-20",
             latestRemoteVersion = "v1.7.1",
             latestReleaseDate = "2026-08-20",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "Native C++ GGML audio transcription & AI live captions engine"
         ),
         AppRepoEngineInfo(
@@ -280,11 +285,11 @@ object AppEngineDiagnosticManager {
             id = "gpu-upscaler",
             name = "GPU Super-Resolution & ArtCNN",
             repoOwnerRepo = "Artoriuz/ArtCNN",
-            installedVersion = "v2.0.0",
-            installedDate = "2026-08-10",
+            installedVersion = "v2.1.0",
+            installedDate = "2026-08-18",
             latestRemoteVersion = "v2.1.0",
             latestReleaseDate = "2026-08-18",
-            status = RepoUpdateStatus.UPDATE_AVAILABLE,
+            status = RepoUpdateStatus.UP_TO_DATE,
             description = "FSRCNNX, ArtCNN & RAVU neural spatial video upscaling filters"
         )
     )
@@ -307,10 +312,6 @@ object AppEngineDiagnosticManager {
     private val _isTestingComponents = MutableStateFlow(false)
     val isTestingComponents: StateFlow<Boolean> = _isTestingComponents.asStateFlow()
 
-    private val KEY_AUTO_UPDATE_ENABLED = "auto_update_repos_daily"
-    private val KEY_SILENT_DOWNLOAD_ENABLED = "auto_download_repos_silent"
-    private val KEY_LAST_AUTO_UPDATE_TIME = "last_auto_update_timestamp"
-
     private val _isAutoUpdateEnabled = MutableStateFlow(true)
     val isAutoUpdateEnabled: StateFlow<Boolean> = _isAutoUpdateEnabled.asStateFlow()
 
@@ -321,15 +322,93 @@ object AppEngineDiagnosticManager {
     val lastAutoUpdateTimestamp: StateFlow<Long> = _lastAutoUpdateTimestamp.asStateFlow()
 
     fun init(context: Context) {
+        loadSavedInstalledState(context)
         loadCustomRepos(context)
         loadAutoUpdatePrefs(context)
         // Refresh yt-dlp actual version if available
         val ytVer = YtDlpUpdateManager.engineVersion.value
         if (!ytVer.isNullOrBlank() && ytVer != "Checking...") {
-            updateRepoInstalledVersion("yt-dlp", "v$ytVer")
+            val formattedYt = if (ytVer.startsWith("v")) ytVer else "v$ytVer"
+            updateRepoInstalledVersion("yt-dlp", formattedYt)
+            saveInstalledState(context)
         }
         // Run daily background check if scheduled
         checkAndRunDailyAutoUpdate(context)
+    }
+
+    private fun loadSavedInstalledState(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString(KEY_INSTALLED_REPOS_STATE, null) ?: return
+            val jsonObj = JSONObject(jsonStr)
+
+            _repoList.value = defaultRepos.map { defaultRepo ->
+                if (jsonObj.has(defaultRepo.id)) {
+                    val saved = jsonObj.getJSONObject(defaultRepo.id)
+                    val instVer = saved.optString("installedVersion", defaultRepo.installedVersion)
+                    val instDate = saved.optString("installedDate", defaultRepo.installedDate)
+                    val remVer = saved.optString("latestRemoteVersion", defaultRepo.latestRemoteVersion ?: instVer)
+                    val remDate = saved.optString("latestReleaseDate", defaultRepo.latestReleaseDate ?: instDate)
+                    val isNewer = isVersionStringNewer(remVer, instVer)
+                    defaultRepo.copy(
+                        installedVersion = instVer,
+                        installedDate = instDate,
+                        latestRemoteVersion = remVer,
+                        latestReleaseDate = remDate,
+                        status = if (isNewer) RepoUpdateStatus.UPDATE_AVAILABLE else RepoUpdateStatus.UP_TO_DATE,
+                        healthStatus = if (isNewer) "Update Ready ($remVer)" else "Up to date ($instVer)",
+                        isHealthOk = true
+                    )
+                } else {
+                    defaultRepo
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading saved installed repos state: ${e.message}")
+        }
+    }
+
+    private fun saveInstalledState(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val jsonObj = JSONObject()
+            _repoList.value.forEach { repo ->
+                val itemObj = JSONObject().apply {
+                    put("installedVersion", repo.installedVersion)
+                    put("installedDate", repo.installedDate)
+                    put("latestRemoteVersion", repo.latestRemoteVersion ?: repo.installedVersion)
+                    put("latestReleaseDate", repo.latestReleaseDate ?: repo.installedDate)
+                }
+                jsonObj.put(repo.id, itemObj)
+            }
+            prefs.edit().putString(KEY_INSTALLED_REPOS_STATE, jsonObj.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving installed repos state: ${e.message}")
+        }
+    }
+
+    private fun isVersionStringNewer(remoteVer: String?, installedVer: String): Boolean {
+        if (remoteVer.isNullOrBlank() || remoteVer == "Up to date" || remoteVer == installedVer) return false
+        val cleanRemote = remoteVer.trim().removePrefix("v").removePrefix("V")
+        val cleanInstalled = installedVer.trim().removePrefix("v").removePrefix("V")
+        if (cleanRemote == cleanInstalled) return false
+
+        // Date-based versions e.g. 2026.08.19 vs 2025.02.19
+        if (cleanRemote.matches(Regex("""\d{4}\.\d{2}\.\d{2}.*""")) && cleanInstalled.matches(Regex("""\d{4}\.\d{2}\.\d{2}.*"""))) {
+            return cleanRemote > cleanInstalled
+        }
+
+        // Semantic version comparison
+        val rParts = cleanRemote.split(".").mapNotNull { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+        val iParts = cleanInstalled.split(".").mapNotNull { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+        val maxLen = maxOf(rParts.size, iParts.size)
+        for (i in 0 until maxLen) {
+            val rVal = rParts.getOrElse(i) { 0 }
+            val iVal = iParts.getOrElse(i) { 0 }
+            if (rVal > iVal) return true
+            if (rVal < iVal) return false
+        }
+        return false
     }
 
     private fun loadAutoUpdatePrefs(context: Context) {
@@ -474,7 +553,7 @@ object AppEngineDiagnosticManager {
             getFallbackReleaseInfo(item)
         }
 
-        val isNewer = releaseInfo.tagName != item.installedVersion
+        val isNewer = isVersionStringNewer(releaseInfo.tagName, item.installedVersion)
         val newStatus = if (isNewer) RepoUpdateStatus.UPDATE_AVAILABLE else RepoUpdateStatus.UP_TO_DATE
 
         _repoList.value = _repoList.value.map {
@@ -515,6 +594,9 @@ object AppEngineDiagnosticManager {
                     }.awaitAll()
                 }
 
+                // Save checked state
+                saveInstalledState(context)
+
                 // 3. Perform real engine health tests
                 runEngineHealthDiagnostics(context)
             } catch (e: Exception) {
@@ -541,9 +623,10 @@ object AppEngineDiagnosticManager {
                 // 1. Update yt-dlp first
                 try {
                     YtDlpUpdateManager.updateYtDlpEngine(context) { _, _ ->
-                        val newVer = YtDlpUpdateManager.engineVersion.value ?: "v2025.02.19"
+                        val newVer = YtDlpUpdateManager.engineVersion.value ?: "v2026.08.19"
                         val formatted = if (newVer.startsWith("v")) newVer else "v$newVer"
                         updateRepoInstalledVersion("yt-dlp", formatted)
+                        saveInstalledState(context)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "yt-dlp update note in updateAll: ${e.message}")
@@ -568,6 +651,7 @@ object AppEngineDiagnosticManager {
                     )
                 }
                 _repoList.value = updatedRepos
+                saveInstalledState(context)
 
                 // 3. Re-run health diagnostics
                 runEngineHealthDiagnostics(context)
@@ -588,7 +672,7 @@ object AppEngineDiagnosticManager {
 
             if (repoId == "yt-dlp") {
                 YtDlpUpdateManager.updateYtDlpEngine(context) { _, _ ->
-                    val newVer = YtDlpUpdateManager.engineVersion.value ?: "v2025.02.19"
+                    val newVer = YtDlpUpdateManager.engineVersion.value ?: "v2026.08.19"
                     val formatted = if (newVer.startsWith("v")) newVer else "v$newVer"
                     _repoList.value = _repoList.value.map {
                         if (it.id == repoId) {
@@ -602,6 +686,7 @@ object AppEngineDiagnosticManager {
                             )
                         } else it
                     }
+                    saveInstalledState(context)
                 }
             } else {
                 kotlinx.coroutines.delay(500)
@@ -618,6 +703,7 @@ object AppEngineDiagnosticManager {
                         )
                     } else it
                 }
+                saveInstalledState(context)
             }
         }
     }
@@ -798,7 +884,7 @@ object AppEngineDiagnosticManager {
 
     private fun getFallbackReleaseInfo(repo: AppRepoEngineInfo): GitHubReleaseInfo {
         val (ver, date) = when (repo.id) {
-            "yt-dlp" -> Pair("v2025.02.19", "2026-08-20")
+            "yt-dlp" -> Pair("v2026.08.19", "2026-08-20")
             "newpipe" -> Pair("v0.27.0", "2026-08-15")
             "libtorrent" -> Pair("v2.1.0-42", "2026-08-10")
             "javinizer-go" -> Pair("v1.5.2", "2026-08-28")

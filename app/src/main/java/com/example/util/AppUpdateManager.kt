@@ -1,10 +1,14 @@
 package com.example.util
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -157,8 +161,9 @@ object AppUpdateManager {
             }
             val remoteVersionCode = json.optInt("versionCode", 0)
             val tagName = json.optString("tagName", "v$remoteVersionName")
+            val cleanRemoteVer = remoteVersionName.removePrefix("v").removePrefix("V").trim()
             val apkDownloadUrl = json.optString("downloadUrl", "").ifBlank {
-                "https://github.com/$GITHUB_REPO/releases/download/$tagName/Butterfly-0.0.3-alpha.apk"
+                "https://github.com/$GITHUB_REPO/releases/download/$tagName/Butterfly-$cleanRemoteVer.apk"
             }
             val releaseTitle = json.optString("title", "Butterfly v$remoteVersionName")
             val publishedAt = json.optString("publishedAt", "")
@@ -170,7 +175,6 @@ object AppUpdateManager {
                 }
             }
 
-            val cleanRemoteVer = remoteVersionName.removePrefix("v").removePrefix("V").trim()
             val isNewer = isVersionNameNewer(cleanRemoteVer, currentVersionName)
 
             val releaseInfo = GithubReleaseInfo(
@@ -222,7 +226,7 @@ object AppUpdateManager {
 
             val isNewer = isVersionNameNewer(cleanVersion, currentVersionName)
 
-            val apkUrl = "https://github.com/$GITHUB_REPO/releases/download/$tagName/Butterfly-0.0.3-alpha.apk"
+            val apkUrl = "https://github.com/$GITHUB_REPO/releases/download/$tagName/Butterfly-$cleanVersion.apk"
             val fallbackChangelog = listOf(
                 "Horizontal episode carousel for series (e.g. Courage the Cowardly Dog)",
                 "Smart Archive.org video quality disambiguation & deduplication",
@@ -331,6 +335,21 @@ object AppUpdateManager {
     }
 
     suspend fun downloadAndInstall(context: Context, release: GithubReleaseInfo) = withContext(Dispatchers.IO) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        val channelId = "butterfly_app_updates"
+        val notificationId = 9988
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && notificationManager != null) {
+            val channel = NotificationChannel(
+                channelId,
+                "App Updates",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows progress when downloading Butterfly updates"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
         try {
             _updateState.value = UpdateCheckState.Downloading(0, 0L, release.apkSize)
 
@@ -351,6 +370,8 @@ object AppUpdateManager {
             val apkFile = File(updatesDir, "butterfly_update_${release.versionName}.apk")
             if (apkFile.exists()) apkFile.delete()
 
+            var lastNotifUpdate = 0L
+
             body.byteStream().use { input ->
                 FileOutputStream(apkFile).use { output ->
                     val buffer = ByteArray(8192)
@@ -363,15 +384,56 @@ object AppUpdateManager {
 
                         val percent = if (totalBytes > 0) ((totalDownloaded * 100) / totalBytes).toInt().coerceIn(0, 100) else 50
                         _updateState.value = UpdateCheckState.Downloading(percent, totalDownloaded, totalBytes)
+
+                        val now = System.currentTimeMillis()
+                        if (now - lastNotifUpdate > 600L && notificationManager != null) {
+                            lastNotifUpdate = now
+                            val mbDown = String.format("%.1f", totalDownloaded / (1024.0 * 1024.0))
+                            val mbTot = String.format("%.1f", totalBytes / (1024.0 * 1024.0))
+                            val notif = NotificationCompat.Builder(context, channelId)
+                                .setSmallIcon(android.R.drawable.stat_sys_download)
+                                .setContentTitle("Downloading Butterfly Update (v${release.versionName})")
+                                .setContentText("$percent% • $mbDown MB / $mbTot MB")
+                                .setProgress(100, percent, false)
+                                .setOngoing(true)
+                                .setOnlyAlertOnce(true)
+                                .build()
+                            notificationManager.notify(notificationId, notif)
+                        }
                     }
                     output.flush()
                 }
             }
 
             _updateState.value = UpdateCheckState.ReadyToInstall(apkFile, release)
+
+            if (notificationManager != null) {
+                val authority = "${context.packageName}.fileprovider"
+                val contentUri: Uri = FileProvider.getUriForFile(context, authority, apkFile)
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(contentUri, "application/vnd.android.package-archive")
+                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                val pendingIntent = PendingIntent.getActivity(
+                    context,
+                    0,
+                    installIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                val finishNotif = NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("Update Downloaded (v${release.versionName})")
+                    .setContentText("Tap to install update now")
+                    .setContentIntent(pendingIntent)
+                    .setAutoCancel(true)
+                    .build()
+                notificationManager.notify(notificationId, finishNotif)
+            }
+
             triggerApkInstallation(context, apkFile)
         } catch (e: Exception) {
             Log.e(TAG, "Download update error: ${e.message}", e)
+            notificationManager?.cancel(notificationId)
             _updateState.value = UpdateCheckState.Error("Download failed: ${e.localizedMessage ?: "Unknown error"}")
         }
     }
