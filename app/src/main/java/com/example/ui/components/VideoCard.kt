@@ -1,102 +1,48 @@
 package com.example.ui.components
 
-import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SlowMotionVideo
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.Flag
-import androidx.compose.material.icons.outlined.PlaylistPlay
-import androidx.compose.material.icons.outlined.PlaylistAdd
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Translate
-import androidx.compose.material.icons.outlined.WatchLater
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import kotlinx.coroutines.isActive
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Surface
 import com.example.model.VideoItem
 import com.example.util.PreviewFrameResolver
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
-import com.example.ui.animation.bounceClick
+private val SEASON_EPISODE_REGEX = Regex("""s(\d+)\s*e(\d+)""", RegexOption.IGNORE_CASE)
+private val MOVIE_MEDIA_PROVIDERS = setOf(
+    "torrent", "tmdb", "anilist", "jikan", "jikan_anime", "vega", "vegacloud", "vidsrc", "vidrock", "tubitv", "tubi"
+)
+private val STANDARD_VIDEO_TUBES = setOf(
+    "pornhub", "thumbzilla", "xvideos", "redtube", "spankbang", "eporner", "youporn", "xhamster",
+    "thisvid", "tnaflix", "noodlemagazine", "rule34video", "dailymotion", "vimeo", "bilibili", "twitch", "beeg", "4tube"
+)
+private val POSTER_PROVIDERS = setOf("tmdb", "anilist", "jikan", "torrent", "vidsrc", "vega", "tubitv", "tubi")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,16 +67,12 @@ fun VideoCard(
     var localShowOriginal by remember(video.id) { mutableStateOf(false) }
     val cardYPosition = remember { floatArrayOf(0f) }
     val context = LocalContext.current
-    val effectiveWatchProgress = watchProgressFraction
 
-    val detectedLang = remember(video.title, video.detectedLanguage) {
-        video.detectedLanguage ?: "en"
-    }
-
+    val detectedLang = video.detectedLanguage ?: "en"
     val effectiveOriginalTitle = video.originalTitle ?: video.title
     val effectiveTranslatedTitle = video.translatedTitleEN
 
-    val activeTitle = remember(video.id, video.title, localShowOriginal, effectiveOriginalTitle, effectiveTranslatedTitle, detectedLang) {
+    val activeTitle = remember(video.id, localShowOriginal, effectiveOriginalTitle, effectiveTranslatedTitle, detectedLang) {
         if (localShowOriginal || detectedLang == "hi") {
             effectiveOriginalTitle
         } else {
@@ -145,7 +87,7 @@ fun VideoCard(
         !effectiveOriginalTitle.equals(effectiveTranslatedTitle, ignoreCase = true)
     }
 
-    val sourceBadge = remember(video.providerId, video.id, video.uploaderName, video.thumbnailUrl, video.uploaderUrl, video.description) {
+    val sourceBadge = remember(video.providerId, video.id, video.uploaderName) {
         com.example.util.SourceTagHelper.getSourceBadge(video)
     }
 
@@ -155,7 +97,7 @@ fun VideoCard(
             tagSeries
         } else {
             val titleLower = video.title.lowercase()
-            val seasonMatch = Regex("""s(\d+)\s*e(\d+)""", RegexOption.IGNORE_CASE).find(titleLower)
+            val seasonMatch = SEASON_EPISODE_REGEX.find(titleLower)
             if (seasonMatch != null) {
                 val s = seasonMatch.groupValues[1].toIntOrNull() ?: 1
                 val e = seasonMatch.groupValues[2].toIntOrNull() ?: 1
@@ -170,7 +112,7 @@ fun VideoCard(
 
     val isMovieOrMedia = remember(video.providerId, video.id, video.tags, video.title) {
         val pid = (video.providerId ?: "").lowercase()
-        pid in listOf("torrent", "tmdb", "anilist", "jikan", "jikan_anime", "vega", "vegacloud", "vidsrc", "vidrock") ||
+        pid in MOVIE_MEDIA_PROVIDERS ||
         video.id.startsWith("torrent_") || video.id.startsWith("movie_") || video.id.startsWith("tv_") || video.id.startsWith("anilist_") ||
         video.tags.any { it.startsWith("★") } ||
         video.title.contains("1080p", ignoreCase = true) || video.title.contains("bluray", ignoreCase = true)
@@ -217,12 +159,7 @@ fun VideoCard(
                 val fallbackList = listOf(
                     "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18413717/14_360.jpg",
                     "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18427667/14_360.jpg",
-                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18390762/12_360.jpg",
-                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18424803/9_360.jpg",
-                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18399853/7_360.jpg",
-                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18356815/14_360.jpg",
-                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18408539/12_360.jpg",
-                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/184/18401966/9_360.jpg"
+                    "https://static-ca-cdn.eporner.com/thumbs/static4/1/18/183/18390762/12_360.jpg"
                 )
                 fallbackList[kotlin.math.abs(video.id.hashCode()) % fallbackList.size]
             }
@@ -239,116 +176,51 @@ fun VideoCard(
                 val fId = video.id.removePrefix("bunkr_")
                 "https://i.bunkr.site/thumbs/$fId.jpg"
             }
-            video.id.startsWith("mega_") || video.providerId == "mega" -> {
-                "https://mega.nz/favicon.ico"
-            }
             else -> null
         }
     }
 
     var isAutoPlaying by remember { mutableStateOf(false) }
-    var isScrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
     var currentFrameIndex by remember { mutableIntStateOf(0) }
-    var dragAccumulator by remember { mutableFloatStateOf(0f) }
-    val view = LocalView.current
 
-    // Teaser capability check: true ONLY if 2 or more storyboard frames are available
     val hasScrubbingTeaser = remember(video.providerId, video.thumbnailUrl) {
         PreviewFrameResolver.supportsScrubbing(video)
     }
 
-    val previewFrames = remember(video.id, video.thumbnailUrl, hasScrubbingTeaser) {
-        if (hasScrubbingTeaser) PreviewFrameResolver.resolvePreviewFrames(video) else emptyList()
+    val previewFrames = remember(video.id, hasScrubbingTeaser, isAutoPlaying) {
+        if (hasScrubbingTeaser && isAutoPlaying) PreviewFrameResolver.resolvePreviewFrames(video) else emptyList()
     }
 
-    // Prefetch preview frame images in background for zero latency
-    LaunchedEffect(hasScrubbingTeaser, previewFrames) {
-        if (hasScrubbingTeaser && previewFrames.size > 1) {
-            PreviewFrameResolver.prefetchFrames(context, previewFrames)
-        }
-    }
+    val isPreviewActive = isAutoPlaying && hasScrubbingTeaser && previewFrames.size > 1
 
-    val isPreviewRequested = (isScrubbing || isAutoPlaying) && hasScrubbingTeaser
-    val isPreviewActive = isPreviewRequested && previewFrames.size > 1
-
-    // Fast, lively Automatic Teaser Loop (~140ms per frame for smooth fast preview)
-    LaunchedEffect(isAutoPlaying, isPreviewActive, previewFrames) {
+    LaunchedEffect(isAutoPlaying, isPreviewActive, previewFrames.size) {
         if (isAutoPlaying && isPreviewActive && previewFrames.size > 1) {
             while (isAutoPlaying) {
-                kotlinx.coroutines.delay(140L) // Ultra-fast, smooth scene preview speed
+                kotlinx.coroutines.delay(140L)
                 currentFrameIndex = (currentFrameIndex + 1) % previewFrames.size
                 scrubFraction = (currentFrameIndex + 1).toFloat() / previewFrames.size
             }
         }
     }
 
-    // Trigger subtle haptic tick feedback as user scrubs or when auto-play engages
-    LaunchedEffect(currentFrameIndex, isScrubbing, isAutoPlaying) {
-        if ((isScrubbing || isAutoPlaying) && previewFrames.size > 1) {
-            try {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            } catch (_: Exception) {}
-        }
-    }
-
-    val activeImageUrl = remember(isPreviewActive, currentFrameIndex, previewFrames, effectiveThumbnailUrl) {
-        if (isPreviewActive && currentFrameIndex in previewFrames.indices) {
-            previewFrames[currentFrameIndex]
-        } else {
-            effectiveThumbnailUrl
-        }
-    }
-
-    val thumbnailImageRequest = remember(activeImageUrl, isPreviewActive, isAutoPlaying) {
-        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
-            context,
-            activeImageUrl,
-            crossfadeMillis = 100,
-            preferCompact = false
-        )
-    }
-
-    // Horizontal Scrubbing Modifier: attached to all cards that support teaser scrubbing for instant left-to-right gesture
-    val scrubModifier = if (hasScrubbingTeaser && previewFrames.size > 1) {
-        Modifier.pointerInput(video.id, previewFrames) {
-            detectHorizontalDragGestures(
-                onDragStart = { offset ->
-                    dragAccumulator = 0f
-                    isAutoPlaying = false
-                    isScrubbing = true
-                    val width = size.width.toFloat().coerceAtLeast(1f)
-                    val frac = (offset.x / width).coerceIn(0f, 1f)
-                    scrubFraction = frac
-                    val fSize = previewFrames.size
-                    if (fSize > 1) {
-                        currentFrameIndex = (frac * (fSize - 1)).roundToInt().coerceIn(0, fSize - 1)
-                    }
-                },
-                onDragEnd = {
-                    isScrubbing = false
-                    if (previewFrames.size > 1) {
-                        isAutoPlaying = true
-                    }
-                },
-                onDragCancel = {
-                    isScrubbing = false
-                },
-                onHorizontalDrag = { change, dragAmount ->
-                    change.consume()
-                    dragAccumulator += dragAmount
-                    val width = size.width.toFloat().coerceAtLeast(1f)
-                    val frac = (change.position.x / width).coerceIn(0f, 1f)
-                    scrubFraction = frac
-                    val fSize = previewFrames.size
-                    if (fSize > 1) {
-                        currentFrameIndex = (frac * (fSize - 1)).roundToInt().coerceIn(0, fSize - 1)
-                    }
-                }
-            )
-        }
+    val activeImageUrl = if (isPreviewActive && currentFrameIndex in previewFrames.indices) {
+        previewFrames[currentFrameIndex]
     } else {
-        Modifier
+        effectiveThumbnailUrl
+    }
+
+    val thumbnailImageRequest = remember(activeImageUrl, context) {
+        if (activeImageUrl.isNullOrBlank()) null else {
+            ImageRequest.Builder(context)
+                .data(activeImageUrl)
+                .crossfade(60)
+                .allowHardware(true)
+                .allowRgb565(true)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .build()
+        }
     }
 
     Column(
@@ -356,453 +228,427 @@ fun VideoCard(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .clickable {
-                if (!isScrubbing) {
-                    if (onClickWithOrigin != null) {
-                        onClickWithOrigin(cardYPosition[0])
-                    } else {
-                        onClick()
-                    }
+                if (onClickWithOrigin != null) {
+                    onClickWithOrigin(cardYPosition[0])
+                } else {
+                    onClick()
                 }
             }
     ) {
-        // Thumbnail container with Duration Badge and Horizontal Drag Scrubbing / Auto Teaser
+        // Thumbnail container with Duration Badge and Teaser Playback
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .onGloballyPositioned { coordinates ->
-                    cardYPosition[0] = coordinates.positionInRoot().y
-                }
-                .then(scrubModifier)
+                .then(
+                    if (onClickWithOrigin != null) {
+                        Modifier.onGloballyPositioned { coordinates ->
+                            cardYPosition[0] = coordinates.positionInRoot().y
+                        }
+                    } else Modifier
+                )
         ) {
-                if (thumbnailImageRequest != null) {
-                    val isStandardVideoTube = remember(video.providerId, video.id) {
-                        val pid = (video.providerId ?: "").lowercase()
-                        val idLower = video.id.lowercase()
-                        pid in listOf("pornhub", "thumbzilla", "xvideos", "redtube", "spankbang", "eporner", "youporn", "xhamster", "thisvid", "tnaflix", "noodlemagazine", "rule34video", "dailymotion", "vimeo", "bilibili", "twitch", "beeg", "4tube") ||
-                        idLower.contains("pornhub") || idLower.contains("ph") || idLower.contains("xvideos") || idLower.contains("spankbang") || idLower.contains("eporner")
-                    }
+            if (thumbnailImageRequest != null) {
+                val isStandardVideoTube = remember(video.providerId) {
+                    val pid = (video.providerId ?: "").lowercase()
+                    pid in STANDARD_VIDEO_TUBES
+                }
 
-                    val isKnownPosterSource = remember(video.providerId, video.id, video.tags, video.thumbnailUrl) {
-                        val pid = (video.providerId ?: "").lowercase()
-                        val idLower = video.id.lowercase()
-                        val thumbLower = (video.thumbnailUrl ?: "").lowercase()
-                        !isStandardVideoTube && (
-                            pid in listOf("tmdb", "anilist", "jikan", "torrent", "vidsrc", "vega") ||
-                            idLower.contains("movie_") || idLower.contains("tv_") || idLower.contains("torrent_") ||
-                            thumbLower.contains("poster") || thumbLower.contains("image.tmdb.org") ||
-                            video.tags.any { it.contains("Poster", ignoreCase = true) }
-                        )
-                    }
+                val isKnownPosterSource = remember(video.providerId, video.id, video.thumbnailUrl) {
+                    val pid = (video.providerId ?: "").lowercase()
+                    val thumbLower = (video.thumbnailUrl ?: "").lowercase()
+                    !isStandardVideoTube && (
+                        pid in POSTER_PROVIDERS ||
+                        video.id.startsWith("movie_") || video.id.startsWith("tv_") || video.id.startsWith("torrent_") ||
+                        thumbLower.contains("poster") || thumbLower.contains("image.tmdb.org")
+                    )
+                }
 
-                    val isNon169Ratio = isKnownPosterSource && !isStandardVideoTube
-
-                    if (isNon169Ratio) {
-                        // High-contrast clean dark background for poster / non-16:9 media cards
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF101010))
-                        )
-                        AsyncImage(
-                            model = thumbnailImageRequest,
-                            contentDescription = video.title,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        // Standard Full-Frame 16:9 Landscape Artwork Layer (Pornhub, Tubes, etc.)
-                        AsyncImage(
-                            model = thumbnailImageRequest,
-                            contentDescription = video.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    // Subtle bottom gradient for badge legibility
+                if (isKnownPosterSource) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.45f)
-                                    ),
-                                    startY = 120f
-                                )
-                            )
+                            .background(Color(0xFF101010))
+                    )
+                    AsyncImage(
+                        model = thumbnailImageRequest,
+                        contentDescription = video.title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp)
-                        )
-                    }
-                }
-
-                // Normal duration badge (hidden when actively playing teaser or scrubbing)
-                if (displayDurationText.isNotEmpty() && !isPreviewActive) {
-                    Text(
-                        text = displayDurationText,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .background(
-                                color = Color.Black.copy(alpha = 0.85f),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    AsyncImage(
+                        model = thumbnailImageRequest,
+                        contentDescription = video.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
 
-                // Series Season/Episode Pill badge on bottom-left of thumbnail
-                if (!seriesPillText.isNullOrEmpty() && !isPreviewActive) {
-                    Text(
-                        text = seriesPillText,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp)
-                            .background(
-                                color = Color.Black.copy(alpha = 0.88f),
-                                shape = RoundedCornerShape(6.dp)
+                // Subtle bottom gradient for badge legibility
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)),
+                                startY = 120f
                             )
-                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(48.dp)
                     )
                 }
+            }
 
-                if (showProviderBadge && sourceBadge.name.isNotBlank() && !isPreviewActive) {
-                    val isAdult = com.example.util.SourceTagHelper.isAdultSource(sourceBadge.providerIdKey)
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp),
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Black.copy(alpha = 0.82f),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            SourceBrandLogo(
-                                providerId = sourceBadge.providerIdKey,
-                                size = 13.dp,
-                                isAdultMode = isAdult
-                            )
-                            Text(
-                                text = sourceBadge.name,
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-
-                // ACTIVE TEASER / SCRUBBING OVERLAY: Teaser Frame info & Playing Indicator
-                if (isPreviewActive) {
-                    val estimatedSeconds = if (video.durationSeconds > 0) (scrubFraction * video.durationSeconds).toLong() else -1L
-                    val timeText = if (estimatedSeconds >= 0) {
-                        val m = (estimatedSeconds % 3600) / 60
-                        val s = estimatedSeconds % 60
-                        val h = estimatedSeconds / 3600
-                        if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
-                    } else null
-
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.88f),
-                        shape = RoundedCornerShape(16.dp),
-                        shadowElevation = 4.dp,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isAutoPlaying) Icons.Default.SlowMotionVideo else Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = Color(0xFFFF4081),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = if (isAutoPlaying) "Playing Teaser • ${currentFrameIndex + 1}/${previewFrames.size}" else "Teaser Clip • Frame ${currentFrameIndex + 1}/${previewFrames.size}",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (timeText != null) {
-                                Text(
-                                    text = "($timeText)",
-                                    color = Color(0xFFFFD54F),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                            if (isAutoPlaying) {
-                                Text(
-                                    text = "✕",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .clickable {
-                                            isAutoPlaying = false
-                                        }
-                                        .padding(start = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // ACTIVE TEASER / SCRUBBING: Animated Progress bar across bottom of thumbnail
-                if (isPreviewActive) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .background(Color.Black.copy(alpha = 0.5f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(fraction = scrubFraction.coerceIn(0.01f, 1f))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color(0xFFFF1744), Color(0xFFFF80AB), Color(0xFFFFD54F))
-                                    )
-                                )
+            // Normal duration badge
+            if (displayDurationText.isNotEmpty() && !isPreviewActive) {
+                Text(
+                    text = displayDurationText,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(4.dp)
                         )
-                    }
-                } else if (effectiveWatchProgress > 0f) {
-                    // Standard Red YouTube-style Watch Progress Bar on bottom of thumbnail
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .height(3.5.dp)
-                            .background(Color.DarkGray.copy(alpha = 0.6f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+
+            // Series Season/Episode Pill badge on bottom-left of thumbnail
+            if (!seriesPillText.isNullOrEmpty() && !isPreviewActive) {
+                Text(
+                    text = seriesPillText,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.88f),
+                            shape = RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                )
+            }
+
+            if (showProviderBadge && sourceBadge.name.isNotBlank() && !isPreviewActive) {
+                val isAdult = com.example.util.SourceTagHelper.isAdultSource(sourceBadge.providerIdKey)
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Black.copy(alpha = 0.82f),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(effectiveWatchProgress.coerceIn(0.01f, 1f))
-                                .background(Color.Red)
+                        SourceBrandLogo(
+                            providerId = sourceBadge.providerIdKey,
+                            size = 13.dp,
+                            isAdultMode = isAdult
+                        )
+                        Text(
+                            text = sourceBadge.name,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
             }
 
-            // Info Section
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                // Channel Logo or Avatar or Fallback
-                val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl, video.title) {
-                    com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl, video.title)
-                }
+            // ACTIVE TEASER / SCRUBBING OVERLAY
+            if (isPreviewActive) {
+                val estimatedSeconds = if (video.durationSeconds > 0) (scrubFraction * video.durationSeconds).toLong() else -1L
+                val timeText = if (estimatedSeconds >= 0) {
+                    val m = (estimatedSeconds % 3600) / 60
+                    val s = estimatedSeconds % 60
+                    val h = estimatedSeconds / 3600
+                    if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+                } else null
 
-                val targetChannelName = remember(video.uploaderName, brandInfo.brandName) {
-                    val sanitized = com.example.extractor.TencentProvider.sanitizeTencentChannelName(video.uploaderName)
-                    val lower = video.uploaderName.lowercase().trim()
-                    val isGenericSource = lower.contains("vidsrc") || lower.contains("decryptor") || lower.contains("tmdb") ||
-                            lower.contains("vixsrc") || lower.contains("vega") || lower.contains("hdhub") ||
-                            lower.contains("katmovie") || lower.contains("cinema release") || lower.contains("popular movie") ||
-                            lower.contains("verified studio") || lower.contains("official creator") || lower.contains("tv network") ||
-                            lower == "t" || lower.contains("wetv") || lower.contains("腾讯") || lower.contains("multi-server") ||
-                            lower.contains("1cinevood") || lower.contains("bollyflix") || lower.contains("movies4u")
-
-                    if (isGenericSource || sanitized.isBlank() || (brandInfo.brandName.isNotBlank() && brandInfo.brandName != "Official Creator")) {
-                        brandInfo.brandName
-                    } else {
-                        sanitized
+                Surface(
+                    color = Color.Black.copy(alpha = 0.88f),
+                    shape = RoundedCornerShape(16.dp),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isAutoPlaying) Icons.Default.SlowMotionVideo else Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFFFF4081),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = if (isAutoPlaying) "Playing Teaser • ${currentFrameIndex + 1}/${previewFrames.size}" else "Teaser Clip • Frame ${currentFrameIndex + 1}/${previewFrames.size}",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (timeText != null) {
+                            Text(
+                                text = "($timeText)",
+                                color = Color(0xFFFFD54F),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
                 }
+            }
 
+            // Progress bar on bottom of thumbnail
+            if (isPreviewActive) {
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(brandInfo.backgroundColor)
-                        .then(
-                            if (onChannelClick != null && targetChannelName.isNotBlank()) {
-                                Modifier.clickable { onChannelClick(targetChannelName) }
-                            } else Modifier
-                        ),
-                    contentAlignment = Alignment.Center
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .background(Color.Black.copy(alpha = 0.5f))
                 ) {
-                    if (brandInfo.logoUrls.isNotEmpty()) {
-                        val primaryUrl = brandInfo.logoUrls.first()
-                        val logoImageRequest = remember(primaryUrl) {
-                            ImageRequest.Builder(context)
-                                .data(primaryUrl)
-                                .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                                .size(coil.size.Size(width = 96, height = 96))
-                                .precision(coil.size.Precision.INEXACT)
-                                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
-                                .allowHardware(true)
-                                .allowRgb565(true)
-                                .crossfade(false)
-                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                                .build()
-                        }
-
-                        AsyncImage(
-                            model = logoImageRequest,
-                            contentDescription = video.uploaderName,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Text(
-                            text = brandInfo.brandShortText,
-                            color = brandInfo.textColor,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = activeTitle,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    if (hasTranslation && !localShowOriginal && !effectiveOriginalTitle.equals(activeTitle, ignoreCase = true)) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = effectiveOriginalTitle,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Normal
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    val youtubeMetadataLine = remember(
-                        targetChannelName,
-                        formattedViewsText,
-                        formattedTimeAgo,
-                        ratingTag,
-                        seriesPillText
-                    ) {
-                        com.example.util.DateUtils.buildYouTubeMetadataLine(
-                            channelName = targetChannelName,
-                            formattedViews = formattedViewsText,
-                            timeAgo = formattedTimeAgo,
-                            extraTag = ratingTag ?: if (targetChannelName.isBlank()) seriesPillText else null
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = youtubeMetadataLine,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Normal,
-                                lineHeight = 16.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .then(
-                                    if (onChannelClick != null && targetChannelName.isNotBlank()) {
-                                        Modifier.clickable { onChannelClick(targetChannelName) }
-                                    } else Modifier
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = scrubFraction.coerceIn(0.01f, 1f))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFFFF1744), Color(0xFFFF80AB), Color(0xFFFFD54F))
                                 )
-                        )
-
-                        if (hasTranslation) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                modifier = Modifier.clickable { localShowOriginal = !localShowOriginal }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Translate,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    Text(
-                                        text = if (localShowOriginal) "Show Translation" else "Original",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-                    }
-
+                            )
+                    )
                 }
-
-                // THREE-DOTS CONTEXT MENU BUTTON
-                IconButton(
-                    onClick = { showBottomSheet = true },
-                    modifier = Modifier.size(32.dp)
+            } else if (watchProgressFraction > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.5.dp)
+                        .background(Color.DarkGray.copy(alpha = 0.6f))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Video options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(watchProgressFraction.coerceIn(0.01f, 1f))
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                 }
             }
         }
+
+        // Info Section
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            val brandInfo = remember(video.uploaderName, video.uploaderAvatarUrl, video.title) {
+                com.example.util.ChannelLogoHelper.getBrandInfo(video.uploaderName, video.uploaderAvatarUrl, video.title)
+            }
+
+            val targetChannelName = remember(video.uploaderName, brandInfo.brandName) {
+                val sanitized = com.example.extractor.TencentProvider.sanitizeTencentChannelName(video.uploaderName)
+                val lower = video.uploaderName.lowercase().trim()
+                val isGenericSource = lower.contains("vidsrc") || lower.contains("decryptor") || lower.contains("tmdb") ||
+                        lower.contains("vixsrc") || lower.contains("vega") || lower.contains("hdhub") ||
+                        lower.contains("katmovie") || lower.contains("cinema release") || lower.contains("popular movie") ||
+                        lower.contains("verified studio") || lower.contains("official creator") || lower.contains("tv network") ||
+                        lower == "t" || lower.contains("wetv") || lower.contains("腾讯") || lower.contains("multi-server") ||
+                        lower.contains("1cinevood") || lower.contains("bollyflix") || lower.contains("movies4u")
+
+                val cleanFinal = if (isGenericSource || sanitized.isBlank()) {
+                    if (brandInfo.brandName.isNotBlank() && brandInfo.brandName != "Official Creator") brandInfo.brandName else "Verified Creator"
+                } else {
+                    sanitized
+                }
+                cleanFinal.replace("_", " ").trim()
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(brandInfo.backgroundColor)
+                    .then(
+                        if (onChannelClick != null && targetChannelName.isNotBlank()) {
+                            Modifier.clickable { onChannelClick(targetChannelName) }
+                        } else Modifier
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (brandInfo.logoUrls.isNotEmpty()) {
+                    val primaryUrl = brandInfo.logoUrls.first()
+                    val logoImageRequest = remember(primaryUrl, context) {
+                        ImageRequest.Builder(context)
+                            .data(primaryUrl)
+                            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            .size(96, 96)
+                            .precision(coil.size.Precision.INEXACT)
+                            .allowHardware(true)
+                            .allowRgb565(true)
+                            .crossfade(false)
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .build()
+                    }
+
+                    AsyncImage(
+                        model = logoImageRequest,
+                        contentDescription = video.uploaderName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = brandInfo.brandShortText,
+                        color = brandInfo.textColor,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (brandInfo.brandShortText.length > 3) 8.sp else 10.sp,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = activeTitle,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (hasTranslation && !localShowOriginal && !effectiveOriginalTitle.equals(activeTitle, ignoreCase = true)) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = effectiveOriginalTitle,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                val youtubeMetadataLine = remember(
+                    targetChannelName,
+                    formattedViewsText,
+                    formattedTimeAgo,
+                    ratingTag,
+                    seriesPillText
+                ) {
+                    com.example.util.DateUtils.buildYouTubeMetadataLine(
+                        channelName = targetChannelName,
+                        formattedViews = formattedViewsText,
+                        timeAgo = formattedTimeAgo,
+                        extraTag = ratingTag ?: if (targetChannelName.isBlank()) seriesPillText else null
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(3.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = youtubeMetadataLine,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 16.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .then(
+                                if (onChannelClick != null && targetChannelName.isNotBlank()) {
+                                    Modifier.clickable { onChannelClick(targetChannelName) }
+                                } else Modifier
+                            )
+                    )
+
+                    if (hasTranslation) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            modifier = Modifier.clickable { localShowOriginal = !localShowOriginal }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Translate,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Text(
+                                    text = if (localShowOriginal) "Show Translation" else "Original",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // THREE-DOTS CONTEXT MENU BUTTON
+            IconButton(
+                onClick = { showBottomSheet = true },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Video options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 
     if (showBottomSheet) {
         val sheetState = rememberModalBottomSheetState()
@@ -976,4 +822,3 @@ private fun VideoOptionMenuItem(
         )
     }
 }
-

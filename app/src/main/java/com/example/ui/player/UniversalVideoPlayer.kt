@@ -8,6 +8,8 @@ import android.content.pm.ActivityInfo
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
+import com.example.resolver.SourceCandidate
+import com.example.resolver.SourceStreamType
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -49,6 +51,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +61,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
+import android.view.HapticFeedbackConstants
+import androidx.compose.foundation.BorderStroke
 import com.example.model.CaptionOption
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -102,6 +108,7 @@ fun UniversalVideoPlayer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val rawVideoUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
 
     val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
@@ -181,6 +188,28 @@ fun UniversalVideoPlayer(
 
     val torrentEngine = remember(context) { com.example.torrent.engine.TorrentEngine.getInstance(context) }
     val torrentStats by torrentEngine.stats.collectAsState()
+
+    val seekbarPrefs = remember { com.example.util.SeekbarPreferences.getInstance(context) }
+    val enableTopSpeedGesture by seekbarPrefs.enableTopSpeedGesture.collectAsState()
+    val enableSlideToSeek by seekbarPrefs.enableSlideToSeek.collectAsState()
+    val enableTapToSeek by seekbarPrefs.enableTapToSeek.collectAsState()
+    val hidePlayerSeekbar by seekbarPrefs.hideVideoPlayerSeekbar.collectAsState()
+    val enableFullscreenLargeSeekbar by seekbarPrefs.enableFullscreenLargeSeekbar.collectAsState()
+    val enableCustomColor by seekbarPrefs.enableCustomSeekbarColor.collectAsState()
+    val seekbarColorHex by seekbarPrefs.seekbarColorHex.collectAsState()
+    val seekbarAccentColorHex by seekbarPrefs.seekbarAccentColorHex.collectAsState()
+    val enableGradientProgress by seekbarPrefs.enableGradientProgress.collectAsState()
+    val showHeatmapGraph by seekbarPrefs.showHeatmapGraph.collectAsState()
+    val showChapterMarkers by seekbarPrefs.showChapterMarkers.collectAsState()
+    val seekHapticsEnabled by seekbarPrefs.seekHapticsEnabled.collectAsState()
+    val doubleTapSeekIntervalSecs by seekbarPrefs.doubleTapSeekIntervalSecs.collectAsState()
+
+    var showSeekbarSettingsSheet by remember { mutableStateOf(false) }
+
+    // Top Playback Speed Gesture state
+    var isDraggingSpeed by remember { mutableStateOf(false) }
+    var speedGestureValue by remember { mutableFloatStateOf(playbackSpeed) }
+    var initialSpeedOnGestureStart by remember { mutableFloatStateOf(playbackSpeed) }
 
     // Gesture Controls State
     val coroutineScope = rememberCoroutineScope()
@@ -292,6 +321,20 @@ fun UniversalVideoPlayer(
         )
     }
 
+    val currentSubMode by GlobalPlayerManager.subtitleMode.collectAsState()
+    val selectedSubTrack by GlobalPlayerManager.selectedSubtitleTrack.collectAsState()
+    LaunchedEffect(streamData?.videoId, streamData?.captionOptions?.size) {
+        val captions = streamData?.captionOptions
+        if (!captions.isNullOrEmpty() && (selectedSubTrack == null || currentSubMode == GlobalPlayerManager.SubtitleMode.OFF)) {
+            val bestCaption = captions.firstOrNull {
+                it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
+            } ?: captions.firstOrNull()
+            if (bestCaption != null) {
+                GlobalPlayerManager.selectCaptionOption(bestCaption, context)
+            }
+        }
+    }
+
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
@@ -351,7 +394,7 @@ fun UniversalVideoPlayer(
 
     Box(
         modifier = playerContainerModifier
-            .pointerInput(isLandscape, isPortraitExpanded, seekSecs) {
+            .pointerInput(isLandscape, isPortraitExpanded, doubleTapSeekIntervalSecs, enableTopSpeedGesture, enableSlideToSeek, seekHapticsEnabled) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val startPos = down.position
@@ -361,6 +404,13 @@ fun UniversalVideoPlayer(
                     var isSwipingDownToMinimize = false
                     var isSwipingUpForLandscapeRelated = false
                     var isSwipingUpToCollapsePortrait = false
+                    var isPinching = false
+                    var initialPinchDistance = 0f
+                    var initialZoomOnPinch = zoomScale
+
+                    // Protect device system back gestures & back button: ignore horizontal seeks starting within 36dp of screen edges
+                    val edgeThresholdPx = 36f * (view.context.resources.displayMetrics.density)
+                    val isNearEdge = startPos.x <= edgeThresholdPx || startPos.x >= (size.width - edgeThresholdPx)
 
                     accumulatedDx = 0f
                     accumulatedDy = 0f
@@ -368,11 +418,44 @@ fun UniversalVideoPlayer(
                     val currentSysBri = getSystemBrightness(context)
                     initialBrightness = if (isAutoBrightness) currentSysBri else brightnessLevel
                     initialVolume = volumeLevel
+                    initialSpeedOnGestureStart = playbackSpeed
+                    speedGestureValue = playbackSpeed
                     isDraggingHorizontally = false
                     isDraggingVertically = false
+                    isDraggingSpeed = false
 
                     do {
                         val event = awaitPointerEvent()
+
+                        if (event.changes.size >= 2) {
+                            // Multi-touch Pinch to Zoom & Pan
+                            val p1 = event.changes[0].position
+                            val p2 = event.changes[1].position
+                            val currentDist = kotlin.math.sqrt((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y))
+
+                            if (!isPinching) {
+                                if (currentDist > 20f) {
+                                    isPinching = true
+                                    initialPinchDistance = currentDist
+                                    initialZoomOnPinch = zoomScale
+                                    isDraggingHorizontally = false
+                                    isDraggingVertically = false
+                                    isDraggingSpeed = false
+                                }
+                            } else if (initialPinchDistance > 10f) {
+                                event.changes.forEach { it.consume() }
+                                val factor = currentDist / initialPinchDistance
+                                val targetScale = (initialZoomOnPinch * factor).coerceIn(0.5f, 4.0f)
+                                zoomScale = targetScale
+                                val percent = (targetScale * 100).toInt()
+                                gestureNoticeText = "🔍 $percent% Zoom"
+                                gestureNoticeIcon = Icons.Default.ZoomIn
+                            }
+                            continue
+                        }
+
+                        if (isPinching) continue
+
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         val currentPos = change.position
                         val dx = currentPos.x - startPos.x
@@ -384,6 +467,12 @@ fun UniversalVideoPlayer(
                         }
 
                         if (hasPassedSlop) {
+                            // If touch started near horizontal edge and moving horizontally, do not consume or seek -> protect back button/gestures
+                            val isHorizontalIntent = kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f
+                            if (isNearEdge && isHorizontalIntent) {
+                                continue
+                            }
+
                             change.consume()
                             val dragAmountX = currentPos.x - (startPos.x + accumulatedDx)
                             val dragAmountY = currentPos.y - (startPos.y + accumulatedDy)
@@ -392,8 +481,12 @@ fun UniversalVideoPlayer(
                             val absDx = kotlin.math.abs(accumulatedDx)
                             val absDy = kotlin.math.abs(accumulatedDy)
 
-                            // Swipe down to minimize in portrait mode (only when NOT expanded)
-                            if (!isLandscape && !isPortraitExpanded && !isDraggingHorizontally && (onSwipeDownDrag != null || onBackClick != null)) {
+                            // Top Playback Speed Gesture check
+                            val totalHeight = size.height.toFloat().coerceAtLeast(100f)
+                            val isTopZone = startPos.y <= totalHeight * 0.35f
+
+                            // Swipe down to minimize in portrait mode (only when NOT expanded and not speed gesture)
+                            if (!isLandscape && !isPortraitExpanded && !isDraggingHorizontally && !isDraggingSpeed && (onSwipeDownDrag != null || onBackClick != null)) {
                                 if (isSwipingDownToMinimize || (accumulatedDy > 8f && accumulatedDy > absDx * 1.1f)) {
                                     isSwipingDownToMinimize = true
                                     onSwipeDownDrag?.invoke(dragAmountY)
@@ -402,7 +495,7 @@ fun UniversalVideoPlayer(
                             }
 
                             // Swipe up in portrait expanded mode to collapse back to standard 16:9 view
-                            if (isPortraitExpanded && !isDraggingHorizontally) {
+                            if (isPortraitExpanded && !isDraggingHorizontally && !isDraggingSpeed) {
                                 val isSwipeUpIntent = accumulatedDy < -8f && absDy > absDx * 1.1f
                                 if (isSwipingUpToCollapsePortrait || isSwipeUpIntent) {
                                     isSwipingUpToCollapsePortrait = true
@@ -412,7 +505,7 @@ fun UniversalVideoPlayer(
                             }
 
                             // Swipe up in landscape mode for related videos
-                            if (isLandscape && onOpenRelatedVideos != null && !isDraggingHorizontally) {
+                            if (isLandscape && onOpenRelatedVideos != null && !isDraggingHorizontally && !isDraggingSpeed) {
                                 val totalWidth = size.width.toFloat().coerceAtLeast(100f)
                                 val isCenterZone = startPos.x >= totalWidth * 0.35f && startPos.x <= totalWidth * 0.65f
                                 val isSwipeUpIntent = accumulatedDy < -16f && absDy > absDx * 1.1f
@@ -422,25 +515,45 @@ fun UniversalVideoPlayer(
                                 }
                             }
 
-                            if (!isDraggingHorizontally && !isDraggingVertically && !isSwipingUpForLandscapeRelated) {
-                                if (absDx > 12f && absDx > absDy) {
+                            if (!isDraggingHorizontally && !isDraggingVertically && !isDraggingSpeed && !isSwipingUpForLandscapeRelated) {
+                                if (enableTopSpeedGesture && isTopZone && absDx > 10f && absDx > absDy) {
+                                    isDraggingSpeed = true
+                                } else if (!isNearEdge && absDx > 24f && absDx > absDy * 1.35f) {
                                     isDraggingHorizontally = true
-                                } else if (absDy > 12f && absDy > absDx) {
+                                } else if (absDy > 16f && absDy > absDx * 1.2f) {
                                     isDraggingVertically = true
                                 }
                             }
 
-                            if (isDraggingHorizontally) {
+                            if (isDraggingSpeed) {
                                 val totalWidth = size.width.toFloat().coerceAtLeast(100f)
-                                val durationMs = GlobalPlayerManager.durationMs.value.coerceAtLeast(1L)
-                                val maxSweepSecs = (durationMs / 1000L * 0.20f).coerceIn(30f, 180f)
-                                val deltaSecs = ((accumulatedDx / totalWidth) * maxSweepSecs).toLong()
-                                val targetPos = (dragStartPosMs + (deltaSecs * 1000L)).coerceIn(0L, durationMs)
+                                val speedDelta = (accumulatedDx / (totalWidth * 0.40f))
+                                val rawSpeed = (initialSpeedOnGestureStart + speedDelta).coerceIn(0.25f, 3.0f)
+                                val snapped = (Math.round(rawSpeed * 20.0) / 20.0).toFloat().coerceIn(0.25f, 3.0f)
+                                if (snapped != speedGestureValue) {
+                                    speedGestureValue = snapped
+                                    playbackSpeed = snapped
+                                    if (seekHapticsEnabled) {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    GlobalPlayerManager.setPlaybackSpeed(snapped)
+                                    playbackPrefs.setDefaultSpeed(snapped)
+                                }
+                                gestureNoticeText = "⚡ ${String.format(java.util.Locale.US, "%.2f", speedGestureValue)}x Speed"
+                                gestureNoticeIcon = Icons.Default.Speed
+                            } else if (isDraggingHorizontally) {
+                                if (enableSlideToSeek) {
+                                    val totalWidth = size.width.toFloat().coerceAtLeast(100f)
+                                    val durationMs = GlobalPlayerManager.durationMs.value.coerceAtLeast(1L)
+                                    val maxSweepSecs = (durationMs / 1000L * 0.20f).coerceIn(30f, 180f)
+                                    val deltaSecs = ((accumulatedDx / totalWidth) * maxSweepSecs).toLong()
+                                    val targetPos = (dragStartPosMs + (deltaSecs * 1000L)).coerceIn(0L, durationMs)
 
-                                GlobalPlayerManager.seekTo(targetPos)
-                                val sign = if (deltaSecs >= 0) "+" else ""
-                                gestureNoticeText = "$sign${deltaSecs}s (${formatVideoTimestamp(targetPos)} / ${formatVideoTimestamp(durationMs)})"
-                                gestureNoticeIcon = if (deltaSecs >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
+                                    GlobalPlayerManager.seekTo(targetPos)
+                                    val sign = if (deltaSecs >= 0) "+" else ""
+                                    gestureNoticeText = "$sign${deltaSecs}s (${formatVideoTimestamp(targetPos)} / ${formatVideoTimestamp(durationMs)})"
+                                    gestureNoticeIcon = if (deltaSecs >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
+                                }
                             } else if (isDraggingVertically && !isSwipingUpForLandscapeRelated) {
                                 // Volume and Brightness gestures only active when player controls are faded away
                                 if (!areControlsVisible) {
@@ -520,6 +633,15 @@ fun UniversalVideoPlayer(
                         }
                     } while (event.changes.any { it.pressed })
 
+                    if (isPinching) {
+                        if (zoomScale in 0.93f..1.07f) {
+                            zoomScale = 1.0f
+                            zoomOffsetX = 0f
+                            zoomOffsetY = 0f
+                        }
+                        isPinching = false
+                    }
+
                     if (hasPassedSlop) {
                         if (isSwipingUpToCollapsePortrait) {
                             if (onPortraitCollapseEnd != null) {
@@ -543,6 +665,7 @@ fun UniversalVideoPlayer(
                             }
                             isSwipingDownToMinimize = false
                         }
+                        isDraggingSpeed = false
                         isDraggingHorizontally = false
                         isDraggingVertically = false
                         verticalGestureJob?.cancel()
@@ -559,63 +682,72 @@ fun UniversalVideoPlayer(
                             if (timeSinceLastTap < 350 && tapDistSq < touchSlop * touchSlop * 4) {
                                 // DOUBLE TAP
                                 lastTapTimestamp = 0L
-                                val totalWidth = size.width
-                                val leftBoundary = totalWidth * 0.35f
-                                val rightBoundary = totalWidth * 0.65f
-                                val stepSecs = seekSecs
 
-                                if (startPos.x < leftBoundary) {
-                                    val newSeconds = if (doubleTapSeekDirection == "LEFT") {
-                                        doubleTapAccumulatedSeconds + stepSecs
-                                    } else {
-                                        stepSecs
-                                    }
-                                    doubleTapSeekDirection = "LEFT"
-                                    doubleTapAccumulatedSeconds = newSeconds
-
-                                    val seekMs = stepSecs * 1000L
-                                    val targetPos = (exoPlayer.currentPosition - seekMs).coerceAtLeast(0L)
-                                    GlobalPlayerManager.seekTo(targetPos)
-
-                                    doubleTapSeekJob?.cancel()
-                                    doubleTapSeekJob = coroutineScope.launch {
-                                        delay(650)
-                                        doubleTapSeekDirection = null
-                                        doubleTapAccumulatedSeconds = 0
-                                    }
-                                } else if (startPos.x > rightBoundary) {
-                                    val newSeconds = if (doubleTapSeekDirection == "RIGHT") {
-                                        doubleTapAccumulatedSeconds + stepSecs
-                                    } else {
-                                        stepSecs
-                                    }
-                                    doubleTapSeekDirection = "RIGHT"
-                                    doubleTapAccumulatedSeconds = newSeconds
-
-                                    val seekMs = stepSecs * 1000L
-                                    val targetPos = exoPlayer.currentPosition + seekMs
-                                    GlobalPlayerManager.seekTo(targetPos)
-
-                                    doubleTapSeekJob?.cancel()
-                                    doubleTapSeekJob = coroutineScope.launch {
-                                        delay(650)
-                                        doubleTapSeekDirection = null
-                                        doubleTapAccumulatedSeconds = 0
-                                    }
+                                if (zoomScale > 1.07f) {
+                                    // Double tap while zoomed resets zoom cleanly to 1.0x (100% Fit)
+                                    zoomScale = 1.0f
+                                    zoomOffsetX = 0f
+                                    zoomOffsetY = 0f
+                                    gestureNoticeText = "🔍 100% (Fit)"
+                                    gestureNoticeIcon = Icons.Default.ZoomOut
                                 } else {
-                                    val isCurrentlyPlaying = GlobalPlayerManager.isPlaying.value
-                                    if (isCurrentlyPlaying) {
-                                        GlobalPlayerManager.pause()
-                                        centerPlayPauseFeedback = false
-                                    } else {
-                                        GlobalPlayerManager.play()
-                                        centerPlayPauseFeedback = true
-                                    }
+                                    val totalWidth = size.width
+                                    val leftBoundary = totalWidth * 0.35f
+                                    val rightBoundary = totalWidth * 0.65f
+                                    val stepSecs = doubleTapSeekIntervalSecs
 
-                                    centerPlayPauseJob?.cancel()
-                                    centerPlayPauseJob = coroutineScope.launch {
-                                        delay(600)
-                                        centerPlayPauseFeedback = null
+                                    if (startPos.x < leftBoundary) {
+                                        val newSeconds = if (doubleTapSeekDirection == "LEFT") {
+                                            doubleTapAccumulatedSeconds + stepSecs
+                                        } else {
+                                            stepSecs
+                                        }
+                                        doubleTapSeekDirection = "LEFT"
+                                        doubleTapAccumulatedSeconds = newSeconds
+
+                                        val seekMs = stepSecs * 1000L
+                                        val targetPos = (exoPlayer.currentPosition - seekMs).coerceAtLeast(0L)
+                                        GlobalPlayerManager.seekTo(targetPos)
+
+                                        doubleTapSeekJob?.cancel()
+                                        doubleTapSeekJob = coroutineScope.launch {
+                                            delay(650)
+                                            doubleTapSeekDirection = null
+                                            doubleTapAccumulatedSeconds = 0
+                                        }
+                                    } else if (startPos.x > rightBoundary) {
+                                        val newSeconds = if (doubleTapSeekDirection == "RIGHT") {
+                                            doubleTapAccumulatedSeconds + stepSecs
+                                        } else {
+                                            stepSecs
+                                        }
+                                        doubleTapSeekDirection = "RIGHT"
+                                        doubleTapAccumulatedSeconds = newSeconds
+
+                                        val seekMs = stepSecs * 1000L
+                                        val targetPos = exoPlayer.currentPosition + seekMs
+                                        GlobalPlayerManager.seekTo(targetPos)
+
+                                        doubleTapSeekJob?.cancel()
+                                        doubleTapSeekJob = coroutineScope.launch {
+                                            delay(650)
+                                            doubleTapSeekDirection = null
+                                            doubleTapAccumulatedSeconds = 0
+                                        }
+                                    } else {
+                                        val isCurrentlyPlaying = GlobalPlayerManager.isPlaying.value
+                                        if (isCurrentlyPlaying) {
+                                            GlobalPlayerManager.pause()
+                                            centerPlayPauseFeedback = false
+                                        } else {
+                                            GlobalPlayerManager.play()
+                                            centerPlayPauseFeedback = true
+                                        }
+                                        centerPlayPauseJob?.cancel()
+                                        centerPlayPauseJob = coroutineScope.launch {
+                                            delay(600)
+                                            centerPlayPauseFeedback = null
+                                        }
                                     }
                                 }
                             } else {
@@ -655,18 +787,49 @@ fun UniversalVideoPlayer(
             } else {
                 Modifier.fillMaxSize()
             }
-            PersistentPlayerHost(
-                useController = false,
-                resizeMode = if (customAspectRatio != null) AspectRatioFrameLayout.RESIZE_MODE_FILL else resizeModeState,
-                onFullscreenClick = {
-                    toggleFullscreen(currentPlayerContext)
-                },
-                modifier = hostModifier
-            )
+            val currentStream = streamData ?: activeStreamData
+            val currentOption = streamOption ?: currentStream?.selectedStreamOption ?: currentStream?.availableStreamOptions?.firstOrNull()
+            val isEmbedFormat = currentOption?.format.equals("embed", true) ||
+                    (currentOption?.videoUrl?.contains("tubitv.com") == true && currentOption?.videoUrl?.contains(".m3u8") != true && currentOption?.videoUrl?.contains(".mp4") != true)
+
+            if (isEmbedFormat) {
+                val embedUrl = currentOption?.videoUrl ?: "https://tubitv.com/"
+                val embedCandidate = remember(embedUrl) {
+                    SourceCandidate(
+                        id = "embed_${embedUrl.hashCode()}",
+                        providerId = currentStream?.providerId ?: "tubitv",
+                        providerName = currentOption?.sourceName ?: "Tubi TV Web Player",
+                        serverName = "Tubi TV Web",
+                        type = SourceStreamType.EMBED_WEBVIEW,
+                        title = currentStream?.title ?: "Tubi TV Embed",
+                        urlOrMagnet = embedUrl,
+                        quality = currentOption?.qualityLabel ?: "HD 1080p",
+                        headers = currentOption?.headers ?: mapOf(
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                            "Referer" to "https://tubitv.com/",
+                            "Origin" to "https://tubitv.com",
+                            "X-Forwarded-For" to "208.80.154.224"
+                        )
+                    )
+                }
+                EmbedWebViewPlayer(
+                    candidate = embedCandidate,
+                    onClose = { GlobalPlayerManager.pause() },
+                    modifier = hostModifier
+                )
+            } else {
+                PersistentPlayerHost(
+                    useController = false,
+                    resizeMode = if (customAspectRatio != null) AspectRatioFrameLayout.RESIZE_MODE_FILL else resizeModeState,
+                    onFullscreenClick = {
+                        toggleFullscreen(currentPlayerContext)
+                    },
+                    modifier = hostModifier
+                )
+            }
 
             // YouTube-style seamless thumbnail cover:
             // Displayed while buffering / before first frame renders so the player is NEVER a black box!
-            val currentStream = streamData ?: activeStreamData
             val effectiveThumbnailUrl = currentStream?.thumbnailUrl?.takeIf { it.isNotBlank() }
                 ?: previewItem?.thumbnailUrl?.takeIf { it.isNotBlank() }
                 ?: (if (videoId != null && videoId.length == 11 && !videoId.startsWith("http")) "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" else null)
@@ -1198,53 +1361,157 @@ fun UniversalVideoPlayer(
                                 }
                             }
 
-                            // Right: Fullscreen Toggle Button (Clean YouTube style)
-                            IconButton(
-                                onClick = {
-                                    GlobalPlayerManager.showControls()
-                                    if (isPortraitExpanded) {
-                                        onTogglePortraitExpanded?.invoke() ?: onBackClick?.invoke()
-                                    } else {
-                                        toggleFullscreen(currentPlayerContext)
-                                    }
-                                },
-                                modifier = Modifier.size(36.dp)
+                            // Right: Aspect Ratio Button & Fullscreen Toggle Button
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(
-                                    imageVector = if (isLandscape || isPortraitExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                    contentDescription = "Toggle Fullscreen",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                // Aspect Ratio Button (Tap to cycle, Long press for custom ratio sheet)
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .pointerInput(customAspectRatioLabel, resizeModeState) {
+                                            detectTapGestures(
+                                                onTap = {
+                                                    GlobalPlayerManager.showControls()
+                                                    val nextLabel: String
+                                                    val nextRatio: Float?
+                                                    val nextResizeMode: Int
+                                                    when (customAspectRatioLabel) {
+                                                        "Fit", "Default" -> {
+                                                            nextLabel = "Crop (Zoom)"
+                                                            nextRatio = null
+                                                            nextResizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                                        }
+                                                        "Crop (Zoom)", "Crop" -> {
+                                                            nextLabel = "Stretch (Fill)"
+                                                            nextRatio = null
+                                                            nextResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                                        }
+                                                        "Stretch (Fill)", "Stretch" -> {
+                                                            nextLabel = "16:9"
+                                                            nextRatio = 16f / 9f
+                                                            nextResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                                        }
+                                                        "16:9" -> {
+                                                            nextLabel = "4:3"
+                                                            nextRatio = 4f / 3f
+                                                            nextResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                                        }
+                                                        "4:3" -> {
+                                                            nextLabel = "21:9"
+                                                            nextRatio = 21f / 9f
+                                                            nextResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                                        }
+                                                        else -> {
+                                                            nextLabel = "Fit"
+                                                            nextRatio = null
+                                                            nextResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                                        }
+                                                    }
+                                                    customAspectRatio = nextRatio
+                                                    customAspectRatioLabel = nextLabel
+                                                    resizeModeState = nextResizeMode
+                                                    gestureNoticeText = "📐 Aspect: $nextLabel"
+                                                    gestureNoticeIcon = Icons.Default.AspectRatio
+                                                    Toast.makeText(context, "Aspect Ratio: $nextLabel", Toast.LENGTH_SHORT).show()
+                                                },
+                                                onLongPress = {
+                                                    GlobalPlayerManager.showControls()
+                                                    showAspectRatioSheet = true
+                                                }
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AspectRatio,
+                                        contentDescription = "Aspect Ratio (Tap to cycle, Long press for custom)",
+                                        tint = if (customAspectRatio != null || resizeModeState != AspectRatioFrameLayout.RESIZE_MODE_FIT) MaterialTheme.colorScheme.primary else Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                // Fullscreen Toggle Button (Clean YouTube style)
+                                IconButton(
+                                    onClick = {
+                                        GlobalPlayerManager.showControls()
+                                        if (isPortraitExpanded) {
+                                            onTogglePortraitExpanded?.invoke() ?: onBackClick?.invoke()
+                                        } else {
+                                            toggleFullscreen(currentPlayerContext)
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isLandscape || isPortraitExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                        contentDescription = "Toggle Fullscreen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
                         }
                     }
 
                     // 2. YouTube Precise Progress Bar (Stationary, anchored to bottom with 0 vertical movement)
-                    YouTubePreciseSeekBar(
-                        currentPositionMs = currentPosMs,
-                        durationMs = totalDurMs,
-                        bufferedPositionMs = bufferedPosMs,
-                        isControlsVisible = areControlsVisible,
-                        segments = smartSkipSegments,
-                        chapters = effectiveChapters,
-                        heatmap = currentStream?.heatmap,
-                        isLandscape = isLandscape,
-                        previewFrames = candidateFrames,
-                        fallbackThumbnailUrl = currentStream?.thumbnailUrl ?: previewItem?.thumbnailUrl,
-                        activeColor = Color(0xFFFFD600),
-                        thumbColor = Color(0xFFFFD600),
-                        onSlideUpForFineScrubbing = {
-                            showFineScrubbing = true
-                        },
-                        onSeekStarted = { GlobalPlayerManager.showControls() },
-                        onSeekScrubbing = { scrubMs ->
-                            GlobalPlayerManager.seekTo(scrubMs)
-                        },
-                        onSeekFinished = { targetMs ->
-                            GlobalPlayerManager.seekTo(targetMs)
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                    if (!hidePlayerSeekbar) {
+                        val activeSeekbarColor = remember(enableCustomColor, seekbarColorHex) {
+                            if (enableCustomColor) com.example.util.SeekbarPreferences.parseHexColor(seekbarColorHex, Color(0xFFFFD400))
+                            else Color(0xFFFFD400)
+                        }
+                        val accentSeekbarColor = remember(enableCustomColor, seekbarAccentColorHex) {
+                            if (enableCustomColor) com.example.util.SeekbarPreferences.parseHexColor(seekbarAccentColorHex, Color(0xFFFF4081))
+                            else Color(0xFFFF4081)
+                        }
+
+                        YouTubePreciseSeekBar(
+                            currentPositionMs = currentPosMs,
+                            durationMs = totalDurMs,
+                            bufferedPositionMs = bufferedPosMs,
+                            isControlsVisible = areControlsVisible,
+                            segments = smartSkipSegments,
+                            chapters = effectiveChapters,
+                            heatmap = currentStream?.heatmap,
+                            isLandscape = isLandscape,
+                            previewFrames = candidateFrames,
+                            fallbackThumbnailUrl = currentStream?.thumbnailUrl ?: previewItem?.thumbnailUrl,
+                            activeColor = activeSeekbarColor,
+                            accentColor = accentSeekbarColor,
+                            thumbColor = activeSeekbarColor,
+                            enableGradient = enableGradientProgress,
+                            showHeatmap = showHeatmapGraph,
+                            showChapters = showChapterMarkers,
+                            isLargeSeekbar = enableFullscreenLargeSeekbar && (isLandscape || isPortraitExpanded),
+                            enableTapToSeek = enableTapToSeek,
+                            hapticsEnabled = seekHapticsEnabled,
+                            onSlideUpForFineScrubbing = {
+                                showFineScrubbing = true
+                            },
+                            onSeekStarted = { GlobalPlayerManager.showControls() },
+                            onSeekScrubbing = { scrubMs ->
+                                GlobalPlayerManager.seekTo(scrubMs)
+                            },
+                            onSeekFinished = { targetMs ->
+                                GlobalPlayerManager.seekTo(targetMs)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // Playback Diagnostics ("Stats for Nerds") HUD Overlay
+                val showDiagnostics by com.example.ui.player.metrics.PlaybackMetricsTracker.showDiagnosticsOverlay.collectAsState()
+                if (showDiagnostics) {
+                    com.example.ui.player.diagnostics.PlaybackDiagnosticsOverlay(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = 12.dp, start = 12.dp),
+                        onDismiss = {
+                            com.example.ui.player.metrics.PlaybackMetricsTracker.setDiagnosticsOverlayVisible(false)
+                        }
                     )
                 }
             }
@@ -1376,16 +1643,16 @@ fun UniversalVideoPlayer(
                                 }
                             }
 
-                            // YouTube Interactive Fine-Tuning Card
+                            // YouTube-style Fine-Tuning Slider Card
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(16.dp),
+                                    modifier = Modifier.padding(14.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1399,80 +1666,78 @@ fun UniversalVideoPlayer(
                                                 playbackSpeed = rounded
                                                 GlobalPlayerManager.setPlaybackSpeed(rounded)
                                                 playbackPrefs.setDefaultSpeed(rounded)
-                                                Toast.makeText(context, "Changed default playback speed to ${String.format("%.2f", rounded)}x", Toast.LENGTH_SHORT).show()
                                             },
                                             modifier = Modifier
-                                                .size(42.dp)
+                                                .size(38.dp)
                                                 .background(MaterialTheme.colorScheme.surface, CircleShape)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Remove,
                                                 contentDescription = "Decrease speed",
-                                                tint = MaterialTheme.colorScheme.onSurface
+                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
 
-                                        Text(
-                                            text = "${String.format("%.2f", playbackSpeed)}x",
-                                            style = MaterialTheme.typography.headlineMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                text = "${String.format("%.2f", playbackSpeed)}x",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = if (Math.abs(playbackSpeed - 1.0f) < 0.03f) "Normal" else "Custom Speed",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
 
                                         IconButton(
                                             onClick = {
-                                                val newSpeed = (playbackSpeed + 0.05f).coerceAtMost(5.0f)
+                                                val newSpeed = (playbackSpeed + 0.05f).coerceAtMost(4.0f)
                                                 val rounded = Math.round(newSpeed * 100f) / 100f
                                                 playbackSpeed = rounded
                                                 GlobalPlayerManager.setPlaybackSpeed(rounded)
                                                 playbackPrefs.setDefaultSpeed(rounded)
-                                                Toast.makeText(context, "Changed default playback speed to ${String.format("%.2f", rounded)}x", Toast.LENGTH_SHORT).show()
                                             },
                                             modifier = Modifier
-                                                .size(42.dp)
+                                                .size(38.dp)
                                                 .background(MaterialTheme.colorScheme.surface, CircleShape)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Add,
                                                 contentDescription = "Increase speed",
-                                                tint = MaterialTheme.colorScheme.onSurface
+                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
                                     }
 
-                                    // Horizontal Speed Pills
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f).forEach { speed ->
-                                            val isSelected = (Math.abs(playbackSpeed - speed) < 0.03f)
-                                            val label = if (speed == 1.0f) "1.0 Normal" else if (speed % 1.0f == 0f) "${speed.toInt()}" else "$speed"
-                                            FilterChip(
-                                                selected = isSelected,
-                                                onClick = {
-                                                    playbackSpeed = speed
-                                                    GlobalPlayerManager.setPlaybackSpeed(speed)
-                                                    playbackPrefs.setDefaultSpeed(speed)
-                                                    Toast.makeText(context, "Changed default playback speed to ${if (speed == 1.0f) "1.0" else "$speed"}x", Toast.LENGTH_SHORT).show()
-                                                },
-                                                label = { Text(label) },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                                    containerColor = MaterialTheme.colorScheme.surface,
-                                                    labelColor = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            )
-                                        }
-                                    }
+                                    // Smooth Slider
+                                    Slider(
+                                        value = playbackSpeed.coerceIn(0.25f, 3.0f),
+                                        onValueChange = { newRaw ->
+                                            val rounded = Math.round(newRaw * 20f) / 20f
+                                            playbackSpeed = rounded
+                                            GlobalPlayerManager.setPlaybackSpeed(rounded)
+                                            playbackPrefs.setDefaultSpeed(rounded)
+                                        },
+                                        valueRange = 0.25f..3.0f,
+                                        modifier = Modifier.fillMaxWidth().height(24.dp)
+                                    )
                                 }
                             }
 
-                            // Preset Choices List
-                            speedOptions.take(8).forEach { speed ->
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+
+                            // YouTube Standard Speed Preset Rows
+                            val standardYtSpeeds = listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+                            standardYtSpeeds.forEach { speed ->
                                 val isSelected = (Math.abs(playbackSpeed - speed) < 0.03f)
                                 Row(
                                     modifier = Modifier
@@ -1482,7 +1747,6 @@ fun UniversalVideoPlayer(
                                             playbackSpeed = speed
                                             GlobalPlayerManager.setPlaybackSpeed(speed)
                                             playbackPrefs.setDefaultSpeed(speed)
-                                            Toast.makeText(context, "Changed default playback speed to ${if (speed == 1.0f) "1.0" else "$speed"}x", Toast.LENGTH_SHORT).show()
                                             showSpeedSubMenu = false
                                             showSettingsSheet = false
                                         }
@@ -1491,8 +1755,9 @@ fun UniversalVideoPlayer(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (speed == 1.0f) "Normal (1.0x)" else "${speed}x",
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        text = if (speed == 1.0f) "Normal" else "${speed}x",
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 15.sp,
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
                                     if (isSelected) {
@@ -1809,6 +2074,61 @@ fun UniversalVideoPlayer(
                                         uncheckedTrackColor = Color.DarkGray
                                     )
                                 )
+                            }
+
+                            // 4. Media Byte Cache & Data Saver Status
+                            val cachedSizeBytes = remember { com.example.ui.player.cache.MediaCacheManager.getCacheSizeBytes(context) }
+                            val cachedSizeMb = remember(cachedSizeBytes) { String.format("%.1f", cachedSizeBytes / (1024f * 1024f)) }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF9C27B0).copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Storage,
+                                            contentDescription = "Media Cache",
+                                            tint = Color(0xFFBA68C8),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Media Byte Cache ($cachedSizeMb MB)",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Saves cellular data by serving replays & backward seeks locally",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.LightGray.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        com.example.ui.player.cache.MediaCacheManager.clearCache(context)
+                                        Toast.makeText(context, "Media cache purged", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text("Clear", color = Color(0xFFFF5252), fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     } else {
@@ -2220,6 +2540,78 @@ fun UniversalVideoPlayer(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
+
+                        // Playback Diagnostics ("Stats for Nerds")
+                        val showDiagnosticsState by com.example.ui.player.metrics.PlaybackMetricsTracker.showDiagnosticsOverlay.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    com.example.ui.player.metrics.PlaybackMetricsTracker.toggleDiagnosticsOverlay()
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Speed,
+                                    contentDescription = "Playback Diagnostics",
+                                    tint = if (showDiagnosticsState) Color(0xFF4ADE80) else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Playback Diagnostics (Stats for Nerds)",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = if (showDiagnosticsState) "Active" else "Off",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (showDiagnosticsState) Color(0xFF4ADE80) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (showDiagnosticsState) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+
+                        // 9. Seekbar & Gestures Settings
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showSettingsSheet = false
+                                    showSeekbarSettingsSheet = true
+                                }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LinearScale,
+                                    contentDescription = "Seekbar & Gestures",
+                                    tint = if (enableCustomColor) com.example.util.SeekbarPreferences.parseHexColor(seekbarColorHex, Color(0xFFFFD400)) else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Seekbar & Gestures",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = if (enableCustomColor) "Customized" else "Default",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -2280,7 +2672,10 @@ fun UniversalVideoPlayer(
             SubtitleSettingsSheet(
                 availableCaptions = streamData?.captionOptions ?: emptyList(),
                 selectedCaption = captionOption,
-                onSelectCaption = { caption -> onSelectCaptionOption(caption) },
+                onSelectCaption = { caption ->
+                    GlobalPlayerManager.selectCaptionOption(caption, context)
+                    onSelectCaptionOption(caption)
+                },
                 onDismiss = { showSubtitleSheet = false }
             )
         }
@@ -2682,6 +3077,48 @@ fun UniversalVideoPlayer(
             }
         }
 
+        // Top Playback Speed Gesture Floating HUD Pill
+        AnimatedVisibility(
+            visible = isDraggingSpeed || (gestureNoticeText != null && gestureNoticeIcon == Icons.Default.Speed),
+            enter = fadeIn(tween(100)) + scaleIn(initialScale = 0.9f),
+            exit = fadeOut(tween(250)) + scaleOut(targetScale = 0.9f),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = if (isLandscape) 28.dp else 16.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = Color(0xFA141414),
+                border = BorderStroke(1.dp, Color(0xFFFFD400).copy(alpha = 0.6f)),
+                shadowElevation = 10.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = "Playback Speed",
+                        tint = Color(0xFFFFD400),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "${String.format(java.util.Locale.US, "%.2f", speedGestureValue)}x",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = if (isDraggingSpeed) "• Swipe to adjust" else "Speed set",
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+
         // Google Lens, Circle-to-Search & On-Device OCR Text Recognition Layer
         if (showLensOverlay) {
             com.example.ui.player.lens.PlayerLensOverlay(
@@ -2696,6 +3133,18 @@ fun UniversalVideoPlayer(
                     }
                 }
             )
+        }
+
+        // Seekbar & Gesture Settings Dialog
+        if (showSeekbarSettingsSheet) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showSeekbarSettingsSheet = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                com.example.ui.screens.SeekbarSettingsScreen(
+                    onBackClick = { showSeekbarSettingsSheet = false }
+                )
+            }
         }
     }
 }

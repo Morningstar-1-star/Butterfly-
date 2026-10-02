@@ -161,17 +161,19 @@ fun PlayerLensOverlay(
             val uri = PlayerFrameCaptureHelper.saveBitmapToTempUri(context, cropped)
             activeCroppedUri = uri
 
-            // Extract text in this region
-            val matchedText = if (normRect != null) {
+            // Extract text in this region with multi-pass OCR
+            val cropDirectText = VisualLensEngine.recognizeDirectTextFromBitmap(cropped)
+            val matchedBlockText = if (normRect != null) {
                 recognizedBlocks.filter { block ->
                     RectF.intersects(block.normalizedBoundingBox, normRect)
                 }.joinToString(" ") { it.text }
             } else {
                 ""
             }
-            selectedText = matchedText.ifBlank { null }
+            val effectiveExtractedText = cropDirectText.ifBlank { matchedBlockText.ifBlank { "" } }
+            selectedText = effectiveExtractedText.ifBlank { null }
 
-            val initialQuery = customQuery ?: matchedText.ifBlank { videoTitle?.let { "$it visual search" } ?: "" }
+            val initialQuery = customQuery ?: effectiveExtractedText.ifBlank { videoTitle?.let { "$it visual search" } ?: "" }
             if (initialQuery.isNotBlank() && searchQueryInput.isBlank()) {
                 searchQueryInput = initialQuery
             }
@@ -190,7 +192,7 @@ fun PlayerLensOverlay(
             // 2. Generate comprehensive AI Overview and visual links
             val analysis = VisualLensEngine.generateAiOverview(
                 context = context,
-                extractedText = matchedText.ifBlank { null },
+                extractedText = effectiveExtractedText.ifBlank { null },
                 userCustomQuery = customQuery ?: searchQueryInput.ifBlank { null },
                 videoContextTitle = videoTitle,
                 publicImageUrl = uploadedUrl

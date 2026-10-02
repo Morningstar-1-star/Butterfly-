@@ -15,21 +15,184 @@ object SubtitleParser {
         if (trimmed.isEmpty()) return emptyList()
 
         return when {
-            format == SubtitleFormat.JSON || (trimmed.startsWith("{") && trimmed.contains("\"body\"")) -> {
-                com.example.util.SubtitleTranslator.parseBilibiliSubtitleJson(trimmed)
+            trimmed.startsWith("{") && (trimmed.contains("\"events\"") || trimmed.contains("\"body\"") || trimmed.contains("\"transcript\"")) -> {
+                if (trimmed.contains("\"events\"")) {
+                    val j3 = parseJson3(trimmed)
+                    if (j3.isNotEmpty()) j3 else com.example.util.SubtitleTranslator.parseBilibiliSubtitleJson(trimmed)
+                } else {
+                    com.example.util.SubtitleTranslator.parseBilibiliSubtitleJson(trimmed)
+                }
             }
-            format == SubtitleFormat.VTT || trimmed.startsWith("WEBVTT") -> {
-                parseWebVtt(trimmed)
+            trimmed.startsWith("<") && (trimmed.contains("<text") || trimmed.contains("<p") || trimmed.contains("<transcript") || trimmed.contains("<tt") || trimmed.contains("<timedtext")) -> {
+                parseXmlTimedText(trimmed)
             }
-            format == SubtitleFormat.ASS || format == SubtitleFormat.SSA || trimmed.contains("[Events]") || trimmed.contains("[Script Info]") -> {
-                parseAssSsa(trimmed)
+            trimmed.startsWith("WEBVTT") || (trimmed.contains("-->") && !trimmed.contains("<text")) -> {
+                val cues = parseWebVtt(trimmed)
+                if (cues.isNotEmpty()) cues else parseXmlTimedText(trimmed).ifEmpty { parseSrt(trimmed) }
+            }
+            trimmed.contains("[Events]") || trimmed.contains("[Script Info]") -> {
+                val cues = parseAssSsa(trimmed)
+                if (cues.isNotEmpty()) cues else parseSrt(trimmed)
+            }
+            format == SubtitleFormat.JSON -> {
+                val j3 = parseJson3(trimmed)
+                if (j3.isNotEmpty()) j3 else com.example.util.SubtitleTranslator.parseBilibiliSubtitleJson(trimmed)
+            }
+            format == SubtitleFormat.VTT -> {
+                val cues = parseWebVtt(trimmed)
+                if (cues.isNotEmpty()) cues else parseXmlTimedText(trimmed).ifEmpty { parseSrt(trimmed) }
+            }
+            format == SubtitleFormat.ASS || format == SubtitleFormat.SSA -> {
+                val cues = parseAssSsa(trimmed)
+                if (cues.isNotEmpty()) cues else parseSrt(trimmed)
             }
             else -> {
-                // Default fallback to SRT parser, if fails try WebVTT
-                val srtCues = parseSrt(trimmed)
-                if (srtCues.isNotEmpty()) srtCues else parseWebVtt(trimmed)
+                // Default fallback sequence: WebVTT -> JSON3 -> XML -> SRT
+                val vttCues = if (trimmed.contains("-->")) parseWebVtt(trimmed) else emptyList()
+                if (vttCues.isNotEmpty()) vttCues else {
+                    val j3 = if (trimmed.startsWith("{")) parseJson3(trimmed) else emptyList()
+                    if (j3.isNotEmpty()) j3 else {
+                        val xmlCues = if (trimmed.contains("<")) parseXmlTimedText(trimmed) else emptyList()
+                        if (xmlCues.isNotEmpty()) xmlCues else parseSrt(trimmed)
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Parses YouTube TimedText XML and TTML subtitle format.
+     * Example:
+     * <text start="1.234" dur="2.5">Hello world</text>
+     * or
+     * <p begin="00:00:01.234" end="00:00:03.734">Hello world</p>
+     */
+    fun parseXmlTimedText(xmlContent: String): List<SubtitleCue> {
+        val cues = mutableListOf<SubtitleCue>()
+        try {
+            // Match <text start="..." dur="...">text</text>
+            val textPattern = Pattern.compile("<text[^>]*start=[\"']([0-9.]+)[\"'][^>]*dur=[\"']([0-9.]+)[\"'][^>]*>(.*?)</text>", Pattern.DOTALL)
+            var matcher = textPattern.matcher(xmlContent)
+            while (matcher.find()) {
+                val start = matcher.group(1)?.toFloatOrNull() ?: 0f
+                val dur = matcher.group(2)?.toFloatOrNull() ?: 2.5f
+                val rawText = matcher.group(3) ?: ""
+                val clean = stripTags(rawText).trim()
+                if (clean.isNotBlank()) {
+                    cues.add(SubtitleCue(fromSeconds = start, toSeconds = start + dur, text = clean))
+                }
+            }
+
+            if (cues.isEmpty()) {
+                // Try alternate format: <text start="..." ...>text</text> without dur
+                val simplePattern = Pattern.compile("<text[^>]*start=[\"']([0-9.]+)[\"'][^>]*>(.*?)</text>", Pattern.DOTALL)
+                matcher = simplePattern.matcher(xmlContent)
+                var prevStart = -1f
+                var prevText = ""
+                while (matcher.find()) {
+                    val start = matcher.group(1)?.toFloatOrNull() ?: 0f
+                    val rawText = matcher.group(2) ?: ""
+                    val clean = stripTags(rawText).trim()
+                    if (clean.isNotBlank()) {
+                        if (prevStart >= 0f) {
+                            val dur = (start - prevStart).coerceIn(1.0f, 6.0f)
+                            cues.add(SubtitleCue(fromSeconds = prevStart, toSeconds = prevStart + dur, text = prevText))
+                        }
+                        prevStart = start
+                        prevText = clean
+                    }
+                }
+                if (prevStart >= 0f && prevText.isNotBlank()) {
+                    cues.add(SubtitleCue(fromSeconds = prevStart, toSeconds = prevStart + 3.0f, text = prevText))
+                }
+            }
+
+            if (cues.isEmpty()) {
+                // Try YouTube XML format 3: <p t="1234" d="2500"><s>Hello</s></p>
+                val pPattern = Pattern.compile("<p[^>]*t=[\"']([0-9]+)[\"'][^>]*d=[\"']([0-9]+)[\"'][^>]*>(.*?)</p>", Pattern.DOTALL)
+                matcher = pPattern.matcher(xmlContent)
+                while (matcher.find()) {
+                    val tMs = matcher.group(1)?.toLongOrNull() ?: 0L
+                    val dMs = matcher.group(2)?.toLongOrNull() ?: 2500L
+                    val rawText = matcher.group(3) ?: ""
+                    val clean = stripTags(rawText).trim()
+                    if (clean.isNotBlank()) {
+                        val startSec = tMs / 1000f
+                        val durSec = (dMs / 1000f).coerceAtLeast(0.5f)
+                        cues.add(SubtitleCue(fromSeconds = startSec, toSeconds = startSec + durSec, text = clean))
+                    }
+                }
+            }
+
+            if (cues.isEmpty()) {
+                // Try TTML: <p begin="..." end="...">text</p>
+                val ttmlPattern = Pattern.compile("<p[^>]*begin=[\"']([^\"']+)[\"'][^>]*end=[\"']([^\"']+)[\"'][^>]*>(.*?)</p>", Pattern.DOTALL)
+                matcher = ttmlPattern.matcher(xmlContent)
+                while (matcher.find()) {
+                    val bStr = matcher.group(1) ?: ""
+                    val eStr = matcher.group(2) ?: ""
+                    val rawText = matcher.group(3) ?: ""
+                    val start = parseTimestampFlexible(bStr)
+                    val end = parseTimestampFlexible(eStr)
+                    val clean = stripTags(rawText).trim()
+                    if (clean.isNotBlank() && end > start) {
+                        cues.add(SubtitleCue(fromSeconds = start, toSeconds = end, text = clean))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse XML timedtext: ${e.message}")
+        }
+        return cues
+    }
+
+    /**
+     * Parses YouTube JSON3 format:
+     * { "events": [ { "tStartMs": 1200, "dDurationMs": 2500, "segs": [ { "utf8": "..." } ] } ] }
+     */
+    fun parseJson3(json: String): List<SubtitleCue> {
+        val cues = mutableListOf<SubtitleCue>()
+        try {
+            val root = org.json.JSONObject(json)
+            val events = root.optJSONArray("events") ?: return emptyList()
+            for (i in 0 until events.length()) {
+                val event = events.getJSONObject(i)
+                val tStartMs = event.optLong("tStartMs", -1L)
+                if (tStartMs < 0) continue
+                val dDurationMs = event.optLong("dDurationMs", 2500L).coerceAtLeast(500L)
+                val segs = event.optJSONArray("segs")
+                val textBuilder = StringBuilder()
+                if (segs != null) {
+                    for (j in 0 until segs.length()) {
+                        val seg = segs.getJSONObject(j)
+                        textBuilder.append(seg.optString("utf8", ""))
+                    }
+                } else {
+                    textBuilder.append(event.optString("utf8", ""))
+                }
+                val raw = textBuilder.toString().replace("\n", " ").trim()
+                val clean = stripTags(raw).trim()
+                if (clean.isNotBlank()) {
+                    cues.add(
+                        SubtitleCue(
+                            fromSeconds = tStartMs / 1000f,
+                            toSeconds = (tStartMs + dDurationMs) / 1000f,
+                            text = clean
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing json3: ${e.message}")
+        }
+        return cues
+    }
+
+    private fun parseTimestampFlexible(ts: String): Float {
+        val trimmed = ts.trim()
+        val direct = trimmed.toFloatOrNull()
+        if (direct != null) return direct
+        return parseAssTimestamp(trimmed)
     }
 
     /**

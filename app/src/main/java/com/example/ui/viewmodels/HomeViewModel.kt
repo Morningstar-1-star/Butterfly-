@@ -99,6 +99,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 ProviderUiItem("bilibili", "Bilibili", "⚡", true),
                 ProviderUiItem("disney", "Disney+", "✨", true),
                 ProviderUiItem("popcorntv", "PopcornTV", "🍿", true),
+                ProviderUiItem("tubitv", "Tubi TV", "🍿", true),
                 ProviderUiItem("twitch", "Twitch", "🟣", true),
                 ProviderUiItem("bigo", "Bigo Live", "🔴", true),
                 ProviderUiItem("torrent", "Torrents", "🧲", true),

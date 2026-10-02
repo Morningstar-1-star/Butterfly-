@@ -200,10 +200,13 @@ object TMDBEmbedProvider {
         val appContext = context ?: return@withContext null
         try {
             // Parse TMDB ID and media info
-            // Formats:
+            // Formats supported:
             // "tmdb_vixsrc:movie:550"
             // "tmdb_embed:movie:550"
             // "tmdb_embed:tv:1399:1:1"
+            // "tv_1399_s2_e5"
+            // "tv_1399"
+            // "movie_550"
             // "550"
             var mediaType = "movie"
             var tmdbId = ""
@@ -224,32 +227,52 @@ object TMDBEmbedProvider {
             for (s in TMDBEmbedSource.allSources) {
                 clean = clean.removePrefix("tmdb_${s.id}:")
             }
-            clean = clean.removePrefix("tmdb_embed:").removePrefix("tmdb:")
-            val parts = clean.split(":")
+            clean = clean.removePrefix("tmdb_embed:").removePrefix("tmdb:").removePrefix("decryptor:").removePrefix("vidsrc:")
 
+            // Extract season/episode if present in any format like _s2_e5, s2e5, S01E03
+            val seEpMatch = Regex("""(?i)[_s](\d+)[_e](\d+)""").find(clean)
+                ?: Regex("""(?i)[sS](\d+)[eE](\d+)""").find(clean)
+            if (seEpMatch != null) {
+                mediaType = "tv"
+                season = seEpMatch.groupValues[1].toIntOrNull() ?: 1
+                episode = seEpMatch.groupValues[2].toIntOrNull() ?: 1
+            }
+
+            val parts = clean.split(":")
             when {
                 parts.size >= 4 && parts[0] == "tv" -> {
                     mediaType = "tv"
                     tmdbId = parts[1]
-                    season = parts[2].toIntOrNull() ?: 1
-                    episode = parts[3].toIntOrNull() ?: 1
+                    season = parts[2].toIntOrNull() ?: season
+                    episode = parts[3].toIntOrNull() ?: episode
                 }
                 parts.size >= 2 && (parts[0] == "movie" || parts[0] == "tv") -> {
                     mediaType = parts[0]
                     tmdbId = parts[1]
-                    if (parts.size >= 4) {
-                        season = parts[2].toIntOrNull() ?: 1
-                        episode = parts[3].toIntOrNull() ?: 1
+                    if (parts.size >= 3) {
+                        season = parts[2].toIntOrNull() ?: season
                     }
+                    if (parts.size >= 4) {
+                        episode = parts[3].toIntOrNull() ?: episode
+                    }
+                }
+                clean.startsWith("tv_") -> {
+                    mediaType = "tv"
+                    val sub = clean.removePrefix("tv_")
+                    tmdbId = sub.substringBefore("_")
+                }
+                clean.startsWith("movie_") -> {
+                    mediaType = "movie"
+                    tmdbId = clean.removePrefix("movie_")
                 }
                 parts.size == 1 && parts[0].all { it.isDigit() } -> {
                     tmdbId = parts[0]
                 }
                 else -> {
-                    val numMatch = Regex("""\b(\d{3,8})\b""").find(urlOrId)
+                    val numMatch = Regex("""\b(\d{3,8})\b""").find(clean)
                     if (numMatch != null) {
                         tmdbId = numMatch.groupValues[1]
-                        if (urlOrId.contains("/tv/") || urlOrId.contains("tv")) mediaType = "tv"
+                        if (clean.contains("/tv/") || clean.contains("tv") || clean.contains("series")) mediaType = "tv"
                     }
                 }
             }
@@ -307,12 +330,145 @@ object TMDBEmbedProvider {
                 imdbId = imdbId
             )
 
-            // Resolve streams through TMDBEmbedExtractorEngine
-            val streamOptions = TMDBEmbedExtractorEngine.resolveStreamOptions(
+            // Step 1: Resolve streams through TMDBEmbedExtractorEngine
+            var streamOptions = TMDBEmbedExtractorEngine.resolveStreamOptions(
                 context = appContext,
                 request = request,
                 specificSource = detectedSource
-            )
+            ).toMutableList()
+
+            // Step 2: Multi-Server VidSrc Cloud Fallback
+            if (streamOptions.isEmpty()) {
+                Log.i(TAG, "Executing VidSrc multi-server fallback for $title ($tmdbId)")
+                try {
+                    val vsStreams = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+                        context = appContext,
+                        tmdbIdOrUrl = tmdbId,
+                        mediaType = mediaType,
+                        season = season,
+                        episode = episode,
+                        title = title,
+                        providerName = detectedSource?.displayName ?: "TMDB Cloud"
+                    )
+                    if (vsStreams.isNotEmpty()) {
+                        streamOptions.addAll(vsStreams)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "VidSrc fallback note: ${e.message}")
+                }
+            }
+
+            // Step 3: Decryptor / Nxsha Multi-Server Fallback
+            if (streamOptions.isEmpty()) {
+                Log.i(TAG, "Executing Decryptor multi-server fallback for $title ($tmdbId)")
+                try {
+                    val decResult = com.example.decryptor.DecryptorProviderClient.extract(
+                        context = appContext,
+                        tmdbIdOrUrl = tmdbId,
+                        mediaType = mediaType,
+                        season = season,
+                        episode = episode,
+                        title = title
+                    )
+                    if (decResult.success && decResult.servers.isNotEmpty()) {
+                        decResult.servers.forEach { srv ->
+                            val playUrl = srv.effectivePlayableUrl
+                            if (playUrl.isNotBlank() && (playUrl.contains(".m3u8") || playUrl.contains(".mp4") || playUrl.contains("/stream"))) {
+                                streamOptions.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = "[TMDB] ${srv.name} • ${srv.quality}",
+                                        format = if (playUrl.contains(".m3u8")) "hls" else "mp4",
+                                        isMuxed = true,
+                                        videoUrl = playUrl,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = srv.headers,
+                                        sourceName = srv.name,
+                                        qualityCategory = srv.quality,
+                                        releaseTitle = "$title [${srv.name}]",
+                                        serverStatus = srv.status
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Decryptor fallback note: ${e.message}")
+                }
+            }
+
+            // Step 4: High-speed direct fallback via Vega cinema engine
+            if (streamOptions.isEmpty() && title.isNotBlank()) {
+                try {
+                    val searchList = com.example.vega.VegaProviderClient.search("vegacloud", title)
+                    for (item in searchList) {
+                        val res = com.example.vega.VegaProviderClient.resolveFullVegaPlayback(item.providerId, item.link)
+                        if (res.success && res.streams.isNotEmpty()) {
+                            for (st in res.streams) {
+                                streamOptions.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = "[TMDB Cloud] ${st.server} • ${st.quality}",
+                                        format = st.format.lowercase(),
+                                        isMuxed = true,
+                                        videoUrl = st.url,
+                                        providerType = ProviderType.DIRECT,
+                                        headers = st.headers,
+                                        sourceName = "TMDB Cloud",
+                                        qualityCategory = st.quality,
+                                        releaseTitle = "$title [${st.server}]"
+                                    )
+                                )
+                            }
+                            break
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Vega direct fallback note: ${e.message}")
+                }
+            }
+
+            // Step 5: Official TMDB YouTube HD Trailer / Preview Fallback (Guaranteed Playback)
+            if (streamOptions.isEmpty()) {
+                Log.i(TAG, "Fetching official TMDB preview for $title ($tmdbId)")
+                try {
+                    val vUrl = "https://api.themoviedb.org/3/$mediaType/$tmdbId/videos?api_key=$apiKey"
+                    val vReq = Request.Builder().url(vUrl).header("User-Agent", "Mozilla/5.0").build()
+                    val vResp = httpClient.newCall(vReq).execute()
+                    val vBody = vResp.body?.string().orEmpty()
+                    if (vBody.contains("results")) {
+                        val vResults = JSONObject(vBody).optJSONArray("results")
+                        if (vResults != null && vResults.length() > 0) {
+                            for (i in 0 until vResults.length()) {
+                                val vObj = vResults.optJSONObject(i) ?: continue
+                                val site = vObj.optString("site")
+                                val key = vObj.optString("key")
+                                if (site.equals("YouTube", ignoreCase = true) && key.isNotBlank()) {
+                                    val ytRes = YouTubeExtractorHelper.resolveStream("https://www.youtube.com/watch?v=$key", appContext, "youtube")
+                                    if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success) {
+                                        ytRes.streamData.availableStreamOptions.forEach { opt ->
+                                            streamOptions.add(
+                                                opt.copy(
+                                                    qualityLabel = "[TMDB Preview] ${opt.qualityLabel}",
+                                                    sourceName = "TMDB Preview"
+                                                )
+                                            )
+                                        }
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Official preview fallback note: ${e.message}")
+                }
+            }
+
+            // Strictly filter out any raw magnets or embed webview URLs to ensure native ExoPlayer playback
+            streamOptions = streamOptions.filter { opt ->
+                val vUrl = opt.videoUrl ?: opt.videoStream?.url ?: ""
+                vUrl.isNotBlank() && !vUrl.startsWith("magnet:") && !vUrl.contains("/embed/")
+            }.toMutableList()
+
             if (streamOptions.isEmpty()) {
                 Log.w(TAG, "No playable streams found for $title across TMDB Embed sources")
                 return@withContext null
@@ -340,12 +496,12 @@ object TMDBEmbedProvider {
                 description = overview,
                 availableStreamOptions = streamOptions,
                 selectedStreamOption = primaryOption,
-                hlsUrl = if (primaryOption.format.equals("hls", ignoreCase = true)) primaryOption.videoUrl else null,
+                hlsUrl = if (primaryOption.format.equals("hls", ignoreCase = true) || primaryOption.videoUrl?.contains(".m3u8") == true) primaryOption.videoUrl else null,
                 captionOptions = allCaptions,
                 providerId = effectiveProviderId,
                 providerType = ProviderType.TMDB_EMBED,
                 headers = primaryOption.headers,
-                tags = listOf(sourceLabel, "TMDB", mediaType, "cinema")
+                tags = listOf(sourceLabel, "TMDB", mediaType, "cinema", if (mediaType == "tv") "series" else "movie")
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error in getStreamData: ${e.message}", e)

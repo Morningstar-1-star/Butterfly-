@@ -21,8 +21,8 @@ object SupabaseConfig {
     fun getUrl(context: Context): String {
         cachedUrl?.let { return it }
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val url = prefs.getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
-        val effectiveUrl = if (url.contains("aistudio-butterfly.supabase.co") || url.contains("placeholder") || url.contains("wlyqppcnywrftvducgz") || url.contains("wlyqppcnywrftvdducgz")) DEFAULT_URL else url
+        val url = prefs.getString(KEY_URL, DEFAULT_URL)?.trim()?.trimEnd('/') ?: DEFAULT_URL
+        val effectiveUrl = if (url.isBlank() || url.contains("placeholder") || url.contains("aistudio-butterfly.supabase.co")) DEFAULT_URL else url
         cachedUrl = effectiveUrl
         return effectiveUrl
     }
@@ -30,8 +30,8 @@ object SupabaseConfig {
     fun getAnonKey(context: Context): String {
         cachedAnonKey?.let { return it }
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = prefs.getString(KEY_ANON_KEY, DEFAULT_ANON_KEY) ?: DEFAULT_ANON_KEY
-        val effectiveKey = if (key.contains("placeholder")) DEFAULT_ANON_KEY else key
+        val key = prefs.getString(KEY_ANON_KEY, DEFAULT_ANON_KEY)?.trim() ?: DEFAULT_ANON_KEY
+        val effectiveKey = if (key.isBlank() || key.contains("placeholder")) DEFAULT_ANON_KEY else key
         cachedAnonKey = effectiveKey
         return effectiveKey
     }

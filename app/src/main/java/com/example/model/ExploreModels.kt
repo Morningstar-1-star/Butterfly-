@@ -4,14 +4,19 @@ enum class ExploreMediaType(val label: String) {
     ALL("All"),
     MOVIE("Movie"),
     TV("TV Series"),
-    ANIME("Anime")
+    ANIME("Anime"),
+    JAV("JAV"),
+    UNCENSORED("Uncensored"),
+    HENTAI("Hentai"),
+    ACTRESSES("Actresses")
 }
 
 enum class ExploreSource(val label: String) {
     TMDB("TMDB"),
     IMDB("IMDb"),
     ANILIST("AniList"),
-    JIKAN("MyAnimeList")
+    JIKAN("MyAnimeList"),
+    JAVINIZER("Javinizer-Go")
 }
 
 data class MediaClipItem(
@@ -76,6 +81,10 @@ data class ExploreMediaItem(
             ExploreMediaType.MOVIE -> "Movie"
             ExploreMediaType.TV -> if (episodesCount != null && episodesCount > 0) "$episodesCount Eps" else "TV Series"
             ExploreMediaType.ANIME -> if (episodesCount != null && episodesCount > 0) "Anime • $episodesCount Eps" else "Anime"
+            ExploreMediaType.JAV -> if (!tagline.isNullOrBlank()) tagline else "JAV"
+            ExploreMediaType.UNCENSORED -> "Uncensored"
+            ExploreMediaType.HENTAI -> "Hentai 18+"
+            ExploreMediaType.ACTRESSES -> "Actress"
             else -> "Media"
         }
 }

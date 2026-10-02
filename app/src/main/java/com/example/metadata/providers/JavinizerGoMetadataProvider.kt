@@ -54,6 +54,66 @@ class JavinizerGoMetadataProvider(
         )
     }
 
+    suspend fun fetchLatestReleases(page: Int = 1, limit: Int = 20): List<JavMetadata> {
+        if (!isEnabled) return emptyList()
+        return client.getLatestReleases(
+            baseUrl = getBaseUrl(),
+            page = page,
+            limit = limit,
+            timeoutSec = getTimeoutSec()
+        )
+    }
+
+    suspend fun fetchPopular(page: Int = 1, limit: Int = 20): List<JavMetadata> {
+        if (!isEnabled) return emptyList()
+        return client.getPopularMovies(
+            baseUrl = getBaseUrl(),
+            page = page,
+            limit = limit,
+            timeoutSec = getTimeoutSec()
+        )
+    }
+
+    suspend fun fetchActresses(page: Int = 1, limit: Int = 30, query: String = "", sort: String = "popular"): List<JavActor> {
+        if (!isEnabled) return emptyList()
+        return client.getActresses(
+            baseUrl = getBaseUrl(),
+            page = page,
+            limit = limit,
+            query = query,
+            sort = sort,
+            timeoutSec = getTimeoutSec()
+        )
+    }
+
+    suspend fun fetchStudios(): List<String> {
+        if (!isEnabled) return emptyList()
+        return client.getStudios(
+            baseUrl = getBaseUrl(),
+            timeoutSec = getTimeoutSec()
+        )
+    }
+
+    suspend fun fetchGenres(): List<String> {
+        if (!isEnabled) return emptyList()
+        return client.getGenres(
+            baseUrl = getBaseUrl(),
+            timeoutSec = getTimeoutSec()
+        )
+    }
+
+    suspend fun searchByCategory(type: String, value: String, page: Int = 1, limit: Int = 20): List<JavMetadata> {
+        if (!isEnabled) return emptyList()
+        return client.searchByCategory(
+            type = type,
+            value = value,
+            baseUrl = getBaseUrl(),
+            page = page,
+            limit = limit,
+            timeoutSec = getTimeoutSec()
+        )
+    }
+
     suspend fun getActressMetadata(name: String): JavActor? {
         if (!isEnabled) return null
         return client.getActress(

@@ -198,17 +198,18 @@ fun HomeScreen(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val scrollThresholdPx = remember(density) { with(density) { 24.dp.toPx() } }
 
-    val nestedScrollConnection = remember(scrollThresholdPx, isFeedAtTop) {
+    val nestedScrollConnection = remember(scrollThresholdPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val deltaY = available.y
                 if (source == NestedScrollSource.UserInput) {
+                    val isAtTop = feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset <= 8
                     if (deltaY < 0f) {
                         // Scrolling DOWN -> accumulate downward delta
                         if (accumulatedScroll > 0f) accumulatedScroll = 0f
                         accumulatedScroll += deltaY
-                        if (accumulatedScroll < -scrollThresholdPx && !isFeedAtTop) {
-                            areBarsVisible = false
+                        if (accumulatedScroll < -scrollThresholdPx && !isAtTop) {
+                            if (areBarsVisible) areBarsVisible = false
                             accumulatedScroll = 0f
                         }
                     } else if (deltaY > 0f) {
@@ -216,7 +217,7 @@ fun HomeScreen(
                         if (accumulatedScroll < 0f) accumulatedScroll = 0f
                         accumulatedScroll += deltaY
                         if (accumulatedScroll > scrollThresholdPx) {
-                            areBarsVisible = true
+                            if (!areBarsVisible) areBarsVisible = true
                             accumulatedScroll = 0f
                         }
                     }
@@ -458,6 +459,27 @@ fun HomeScreen(
                                 }
                             }
 
+                            val onPlayNextInQueueAction: (VideoItem) -> Unit = remember(viewModel) { { v -> viewModel.playNextInQueue(v) } }
+                            val onAddToQueueAction: (VideoItem) -> Unit = remember(viewModel) { { v -> viewModel.addToQueue(v) } }
+                            val onSaveToWatchLaterAction: (VideoItem) -> Unit = remember(viewModel) { { v -> viewModel.addToWatchLater(v) } }
+                            val onDownloadAction: (VideoItem) -> Unit = remember(viewModel) { { v -> viewModel.showDownloadSheet(v) } }
+                            val onNotInterestedAction: (VideoItem) -> Unit = remember(viewModel) { { v -> viewModel.markNotInterested(v) } }
+                            val onChannelClickAction: (String) -> Unit = remember(viewModel) { { ch -> viewModel.openChannel(ch) } }
+                            val onSaveToPlaylistAction: (VideoItem) -> Unit = remember(viewModel) {
+                                { v ->
+                                    val userPls = viewModel.userPlaylists.value
+                                    if (userPls.isNotEmpty()) {
+                                        viewModel.addToPlaylist(userPls.first().id, v)
+                                    } else {
+                                        viewModel.createPlaylist("Favorites")
+                                        val updated = viewModel.userPlaylists.value
+                                        if (updated.isNotEmpty()) {
+                                            viewModel.addToPlaylist(updated.first().id, v)
+                                        }
+                                    }
+                                }
+                            }
+
                             val pullRefreshState = rememberPullToRefreshState()
                             val isRefreshingFeed = isFeedRefreshing
 
@@ -524,14 +546,14 @@ fun HomeScreen(
                                                 }
                                             )
                                         }
-                                    } else if ((isLoadingTrending || isSearching || isFeedRefreshing || isSourceSwitching) && feedList.isEmpty()) {
+                                    } else if (feedList.isEmpty() && (isLoadingTrending || isSearching || isFeedRefreshing || isSourceSwitching || searchQuery.isBlank())) {
                                         item {
                                             FeedSkeletonLoading(
                                                 itemCount = 5,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                         }
-                                    } else if (feedList.isEmpty()) {
+                                    } else if (feedList.isEmpty() && searchQuery.isNotBlank()) {
                                         item {
                                             Box(
                                                 modifier = Modifier
@@ -540,7 +562,7 @@ fun HomeScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = "No videos found. Try selecting another category or tag.",
+                                                    text = "No videos found for '$searchQuery'. Try another query or category.",
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -557,139 +579,88 @@ fun HomeScreen(
                                         if (!showSearchRecsShelf) {
                                             // Unified continuous items list for optimal 120fps scrolling
                                             items(
-                                                items = feedList,
-                                                key = { "${it.providerId}_${it.id}" },
-                                                contentType = { "video_card" }
-                                            ) { video ->
-                                                VideoCard(
-                                                    video = video,
-                                                    watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                    showProviderBadge = showThumbnailTags,
-                                                    onClick = {
-                                                        if (video.id == "bun_tel_meg_help") {
-                                                            showAddCloudDialog = true
-                                                        } else {
-                                                            viewModel.playVideo(video)
-                                                        }
-                                                    },
-                                                    onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
-                                                    onAddToQueue = { v -> viewModel.addToQueue(v) },
-                                                    onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                                    onSaveToPlaylist = { v ->
-                                                        val userPls = viewModel.userPlaylists.value
-                                                        if (userPls.isNotEmpty()) {
-                                                            viewModel.addToPlaylist(userPls.first().id, v)
-                                                        } else {
-                                                            viewModel.createPlaylist("Favorites")
-                                                            val updated = viewModel.userPlaylists.value
-                                                            if (updated.isNotEmpty()) {
-                                                                viewModel.addToPlaylist(updated.first().id, v)
-                                                            }
-                                                        }
-                                                    },
-                                                    onDownload = { v ->
-                                                        viewModel.showDownloadSheet(v)
-                                                    },
-                                                    onNotInterested = { v ->
-                                                        viewModel.markNotInterested(v)
-                                                    },
-                                                    onChannelClick = { ch ->
-                                                        viewModel.openChannel(ch)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
+                                                 items = feedList,
+                                                 key = { "${it.providerId}_${it.id}" },
+                                                 contentType = { "video_card" }
+                                             ) { video ->
+                                                 VideoCard(
+                                                     video = video,
+                                                     watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                     showProviderBadge = showThumbnailTags,
+                                                     onClick = {
+                                                         if (video.id == "bun_tel_meg_help") {
+                                                             showAddCloudDialog = true
+                                                         } else {
+                                                             viewModel.playVideo(video)
+                                                         }
+                                                     },
+                                                     onPlayNextInQueue = onPlayNextInQueueAction,
+                                                     onAddToQueue = onAddToQueueAction,
+                                                     onSaveToWatchLater = onSaveToWatchLaterAction,
+                                                     onSaveToPlaylist = onSaveToPlaylistAction,
+                                                     onDownload = onDownloadAction,
+                                                     onNotInterested = onNotInterestedAction,
+                                                     onChannelClick = onChannelClickAction,
+                                                     modifier = Modifier.fillMaxWidth()
+                                                 )
+                                             }
                                         } else {
                                             val shelfInsertIndex = 2.coerceAtMost(feedList.size)
                                             items(
-                                                items = feedList.take(shelfInsertIndex),
-                                                key = { "${it.providerId}_${it.id}" },
-                                                contentType = { "video_card" }
-                                            ) { video ->
-                                                VideoCard(
-                                                    video = video,
-                                                    watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                    showProviderBadge = showThumbnailTags,
-                                                    onClick = {
-                                                        if (video.id == "bun_tel_meg_help") {
-                                                            showAddCloudDialog = true
-                                                        } else {
-                                                            viewModel.playVideo(video)
-                                                        }
-                                                    },
-                                                    onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
-                                                    onAddToQueue = { v -> viewModel.addToQueue(v) },
-                                                    onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                                    onSaveToPlaylist = { v ->
-                                                        val userPls = viewModel.userPlaylists.value
-                                                        if (userPls.isNotEmpty()) {
-                                                            viewModel.addToPlaylist(userPls.first().id, v)
-                                                        } else {
-                                                            viewModel.createPlaylist("Favorites")
-                                                            val updated = viewModel.userPlaylists.value
-                                                            if (updated.isNotEmpty()) {
-                                                                viewModel.addToPlaylist(updated.first().id, v)
-                                                            }
-                                                        }
-                                                    },
-                                                    onDownload = { v ->
-                                                        viewModel.showDownloadSheet(v)
-                                                    },
-                                                    onNotInterested = { v ->
-                                                        viewModel.markNotInterested(v)
-                                                    },
-                                                    onChannelClick = { ch ->
-                                                        viewModel.openChannel(ch)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
+                                                 items = feedList.take(shelfInsertIndex),
+                                                 key = { "${it.providerId}_${it.id}" },
+                                                 contentType = { "video_card" }
+                                             ) { video ->
+                                                 VideoCard(
+                                                     video = video,
+                                                     watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                     showProviderBadge = showThumbnailTags,
+                                                     onClick = {
+                                                         if (video.id == "bun_tel_meg_help") {
+                                                             showAddCloudDialog = true
+                                                         } else {
+                                                             viewModel.playVideo(video)
+                                                         }
+                                                     },
+                                                     onPlayNextInQueue = onPlayNextInQueueAction,
+                                                     onAddToQueue = onAddToQueueAction,
+                                                     onSaveToWatchLater = onSaveToWatchLaterAction,
+                                                     onSaveToPlaylist = onSaveToPlaylistAction,
+                                                     onDownload = onDownloadAction,
+                                                     onNotInterested = onNotInterestedAction,
+                                                     onChannelClick = onChannelClickAction,
+                                                     modifier = Modifier.fillMaxWidth()
+                                                 )
+                                             }
 
                                              if (feedList.size > shelfInsertIndex) {
-                                                items(
-                                                    items = feedList.drop(shelfInsertIndex),
-                                                    key = { "${it.providerId}_${it.id}" },
-                                                    contentType = { "video_card" }
-                                                ) { video ->
-                                                    VideoCard(
-                                                        video = video,
-                                                        watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                        showProviderBadge = showThumbnailTags,
-                                                        onClick = {
-                                                            if (video.id == "bun_tel_meg_help") {
-                                                                showAddCloudDialog = true
-                                                            } else {
-                                                                viewModel.playVideo(video)
-                                                            }
-                                                        },
-                                                        onPlayNextInQueue = { v -> viewModel.playNextInQueue(v) },
-                                                        onAddToQueue = { v -> viewModel.addToQueue(v) },
-                                                        onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                                        onSaveToPlaylist = { v ->
-                                                            val userPls = viewModel.userPlaylists.value
-                                                            if (userPls.isNotEmpty()) {
-                                                                viewModel.addToPlaylist(userPls.first().id, v)
-                                                            } else {
-                                                                viewModel.createPlaylist("Favorites")
-                                                                val updated = viewModel.userPlaylists.value
-                                                                if (updated.isNotEmpty()) {
-                                                                    viewModel.addToPlaylist(updated.first().id, v)
-                                                                }
-                                                            }
-                                                        },
-                                                        onDownload = { v ->
-                                                            viewModel.showDownloadSheet(v)
-                                                        },
-                                                        onNotInterested = { v ->
-                                                            viewModel.markNotInterested(v)
-                                                        },
-                                                        onChannelClick = { ch ->
-                                                            viewModel.openChannel(ch)
-                                                        },
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    )
-                                                }
-                                            }
+                                                 items(
+                                                     items = feedList.drop(shelfInsertIndex),
+                                                     key = { "${it.providerId}_${it.id}" },
+                                                     contentType = { "video_card" }
+                                                 ) { video ->
+                                                     VideoCard(
+                                                         video = video,
+                                                         watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                         showProviderBadge = showThumbnailTags,
+                                                         onClick = {
+                                                             if (video.id == "bun_tel_meg_help") {
+                                                                 showAddCloudDialog = true
+                                                             } else {
+                                                                 viewModel.playVideo(video)
+                                                             }
+                                                         },
+                                                         onPlayNextInQueue = onPlayNextInQueueAction,
+                                                         onAddToQueue = onAddToQueueAction,
+                                                         onSaveToWatchLater = onSaveToWatchLaterAction,
+                                                         onSaveToPlaylist = onSaveToPlaylistAction,
+                                                         onDownload = onDownloadAction,
+                                                         onNotInterested = onNotInterestedAction,
+                                                         onChannelClick = onChannelClickAction,
+                                                         modifier = Modifier.fillMaxWidth()
+                                                     )
+                                                 }
+                                             }
                                         }
 
                                         if (isLoadingMore) {
@@ -1195,7 +1166,8 @@ fun HomeScreen(
                                             Pair("amazonminitv", "Amazon miniTV"),
                                             Pair("crunchyroll", "Crunchyroll"),
                                             Pair("disney", "Disney+"),
-                                            Pair("popcorntv", "PopcornTV")
+                                            Pair("popcorntv", "PopcornTV"),
+                                            Pair("tubitv", "Tubi TV")
                                         )
 
                                         ottCinemaSources.forEach { (id, name) ->
@@ -1378,7 +1350,7 @@ fun HomeScreen(
                         viewModel.closeVideo()
                     },
                     onNext = { viewModel.playNextInQueue() },
-                    bottomBarPaddingDp = if (isSearchExpanded || currentTabScreen !in listOf(AppScreen.HOME, AppScreen.EXPLORE, AppScreen.SUBSCRIPTIONS, AppScreen.LIBRARY, AppScreen.ACCOUNT)) 16.dp else (bottomBarPaddingDp * barsAnimatedFraction + 16.dp * (1f - barsAnimatedFraction)),
+                    bottomBarPaddingDp = if (isSearchExpanded || currentTabScreen !in listOf(AppScreen.HOME, AppScreen.EXPLORE, AppScreen.SUBSCRIPTIONS, AppScreen.LIBRARY, AppScreen.ACCOUNT)) 16.dp else if (areBarsVisible) bottomBarPaddingDp else 16.dp,
                     statusBarPaddingDp = statusBarTopPadding
                 )
             }
@@ -1784,7 +1756,7 @@ private fun buildSmartTags(
 
     val excludedSourceNames = setOf(
         "youtube", "tencent", "tencent video", "bilibili", "dailymotion", "twitch", "hotstar", "disney+ hotstar", "sonyliv",
-        "disney", "disney+", "minitv", "amazon minitv", "mx player", "mxplayer", "popcorntv", "imdb", "discovery+", "drive", "google drive",
+        "disney", "disney+", "minitv", "amazon minitv", "mx player", "mxplayer", "popcorntv", "tubitv", "tubi", "imdb", "discovery+", "drive", "google drive",
         "netflix", "crunchyroll", "v.qq.com", "v_qq_com", "qq", "vqqcom", "bunkr", "telegram", "mega", "bun-tel-meg",
         "xnxx", "hellporno", "stripchat", "chaturbate", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
         "123av", "javtiful", "hanime1", "rule34video", "pmvhaven", "piped", "invidious", "hianime", "aniwatch", "bigo", "kick", "rumble"

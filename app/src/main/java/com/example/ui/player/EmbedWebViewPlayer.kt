@@ -425,6 +425,8 @@ private fun createConfiguredWebView(
 private fun isAuthorizedEmbedDomain(host: String): Boolean {
     if (host.isBlank()) return false
     val allowedDomains = listOf(
+        "tubitv.com",
+        "tubi.tv",
         "vixsrc.to",
         "multiembed.mov",
         "rive.stream",

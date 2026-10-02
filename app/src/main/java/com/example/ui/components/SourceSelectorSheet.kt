@@ -305,6 +305,7 @@ private fun getProviderBrandColor(id: String, isAdult: Boolean): Color {
         "imdb" -> Color(0xFFF5C518)
         "mxplayer" -> Color(0xFF0084FF)
         "popcorntv" -> Color(0xFFFF3366)
+        "tubitv", "tubi" -> Color(0xFFFA233B)
         "decryptor" -> Color(0xFF00E5FF)
         "vidsrc" -> Color(0xFFFF9100)
         "bun-tel-meg", "bunkr" -> Color(0xFF229ED9)
@@ -338,7 +339,7 @@ private fun getProviderIcon(id: String): ImageVector {
         "bilibili", "vimeo", "dailymotion" -> Icons.Default.OndemandVideo
         "twitch", "bigo", "stripchat", "chaturbate", "cam4", "cammodels" -> Icons.Default.Sensors
         "discoveryplus" -> Icons.Default.Public
-        "disney", "hbo", "popcorntv", "imdb" -> Icons.Default.Movie
+        "disney", "hbo", "popcorntv", "tubitv", "tubi", "imdb" -> Icons.Default.Movie
         "curiositystream" -> Icons.Default.Science
         "googledrive", "bun-tel-meg", "bunkr" -> Icons.Default.CloudQueue
         "torrent" -> Icons.Default.Download

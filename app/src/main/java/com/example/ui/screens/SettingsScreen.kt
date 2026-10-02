@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     GENERAL("General", "Theme, colors, language & layout preferences", Icons.Outlined.Palette),
     PLAYBACK("Playback", "Resolution, speed, seek gestures & Secure DNS", Icons.Outlined.PlayCircle),
+    SEEKBAR("Seekbar", "Seek gestures, custom progress & accent colors, DVR & appearance", Icons.Outlined.LinearScale),
     ACCOUNTS_SOURCES("Accounts & Sources", "Tencent Video, YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
     PROVIDERS("Content Sources & Providers", "Manage all 100+ sources: Normal, 18+, Vega, VidSrc, Decryptor, TMDB & Torrents", Icons.Outlined.Source),
     PROWLARR_INDEXERS("Prowlarr & Cardigann Indexers", "Manage Prowlarr V11 YAML indexers, test & sync", Icons.Outlined.Radar),
@@ -50,6 +51,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     VIDSRC("VidSrc Sources", "VidLink, AutoEmbed, Smashy & cloud mirrors", Icons.Outlined.VideoLibrary),
     DECRYPTOR("Decryptor Sources", "Vidhide, Turbo, Nxsha & fast servers", Icons.Outlined.LockOpen),
     TMDB_EMBED("TMDB Sources", "VixSrc, Showbox, Videasy & VIP servers", Icons.Outlined.MovieCreation),
+    NUVIO_PROVIDERS("Nuvio Providers", "UHDMovies, MoviesMod, MoviesDrive, 4KHDHub & 29+ dynamic scrapers", Icons.Outlined.Extension),
     ADULT_18("18+ Content", "Adult content mode & mature sources", Icons.Outlined.Explicit),
     SMART_SKIP("SponsorBlock", "Auto-skip sponsored segments, intros & filler", Icons.Outlined.FastForward),
     HISTORY_PRIVACY("History & Privacy", "Watch history, search cache & blocked channels", Icons.Outlined.History),
@@ -261,6 +263,7 @@ fun SettingsScreen(
                 val rootCategories = listOf(
                     SettingsCategory.GENERAL,
                     SettingsCategory.PLAYBACK,
+                    SettingsCategory.SEEKBAR,
                     SettingsCategory.ACCOUNTS_SOURCES,
                     SettingsCategory.PROVIDERS,
                     SettingsCategory.SUBTITLE_PROVIDERS,
@@ -287,6 +290,12 @@ fun SettingsScreen(
             } else {
                 // SUB-SCREEN DETAIL PAGES
                 when (currentCategory) {
+                    SettingsCategory.SEEKBAR -> {
+                        SeekbarSettingsScreen(
+                            onBackClick = { currentCategory = null }
+                        )
+                    }
+
                     SettingsCategory.PROWLARR_INDEXERS -> {
                         TorrentIndexersScreen(
                             onBackClick = { currentCategory = null }
@@ -1460,6 +1469,13 @@ fun SettingsScreen(
                         UnifiedContentSourcesScreen(
                             viewModel = viewModel,
                             onNavigateToCategory = { currentCategory = it }
+                        )
+                    }
+
+                    SettingsCategory.NUVIO_PROVIDERS -> {
+                        NuvioProvidersSettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { currentCategory = null }
                         )
                     }
 

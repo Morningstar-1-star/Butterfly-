@@ -120,6 +120,15 @@ object ThumbnailOptimizer {
             return sbUrl
         }
 
+        // 7. DMM / FANZA Cover Art (deliver high-efficiency compact posters for grids, full-res for backdrops)
+        if (trimmed.contains("pics.dmm.co.jp") || trimmed.contains("pics.dmm.com")) {
+            return if (preferCompact) {
+                trimmed.replace("pl.jpg", "ps.jpg")
+            } else {
+                trimmed.replace("ps.jpg", "pl.jpg")
+            }
+        }
+
         return trimmed
     }
 
@@ -360,20 +369,10 @@ object ThumbnailOptimizer {
     fun buildPosterRequest(
         context: Context,
         url: String?,
-        crossfadeMillis: Int = 120
+        crossfadeMillis: Int = 100
     ): ImageRequest? {
         val optimizedUrl = getOptimizedPosterUrl(url) ?: return null
-
-        return ImageRequest.Builder(context)
-            .data(optimizedUrl)
-            .memoryCachePolicy(CachePolicy.ENABLED)
-            .diskCachePolicy(CachePolicy.ENABLED)
-            .networkCachePolicy(CachePolicy.ENABLED)
-            .allowHardware(true)
-            .crossfade(crossfadeMillis)
-            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
-            .build()
+        return buildThumbnailRequest(context, optimizedUrl, crossfadeMillis = crossfadeMillis, preferCompact = true)
     }
 
     /**
@@ -382,20 +381,10 @@ object ThumbnailOptimizer {
     fun buildBackdropRequest(
         context: Context,
         url: String?,
-        crossfadeMillis: Int = 150
+        crossfadeMillis: Int = 120
     ): ImageRequest? {
         val optimizedUrl = getOptimizedBackdropUrl(url) ?: return null
-
-        return ImageRequest.Builder(context)
-            .data(optimizedUrl)
-            .memoryCachePolicy(CachePolicy.ENABLED)
-            .diskCachePolicy(CachePolicy.ENABLED)
-            .networkCachePolicy(CachePolicy.ENABLED)
-            .allowHardware(true)
-            .crossfade(crossfadeMillis)
-            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
-            .build()
+        return buildThumbnailRequest(context, optimizedUrl, crossfadeMillis = crossfadeMillis, preferCompact = false)
     }
 
     /**

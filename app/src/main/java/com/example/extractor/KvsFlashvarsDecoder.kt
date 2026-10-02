@@ -2,6 +2,7 @@ package com.example.extractor
 
 import android.util.Log
 import java.net.URLDecoder
+import java.net.URLEncoder
 
 /**
  * Utility for parsing KVS (Kernel Video Sharing) and generic video player flashvars,
@@ -87,48 +88,88 @@ object KvsFlashvarsDecoder {
     }
 
     /**
-     * De-obfuscates KVS function/0/ URLs using the license_code key.
+     * De-obfuscates KVS function/0/ URLs using the canonical KVS license token permutation algorithm.
      */
     fun decodeKvsUrl(rawUrl: String, licenseCode: String?): String {
         var url = rawUrl.replace("\\/", "/").trim()
-        val hasFunc = url.contains("function/") || url.startsWith("function/")
-        if (!hasFunc) return url
-
-        val cleanUrl = url.replace(Regex("""(?i)^function/\d+/"""), "")
-            .replace(Regex("""(?i)function/\d+/"""), "")
-
-        if (licenseCode.isNullOrBlank()) return cleanUrl
-
-        val licDigits = licenseCode.replace(Regex("""[^0-9]"""), "")
-        if (licDigits.isEmpty()) return cleanUrl
-
-        try {
-            val key = licDigits.map { it.toString().toInt() }
-            val getFileRegex = Regex("""(/get_file/\d+/)([a-zA-Z0-9]{32})(/*)""")
-            val match = getFileRegex.find(cleanUrl)
-            if (match != null) {
-                val prefix = match.groupValues[1]
-                val hash = match.groupValues[2]
-                val suffix = match.groupValues[3]
-
-                val decodedHash = StringBuilder()
-                for (i in hash.indices) {
-                    val ch = hash[i]
-                    val shift = key[i % key.size]
-                    val newCh = when (ch) {
-                        in 'a'..'z' -> 'a' + ((ch - 'a' - shift + 26) % 26)
-                        in 'A'..'Z' -> 'A' + ((ch - 'A' - shift + 26) % 26)
-                        in '0'..'9' -> '0' + ((ch - '0' - shift + 10) % 10)
-                        else -> ch
-                    }
-                    decodedHash.append(newCh)
-                }
-                return cleanUrl.replace(match.groupValues[0], "$prefix${decodedHash}$suffix")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed KVS de-obfuscation: ${e.message}")
+        val hasFunc = url.contains("function/0/") || url.startsWith("function/0/")
+        if (!hasFunc) {
+            // Also check for general function/N/ prefix
+            return if (url.startsWith("function/")) url.replace(Regex("""(?i)^function/\d+/"""), "") else url
         }
 
-        return cleanUrl
+        val urlWithoutPrefix = if (url.startsWith("function/0/")) {
+            url.substring("function/0/".length)
+        } else {
+            url.substringAfter("function/0/")
+        }
+
+        if (licenseCode.isNullOrBlank()) return urlWithoutPrefix
+
+        return try {
+            val licenseToken = getKvsLicenseToken(licenseCode)
+            val uri = java.net.URI(urlWithoutPrefix)
+            val path = uri.path ?: ""
+            val urlParts = path.split("/").toMutableList()
+
+            // In KVS: path is /get_file/<storage_id>/<hash>/<dir1>/<dir2>/<filename>.mp4/
+            // urlParts[0] = "", urlParts[1] = "get_file", urlParts[2] = "<storage_id>", urlParts[3] = "<hash>"
+            if (urlParts.size > 3) {
+                val hashLength = 32
+                val origHash = urlParts[3]
+                if (origHash.length >= hashLength && licenseToken.size >= hashLength) {
+                    val hashPrefix = origHash.take(hashLength)
+                    val indices = (0 until hashLength).toMutableList()
+                    var accum = 0
+                    for (src in (hashLength - 1) downTo 0) {
+                        accum += licenseToken[src]
+                        val dest = (src + accum) % hashLength
+                        val temp = indices[src]
+                        indices[src] = indices[dest]
+                        indices[dest] = temp
+                    }
+
+                    val decodedHash = StringBuilder()
+                    for (idx in indices) {
+                        decodedHash.append(hashPrefix[idx])
+                    }
+                    urlParts[3] = decodedHash.toString() + origHash.substring(hashLength)
+
+                    val newPath = urlParts.joinToString("/")
+                    val newUri = java.net.URI(uri.scheme, uri.authority, newPath, uri.query, uri.fragment)
+                    return newUri.toString()
+                }
+            }
+            urlWithoutPrefix
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed KVS permutation de-obfuscation: ${e.message}")
+            urlWithoutPrefix
+        }
+    }
+
+    private fun getKvsLicenseToken(licenseCode: String): List<Int> {
+        val cleanLicense = licenseCode.replace("$", "").trim()
+        val licenseValues = cleanLicense.mapNotNull { it.digitToIntOrNull() }
+        if (licenseValues.isEmpty()) return emptyList()
+
+        val modLicense = cleanLicense.replace('0', '1')
+        val center = modLicense.length / 2
+        val frontHalf = modLicense.take(center + 1).toLongOrNull() ?: 1L
+        val backHalf = modLicense.substring(center).toLongOrNull() ?: 1L
+        val diffStr = (4 * kotlin.math.abs(frontHalf - backHalf)).toString().take(center + 1)
+
+        val tokens = mutableListOf<Int>()
+        for ((index, ch) in diffStr.withIndex()) {
+            val current = ch.digitToIntOrNull() ?: 0
+            for (offset in 0 until 4) {
+                val lIdx = index + offset
+                if (lIdx < licenseValues.size) {
+                    tokens.add((licenseValues[lIdx] + current) % 10)
+                } else {
+                    tokens.add(current % 10)
+                }
+            }
+        }
+        return tokens
     }
 }

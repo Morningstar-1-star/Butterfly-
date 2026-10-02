@@ -60,7 +60,7 @@ fun LiquidGlassNavBar(
                 .navigationBarsPadding()
         ) {
             HorizontalDivider(
-                color = Color.White.copy(alpha = 0.12f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
                 thickness = 0.5.dp
             )
             Row(
@@ -129,8 +129,12 @@ private fun NavItem(
         label = "nav_item_scale"
     )
 
-    // Pure white icons matching the YouTube app UI
-    val iconColor = Color.White
+    // Dynamic contrast icon colors matching YouTube theme
+    val iconColor = if (isSelected) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+    }
 
     Box(
         modifier = modifier
@@ -156,7 +160,7 @@ private fun NavItem(
 }
 
 /**
- * YouTube-style "You" tab item with pure white styling and rounded profile avatar
+ * YouTube-style "You" tab item with dynamic theme styling and rounded profile avatar
  */
 @Composable
 private fun YouNavItem(
@@ -177,8 +181,8 @@ private fun YouNavItem(
         label = "you_nav_item_scale"
     )
 
-    val activeColor = Color.White
-    val inactiveColor = Color.White
+    val activeColor = MaterialTheme.colorScheme.onSurface
+    val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
 
     val avatarUrl = userProfile?.avatarUrl
     val presetId = userProfile?.avatarPreset
@@ -204,7 +208,7 @@ private fun YouNavItem(
             contentAlignment = Alignment.Center
         ) {
             if (!effectiveAvatarUrl.isNullOrBlank()) {
-                // YouTube-style circular profile image with active white selection border ring
+                // YouTube-style circular profile image with active selection border ring
                 Box(
                     modifier = Modifier
                         .size(26.dp)
@@ -221,7 +225,7 @@ private fun YouNavItem(
                         )
                         .padding(if (isSelected) 2.dp else 0.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E1E2C)),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     AsyncImage(
@@ -255,7 +259,7 @@ private fun YouNavItem(
                     Text(text = matchedPreset.emoji, fontSize = 13.sp)
                 }
             } else {
-                // Pure white rounded AccountCircle icon
+                // Dynamic theme rounded AccountCircle icon
                 Icon(
                     imageVector = if (isSelected) Icons.Rounded.AccountCircle else Icons.Outlined.AccountCircle,
                     contentDescription = "You",

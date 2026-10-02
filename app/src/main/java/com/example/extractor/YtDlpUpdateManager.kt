@@ -56,41 +56,33 @@ object YtDlpUpdateManager {
         try {
             val targetDir = File(context.filesDir, "yt_dlp_updated/yt_dlp")
             if (targetDir.exists() && targetDir.isDirectory) {
-                // Find all candidate package directories in filesDir and noBackupFilesDir
-                val searchRoots = listOfNotNull(
-                    context.filesDir,
-                    context.noBackupFilesDir
+                val candidateDirs = listOf(
+                    File(context.filesDir, "yt-dlp/yt_dlp"),
+                    File(context.noBackupFilesDir, "yt-dlp/yt_dlp")
                 )
-                for (root in searchRoots) {
-                    val matchingDirs = root.walkTopDown()
-                        .maxDepth(5)
-                        .filter { it.isDirectory && it.name == "yt_dlp" && it.absolutePath != targetDir.absolutePath }
-                        .toList()
-
-                    for (dest in matchingDirs) {
+                for (dest in candidateDirs) {
+                    if (dest.exists() && dest.isDirectory && dest.absolutePath != targetDir.absolutePath) {
                         try {
                             targetDir.copyRecursively(dest, overwrite = true)
-                            Log.i(TAG, "Successfully synced OTA updated yt-dlp to: ${dest.absolutePath}")
+                            Log.i(TAG, "Synced OTA updated yt-dlp to: ${dest.absolutePath}")
                         } catch (e: Exception) {
-                            Log.w(TAG, "Failed copying updated yt-dlp to ${dest.absolutePath}: ${e.message}")
+                            Log.w(TAG, "Notice copying updated yt-dlp to ${dest.absolutePath}: ${e.message}")
                         }
                     }
                 }
-                Log.i(TAG, "Active OTA updated yt-dlp package verified at ${targetDir.absolutePath}")
             }
 
-            // Sync plugin extractors (like noodlemagazine.py) from assets into yt_dlp directories
+            // Sync plugin extractors (like noodlemagazine.py) from assets into safe plugin directories
             try {
                 val assetMgr = context.assets
                 val pluginFiles = assetMgr.list("yt_plugins/yt_dlp_plugins/extractor") ?: emptyArray()
                 if (pluginFiles.isNotEmpty()) {
-                    val searchRoots = listOfNotNull(context.filesDir, context.noBackupFilesDir)
-                    for (root in searchRoots) {
-                        val extractorDirs = root.walkTopDown()
-                            .maxDepth(6)
-                            .filter { it.isDirectory && it.name == "extractor" && it.parentFile?.name == "yt_dlp" }
-                            .toList()
-                        for (ed in extractorDirs) {
+                    val candidatePluginDirs = listOf(
+                        File(context.filesDir, "yt-dlp/yt_dlp/extractor"),
+                        File(context.filesDir, "yt_dlp_updated/yt_dlp/extractor")
+                    )
+                    for (ed in candidatePluginDirs) {
+                        if (ed.exists() && ed.isDirectory) {
                             for (pName in pluginFiles) {
                                 if (pName.endsWith(".py")) {
                                     val destPy = File(ed, pName)
@@ -104,10 +96,10 @@ object YtDlpUpdateManager {
                     }
                 }
             } catch (e: Throwable) {
-                Log.d(TAG, "Plugin extractor injection note: ${e.message}")
+                Log.d(TAG, "Plugin extractor injection notice: ${e.message}")
             }
         } catch (e: Throwable) {
-            Log.d(TAG, "OTA update path note: ${e.message}")
+            Log.d(TAG, "OTA update path notice: ${e.message}")
         }
     }
 

@@ -174,6 +174,29 @@ object VisualLensEngine {
     }
 
     /**
+     * Extracts plain text string directly from a cropped region bitmap with high accuracy.
+     */
+    suspend fun recognizeDirectTextFromBitmap(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
+        return@withContext suspendCancellableCoroutine { continuation ->
+            try {
+                val inputImage = InputImage.fromBitmap(bitmap, 0)
+                textRecognizer.process(inputImage)
+                    .addOnSuccessListener { visionText ->
+                        val resultText = visionText.text.trim()
+                        continuation.resume(resultText)
+                    }
+                    .addOnFailureListener { e ->
+                        Log.w(TAG, "Direct crop text recognition failed: ${e.message}")
+                        continuation.resume("")
+                    }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Error in crop text recognition: ${e.message}", e)
+                continuation.resume("")
+            }
+        }
+    }
+
+    /**
      * Extracts text blocks with normalized coordinates from the provided Bitmap using on-device ML Kit.
      */
     suspend fun recognizeText(bitmap: Bitmap): List<RecognizedTextBlock> = withContext(Dispatchers.Default) {

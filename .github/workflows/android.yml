@@ -55,6 +55,8 @@ jobs:
           mkdir -p ~/.android
           if [ -f "debug.keystore" ]; then
             cp debug.keystore ~/.android/debug.keystore
+          elif [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > ~/.android/debug.keystore
           fi
 
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then

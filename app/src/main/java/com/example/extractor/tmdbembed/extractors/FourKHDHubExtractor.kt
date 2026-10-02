@@ -46,23 +46,21 @@ object FourKHDHubExtractor {
                 }
 
                 if (html.isNotBlank()) {
-                    val linkPattern = Pattern.compile("href=[\"'](https?://[^\"']+/video/[^\"']+)[\"']")
+                    val linkPattern = Pattern.compile("href=[\"'](https?://[^\"']+(?:/video/|/file/|/drive/|hubcloud|fastdl)[^\"']+)[\"']")
                     val matcher = linkPattern.matcher(html)
                     var count = 0
                     while (matcher.find() && count < 3) {
-                        val streamUrl = matcher.group(1) ?: continue
-                        if (!streamUrl.contains("r2.dev")) {
+                        val intermediateUrl = matcher.group(1) ?: continue
+                        val directList = com.example.vega.VegaExtractorEngine.extractStreams(intermediateUrl)
+                        for (st in directList) {
                             streams.add(
                                 ExtractedStream(
-                                    title = "${request.title} [4KHDHub • Stream ${count + 1}]",
-                                    url = streamUrl,
-                                    quality = if (streamUrl.contains("4k") || streamUrl.contains("2160")) "4K" else "1080p",
+                                    title = "${request.title} [4KHDHub • ${st.server}]",
+                                    url = st.url,
+                                    quality = if (st.quality.isNotBlank()) st.quality else "1080p",
                                     source = TMDBEmbedSource.FOUR_K_HD_HUB,
-                                    isHls = streamUrl.contains(".m3u8"),
-                                    headers = mapOf(
-                                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                        "Referer" to "$domain/"
-                                    )
+                                    isHls = st.url.contains(".m3u8"),
+                                    headers = st.headers
                                 )
                             )
                             count++

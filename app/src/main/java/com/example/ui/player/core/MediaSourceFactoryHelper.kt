@@ -39,11 +39,11 @@ object MediaSourceFactoryHelper {
 
     val bilibiliMediaClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .dns(okhttp3.Dns.SYSTEM)
-            .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
-            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .dns(com.example.util.SecureDnsManager.bilibiliDns)
+            .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(35, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -55,7 +55,7 @@ object MediaSourceFactoryHelper {
     val tencentMediaClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .dns(okhttp3.Dns.SYSTEM)
-            .connectionPool(okhttp3.ConnectionPool(16, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
@@ -260,6 +260,11 @@ object MediaSourceFactoryHelper {
                         reqHeaders["Referer"] = "https://www.hotstar.com/"
                         reqHeaders["Origin"] = "https://www.hotstar.com"
                     }
+                    (lowerTarget.contains("tubitv") || lowerTarget.contains("tubi.tv") || streamData?.providerId == "tubitv") -> {
+                        reqHeaders["Referer"] = "https://tubitv.com/"
+                        reqHeaders["Origin"] = "https://tubitv.com"
+                        reqHeaders["X-Forwarded-For"] = "208.80.154.224"
+                    }
                     (lowerTarget.contains("thisvid") || lowerTarget.contains("thisvid.com") || lowerTarget.contains("tvid") || streamData?.providerId == "thisvid") -> {
                         reqHeaders["Referer"] = "https://thisvid.com/"
                         reqHeaders["Origin"] = "https://thisvid.com"
@@ -327,6 +332,10 @@ object MediaSourceFactoryHelper {
                 lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") ||
                 lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos") ||
                 lowerTarget.contains("bcache") || lowerTarget.contains("mirrorakam") ||
+                lowerTarget.contains("mirrorali") || lowerTarget.contains("mirrorcos") ||
+                lowerTarget.contains("mirrorhw") || lowerTarget.contains("mirrorbos") ||
+                lowerTarget.contains("mirror08c") || lowerTarget.contains("akamaized") ||
+                lowerTarget.contains("bstar") || lowerTarget.contains("biliintl") ||
                 streamData?.providerId == "bilibili"
         val isTencent = lowerTarget.contains("qq.com") || lowerTarget.contains("tc.qq.com") ||
                 lowerTarget.contains("v.qq.com") || lowerTarget.contains("myqcloud.com") ||
@@ -347,7 +356,8 @@ object MediaSourceFactoryHelper {
     }
 
     /**
-     * Builds a DataSource.Factory supporting HTTP(S), local file://, content://, and asset:// schemes.
+     * Builds a DataSource.Factory supporting HTTP(S), local file://, content://, and asset:// schemes,
+     * fully backed by a persistent LRU SimpleCache (512MB) to prevent duplicate downloads and enable instant seeking.
      */
     fun createDataSourceFactory(
         targetUrl: String,
@@ -357,7 +367,19 @@ object MediaSourceFactoryHelper {
     ): DataSource.Factory {
         val httpDsFactory = createHttpDataSourceFactory(targetUrl, streamData, specificHeaders)
         val ctx = context ?: com.example.MainApplication.appContext
-        return DefaultDataSource.Factory(ctx, httpDsFactory)
+        val upstreamFactory = DefaultDataSource.Factory(ctx, httpDsFactory)
+
+        // Don't cache local localhost / 127.0.0.1 torrent engine streams (already stored locally)
+        val isLocalHost = targetUrl.contains("127.0.0.1") || targetUrl.contains("localhost")
+        if (isLocalHost) {
+            return upstreamFactory
+        }
+
+        return try {
+            com.example.ui.player.cache.MediaCacheManager.createCacheDataSourceFactory(ctx, upstreamFactory)
+        } catch (_: Throwable) {
+            upstreamFactory
+        }
     }
 
     /**
@@ -369,8 +391,10 @@ object MediaSourceFactoryHelper {
         specificHeaders: Map<String, String> = emptyMap(),
         context: android.content.Context? = null
     ): DefaultMediaSourceFactory {
-        val dsFactory = createDataSourceFactory(targetUrl, streamData, specificHeaders, context)
-        return DefaultMediaSourceFactory(dsFactory, extractorsFactory)
+        val ctx = context ?: com.example.MainApplication.appContext
+        val dsFactory = createDataSourceFactory(targetUrl, streamData, specificHeaders, ctx)
+        return DefaultMediaSourceFactory(ctx, extractorsFactory)
+            .setDataSourceFactory(dsFactory)
             .setLoadErrorHandlingPolicy(errorHandlingPolicy)
     }
 }

@@ -27,6 +27,17 @@ class MainApplication : Application() {
         super.onCreate()
         appContext = this
 
+        // Synchronize night mode with user's saved ThemeMode preference for splash screen and system assets
+        try {
+            val settingsPrefs = getSharedPreferences("app_settings_prefs", MODE_PRIVATE)
+            val savedTheme = settingsPrefs.getString("theme_mode", "AMOLED_DARK")
+            if (savedTheme == "LIGHT") {
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO)
+            } else {
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
+            }
+        } catch (_: Exception) {}
+
         com.example.util.AppConfig.init(this)
 
         // Move non-essential / cloud / sync systems to background IO initialization

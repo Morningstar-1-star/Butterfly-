@@ -49,6 +49,11 @@ object MultiSourceProvider {
             return@withContext DecryptorProvider.getHome(page, limit).map { it.copy(providerId = pid) }
         }
 
+        if (pid.startsWith("nuvio_") || pid == "nuvio") {
+            val sub = if (pid.startsWith("nuvio_")) pid.removePrefix("nuvio_") else null
+            return@withContext NuvioProvider.getHome(page, limit, specificProviderId = sub, context = context).map { it.copy(providerId = pid) }
+        }
+
         // 1. Try custom scrapers / APIs first
         val customItems = when (pid) {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> getCloudSocialHome(context, pid, limit, page)
@@ -85,6 +90,7 @@ object MultiSourceProvider {
             "imdb" -> ImdbProvider.getHome(limit, page)
             "mxplayer" -> MxPlayerProvider.getHome(limit, page)
             "popcorntv", "popcorn" -> PopcornTvProvider.getHome(page, limit)
+            "tubitv", "tubi" -> TubiTvProvider.getHome(limit, page)
             "decryptor" -> DecryptorProvider.getHome(page, limit)
             "tmdb_embed", "tmdbembed", "tmdb" -> TMDBEmbedProvider.getHome(page, limit, context = context)
             "vidsrc" -> VidSrcProvider.getHome(page, limit)
@@ -124,6 +130,11 @@ object MultiSourceProvider {
             return@withContext DecryptorProvider.search(query, limit, page).map { it.copy(providerId = pid) }
         }
 
+        if (pid.startsWith("nuvio_") || pid == "nuvio") {
+            val sub = if (pid.startsWith("nuvio_")) pid.removePrefix("nuvio_") else null
+            return@withContext NuvioProvider.search(query, limit, page, specificProviderId = sub, context = context).map { it.copy(providerId = pid) }
+        }
+
         when (pid) {
             "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> searchCloudSocial(context, pid, query, limit, page)
             "thisvid" -> ThisVidProvider.search(query, limit, page)
@@ -159,6 +170,7 @@ object MultiSourceProvider {
             "imdb" -> ImdbProvider.search(query, limit, page)
             "mxplayer" -> MxPlayerProvider.search(query, limit, page)
             "popcorntv", "popcorn" -> PopcornTvProvider.search(query, limit, page)
+            "tubitv", "tubi" -> TubiTvProvider.search(query, limit, page)
             "decryptor" -> DecryptorProvider.search(query, limit, page)
             "tmdb_embed", "tmdbembed", "tmdb" -> TMDBEmbedProvider.search(query, limit, page, context = context)
             "vidsrc" -> VidSrcProvider.search(query, limit, page)

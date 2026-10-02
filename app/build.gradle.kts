@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.butterfly.youtubeclient"
     minSdk = 28
     targetSdk = 36
-    versionCode = 4
-    versionName = "0.0.4-alpha"
+    versionCode = 5
+    versionName = "0.0.5-alpha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     ndk {
@@ -140,6 +140,8 @@ dependencies {
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.effect)
+  implementation(libs.androidx.media3.datasource)
+  implementation(libs.androidx.media3.database)
   implementation(libs.androidx.media3.datasource.okhttp)
   implementation(libs.play.services.mlkit.text.recognition)
 

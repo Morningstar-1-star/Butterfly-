@@ -1301,6 +1301,7 @@ private fun getProviderChipInfo(id: String, defaultName: String): Triple<String,
         "imdb" -> Triple("IMDb", Icons.Default.Movie, Color(0xFFE4BB24))
         "mxplayer" -> Triple("MX Player", Icons.Default.PlayArrow, Color(0xFF1565C0))
         "popcorntv", "popcorn" -> Triple("PopcornTV", Icons.Default.Movie, Color(0xFFD32F2F))
+        "tubitv", "tubi" -> Triple("Tubi TV", Icons.Default.Tv, Color(0xFFFA233B))
         "decryptor" -> Triple("Decryptor", Icons.Default.Cloud, Color(0xFF00E5FF))
         "vidsrc" -> Triple("VidSrc", Icons.Default.PlayArrow, Color(0xFFFF9100))
         "jikan_anime", "anime" -> Triple("Anime", Icons.Default.Star, Color(0xFF7B1FA2))

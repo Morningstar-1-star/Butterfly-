@@ -270,15 +270,8 @@ object StudioDetector {
             lower.contains("ginga eiyuu") || lower.contains("galactic heroes") || lower.contains("legend of the galactic") ||
             lower.contains("psycho-pass") || lower.contains("ghost in the shell") || lower.contains("production i.g") -> "Production I.G"
 
-            // Fallback: Default TV Network or Film Studio based on hash for stability
-            isTv -> {
-                val tvStudios = listOf("HBO", "Universal Television", "Warner Bros. Television", "Paramount Network", "AMC Studios", "Netflix", "Sony Pictures Television", "FX Networks", "BBC Studios", "Apple TV+")
-                tvStudios[hash % tvStudios.size]
-            }
-            else -> {
-                val filmStudios = listOf("Warner Bros. Pictures", "Universal Pictures", "Paramount Pictures", "Sony Pictures", "20th Century Studios", "Lionsgate Films", "New Line Cinema", "Legendary Entertainment", "A24", "Metro-Goldwyn-Mayer")
-                filmStudios[hash % filmStudios.size]
-            }
+            // If no verified studio matched in title, return empty string so real creator/uploader is used!
+            else -> ""
         }
     }
 

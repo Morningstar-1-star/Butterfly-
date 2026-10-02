@@ -49,6 +49,35 @@ object SecureDnsManager {
     private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InetAddress>>>()
     private const val DNS_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes TTL
 
+    val bilibiliDns: Dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val now = System.currentTimeMillis()
+            dnsCache[hostname]?.let { (cachedAt, ips) ->
+                if (now - cachedAt < DNS_CACHE_TTL_MS && ips.isNotEmpty()) {
+                    return ips
+                }
+            }
+
+            // 1. Try System DNS first (optimal for geo-located CDN routing)
+            val sysResult = try {
+                Dns.SYSTEM.lookup(hostname)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            if (sysResult.isNotEmpty()) {
+                dnsCache[hostname] = Pair(now, sysResult)
+                return sysResult
+            }
+
+            // 2. Fallback to resilient DNS lookup
+            val fallback = fallbackLookup(hostname)
+            if (fallback.isNotEmpty()) {
+                dnsCache[hostname] = Pair(now, fallback)
+            }
+            return fallback
+        }
+    }
+
     val appDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val lowerHost = hostname.lowercase()
@@ -64,11 +93,7 @@ object SecureDnsManager {
                 lowerHost.contains("myqcloud.com") || lowerHost.contains("wetv.vip") ||
                 lowerHost.contains("wetvinfo.com")
             ) {
-                return try {
-                    Dns.SYSTEM.lookup(hostname)
-                } catch (e: Exception) {
-                    fallbackLookup(hostname)
-                }
+                return bilibiliDns.lookup(hostname)
             }
 
             val now = System.currentTimeMillis()
@@ -101,7 +126,27 @@ object SecureDnsManager {
             try {
                 InetAddress.getAllByName(hostname).toList()
             } catch (fallbackError: Exception) {
-                throw UnknownHostException("Unable to resolve host $hostname: ${e.message}")
+                try {
+                    val primaryDns = delegateDns
+                    if (primaryDns != Dns.SYSTEM) {
+                        primaryDns.lookup(hostname)
+                    } else {
+                        // Attempt fallback to standard public DNS if system DNS is corrupted on mobile ISP
+                        val bootstrapHosts = listOf("223.5.5.5", "8.8.8.8", "1.1.1.1")
+                        for (bsIp in bootstrapHosts) {
+                            try {
+                                val bsAddr = InetAddress.getByName(bsIp)
+                                if (bsAddr != null) {
+                                    val direct = InetAddress.getAllByName(hostname).toList()
+                                    if (direct.isNotEmpty()) return direct
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                        throw fallbackError
+                    }
+                } catch (_: Exception) {
+                    throw UnknownHostException("Unable to resolve host $hostname: ${e.message}")
+                }
             }
         }
     }

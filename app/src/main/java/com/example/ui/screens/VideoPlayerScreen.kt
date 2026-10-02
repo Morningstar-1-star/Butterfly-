@@ -298,6 +298,15 @@ fun VideoPlayerScreen(
     }
 
     val displayTitle = currentStreamData?.title ?: currentVideoItem?.title ?: ""
+
+    LaunchedEffect(activeVideoId, currentStreamData?.videoId, displayTitle) {
+        val vid = activeVideoId ?: currentStreamData?.videoId
+        if (!vid.isNullOrBlank()) {
+            val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+            val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
+            viewModel.loadVideoComments(vid, pId, title)
+        }
+    }
     val extractionError = (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Error)?.errorDetails
     val isSavedInWatchLater = currentVideoItem != null && watchLaterList.any { it.id == currentVideoItem.id }
 
@@ -573,15 +582,54 @@ fun VideoPlayerScreen(
         }
     }
 
+    val isAutoplayActive by playbackPrefs.autoplayNextVideo.collectAsState()
+
+    fun navigateToNextVideo() {
+        if (nextEpisodeData != null) {
+            playNextEpisodeAction()
+        } else {
+            val currentQueue = viewModel.playbackQueue.value
+            if (currentQueue.isNotEmpty()) {
+                viewModel.playNextInQueue()
+            } else if (relatedContent.isNotEmpty()) {
+                val nextVid = relatedContent.firstOrNull { it.id != activeVideoId } ?: relatedContent.first()
+                viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+            } else if (landscapeVideos.isNotEmpty()) {
+                val nextVid = landscapeVideos.firstOrNull { it.id != activeVideoId } ?: landscapeVideos.first()
+                viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+            } else if (trendingVideos.isNotEmpty()) {
+                val nextVid = trendingVideos.firstOrNull { it.id != activeVideoId }
+                if (nextVid != null) {
+                    viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+                }
+            } else {
+                val curMs = GlobalPlayerManager.currentPositionMs.value
+                GlobalPlayerManager.seekTo(curMs + 10000L)
+            }
+        }
+    }
+
+    fun navigateToPreviousVideo() {
+        val curMs = GlobalPlayerManager.currentPositionMs.value
+        if (curMs > 3000L) {
+            GlobalPlayerManager.seekTo(0L)
+        } else {
+            val history = viewModel.watchHistory.value
+            val prevItem = history.getOrNull(1)
+            if (prevItem != null && prevItem.id != activeVideoId) {
+                viewModel.playVideo(prevItem.id, prevItem.providerId)
+            } else {
+                GlobalPlayerManager.seekTo(0L)
+            }
+        }
+    }
+
     LaunchedEffect(playbackEnded) {
         if (playbackEnded) {
-            if (nextEpisodeData != null) {
+            if (isAutoplayActive) {
+                navigateToNextVideo()
+            } else if (nextEpisodeData != null) {
                 playNextEpisodeAction()
-            } else {
-                val currentQueue = viewModel.playbackQueue.value
-                if (currentQueue.isNotEmpty()) {
-                    viewModel.playNextInQueue()
-                }
             }
         }
     }
@@ -632,28 +680,10 @@ fun VideoPlayerScreen(
                 nextEpisodeData = nextEpisodeData,
                 onPlayNextEpisode = playNextEpisodeAction,
                 onNextClick = {
-                    if (nextEpisodeData != null) {
-                        playNextEpisodeAction()
-                    } else {
-                        val currentQueue = viewModel.playbackQueue.value
-                        if (currentQueue.isNotEmpty()) {
-                            viewModel.playNextInQueue()
-                        } else if (landscapeVideos.isNotEmpty()) {
-                            val nextVid = landscapeVideos.first()
-                            viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
-                        } else {
-                            val curMs = GlobalPlayerManager.currentPositionMs.value
-                            GlobalPlayerManager.seekTo(curMs + 10000L)
-                        }
-                    }
+                    navigateToNextVideo()
                 },
                 onPreviousClick = {
-                    val curMs = GlobalPlayerManager.currentPositionMs.value
-                    if (curMs > 5000L) {
-                        GlobalPlayerManager.seekTo(0L)
-                    } else {
-                        GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
-                    }
+                    navigateToPreviousVideo()
                 },
                 onOpenRelatedVideos = {
                     showLandscapeRelatedDrawer = true
@@ -828,28 +858,10 @@ fun VideoPlayerScreen(
                             nextEpisodeData = nextEpisodeData,
                             onPlayNextEpisode = playNextEpisodeAction,
                             onNextClick = {
-                                if (nextEpisodeData != null) {
-                                    playNextEpisodeAction()
-                                } else {
-                                    val currentQueue = viewModel.playbackQueue.value
-                                    if (currentQueue.isNotEmpty()) {
-                                        viewModel.playNextInQueue()
-                                    } else if (landscapeVideos.isNotEmpty()) {
-                                        val nextVid = landscapeVideos.first()
-                                        viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
-                                    } else {
-                                        val curMs = GlobalPlayerManager.currentPositionMs.value
-                                        GlobalPlayerManager.seekTo(curMs + 10000L)
-                                    }
-                                }
+                                navigateToNextVideo()
                             },
                             onPreviousClick = {
-                                val curMs = GlobalPlayerManager.currentPositionMs.value
-                                if (curMs > 5000L) {
-                                    GlobalPlayerManager.seekTo(0L)
-                                } else {
-                                    GlobalPlayerManager.seekTo((curMs - 10000L).coerceAtLeast(0L))
-                                }
+                                navigateToPreviousVideo()
                             }
                         )
                     }
@@ -889,7 +901,10 @@ fun VideoPlayerScreen(
                                 selectedOption = selectedOption,
                                 selectedCaption = selectedCaption,
                                 onSelectOption = { viewModel.selectStreamOption(it) },
-                                onSelectCaption = { viewModel.selectCaptionOption(it) },
+                                onSelectCaption = {
+                                    viewModel.selectCaptionOption(it)
+                                    com.example.ui.player.GlobalPlayerManager.selectCaptionOption(it)
+                                },
                                 onTitleDrag = { deltaY ->
                                     if (deltaY > 0f) {
                                         val deltaFraction = deltaY / maxExpandPx
@@ -1504,10 +1519,10 @@ fun VideoPlayerScreen(
                                 }
                             }
                         },
-                        likesCountText = if (currentStreamData?.likeCount != null && currentStreamData!!.likeCount > 0) String.format("%,d", currentStreamData!!.likeCount) else "Like",
-                        viewsCountText = if (currentStreamData?.viewCount != null && currentStreamData!!.viewCount > 0) String.format("%,d", currentStreamData!!.viewCount) else "12K",
-                        timeAgoText = currentStreamData?.uploadDate?.takeIf { it.isNotBlank() } ?: "Recently",
-                        exactDateText = currentStreamData?.uploadDate?.takeIf { it.isNotBlank() } ?: "Recently",
+                        likesCountText = if (currentStreamData?.likeCount != null && currentStreamData!!.likeCount > 0) String.format(java.util.Locale.US, "%,d", currentStreamData!!.likeCount) else "Like",
+                        viewsCountText = if (currentStreamData?.viewCount != null && currentStreamData!!.viewCount > 0) String.format(java.util.Locale.US, "%,d", currentStreamData!!.viewCount) else if (currentVideoItem?.viewCount != null && currentVideoItem!!.viewCount > 0) String.format(java.util.Locale.US, "%,d", currentVideoItem!!.viewCount) else "–",
+                        timeAgoText = com.example.util.DateUtils.formatRelativeTime(currentStreamData?.uploadDate ?: currentVideoItem?.uploadDate).ifBlank { "Recently" },
+                        exactDateText = currentStreamData?.uploadDate?.takeIf { it.isNotBlank() } ?: currentVideoItem?.uploadDate?.takeIf { it.isNotBlank() } ?: "Recently",
                         fullDescription = (currentStreamData?.description ?: currentVideoItem?.description ?: "").ifBlank { "Watch $displayTitle on Butterfly Player." },
                         tags = currentStreamData?.tags ?: currentVideoItem?.tags ?: emptyList(),
                         streamData = currentStreamData,

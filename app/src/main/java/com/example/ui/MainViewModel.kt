@@ -235,14 +235,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val adultIdsList = listOf(
-        "supjav", "sextb", "123av", "javtiful", "jav_all", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "chaturbate", "cam4", "cammodels",
+        "supjav", "supajav", "sextb", "123av", "javtiful", "jav_all", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "chaturbate", "cam4", "cammodels",
         "noodlemagazine", "thisvid", "tnaflix", "spankbang", "playvid", "txxx", "eporner", "hanime1", "redtube",
         "xhamster", "beeg", "4tube", "rule34video", "youporn"
     )
     private val normalIdsList = listOf(
         "youtube", "tencent", "dailymotion", "bilibili", "archive",
         "crunchyroll", "sonyliv", "twitch", "bigo", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
-        "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
+        "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
         "decryptor", "tmdb_embed", "vidsrc"
     )
     val defaultDisabledProviderIds = setOf(
@@ -304,11 +304,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleProviderEnabled(providerId: String, isEnabled: Boolean) {
         val currentSet = _enabledProviderIds.value.toMutableSet()
+        val idsToToggle = when (providerId) {
+            "archive_org", "archive" -> listOf("archive_org", "archive")
+            "bun-tel-meg", "bunkr" -> listOf("bun-tel-meg", "bunkr")
+            else -> listOf(providerId)
+        }
+
         if (isEnabled) {
-            currentSet.add(providerId)
+            currentSet.addAll(idsToToggle)
         } else {
-            currentSet.remove(providerId)
-            if (_activeProviderId.value == providerId) {
+            currentSet.removeAll(idsToToggle)
+            if (idsToToggle.contains(_activeProviderId.value)) {
                 _activeProviderId.value = "all"
             }
         }
@@ -340,6 +346,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         settingsPrefs.edit().putString("theme_mode", mode.name).apply()
+        try {
+            if (mode == ThemeMode.LIGHT) {
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO)
+            } else {
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
+            }
+        } catch (_: Exception) {}
     }
 
     fun setAccentColor(accent: AppAccentColor) {
@@ -689,7 +702,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isSeasonsLoading.value = false
 
         val prov = (streamData.providerId ?: "").lowercase()
-        val isTorrentOrVega = prov == "torrent" || prov == "vega" || prov.startsWith("vega_")
+        val isTorrentOrVega = prov == "torrent" || prov == "vega" || prov.startsWith("vega_") ||
+                prov.startsWith("tmdb") || prov == "decryptor" || prov == "vidsrc"
         val isArchive = prov == "archive" || prov == "archive_org" || prov == "archive.org"
         val isArchiveMultiVideo = isArchive && streamData.availableStreamOptions.size > 1
 
@@ -702,7 +716,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val isTvSeries = titleLower.contains("season") || titleLower.contains("s0") ||
                     titleLower.contains("s1") || titleLower.contains("s2") ||
                     titleLower.contains("episode") || titleLower.contains("ep0") ||
-                    titleLower.contains(" complete ") || streamData.videoId.contains("tv_")
+                    titleLower.contains(" complete ") || streamData.videoId.contains("tv_") ||
+                    streamData.videoId.contains(":tv:") || streamData.videoId.contains("/tv/") ||
+                    streamData.tags.any { it.equals("series", true) || it.equals("tv", true) }
             if (!isTvSeries) {
                 return
             }
@@ -759,7 +775,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                lower.contains("vimeo") || lower.contains("crunchyroll") || lower.contains("sonyliv") ||
                lower.contains("hotstar") || lower.contains("minitv") || lower.contains("disney") ||
                lower.contains("hbo") || lower.contains("curiosity") || lower.contains("imdb") ||
-               lower.contains("mxplayer") || lower.contains("popcorn")
+               lower.contains("mxplayer") || lower.contains("popcorn") || lower.contains("tubi")
     }
 
     fun isAdultVideoItem(item: VideoItem): Boolean {
@@ -882,6 +898,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTestingTMDBHealth = MutableStateFlow(false)
     val isTestingTMDBHealth: StateFlow<Boolean> = _isTestingTMDBHealth.asStateFlow()
     val tmdbHealthMap: StateFlow<Map<String, String>> = tmdbRepository.healthMap
+
+    // Nuvio Multi-Source Provider Repository & States
+    val nuvioRepository = com.example.extractor.nuvio.NuvioProviderRepository.getInstance(getApplication())
+    val installedNuvioProviders: StateFlow<List<com.example.extractor.nuvio.InstalledNuvioProvider>> = nuvioRepository.installedProviders
+    val isNuvioMasterEnabled: StateFlow<Boolean> = nuvioRepository.isMasterEnabled
+    val availableNuvioProviders: List<com.example.extractor.nuvio.NuvioScraperManifestItem> = nuvioRepository.getAllAvailableProviders()
+    val nuvioHealthMap: StateFlow<Map<String, String>> = nuvioRepository.healthMap
 
     private val _watchProgressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val watchProgressMap: StateFlow<Map<String, Float>> = _watchProgressMap.asStateFlow()
@@ -1547,6 +1570,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             try {
                 userDataDao.insertWatchHistory(historyEntity)
+                val syncPayload = org.json.JSONObject().apply {
+                    put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                    put("video_id", enriched.id)
+                    put("title", enriched.title ?: enriched.id)
+                    put("channel_name", enriched.uploaderName ?: "")
+                    put("thumbnail_url", enriched.thumbnailUrl ?: "")
+                    put("duration", enriched.formattedDuration)
+                    put("progress_fraction", _watchProgressMap.value[video.id] ?: savedFraction)
+                    put("provider_id", enriched.providerId ?: "youtube")
+                    put("timestamp", System.currentTimeMillis())
+                }.toString()
+                com.example.supabase.SupabaseSyncManager.enqueueSync("WATCH_HISTORY", enriched.id, "UPSERT", syncPayload)
+                com.example.supabase.SupabaseSyncManager.recordBehaviorSignal(
+                    videoId = enriched.id,
+                    eventType = if (savedFraction >= 0.9f) "completed" else "watched",
+                    watchTimeMs = savedPos,
+                    progressFraction = _watchProgressMap.value[video.id] ?: savedFraction,
+                    category = enriched.providerId ?: "general",
+                    channelName = enriched.uploaderName ?: "",
+                    providerId = enriched.providerId ?: "youtube"
+                )
             } catch (t: Throwable) {
                 Log.e("MainViewModel", "Error saving watch history", t)
             }
@@ -1560,6 +1604,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _watchHistory.value = _watchHistory.value.filterNot { it.id == video.id }
         viewModelScope.launch(Dispatchers.IO) {
             userDataDao.deleteWatchHistory(video.id)
+            com.example.supabase.SupabaseSyncManager.enqueueSync("WATCH_HISTORY", video.id, "DELETE", "{}")
         }
     }
 
@@ -1579,6 +1624,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     userDataDao.deleteLikedVideo(videoId)
+                    com.example.supabase.SupabaseSyncManager.enqueueSync("LIKED_VIDEO", videoId, "DELETE", "{}")
                 } catch (t: Throwable) {
                     Log.e("MainViewModel", "Error deleting liked video", t)
                 }
@@ -1599,6 +1645,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             thumbnailUrl = itemToSave.thumbnailUrl,
                             providerId = itemToSave.providerId
                         )
+                    )
+                    val syncPayload = org.json.JSONObject().apply {
+                        put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                        put("video_id", videoId)
+                        put("title", itemToSave.title ?: videoId)
+                        put("channel_name", itemToSave.uploaderName ?: "")
+                        put("thumbnail_url", itemToSave.thumbnailUrl ?: "")
+                        put("provider_id", itemToSave.providerId ?: "youtube")
+                        put("timestamp", System.currentTimeMillis())
+                    }.toString()
+                    com.example.supabase.SupabaseSyncManager.enqueueSync("LIKED_VIDEO", videoId, "UPSERT", syncPayload)
+                    com.example.supabase.SupabaseSyncManager.recordBehaviorSignal(
+                        videoId = videoId,
+                        eventType = "liked",
+                        channelName = itemToSave.uploaderName ?: "",
+                        providerId = itemToSave.providerId ?: "youtube"
                     )
                 } catch (t: Throwable) {
                     Log.e("MainViewModel", "Error inserting liked video", t)
@@ -1624,6 +1686,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     userDataDao.deleteLikedVideo(videoId)
+                    com.example.supabase.SupabaseSyncManager.enqueueSync("LIKED_VIDEO", videoId, "DELETE", "{}")
+                    com.example.supabase.SupabaseSyncManager.recordBehaviorSignal(
+                        videoId = videoId,
+                        eventType = "disliked",
+                        channelName = itemToDislike.uploaderName ?: "",
+                        providerId = itemToDislike.providerId ?: "youtube"
+                    )
                 } catch (t: Throwable) {
                     Log.e("MainViewModel", "Error deleting liked video", t)
                 }
@@ -1839,7 +1908,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         searchRecsJob?.cancel()
         searchRecsJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val latest = _recentSearches.value.firstOrNull { it.isNotBlank() }
+                val latest = _recentSearches.value.firstOrNull { q ->
+                    q.isNotBlank() &&
+                    !q.startsWith("http://", ignoreCase = true) &&
+                    !q.startsWith("https://", ignoreCase = true) &&
+                    !q.startsWith("www.", ignoreCase = true) &&
+                    !q.startsWith("Link", ignoreCase = true) &&
+                    !q.contains("copy link", ignoreCase = true) &&
+                    !q.contains("how to copy", ignoreCase = true)
+                } ?: _directUrlMatchItem.value?.let { v ->
+                    val clean = v.title.replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)|official music video|official video|full movie|hd|4k|1080p"), "").trim()
+                    if (clean.isNotBlank() && !clean.contains("Direct Video Link", ignoreCase = true)) clean else v.uploaderName
+                }?.takeIf { it.isNotBlank() && !it.contains("Verified", ignoreCase = true) }
+
                 if (latest.isNullOrBlank()) {
                     _searchDrivenRecommendations.value = emptyList()
                     _latestSearchIntent.value = null
@@ -1981,6 +2062,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             providerId = enriched.providerId
                         )
                     )
+                    val syncPayload = org.json.JSONObject().apply {
+                        put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                        put("video_id", enriched.id)
+                        put("title", enriched.title ?: enriched.id)
+                        put("channel_name", enriched.uploaderName ?: "")
+                        put("thumbnail_url", enriched.thumbnailUrl ?: "")
+                        put("provider_id", enriched.providerId ?: "youtube")
+                        put("timestamp", System.currentTimeMillis())
+                    }.toString()
+                    com.example.supabase.SupabaseSyncManager.enqueueSync("BOOKMARK", enriched.id, "UPSERT", syncPayload)
+                    com.example.supabase.SupabaseSyncManager.recordBehaviorSignal(
+                        videoId = enriched.id,
+                        eventType = "bookmark",
+                        channelName = enriched.uploaderName ?: "",
+                        providerId = enriched.providerId ?: "youtube"
+                    )
                 } catch (t: Throwable) {
                     Log.e("MainViewModel", "Error adding to Watch Later", t)
                 }
@@ -1999,6 +2096,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _watchLaterList.value = _watchLaterList.value.filterNot { it.id == item.id }
             viewModelScope.launch(Dispatchers.IO) {
                 userDataDao.deleteBookmark(item.id)
+                com.example.supabase.SupabaseSyncManager.enqueueSync("BOOKMARK", item.id, "DELETE", "{}")
             }
         } else {
             val videoItem = VideoItem(
@@ -2021,6 +2119,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         providerId = videoItem.providerId
                     )
                 )
+                val syncPayload = org.json.JSONObject().apply {
+                    put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                    put("video_id", videoItem.id)
+                    put("title", videoItem.title)
+                    put("channel_name", videoItem.uploaderName)
+                    put("thumbnail_url", videoItem.thumbnailUrl ?: "")
+                    put("provider_id", videoItem.providerId ?: "explore")
+                    put("timestamp", System.currentTimeMillis())
+                }.toString()
+                com.example.supabase.SupabaseSyncManager.enqueueSync("BOOKMARK", videoItem.id, "UPSERT", syncPayload)
             }
         }
     }
@@ -2029,6 +2137,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _watchLaterList.value = _watchLaterList.value.filter { it.id != video.id }
         viewModelScope.launch(Dispatchers.IO) {
             userDataDao.deleteBookmark(video.id)
+            com.example.supabase.SupabaseSyncManager.enqueueSync("BOOKMARK", video.id, "DELETE", "{}")
         }
     }
 
@@ -2145,6 +2254,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             userDataDao.insertOrUpdatePlaylist(
                 UserPlaylistEntity(id = newId, title = title, videosJson = "[]")
             )
+            val syncPayload = org.json.JSONObject().apply {
+                put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                put("playlist_id", newId)
+                put("title", title)
+                put("videos_json", "[]")
+                put("created_at", System.currentTimeMillis())
+            }.toString()
+            com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", newId, "UPSERT", syncPayload)
         }
     }
 
@@ -2158,9 +2275,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val updated = pl.copy(videos = pl.videos + enriched)
                     com.example.recommendation.UserActivityMemory.recordPlaylistAdd(enriched, pl.title, getApplication())
                     viewModelScope.launch(Dispatchers.IO) {
+                        val vJson = serializeVideos(updated.videos)
                         userDataDao.insertOrUpdatePlaylist(
-                            UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                            UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = vJson)
                         )
+                        val syncPayload = org.json.JSONObject().apply {
+                            put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                            put("playlist_id", playlistId)
+                            put("title", pl.title)
+                            put("videos_json", vJson)
+                            put("created_at", System.currentTimeMillis())
+                        }.toString()
+                        com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", playlistId, "UPSERT", syncPayload)
                     }
                     updated
                 } else pl
@@ -2175,9 +2301,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (pl.id == playlistId) {
                 val updated = pl.copy(videos = pl.videos.filter { it.id != video.id })
                 viewModelScope.launch(Dispatchers.IO) {
+                    val vJson = serializeVideos(updated.videos)
                     userDataDao.insertOrUpdatePlaylist(
-                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = serializeVideos(updated.videos))
+                        UserPlaylistEntity(id = playlistId, title = pl.title, videosJson = vJson)
                     )
+                    val syncPayload = org.json.JSONObject().apply {
+                        put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                        put("playlist_id", playlistId)
+                        put("title", pl.title)
+                        put("videos_json", vJson)
+                        put("created_at", System.currentTimeMillis())
+                    }.toString()
+                    com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", playlistId, "UPSERT", syncPayload)
                 }
                 updated
             } else pl
@@ -2188,6 +2323,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _userPlaylists.value = _userPlaylists.value.filter { it.id != playlistId }
         viewModelScope.launch(Dispatchers.IO) {
             userDataDao.deletePlaylist(playlistId)
+            com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", playlistId, "DELETE", "{}")
         }
     }
 
@@ -2196,9 +2332,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (pl.id == playlistId) {
                 val updated = pl.copy(title = newTitle)
                 viewModelScope.launch(Dispatchers.IO) {
+                    val vJson = serializeVideos(updated.videos)
                     userDataDao.insertOrUpdatePlaylist(
-                        UserPlaylistEntity(id = playlistId, title = newTitle, videosJson = serializeVideos(updated.videos))
+                        UserPlaylistEntity(id = playlistId, title = newTitle, videosJson = vJson)
                     )
+                    val syncPayload = org.json.JSONObject().apply {
+                        put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                        put("playlist_id", playlistId)
+                        put("title", newTitle)
+                        put("videos_json", vJson)
+                        put("created_at", System.currentTimeMillis())
+                    }.toString()
+                    com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", playlistId, "UPSERT", syncPayload)
                 }
                 updated
             } else pl
@@ -3038,6 +3183,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setNuvioMasterEnabled(enabled: Boolean) {
+        nuvioRepository.setMasterEnabled(enabled)
+        refreshProvidersList()
+    }
+
+    fun toggleNuvioProvider(id: String, isEnabled: Boolean) {
+        nuvioRepository.toggleProvider(id, isEnabled)
+        refreshProvidersList()
+    }
+
+    fun removeNuvioProvider(id: String) {
+        nuvioRepository.removeProvider(id)
+        refreshProvidersList()
+    }
+
+    fun installNuvioProvider(item: com.example.extractor.nuvio.NuvioScraperManifestItem) {
+        nuvioRepository.installProvider(item)
+        refreshProvidersList()
+    }
+
+    fun syncNuvioManifest(onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            val count = nuvioRepository.syncManifestOnline()
+            refreshProvidersList()
+            onComplete(count)
+        }
+    }
+
+    fun testNuvioProvider(id: String, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val res = nuvioRepository.testProviderLive(id)
+            onResult(res)
+        }
+    }
+
     fun reloadProviders() {
         viewModelScope.launch(Dispatchers.IO) {
             refreshProvidersList()
@@ -3377,6 +3557,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
+                    id = "tubitv",
+                    name = "Tubi TV",
+                    description = "Tubi TV 50,000+ free movies, TV series & cult cinema with US geo bypass",
+                    category = "Cinema",
+                    isEnabled = enabledSet.contains("tubitv"),
+                    isDefault = (activeId == "tubitv")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
                     id = "decryptor",
                     name = "Decryptor (Multi-Server HLS)",
                     description = "Nxsha multi-server HLS engine: Vidhide, Turbo & Fast CDNs",
@@ -3481,6 +3671,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+
+            // Dynamic Nuvio Multi-Source Scrapers
+            if (nuvioRepository.isMasterEnabled.value) {
+                val installedNuvio = nuvioRepository.installedProviders.value
+                for (np in installedNuvio) {
+                    val nId = "nuvio_${np.id}"
+                    uiList.add(
+                        ProviderUiItem(
+                            id = nId,
+                            name = np.name,
+                            description = np.description.ifBlank { "Nuvio streaming provider: ${np.name}" },
+                            category = "Nuvio",
+                            providerType = com.example.model.ProviderType.NUVIO,
+                            isEnabled = np.isEnabled && (enabledSet.isEmpty() || enabledSet.contains(nId)),
+                            isDefault = (activeId == nId)
+                        )
+                    )
+                }
+            }
         }
 
         _availableProviders.value = uiList
@@ -3498,7 +3707,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadRecentSearches(): List<String> {
         val raw = searchPrefs.getString("recent_history", null) ?: return emptyList()
         return try {
-            raw.split("|||").filter { it.isNotBlank() }
+            raw.split("|||").filter { query ->
+                query.isNotBlank() &&
+                !query.startsWith("http://", ignoreCase = true) &&
+                !query.startsWith("https://", ignoreCase = true) &&
+                !query.startsWith("www.", ignoreCase = true) &&
+                !query.startsWith("Link", ignoreCase = true) &&
+                !query.contains("copy link", ignoreCase = true) &&
+                !query.contains("how to copy", ignoreCase = true)
+            }
         } catch (e: Exception) {
             emptyList()
         }
@@ -3568,7 +3785,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addRecentSearch(query: String) {
         val q = query.trim()
-        if (q.isBlank()) return
+        if (q.isBlank() ||
+            q.startsWith("http://", ignoreCase = true) ||
+            q.startsWith("https://", ignoreCase = true) ||
+            q.startsWith("www.", ignoreCase = true) ||
+            q.startsWith("Link", ignoreCase = true) ||
+            q.contains("copy link", ignoreCase = true) ||
+            q.contains("how to copy", ignoreCase = true)
+        ) return
         val filtered = _recentSearches.value.filterNot { it.equals(q, ignoreCase = true) }
         val updated = (listOf(q) + filtered).take(20)
         _recentSearches.value = updated
@@ -3576,6 +3800,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshSearchDrivenRecommendations()
         viewModelScope.launch {
             videoCacheRepo.addSearchQuery(q)
+            val syncPayload = org.json.JSONObject().apply {
+                put("user_id", com.example.supabase.SupabaseAuthManager.currentUser.value?.id ?: "")
+                put("query", q)
+                put("timestamp", System.currentTimeMillis())
+            }.toString()
+            com.example.supabase.SupabaseSyncManager.enqueueSync("SEARCH_HISTORY", q, "UPSERT", syncPayload)
+            com.example.supabase.SupabaseSyncManager.recordBehaviorSignal(
+                videoId = q,
+                eventType = "search",
+                channelName = q,
+                providerId = "search"
+            )
         }
     }
 
@@ -3586,6 +3822,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshSearchDrivenRecommendations()
         viewModelScope.launch {
             videoCacheRepo.removeSearchQuery(query)
+            com.example.supabase.SupabaseSyncManager.enqueueSync("SEARCH_HISTORY", query, "DELETE", "{}")
         }
     }
 
@@ -3913,7 +4150,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         var searchTarget = sanitized.cleanQuery
         var correctedTarget = sanitized.didYouMean
-        addRecentSearch(if (tagAnalysis.isUrl) "Link (${tagAnalysis.detectedProviderId ?: "Video"})" else searchTarget)
+        if (!tagAnalysis.isUrl) {
+            addRecentSearch(searchTarget)
+        }
 
         _isSearching.value = true
         _searchResults.value = emptyList()
@@ -3956,6 +4195,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _directUrlMatchItem.value = translatedHero
                         _searchResults.value = listOf(translatedHero)
                         _isSearching.value = false
+
+                        if (translatedHero.title.isNotBlank() && !translatedHero.title.contains("Direct Video Link", ignoreCase = true)) {
+                            val cleanTitle = translatedHero.title
+                                .replace(Regex("(?i)\\[.*?\\]|\\(.*?\\)|official music video|official video|full movie|hd|4k|1080p"), "")
+                                .trim()
+                            if (cleanTitle.isNotBlank()) {
+                                addRecentSearch(cleanTitle)
+                            }
+                        }
                         return@launch
                     } catch (e: Exception) {
                         Log.w("MainViewModel", "Direct URL match extraction note: ${e.message}")
@@ -4551,14 +4799,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         listOf(
                             "tencent", "hotstar", "twitch", "bigo", "bun-tel-meg",
-                            "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv",
+                            "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
                             "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
                         )
                     }
                 }
                 val targetFastSources = when {
                     activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (if (adultEnabled) isAdultProviderId(it) && !isNormalProvider(it) else !isAdultProviderId(it)) }
-                    activeProv.startsWith("vidsrc") || activeProv.startsWith("decryptor") || activeProv.startsWith("tmdb") -> listOf(activeProv)
+                    activeProv.startsWith("vidsrc") || activeProv.startsWith("decryptor") || activeProv.startsWith("tmdb") || activeProv.startsWith("nuvio") -> listOf(activeProv)
                     else -> if (fastMultiSources.contains(activeProv)) listOf(activeProv) else emptyList()
                 }
 
@@ -4695,8 +4943,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (activeProv == "all") {
                         val multiProvs = listOf(
                             "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
-                            "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
-                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
+                            "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
+                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc", "nuvio"
                         ) + (if (adultEnabled) listOf(
                             "sextb", "123av", "javtiful", "jav_all",
                             "hanime1", "pornhub", "xvideos", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
@@ -4740,8 +4988,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (activeProv == "all") {
                         val multiProvs = listOf(
                             "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
-                            "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv",
-                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
+                            "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
+                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc", "nuvio"
                         ) + (if (adultEnabled) listOf(
                             "sextb", "123av", "javtiful", "jav_all",
                             "hanime1", "pornhub", "xvideos", "xnxx", "hellporno", "stripchat", "xhamster", "youporn", "redtube", "beeg", "4tube", "rule34video",
@@ -5142,8 +5390,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("imdb.com", ignoreCase = true) || cleanIdOrUrl.startsWith("imdb:", ignoreCase = true) -> "imdb"
                 cleanIdOrUrl.contains("mxplayer.in", ignoreCase = true) || cleanIdOrUrl.startsWith("mxplayer:", ignoreCase = true) -> "mxplayer"
                 cleanIdOrUrl.contains("popcorntime", ignoreCase = true) || cleanIdOrUrl.startsWith("popcorntv:", ignoreCase = true) -> "popcorntv"
+                cleanIdOrUrl.contains("tubitv.com", ignoreCase = true) || cleanIdOrUrl.contains("tubi.tv", ignoreCase = true) || cleanIdOrUrl.startsWith("tubitv:", ignoreCase = true) || cleanIdOrUrl.startsWith("tubi:", ignoreCase = true) -> "tubitv"
                 cleanIdOrUrl.contains("decryptor", ignoreCase = true) || cleanIdOrUrl.startsWith("decryptor:", ignoreCase = true) -> "decryptor"
-                cleanIdOrUrl.contains("tmdb_embed", ignoreCase = true) || cleanIdOrUrl.startsWith("tmdb_embed:", ignoreCase = true) || cleanIdOrUrl.startsWith("tmdb:", ignoreCase = true) -> "tmdb_embed"
+                cleanIdOrUrl.startsWith("tmdb_") -> {
+                    val sub = cleanIdOrUrl.substringBefore(":").lowercase()
+                    if (sub == "tmdb_embed") "tmdb_embed" else sub
+                }
+                cleanIdOrUrl.startsWith("tmdb:") || cleanIdOrUrl.contains("tmdb_embed", ignoreCase = true) -> "tmdb_embed"
+                cleanIdOrUrl.startsWith("movie_") || cleanIdOrUrl.startsWith("tv_") -> "tmdb_embed"
                 cleanIdOrUrl.contains("vidsrc", ignoreCase = true) || cleanIdOrUrl.startsWith("vidsrc:", ignoreCase = true) -> "vidsrc"
                 cleanIdOrUrl.contains("bitchute.com", ignoreCase = true) -> "bitchute"
                 cleanIdOrUrl.contains("rumble.com", ignoreCase = true) -> "rumble"
@@ -5181,12 +5435,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (currentMatch?.uploaderUrl?.isNotBlank() == true) {
             com.example.extractor.SextbProvider.registerPageUrl(cleanIdOrUrl, currentMatch.uploaderUrl!!)
         }
+        val isYtId = cleanIdOrUrl.length == 11 && !cleanIdOrUrl.all { it.isDigit() } && (targetProviderId == null || targetProviderId == "youtube")
         val initialVideoItem = currentMatch ?: VideoItem(
             id = cleanIdOrUrl,
-            title = if (cleanIdOrUrl.length == 11) "YouTube Video" else cleanIdOrUrl,
-            uploaderName = targetProviderId?.replaceFirstChar { it.uppercase() } ?: "YouTube",
-            thumbnailUrl = if (cleanIdOrUrl.length == 11) "https://i.ytimg.com/vi/$cleanIdOrUrl/hqdefault.jpg" else null,
-            providerId = targetProviderId ?: "youtube"
+            title = if (isYtId) "YouTube Video" else if (targetProviderId == "tubitv") "Tubi TV Cinema" else cleanIdOrUrl,
+            uploaderName = targetProviderId?.replaceFirstChar { it.uppercase() } ?: "Tubi TV",
+            thumbnailUrl = if (isYtId) "https://i.ytimg.com/vi/$cleanIdOrUrl/hqdefault.jpg" else null,
+            providerId = targetProviderId ?: "tubitv"
         )
         _activeVideoItem.value = initialVideoItem
 
@@ -5197,7 +5452,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Fast metadata prefetch for instant UI rendering (title, author)
-        if (cleanIdOrUrl.length == 11 && (currentMatch == null || currentMatch.title == cleanIdOrUrl)) {
+        if (isYtId && (currentMatch == null || currentMatch.title == cleanIdOrUrl)) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val client = okhttp3.OkHttpClient.Builder()
@@ -5438,6 +5693,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                         sourceName = "Vega Cloud"
                                     )
                                 )
+                            }
+                            if (nuvioRepository.isMasterEnabled.value) {
+                                val nuvioStreams = com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(getApplication(), tmdbReq)
+                                directOptions.addAll(nuvioStreams)
                             }
                         } catch (e: Exception) {
                             Log.w("MainViewModel", "Vega direct cinema fallback note: ${e.message}")
@@ -5777,7 +6036,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // Handle Vega stream resolution if url is encoded with vega_
-            if (option.providerType == com.example.model.ProviderType.VEGA || url.startsWith("vega_") || url.startsWith("vega://")) {
+            if (url.startsWith("vega_") || url.startsWith("vega://") || (!url.startsWith("http") && option.providerType == com.example.model.ProviderType.VEGA)) {
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val raw = url.removePrefix("vega://").removePrefix("vega_")
@@ -6012,31 +6271,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // 3.5 TMDB Embed Multi-Source Extraction (13 Sources: VixSrc, NetMirror, Videasy, Vidlink, CastleTV, etc.)
-                if (com.example.extractor.tmdbembed.TMDBEmbedConfig.isMasterEnabled(getApplication()) && (!effectiveId.isNullOrBlank() || cleanSearch.isNotBlank())) {
+                // 3.5 Nuvio Multi-Source Provider Extraction (UHDMovies, MoviesMod, MoviesDrive, 4KHDHub, HDHub4u, etc.)
+                if (nuvioRepository.isMasterEnabled.value && (!effectiveId.isNullOrBlank() || cleanSearch.isNotBlank() || title.isNotBlank())) {
                     try {
                         val isTv = mediaType.equals("tv", ignoreCase = true) || mediaType.equals("series", ignoreCase = true)
                         val s = season ?: 1
                         val ep = episode ?: 1
                         val targetTmdbId = resolvedTmdb ?: tmdbId ?: effectiveId?.filter { it.isDigit() } ?: ""
+                        val finalSearchTitle = cleanSearch.ifBlank { title.ifBlank { effectiveId ?: "" } }
 
-                        if (targetTmdbId.isNotBlank()) {
-                            val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
-                                tmdbId = targetTmdbId,
-                                mediaType = if (isTv) "tv" else "movie",
-                                season = s,
-                                episode = ep,
-                                title = cleanSearch
-                            )
-                            val tmdbStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(
-                                context = getApplication(),
-                                request = tmdbReq
-                            )
-                            if (tmdbStreams.isNotEmpty()) {
-                                discovered.addAll(tmdbStreams)
-                                withContext(Dispatchers.Main) {
-                                    onDiscovered(discovered.toList())
-                                }
+                        val nuvioReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                            tmdbId = targetTmdbId,
+                            mediaType = if (isTv) "tv" else "movie",
+                            season = s,
+                            episode = ep,
+                            title = finalSearchTitle
+                        )
+                        val nuvioStreams = com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(
+                            context = getApplication(),
+                            request = nuvioReq
+                        )
+                        if (nuvioStreams.isNotEmpty()) {
+                            discovered.addAll(nuvioStreams)
+                            withContext(Dispatchers.Main) {
+                                onDiscovered(discovered.toList())
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MainViewModel", "Nuvio provider extraction notice: ${e.message}")
+                    }
+                }
+
+                // 3.6 TMDB Embed Multi-Source Extraction (13 Sources: VixSrc, NetMirror, Videasy, Vidlink, CastleTV, etc.)
+                if (com.example.extractor.tmdbembed.TMDBEmbedConfig.isMasterEnabled(getApplication()) && (!effectiveId.isNullOrBlank() || cleanSearch.isNotBlank() || title.isNotBlank())) {
+                    try {
+                        val isTv = mediaType.equals("tv", ignoreCase = true) || mediaType.equals("series", ignoreCase = true)
+                        val s = season ?: 1
+                        val ep = episode ?: 1
+                        val targetTmdbId = resolvedTmdb ?: tmdbId ?: effectiveId?.filter { it.isDigit() } ?: ""
+                        val finalSearchTitle = cleanSearch.ifBlank { title.ifBlank { effectiveId ?: "" } }
+
+                        val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                            tmdbId = targetTmdbId,
+                            mediaType = if (isTv) "tv" else "movie",
+                            season = s,
+                            episode = ep,
+                            title = finalSearchTitle
+                        )
+                        val tmdbStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(
+                            context = getApplication(),
+                            request = tmdbReq
+                        )
+                        if (tmdbStreams.isNotEmpty()) {
+                            discovered.addAll(tmdbStreams)
+                            withContext(Dispatchers.Main) {
+                                onDiscovered(discovered.toList())
                             }
                         }
                     } catch (e: Exception) {

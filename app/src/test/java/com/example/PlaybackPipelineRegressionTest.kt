@@ -179,4 +179,138 @@ class PlaybackPipelineRegressionTest {
         assertEquals("Attack on Titan", jaVideo.getDisplayTitle())
         assertEquals("進撃の巨人", jaVideo.getDisplayTitle(showOriginal = true))
     }
+
+    @Test
+    fun testPlaybackMetricsAndCacheHitCalculations() {
+        val tracker = com.example.ui.player.metrics.PlaybackMetricsTracker
+        tracker.resetSession()
+        tracker.resetCacheMetrics()
+
+        tracker.startPreparation("https://rr3---sn-4g5ednks.googlevideo.com/videoplayback?id=test123")
+        assertEquals("rr3---sn-4g5ednks.googlevideo.com", tracker.currentCdnHost.value)
+
+        tracker.onFirstFrameRendered()
+        assertTrue(tracker.startupLatencyMs.value >= 0L)
+
+        // Test Cache Hit Ratio: 8MB cached, 2MB network = 80% hit ratio
+        tracker.recordCachedBytes(8L * 1024L * 1024L)
+        tracker.recordNetworkBytes(2L * 1024L * 1024L)
+        assertEquals(80f, tracker.cacheHitPercentage.value, 0.5f)
+        assertEquals(2L * 1024L * 1024L, tracker.networkBytesDownloaded.value)
+        assertEquals(8L * 1024L * 1024L, tracker.cachedBytesRead.value)
+
+        // Test Rebuffer Stutter Tracking
+        tracker.onRebufferStarted()
+        assertEquals(1, tracker.rebufferCount.value)
+        tracker.onRebufferEnded()
+
+        tracker.updateVideoFormat(1920, 1080, 4_500_000)
+        assertEquals("1920x1080 (1080p)", tracker.currentResolution.value)
+        assertEquals(4500, tracker.currentBitrateKbps.value)
+
+        tracker.updateThroughput(42.5f)
+        assertEquals(42.5f, tracker.measuredThroughputMbps.value, 0.1f)
+    }
+
+    @Test
+    fun testAdaptiveLoadControlParameters() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val loadControl = com.example.ui.player.core.SmartAdaptiveLoadControl.create(context)
+
+        // Verify back-buffer is configured for 15s instant rewind replay
+        assertEquals(15_000_000L, loadControl.backBufferDurationUs)
+        assertTrue(loadControl.retainBackBufferFromKeyframe())
+    }
+
+    @Test
+    fun testPlayerPlaybackInitialization() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val dummyListener = object : androidx.media3.common.Player.Listener {}
+        val playerCore = com.example.ui.player.core.PlayerCore(context, dummyListener)
+        assertNotNull(playerCore.player)
+
+        val streamData = com.example.model.StreamData(
+            videoId = "test_vid",
+            videoUrl = "https://example.com/test.mp4",
+            title = "Test Video",
+            channelName = "Channel",
+            providerId = "youtube"
+        )
+        val option = com.example.model.PlayableStreamOption(
+            videoUrl = "https://example.com/test.mp4",
+            qualityLabel = "1080p",
+            format = "mp4",
+            isMuxed = true
+        )
+        val session = com.example.ui.player.session.PlaybackSession(context)
+        session.prepareAndPlay(context, streamData, option)
+        assertNotNull(session.getExoPlayer())
+    }
+
+    @Test
+    fun testAllStreamFormatsMediaSourceCreation() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+
+        // 1. Progressive MP4
+        val mp4Factory = com.example.ui.player.core.MediaSourceFactoryHelper.createMediaSourceFactory(
+            targetUrl = "https://example.com/stream.mp4",
+            streamData = null,
+            context = context
+        )
+        val mp4Item = androidx.media3.common.MediaItem.fromUri("https://example.com/stream.mp4")
+        val mp4Source = mp4Factory.createMediaSource(mp4Item)
+        assertNotNull(mp4Source)
+
+        // 2. Progressive MKV with Provider Headers Preserved
+        val mkvHeaders = mapOf("Referer" to "https://www.bilibili.com/", "User-Agent" to "CustomBiliUA")
+        val mkvFactory = com.example.ui.player.core.MediaSourceFactoryHelper.createMediaSourceFactory(
+            targetUrl = "https://upos-hz-mirrorakam.akamaized.net/video.mkv",
+            streamData = null,
+            specificHeaders = mkvHeaders,
+            context = context
+        )
+        val mkvItem = androidx.media3.common.MediaItem.Builder()
+            .setUri("https://upos-hz-mirrorakam.akamaized.net/video.mkv")
+            .setMimeType(androidx.media3.common.MimeTypes.VIDEO_MATROSKA)
+            .build()
+        val mkvSource = mkvFactory.createMediaSource(mkvItem)
+        assertNotNull(mkvSource)
+
+        // 3. HLS Master / Segment Stream
+        val hlsFactory = com.example.ui.player.core.MediaSourceFactoryHelper.createMediaSourceFactory(
+            targetUrl = "https://example.com/master.m3u8",
+            streamData = null,
+            context = context
+        )
+        val hlsItem = androidx.media3.common.MediaItem.Builder()
+            .setUri("https://example.com/master.m3u8")
+            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+            .build()
+        val hlsSource = hlsFactory.createMediaSource(hlsItem)
+        assertNotNull(hlsSource)
+
+        // 4. DASH Stream
+        val dashFactory = com.example.ui.player.core.MediaSourceFactoryHelper.createMediaSourceFactory(
+            targetUrl = "https://example.com/manifest.mpd",
+            streamData = null,
+            context = context
+        )
+        val dashItem = androidx.media3.common.MediaItem.Builder()
+            .setUri("https://example.com/manifest.mpd")
+            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
+            .build()
+        val dashSource = dashFactory.createMediaSource(dashItem)
+        assertNotNull(dashSource)
+
+        // 5. Localhost Torrent Engine Stream (Uncached direct stream)
+        val torrentFactory = com.example.ui.player.core.MediaSourceFactoryHelper.createMediaSourceFactory(
+            targetUrl = "http://127.0.0.1:8888/stream?hash=12345",
+            streamData = null,
+            context = context
+        )
+        val torrentItem = androidx.media3.common.MediaItem.fromUri("http://127.0.0.1:8888/stream?hash=12345")
+        val torrentSource = torrentFactory.createMediaSource(torrentItem)
+        assertNotNull(torrentSource)
+    }
 }
+

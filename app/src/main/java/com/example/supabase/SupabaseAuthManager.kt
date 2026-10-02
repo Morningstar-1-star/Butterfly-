@@ -78,6 +78,7 @@ object SupabaseAuthManager {
                 _currentUser.value = user
                 _isLoggedIn.value = true
                 Log.i(TAG, "Restored Supabase session for ${user.email}")
+                SupabaseSyncManager.triggerSync(forceFull = false)
 
                 // If close to expiry, refresh in background
                 if (System.currentTimeMillis() > expiresAt - 300_000L) {
@@ -152,6 +153,7 @@ object SupabaseAuthManager {
                 _isLoggedIn.value = true
                 persistSession(session)
                 Log.i(TAG, "Successfully authenticated via callback for ${user.email}")
+                SupabaseSyncManager.triggerSync(forceFull = true)
                 return Result.success(session)
             }
 
@@ -165,6 +167,7 @@ object SupabaseAuthManager {
                     _currentUser.value = sess.user
                     _isLoggedIn.value = true
                     persistSession(sess)
+                    SupabaseSyncManager.triggerSync(forceFull = true)
                     return Result.success(sess)
                 } else {
                     val err = res.exceptionOrNull()?.message ?: "Code exchange failed"
@@ -183,6 +186,7 @@ object SupabaseAuthManager {
                     _currentUser.value = sess.user
                     _isLoggedIn.value = true
                     persistSession(sess)
+                    SupabaseSyncManager.triggerSync(forceFull = true)
                     return Result.success(sess)
                 } else {
                     val err = res.exceptionOrNull()?.message ?: "OTP verification failed"
@@ -225,6 +229,7 @@ object SupabaseAuthManager {
                 _currentUser.value = sess.user
                 _isLoggedIn.value = true
                 persistSession(sess)
+                SupabaseSyncManager.triggerSync(forceFull = true)
             }
         } else {
             _authError.value = res.exceptionOrNull()?.message ?: "Sign up failed"
@@ -241,6 +246,7 @@ object SupabaseAuthManager {
             _currentUser.value = sess.user
             _isLoggedIn.value = true
             persistSession(sess)
+            SupabaseSyncManager.triggerSync(forceFull = true)
         } else {
             val rawErr = res.exceptionOrNull()?.message ?: "Sign in failed"
             _authError.value = if (rawErr.contains("invalid", ignoreCase = true) || rawErr.contains("credentials", ignoreCase = true)) {
@@ -279,6 +285,7 @@ object SupabaseAuthManager {
             _currentUser.value = sess.user
             _isLoggedIn.value = true
             persistSession(sess)
+            SupabaseSyncManager.triggerSync(forceFull = true)
         } else {
             val rawErr = res.exceptionOrNull()?.message ?: "Invalid or expired confirmation code"
             _authError.value = if (rawErr.contains("expired", ignoreCase = true) || rawErr.contains("invalid", ignoreCase = true)) {

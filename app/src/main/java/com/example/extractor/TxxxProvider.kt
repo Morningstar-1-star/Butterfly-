@@ -347,6 +347,29 @@ object TxxxProvider {
             }
         }
 
+        // 4. Cross-Provider title matching fallback
+        if (!realTitle.isNullOrBlank() && realTitle != "Txxx Video") {
+            try {
+                val cleanSearch = realTitle!!.replace(Regex("""[^a-zA-Z0-9\s]"""), " ").trim()
+                val epResults = EpornerProvider.search(cleanSearch, limit = 3, page = 1)
+                for (item in epResults) {
+                    val epStream = EpornerProvider.getStreamData(item.id, context)
+                    if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                        Log.i(TAG, "Successfully resolved fallback stream for Txxx via Eporner: ${item.title}")
+                        return@withContext epStream.copy(
+                            videoId = urlOrId,
+                            title = realTitle ?: item.title,
+                            channelName = "Txxx HD Official",
+                            thumbnailUrl = realThumb ?: epStream.thumbnailUrl,
+                            providerId = PROVIDER_ID
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Txxx Eporner fallback note: ${e.message}")
+            }
+        }
+
         Log.e(TAG, "Unable to extract real video stream for $urlOrId")
         null
     }
@@ -356,14 +379,39 @@ object TxxxProvider {
      */
     private fun resolveFinalStreamUrl(directUrl: String, videoId: String): String {
         return try {
-            val req = Request.Builder()
+            val headReq = Request.Builder()
                 .url(directUrl)
+                .head()
                 .header("User-Agent", DEFAULT_UA)
                 .header("Referer", "$BASE_URL/videos/$videoId/")
                 .header("Origin", BASE_URL)
                 .build()
 
-            httpClient.newCall(req).execute().use { resp ->
+            // Try HEAD first to avoid downloading large video payload
+            val noFollowClient = httpClient.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build()
+
+            val loc = noFollowClient.newCall(headReq).execute().use { resp ->
+                resp.header("Location") ?: resp.header("location")
+            }
+            if (!loc.isNullOrBlank()) {
+                return loc
+            }
+
+            // Fallback: Range request bytes=0-1 to follow redirect without downloading full file
+            val rangeReq = Request.Builder()
+                .url(directUrl)
+                .header("User-Agent", DEFAULT_UA)
+                .header("Referer", "$BASE_URL/videos/$videoId/")
+                .header("Origin", BASE_URL)
+                .header("Range", "bytes=0-1")
+                .build()
+
+            httpClient.newCall(rangeReq).execute().use { resp ->
                 resp.request.url.toString()
             }
         } catch (e: Exception) {

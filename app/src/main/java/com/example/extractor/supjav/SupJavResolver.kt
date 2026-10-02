@@ -21,19 +21,15 @@ object SupJavResolver {
     private const val TAG = "SupJavResolver"
 
     val BASE_MIRRORS = listOf(
-        "https://supjav.com",
         "https://supjav.mom",
         "https://supjav.biz",
+        "https://supjav.tv",
+        "https://supjav.cc",
         "https://supjav.net",
         "https://supjav.org",
-        "https://supjav.cc",
-        "https://supjav.tv",
-        "https://supjav.vip",
         "https://supjav.xyz",
         "https://supjav.site",
-        "https://supjav.link",
-        "https://supjav.co",
-        "https://supjav.in"
+        "https://supjav.com"
     )
 
     private val httpClient get() = SupJavNetwork.httpClient

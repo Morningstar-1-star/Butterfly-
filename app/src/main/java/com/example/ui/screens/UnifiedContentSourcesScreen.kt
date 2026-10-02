@@ -37,6 +37,7 @@ enum class SourcePillCategory(val label: String, val icon: ImageVector, val colo
     VIDSRC("VidSrc", Icons.Outlined.VideoLibrary, Color(0xFF9C27B0)),
     DECRYPTOR("Decryptor", Icons.Outlined.LockOpen, Color(0xFF00BCD4)),
     TMDB("TMDB Embeds", Icons.Outlined.MovieCreation, Color(0xFF4CAF50)),
+    NUVIO("Nuvio (29+)", Icons.Outlined.Extension, Color(0xFFE91E63)),
     TORRENT("Torrents", Icons.Outlined.Radar, Color(0xFF673AB7)),
     CLOUD("Cloud & Bunkr", Icons.Outlined.Cloud, Color(0xFF009688))
 }
@@ -94,6 +95,11 @@ fun UnifiedContentSourcesScreen(
     val availableTMDB = viewModel.availableTMDBProviders
     val tmdbHealthMap by viewModel.tmdbHealthMap.collectAsState()
 
+    val isNuvioMasterEnabled by viewModel.isNuvioMasterEnabled.collectAsState()
+    val installedNuvio by viewModel.installedNuvioProviders.collectAsState()
+    val availableNuvio = viewModel.availableNuvioProviders
+    val nuvioHealthMap by viewModel.nuvioHealthMap.collectAsState()
+
     // 1. Normal Mainstream Providers
     val normalProviders = remember(availableProviders, enabledProviderIds) {
         val adultIds = setOf(
@@ -104,10 +110,29 @@ fun UnifiedContentSourcesScreen(
         )
         val defaultNormal = listOf(
             UnifiedSourceItem("youtube", "YouTube", SourcePillCategory.NORMAL, "Official YouTube Streams & Shorts via InnerTube API", enabledProviderIds.contains("youtube"), qualityTag = "4K / 1080p", icon = Icons.Outlined.PlayArrow),
-            UnifiedSourceItem("tencent", "Tencent Video (v.qq.com)", SourcePillCategory.NORMAL, "Official Chinese drama, anime, movies & VIP series with multi-bitrate HLS", enabledProviderIds.contains("tencent"), qualityTag = "1080p FHD", icon = Icons.Outlined.LiveTv),
+            UnifiedSourceItem("vimeo", "Vimeo", SourcePillCategory.NORMAL, "High-definition creative cinema, indie films & documentaries", enabledProviderIds.contains("vimeo"), qualityTag = "4K / 1080p", icon = Icons.Outlined.VideoLibrary),
+            UnifiedSourceItem("twitch", "Twitch", SourcePillCategory.NORMAL, "Twitch live streams, top gaming channels, esports & VODs", enabledProviderIds.contains("twitch"), qualityTag = "1080p 60FPS", icon = Icons.Outlined.LiveTv),
+            UnifiedSourceItem("bigo", "BIGO Live", SourcePillCategory.NORMAL, "Global live broadcasters, video moments & interactive chat rooms", enabledProviderIds.contains("bigo"), qualityTag = "Live HLS", icon = Icons.Outlined.Videocam),
             UnifiedSourceItem("dailymotion", "Dailymotion", SourcePillCategory.NORMAL, "Global news, trending videos & creator channels", enabledProviderIds.contains("dailymotion"), qualityTag = "1080p HD", icon = Icons.Outlined.VideoLibrary),
             UnifiedSourceItem("bilibili", "Bilibili", SourcePillCategory.NORMAL, "Anime, gaming, creator streams & Danmaku community", enabledProviderIds.contains("bilibili"), qualityTag = "1080p 60FPS", icon = Icons.Outlined.Tv),
-            UnifiedSourceItem("archive", "Internet Archive", SourcePillCategory.NORMAL, "Public domain movies, educational broadcasts & archives", enabledProviderIds.contains("archive"), qualityTag = "Direct MP4", icon = Icons.Outlined.AccountBalance)
+            UnifiedSourceItem("archive_org", "Internet Archive", SourcePillCategory.NORMAL, "Public domain movies, educational broadcasts & historical media", enabledProviderIds.contains("archive_org") || enabledProviderIds.contains("archive"), qualityTag = "Direct MP4", icon = Icons.Outlined.AccountBalance),
+            UnifiedSourceItem("tencent", "Tencent Video (v.qq.com)", SourcePillCategory.NORMAL, "Official Chinese drama, anime, movies & VIP series with multi-bitrate HLS", enabledProviderIds.contains("tencent"), qualityTag = "1080p FHD", icon = Icons.Outlined.LiveTv),
+            UnifiedSourceItem("hotstar", "Hotstar / JioHotstar", SourcePillCategory.NORMAL, "Premium Indian & international TV shows, sports & serials", enabledProviderIds.contains("hotstar"), qualityTag = "1080p HD", icon = Icons.Outlined.Movie),
+            UnifiedSourceItem("crunchyroll", "Crunchyroll", SourcePillCategory.NORMAL, "Official anime catalog, simulcasts & full seasons", enabledProviderIds.contains("crunchyroll"), qualityTag = "1080p Anime", icon = Icons.Outlined.Animation),
+            UnifiedSourceItem("sonyliv", "SonyLIV", SourcePillCategory.NORMAL, "Sony TV shows, live sports, premium web series & cinema", enabledProviderIds.contains("sonyliv"), qualityTag = "1080p HD", icon = Icons.Outlined.LiveTv),
+            UnifiedSourceItem("amazonminitv", "Amazon miniTV", SourcePillCategory.NORMAL, "Free OTT web series, romance, comedy & youth dramas", enabledProviderIds.contains("amazonminitv"), qualityTag = "1080p HD", icon = Icons.Outlined.Tv),
+            UnifiedSourceItem("discoveryplus", "Discovery+", SourcePillCategory.NORMAL, "Science, nature, wildlife, TLC & reality docu-series", enabledProviderIds.contains("discoveryplus"), qualityTag = "1080p Docu", icon = Icons.Outlined.Explore),
+            UnifiedSourceItem("disney", "Disney / Disney+", SourcePillCategory.NORMAL, "Disney, Pixar, Marvel, Star Wars & Nat Geo cinema releases", enabledProviderIds.contains("disney"), qualityTag = "4K / 1080p", icon = Icons.Outlined.LocalMovies),
+            UnifiedSourceItem("hbo", "HBO / Max", SourcePillCategory.NORMAL, "HBO Originals, House of the Dragon, Game of Thrones & Max hits", enabledProviderIds.contains("hbo"), qualityTag = "4K / 1080p", icon = Icons.Outlined.MovieCreation),
+            UnifiedSourceItem("curiositystream", "CuriosityStream", SourcePillCategory.NORMAL, "Science, history, nature & deep documentary streaming", enabledProviderIds.contains("curiositystream"), qualityTag = "1080p FHD", icon = Icons.Outlined.Lightbulb),
+            UnifiedSourceItem("googledrive", "Google Drive", SourcePillCategory.NORMAL, "Stream public & personal Google Drive movie folders & shared links", enabledProviderIds.contains("googledrive"), qualityTag = "Direct Stream", icon = Icons.Outlined.Cloud),
+            UnifiedSourceItem("imdb", "IMDb Top Cinema", SourcePillCategory.NORMAL, "IMDb Top 250 releases, movie charts, previews & HD trailers", enabledProviderIds.contains("imdb"), qualityTag = "1080p Trailers", icon = Icons.Outlined.Star),
+            UnifiedSourceItem("mxplayer", "MX Player", SourcePillCategory.NORMAL, "MX Player OTT web series, short films & movies", enabledProviderIds.contains("mxplayer"), qualityTag = "1080p HD", icon = Icons.Outlined.PlayCircleOutline),
+            UnifiedSourceItem("popcorntv", "PopcornTV", SourcePillCategory.NORMAL, "Blockbuster movies, cinema classics & open streaming titles", enabledProviderIds.contains("popcorntv"), qualityTag = "4K Cinema", icon = Icons.Outlined.Theaters),
+            UnifiedSourceItem("tubitv", "Tubi TV", SourcePillCategory.NORMAL, "Free movies & TV series, 50,000+ titles with US/CA geo bypass", enabledProviderIds.contains("tubitv"), qualityTag = "1080p HD", icon = Icons.Outlined.LiveTv),
+            UnifiedSourceItem("decryptor", "Decryptor Multi-Server", SourcePillCategory.NORMAL, "Nxsha multi-server HLS engine: Vidhide, Turbo & fast CDNs", enabledProviderIds.contains("decryptor"), qualityTag = "Multi-Server", icon = Icons.Outlined.Dns),
+            UnifiedSourceItem("torrent", "BitTorrent (P2P)", SourcePillCategory.NORMAL, "Stream Movies, TV Series & Anime via native BitTorrent releases", enabledProviderIds.contains("torrent"), qualityTag = "P2P Stream", icon = Icons.Outlined.Download),
+            UnifiedSourceItem("bun-tel-meg", "Telegram & Cloud Folders", SourcePillCategory.NORMAL, "Telegram channels, MEGA folders & Bunkr albums direct links", enabledProviderIds.contains("bun-tel-meg") || enabledProviderIds.contains("bunkr"), qualityTag = "Cloud Links", icon = Icons.Outlined.FolderZip)
         )
         defaultNormal
     }
@@ -238,6 +263,28 @@ fun UnifiedContentSourcesScreen(
         }
     }
 
+    // 6.5. Nuvio Providers (29+ Scrapers: UHDMovies, MoviesMod, MoviesDrive, 4KHDHub, etc.)
+    val nuvioItems = remember(installedNuvio, nuvioHealthMap, isNuvioMasterEnabled) {
+        val installedMap = installedNuvio.associateBy { it.id }
+        availableNuvio.map { prov ->
+            val inst = installedMap[prov.id]
+            val isInst = inst != null
+            val isEn = inst?.isEnabled ?: true
+            UnifiedSourceItem(
+                id = prov.id,
+                name = prov.name,
+                category = SourcePillCategory.NUVIO,
+                description = prov.description,
+                isEnabled = isEn && isInst && isNuvioMasterEnabled,
+                isInstalled = isInst,
+                qualityTag = prov.formats.joinToString("/").uppercase(),
+                isExtension = true,
+                icon = Icons.Outlined.Extension,
+                healthStatus = nuvioHealthMap[prov.id] ?: inst?.status
+            )
+        }
+    }
+
     // 7. Torrent & Indexer Providers
     val torrentItems = remember {
         listOf(
@@ -259,8 +306,8 @@ fun UnifiedContentSourcesScreen(
     }
 
     // Aggregate all items based on selected pill & search query
-    val allItemsList = remember(normalProviders, adultProviders, vegaItems, vidSrcItems, decryptorItems, tmdbItems, torrentItems, cloudItems) {
-        normalProviders + adultProviders + vegaItems + vidSrcItems + decryptorItems + tmdbItems + torrentItems + cloudItems
+    val allItemsList = remember(normalProviders, adultProviders, vegaItems, vidSrcItems, decryptorItems, tmdbItems, nuvioItems, torrentItems, cloudItems) {
+        normalProviders + adultProviders + vegaItems + vidSrcItems + decryptorItems + tmdbItems + nuvioItems + torrentItems + cloudItems
     }
 
     val filteredItems = remember(selectedPill, searchQuery, allItemsList) {
@@ -272,6 +319,7 @@ fun UnifiedContentSourcesScreen(
             SourcePillCategory.VIDSRC -> vidSrcItems
             SourcePillCategory.DECRYPTOR -> decryptorItems
             SourcePillCategory.TMDB -> tmdbItems
+            SourcePillCategory.NUVIO -> nuvioItems
             SourcePillCategory.TORRENT -> torrentItems
             SourcePillCategory.CLOUD -> cloudItems
         }
@@ -384,6 +432,7 @@ fun UnifiedContentSourcesScreen(
                         SourcePillCategory.VIDSRC -> vidSrcItems.size
                         SourcePillCategory.DECRYPTOR -> decryptorItems.size
                         SourcePillCategory.TMDB -> tmdbItems.size
+                        SourcePillCategory.NUVIO -> nuvioItems.size
                         SourcePillCategory.TORRENT -> torrentItems.size
                         SourcePillCategory.CLOUD -> cloudItems.size
                     }
@@ -686,6 +735,46 @@ fun UnifiedContentSourcesScreen(
             }
         }
 
+        // NUVIO MASTER TOGGLE (Shown when NUVIO is selected)
+        if (selectedPill == SourcePillCategory.NUVIO) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isNuvioMasterEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setNuvioMasterEnabled(!isNuvioMasterEnabled) }
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = "Enable Nuvio Providers (29+ Scrapers)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isNuvioMasterEnabled) "UHDMovies, MoviesMod, MoviesDrive, 4KHDHub, HDHub4u & all 29 Nuvio scrapers are active." else "Nuvio providers are disabled.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isNuvioMasterEnabled,
+                            onCheckedChange = { viewModel.setNuvioMasterEnabled(it) }
+                        )
+                    }
+                }
+            }
+        }
+
         // SOURCE CARDS LIST HEADER
         item {
             Row(
@@ -756,6 +845,9 @@ fun UnifiedContentSourcesScreen(
                         SourcePillCategory.TMDB -> {
                             viewModel.toggleTMDBProvider(item.id, enabled)
                         }
+                        SourcePillCategory.NUVIO -> {
+                            viewModel.toggleNuvioProvider(item.id, enabled)
+                        }
                         else -> {
                             viewModel.toggleProviderEnabled(item.id, enabled)
                         }
@@ -775,6 +867,9 @@ fun UnifiedContentSourcesScreen(
                         SourcePillCategory.TMDB -> {
                             viewModel.installTMDBProvider(item.id)
                         }
+                        SourcePillCategory.NUVIO -> {
+                            availableNuvio.find { it.id == item.id }?.let { viewModel.installNuvioProvider(it) }
+                        }
                         else -> {}
                     }
                     Toast.makeText(context, "Installed ${item.name}", Toast.LENGTH_SHORT).show()
@@ -785,6 +880,7 @@ fun UnifiedContentSourcesScreen(
                         SourcePillCategory.VIDSRC -> viewModel.uninstallVidSrcProvider(item.id)
                         SourcePillCategory.DECRYPTOR -> viewModel.uninstallDecryptorProvider(item.id)
                         SourcePillCategory.TMDB -> viewModel.uninstallTMDBProvider(item.id)
+                        SourcePillCategory.NUVIO -> viewModel.removeNuvioProvider(item.id)
                         else -> {}
                     }
                     Toast.makeText(context, "Uninstalled ${item.name}", Toast.LENGTH_SHORT).show()

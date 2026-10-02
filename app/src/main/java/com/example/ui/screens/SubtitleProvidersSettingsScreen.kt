@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -29,7 +28,6 @@ import com.example.subtitles.plugin.SubtitlePluginInfo
 import com.example.subtitles.plugin.SubtitlePluginRegistry
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubtitleProvidersSettingsScreen(
     onBackClick: () -> Unit,
@@ -46,117 +44,159 @@ fun SubtitleProvidersSettingsScreen(
     var showResetDialog by remember { mutableStateOf(false) }
     val preferHi by SubtitleManager.preferHearingImpaired.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
+    val activeCount = plugins.count { it.isEnabled && it.isInstalled }
+    val totalCount = plugins.count { it.isInstalled }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. ARCHITECTURE OVERVIEW HERO CARD
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ClosedCaption,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Butterfly Subtitle Core",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "$activeCount of $totalCount subtitle providers active",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "⚡ UNIFIED",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
-                            text = "Subtitle Providers",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Lightweight plugin architecture & Bazarr sources",
-                            fontSize = 12.sp,
+                            text = "Automatic subtitle search & real-time sync across SubDL, OpenSubtitles, SubtitleCat & Bazarr with multi-language fallback.",
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.testTag("subtitle_settings_back")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { showResetDialog = true },
-                        modifier = Modifier.testTag("subtitle_settings_reset")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.RestartAlt,
-                            contentDescription = "Reset Defaults"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        modifier = modifier
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // Summary Card
-            item {
-                ArchitectureOverviewCard(
-                    activeCount = plugins.count { it.isEnabled && it.isInstalled },
-                    totalCount = plugins.count { it.isInstalled }
-                )
+                }
             }
+        }
 
-            // Global Preferences Section
-            item {
+        // 2. PREFERENCES & RANKING SECTION
+        item {
+            Column {
                 Text(
-                    text = "Preferences & Ranking",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = "PREFERENCES & ENGINE TUNING",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp)
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                 )
-            }
 
-            item {
                 Card(
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        // HI Preference Row
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    SubtitleManager.setPreferHearingImpaired(!preferHi)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
-                                    text = "Prefer Hearing Impaired (HI) Tracks",
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp
+                                    text = "Prefer Hearing Impaired (HI / SDH)",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium
                                 )
                                 Text(
-                                    text = "Ranks SDH and descriptive sound subtitles higher",
-                                    fontSize = 12.sp,
+                                    text = "Ranks SDH and descriptive sound subtitle tracks highest",
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Switch(
                                 checked = preferHi,
-                                onCheckedChange = {
-                                    SubtitleManager.setPreferHearingImpaired(it)
-                                },
+                                onCheckedChange = { SubtitleManager.setPreferHearingImpaired(it) },
                                 modifier = Modifier.testTag("toggle_prefer_hi")
                             )
                         }
 
                         HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                         )
 
+                        // Parallel Concurrency info row
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -165,55 +205,98 @@ fun SubtitleProvidersSettingsScreen(
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Parallel Concurrency & Fallback",
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 14.sp
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
                                 )
                                 Text(
                                     text = "Queries all active plugins concurrently with 8s per-plugin timeout",
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+
+                        // Reset to defaults action row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showResetDialog = true }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Outlined.RestartAlt,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Restore Default Providers",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "Reset all subtitle providers and configurations to defaults",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.Outlined.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
+        }
 
-            // Installed & Available Plugins Header
-            item {
-                Text(
-                    text = "Provider Plugins (${plugins.count { it.isInstalled }})",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
-                )
-            }
+        // 3. PROVIDER PLUGINS HEADER
+        item {
+            Text(
+                text = "PROVIDER PLUGINS ($totalCount AVAILABLE)",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+            )
+        }
 
-            // Plugin cards
-            items(plugins, key = { it.id }) { plugin ->
-                PluginCard(
-                    plugin = plugin,
-                    onToggleEnabled = { enabled ->
-                        SubtitlePluginRegistry.setPluginEnabled(context, plugin.id, enabled)
-                    },
-                    onToggleInstalled = { installed ->
-                        SubtitlePluginRegistry.setPluginInstalled(context, plugin.id, installed)
-                    },
-                    onSaveApiKey = { newKey ->
-                        SubtitlePluginRegistry.setPluginApiKey(context, plugin.id, newKey)
-                        Toast.makeText(context, "${plugin.name} API key updated", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
+        // 4. INDIVIDUAL PROVIDER PLUGIN CARDS
+        items(plugins, key = { it.id }) { plugin ->
+            PluginCard(
+                plugin = plugin,
+                onToggleEnabled = { enabled ->
+                    SubtitlePluginRegistry.setPluginEnabled(context, plugin.id, enabled)
+                },
+                onToggleInstalled = { installed ->
+                    SubtitlePluginRegistry.setPluginInstalled(context, plugin.id, installed)
+                },
+                onSaveApiKey = { newKey ->
+                    SubtitlePluginRegistry.setPluginApiKey(context, plugin.id, newKey)
+                    Toast.makeText(context, "${plugin.name} API key updated", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
 
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
+        item {
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
@@ -221,7 +304,7 @@ fun SubtitleProvidersSettingsScreen(
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text("Restore Default Providers?") },
-            text = { Text("This will re-enable SubDL, OpenSubtitles, SubtitleCat, and Gestdown, and reset custom API keys.") },
+            text = { Text("This will re-enable SubDL, OpenSubtitles, SubtitleCat, and Gestdown, and restore default configurations.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -230,7 +313,7 @@ fun SubtitleProvidersSettingsScreen(
                         Toast.makeText(context, "Subtitle providers restored to defaults", Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Text("Restore")
+                    Text("Restore", color = MaterialTheme.colorScheme.primary)
                 }
             },
             dismissButton = {
@@ -239,84 +322,6 @@ fun SubtitleProvidersSettingsScreen(
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun ArchitectureOverviewCard(
-    activeCount: Int,
-    totalCount: Int
-) {
-    Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ClosedCaption,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Butterfly Subtitle Core",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = "$activeCount of $totalCount providers active",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                ) {
-                    Text(
-                        text = "Unified Pipeline",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Pipeline: Core → Subtitle Manager → Provider Plugins → Unified Results → Deduplicate / Rank → Download",
-                    modifier = Modifier.padding(12.dp),
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
     }
 }
 
@@ -341,12 +346,14 @@ private fun PluginCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (plugin.isInstalled && plugin.isEnabled) {
-                MaterialTheme.colorScheme.surface
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (plugin.isEnabled && plugin.isInstalled) 2.dp else 0.dp),
+        border = if (plugin.isInstalled && plugin.isEnabled) {
+            androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        } else null,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("plugin_card_${plugin.id}")
@@ -368,8 +375,8 @@ private fun PluginCard(
                             .clip(RoundedCornerShape(10.dp))
                             .background(
                                 if (plugin.isEnabled && plugin.isInstalled)
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -396,18 +403,24 @@ private fun PluginCard(
                             Text(
                                 text = plugin.name,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                style = MaterialTheme.typography.titleSmall
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "v${plugin.version}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                            ) {
+                                Text(
+                                    text = "v${plugin.version}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
                         }
                         Text(
                             text = plugin.author,
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -420,12 +433,13 @@ private fun PluginCard(
                         modifier = Modifier.testTag("toggle_plugin_${plugin.id}")
                     )
                 } else {
-                    Button(
+                    FilledTonalButton(
                         onClick = { onToggleInstalled(true) },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.testTag("install_plugin_${plugin.id}")
                     ) {
-                        Text("Install", fontSize = 12.sp)
+                        Text("Install", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -434,7 +448,7 @@ private fun PluginCard(
 
             Text(
                 text = plugin.description,
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
             )
@@ -462,7 +476,7 @@ private fun PluginCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Action buttons row: Test Connection, API Key, Uninstall
+            // Action buttons row: Test Ping, API Key, Uninstall
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -485,6 +499,7 @@ private fun PluginCard(
                             }
                         },
                         enabled = !isTesting && plugin.isInstalled,
+                        shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier.testTag("test_btn_${plugin.id}")
                     ) {
@@ -494,7 +509,7 @@ private fun PluginCard(
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Testing...", fontSize = 12.sp)
+                            Text("Testing...", style = MaterialTheme.typography.labelMedium)
                         } else {
                             Icon(
                                 imageVector = Icons.Outlined.NetworkCheck,
@@ -502,7 +517,7 @@ private fun PluginCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Test Ping", fontSize = 12.sp)
+                            Text("Test Ping", style = MaterialTheme.typography.labelMedium)
                         }
                     }
 
@@ -510,6 +525,7 @@ private fun PluginCard(
                     if (plugin.id == "subdl" || plugin.id == "opensubtitles") {
                         OutlinedButton(
                             onClick = { expandedApiKey = !expandedApiKey },
+                            shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             modifier = Modifier.testTag("api_key_btn_${plugin.id}")
                         ) {
@@ -519,7 +535,7 @@ private fun PluginCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("API Key", fontSize = 12.sp)
+                            Text("API Key", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
@@ -527,7 +543,7 @@ private fun PluginCard(
                 if (plugin.isInstalled) {
                     IconButton(
                         onClick = { onToggleInstalled(false) },
-                        modifier = Modifier.size(32.dp).testTag("uninstall_btn_${plugin.id}")
+                        modifier = Modifier.size(36.dp).testTag("uninstall_btn_${plugin.id}")
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.DeleteOutline,
@@ -545,7 +561,7 @@ private fun PluginCard(
                 val isSuccess = testStatus!!.startsWith("Connected") || testStatus == "OK"
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isSuccess) Color(0xFF1B5E20).copy(alpha = 0.15f) else MaterialTheme.colorScheme.errorContainer
+                    color = if (isSuccess) Color(0xFF1B5E20).copy(alpha = 0.2f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -554,15 +570,15 @@ private fun PluginCard(
                         Icon(
                             imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
                             contentDescription = null,
-                            tint = if (isSuccess) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                            tint = if (isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = testStatus!!,
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
-                            color = if (isSuccess) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onErrorContainer
+                            color = if (isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
                 }
@@ -579,8 +595,9 @@ private fun PluginCard(
                         value = apiKeyInput,
                         onValueChange = { apiKeyInput = it },
                         label = { Text("${plugin.name} API Key") },
-                        placeholder = { Text("Optional (uses default key if blank)") },
+                        placeholder = { Text("Optional (uses default if blank)") },
                         singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("input_key_${plugin.id}")
@@ -604,7 +621,8 @@ private fun PluginCard(
                             onClick = {
                                 onSaveApiKey(apiKeyInput.ifBlank { null })
                                 expandedApiKey = false
-                            }
+                            },
+                            shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("Save Key")
                         }
@@ -619,13 +637,13 @@ private fun PluginCard(
 private fun PluginBadge(text: String) {
     Surface(
         shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
     ) {
         Text(
             text = text,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
         )
     }

@@ -407,6 +407,17 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isTubiTv = providerId == "tubitv" || providerId == "tubi" ||
+                urlOrId.contains("tubitv.com", ignoreCase = true) || urlOrId.contains("tubi.tv", ignoreCase = true) ||
+                urlOrId.startsWith("tubitv:", ignoreCase = true) || urlOrId.startsWith("tubi:", ignoreCase = true)
+        if (isTubiTv) {
+            val tubiData = TubiTvProvider.getStreamData(urlOrId, context)
+            if (tubiData != null) {
+                Log.i(TAG, "Resolved via TubiTvProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(tubiData)
+            }
+        }
+
         val isArchive = providerId == "archive_org" || providerId == "archive" || urlOrId.contains("archive.org") || urlOrId.startsWith("archive_") || urlOrId.startsWith("archive:")
         if (isArchive) {
             val archiveData = ArchiveOrgProvider.getStreamData(urlOrId, context)
@@ -433,12 +444,11 @@ object YouTubeExtractorHelper {
             )
         }
 
-        val isSupJav = providerId == "supjav" || urlOrId.contains("supjav.com") || urlOrId.contains("supjav.mom") ||
-                urlOrId.contains("supjav.biz") || urlOrId.contains("supjav.net") ||
-                urlOrId.contains("supjav.org") || urlOrId.contains("supjav.cc") || urlOrId.contains("supjav.tv") ||
-                urlOrId.contains("supjav.vip") || urlOrId.contains("supjav.xyz") || urlOrId.contains("supjav.site") ||
-                urlOrId.contains("supjav.link") || urlOrId.contains("supjav.co") || urlOrId.contains("supjav.in") ||
-                urlOrId.contains("tvlogy") || urlOrId.startsWith("supjav_", ignoreCase = true) || urlOrId.startsWith("supjav:", ignoreCase = true)
+        val isSupJav = providerId == "supjav" || providerId == "supajav" ||
+                urlOrId.contains("supjav") || urlOrId.contains("supajav") ||
+                urlOrId.contains("tvlogy") || urlOrId.startsWith("supjav_", ignoreCase = true) ||
+                urlOrId.startsWith("supajav_", ignoreCase = true) ||
+                urlOrId.startsWith("supjav:", ignoreCase = true) || urlOrId.startsWith("supajav:", ignoreCase = true)
         if (isSupJav) {
             val supjavData = SupJavProvider.getStreamData(urlOrId, context)
             if (supjavData != null) {
@@ -874,11 +884,17 @@ object YouTubeExtractorHelper {
 
         val isTMDBEmbed = providerId == "tmdb_embed" || providerId == "tmdbembed" || providerId == "tmdb" ||
                 providerId?.startsWith("tmdb_") == true ||
-                urlOrId.startsWith("tmdb_embed:") || urlOrId.startsWith("tmdb:") || urlOrId.startsWith("tmdb_")
+                urlOrId.startsWith("tmdb_embed:") || urlOrId.startsWith("tmdb:") || urlOrId.startsWith("tmdb_") ||
+                urlOrId.startsWith("movie_") || urlOrId.startsWith("tv_") ||
+                urlOrId.contains(":tv:") || urlOrId.contains(":movie:")
         if (isTMDBEmbed) {
             val specificSource = when {
                 providerId?.startsWith("tmdb_") == true && providerId != "tmdb_embed" ->
                     com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(providerId.removePrefix("tmdb_"))
+                urlOrId.startsWith("tmdb_") && !urlOrId.startsWith("tmdb_embed:") -> {
+                    val sub = urlOrId.removePrefix("tmdb_").substringBefore(":")
+                    com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
+                }
                 else -> com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.firstOrNull { urlOrId.startsWith("tmdb_${it.id}:") }
             }
             val tmdbData = TMDBEmbedProvider.getStreamData(urlOrId, context, specificSource = specificSource)
@@ -894,6 +910,22 @@ object YouTubeExtractorHelper {
             if (vidsrcData != null) {
                 Log.i(TAG, "Resolved via VidSrcProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(vidsrcData)
+            }
+        }
+
+        val isNuvio = providerId == "nuvio" || providerId?.startsWith("nuvio_") == true ||
+                urlOrId.startsWith("nuvio:") || urlOrId.startsWith("nuvio_") ||
+                (providerId == null && urlOrId.contains("nuvio"))
+        if (isNuvio) {
+            val specificSub = when {
+                providerId?.startsWith("nuvio_") == true && providerId != "nuvio" -> providerId.removePrefix("nuvio_")
+                urlOrId.startsWith("nuvio_") -> urlOrId.substringAfter("nuvio_").substringBefore(":")
+                else -> null
+            }
+            val nuvioData = NuvioProvider.getStreamData(urlOrId, context, specificProviderId = specificSub)
+            if (nuvioData != null) {
+                Log.i(TAG, "Resolved via NuvioProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(nuvioData)
             }
         }
 
@@ -1186,7 +1218,7 @@ object YouTubeExtractorHelper {
                 urlOrId.startsWith("youtube:", ignoreCase = true) ||
                 urlOrId.startsWith("ytuser:", ignoreCase = true) ||
                 urlOrId.startsWith(":yt", ignoreCase = true) ||
-                (urlOrId.length == 11 && !urlOrId.startsWith("http"))
+                (urlOrId.length == 11 && !urlOrId.startsWith("http") && !urlOrId.all { it.isDigit() } && (providerId == null || providerId == "youtube"))
 
         if (isYouTube) {
             val cleanUrl = urlOrId.trim()
@@ -1374,6 +1406,38 @@ object YouTubeExtractorHelper {
                         emptyList()
                     }
 
+                    val extractedCaptions = mutableListOf<CaptionOption>()
+                    try {
+                        streamInfo.subtitles?.forEach { sub ->
+                            val contentUrl = sub.content ?: return@forEach
+                            val langName = sub.displayLanguageName ?: sub.languageTag ?: "English"
+                            val langCode = sub.languageTag ?: "en"
+                            val format = sub.format?.toString()?.lowercase() ?: "vtt"
+                            extractedCaptions.add(
+                                CaptionOption(
+                                    languageName = langName,
+                                    languageCode = langCode,
+                                    format = format,
+                                    url = contentUrl
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error extracting YouTube subtitles: ${e.message}")
+                    }
+
+                    if (extractedCaptions.isEmpty() && videoId.isNotBlank()) {
+                        // Provide default auto-caption timedtext endpoint as ready fallback
+                        extractedCaptions.add(
+                            CaptionOption(
+                                languageName = "English (Auto)",
+                                languageCode = "en",
+                                format = "vtt",
+                                url = "https://www.youtube.com/api/timedtext?v=$videoId&lang=en&fmt=vtt"
+                            )
+                        )
+                    }
+
                     val streamData = StreamData(
                         videoId = videoId,
                         videoUrl = bestOption.videoUrl ?: "",
@@ -1388,6 +1452,7 @@ object YouTubeExtractorHelper {
                         audioStreams = audioStreams,
                         availableStreamOptions = sortedOptions,
                         selectedStreamOption = bestOption,
+                        captionOptions = extractedCaptions,
                         hlsUrl = streamInfo.hlsUrl,
                         relatedVideos = extractedRelated,
                         tags = streamInfo.tags ?: emptyList(),

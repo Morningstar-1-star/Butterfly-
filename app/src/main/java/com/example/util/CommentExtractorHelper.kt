@@ -112,7 +112,14 @@ object CommentExtractorHelper {
             if (dmComments.isNotEmpty()) return@withContext dmComments
         }
 
-        // 6. YouTube comments
+        // 6. Internet Archive user reviews & comments
+        val isArchive = cleanProvider.contains("archive") || videoId.contains("archive.org")
+        if (isArchive) {
+            val archiveComments = fetchArchiveComments(videoId)
+            if (archiveComments.isNotEmpty()) return@withContext archiveComments
+        }
+
+        // 7. YouTube comments
         val isYouTube = cleanProvider == "youtube" || videoId.length == 11 || videoId.startsWith("http") || videoId.contains("youtu")
         if (isYouTube || cleanProvider.isBlank()) {
             val ytId = extractYouTubeId(videoId)
@@ -1006,5 +1013,47 @@ object CommentExtractorHelper {
             diff < 31536000 -> "${diff / 2592000}mo ago"
             else -> "${diff / 31536000}y ago"
         }
+    }
+
+    private fun fetchArchiveComments(rawId: String): List<VideoComment> {
+        try {
+            val id = com.example.extractor.ArchiveOrgProvider.extractId(rawId)
+            if (id.isBlank()) return emptyList()
+            val url = "https://archive.org/metadata/$id/reviews"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val body = resp.body?.string() ?: return emptyList()
+                val json = JSONObject(body)
+                val reviews = json.optJSONArray("result") ?: json.optJSONArray("reviews") ?: return emptyList()
+                val list = mutableListOf<VideoComment>()
+                for (i in 0 until reviews.length().coerceAtMost(30)) {
+                    val r = reviews.optJSONObject(i) ?: continue
+                    val author = r.optString("reviewer", "Archive Member")
+                    val text = r.optString("reviewbody", r.optString("reviewtitle", "")).trim()
+                    if (text.isBlank()) continue
+                    val date = r.optString("createdate", "Community Review")
+                    val stars = r.optInt("stars", 5)
+                    list.add(
+                        VideoComment(
+                            id = "ia_rev_$i",
+                            authorName = author,
+                            authorAvatarUrl = "https://archive.org/images/glogo.png",
+                            commentText = text,
+                            timeAgo = if (date.contains(" ")) date.substringBefore(" ") else date,
+                            likeCount = stars,
+                            sourceBadge = "⭐ $stars/5 Review"
+                        )
+                    )
+                }
+                return list
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchArchiveComments error: ${e.message}")
+        }
+        return emptyList()
     }
 }

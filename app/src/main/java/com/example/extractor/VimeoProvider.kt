@@ -248,6 +248,27 @@ object VimeoProvider {
                 }
             }
 
+            val textTracks = filesObj.optJSONArray("text_tracks") ?: requestObj.optJSONArray("text_tracks")
+            val captions = mutableListOf<CaptionOption>()
+            if (textTracks != null) {
+                for (i in 0 until textTracks.length()) {
+                    val track = textTracks.optJSONObject(i) ?: continue
+                    val tUrl = track.optString("url", "")
+                    val lang = track.optString("lang", "en")
+                    val label = track.optString("label", "English")
+                    if (tUrl.isNotBlank()) {
+                        captions.add(
+                            CaptionOption(
+                                languageName = label,
+                                languageCode = lang,
+                                format = "vtt",
+                                url = tUrl
+                            )
+                        )
+                    }
+                }
+            }
+
             if (options.isNotEmpty()) {
                 val bestOption = options.first()
                 return StreamData(
@@ -257,6 +278,7 @@ object VimeoProvider {
                     channelName = uploader,
                     description = title,
                     thumbnailUrl = thumb,
+                    captionOptions = captions,
                     availableStreamOptions = options,
                     selectedStreamOption = bestOption,
                     providerId = PROVIDER_ID,

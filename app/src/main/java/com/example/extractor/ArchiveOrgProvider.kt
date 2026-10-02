@@ -77,7 +77,7 @@ object ArchiveOrgProvider {
         val curatedQuery = categories[queryIndex]
         val encodedQuery = URLEncoder.encode(curatedQuery, "UTF-8")
 
-        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=publicdate&fl[]=description&fl[]=downloads&fl[]=mediatype&fl[]=length&fl[]=duration&sort[]=$randomSort&rows=30&page=$page&output=json"
+        val url = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=director&fl[]=artist&fl[]=author&fl[]=publicdate&fl[]=description&fl[]=downloads&fl[]=mediatype&fl[]=length&fl[]=duration&sort[]=$randomSort&rows=30&page=$page&output=json"
 
         val items = mutableListOf<VideoItem>()
         val body = httpGet(url)
@@ -86,7 +86,7 @@ object ArchiveOrgProvider {
         }
 
         if (items.isEmpty()) {
-            val scrapeUrl = "https://archive.org/services/search/v1/scrape?q=$encodedQuery&fields=identifier,title,creator,publicdate,description,downloads,length,duration&count=30"
+            val scrapeUrl = "https://archive.org/services/search/v1/scrape?q=$encodedQuery&fields=identifier,title,creator,director,artist,author,publicdate,description,downloads,length,duration&count=30"
             val scrapeBody = httpGet(scrapeUrl)
             if (!scrapeBody.isNullOrBlank()) {
                 items.addAll(parseArchiveList(scrapeBody))
@@ -252,6 +252,7 @@ object ArchiveOrgProvider {
             videoUrl = bestOption.videoUrl ?: "",
             title = resolvedTitle,
             channelName = resolvedCreator,
+            channelAvatarUrl = "https://archive.org/images/glogo.png",
             description = resolvedDesc,
             thumbnailUrl = "https://archive.org/services/img/$identifier",
             availableStreamOptions = sortedOptions,
@@ -290,6 +291,7 @@ object ArchiveOrgProvider {
                         id = id,
                         title = title,
                         uploaderName = creator,
+                        uploaderAvatarUrl = "https://archive.org/images/glogo.png",
                         uploadDate = publicDate.takeIf { it.isNotBlank() },
                         thumbnailUrl = "https://archive.org/services/img/$id",
                         viewCount = downloads,
@@ -306,12 +308,34 @@ object ArchiveOrgProvider {
 
     private fun extractCreator(obj: JSONObject?): String {
         if (obj == null) return "Internet Archive"
-        val creator = obj.opt("creator")
-        return when (creator) {
-            is String -> creator.ifBlank { "Internet Archive" }
-            is JSONArray -> if (creator.length() > 0) creator.optString(0, "Internet Archive") else "Internet Archive"
-            else -> obj.optString("uploader", "Internet Archive")
+        val candidates = listOf("creator", "director", "artist", "author", "contributor")
+        for (field in candidates) {
+            val v = obj.opt(field)
+            val str = when (v) {
+                is String -> v.trim().takeIf { it.isNotBlank() }
+                is JSONArray -> if (v.length() > 0) v.optString(0, "").trim().takeIf { it.isNotBlank() } else null
+                else -> null
+            }
+            if (!str.isNullOrBlank()) return str
         }
+
+        val uploader = obj.optString("uploader", "").trim()
+        if (uploader.isNotBlank()) {
+            val clean = if (uploader.contains("@")) uploader.substringBefore("@") else uploader
+            return clean.replace("_", " ").trim()
+        }
+
+        val collection = obj.opt("collection")
+        val rawCollection = when (collection) {
+            is String -> collection.trim().takeIf { it.isNotBlank() }
+            is JSONArray -> if (collection.length() > 0) collection.optString(0, "").trim().takeIf { it.isNotBlank() } else null
+            else -> null
+        }
+        if (!rawCollection.isNullOrBlank()) {
+            return rawCollection.replace("_", " ").trim()
+        }
+
+        return "Internet Archive"
     }
 
     fun extractId(input: String): String {

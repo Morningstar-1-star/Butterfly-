@@ -80,9 +80,16 @@ fun YouTubePreciseSeekBar(
     chapters: List<com.example.extractor.chapters.VideoChapter> = emptyList(),
     heatmap: VideoHeatmap? = null,
     activeColor: Color = Color(0xFFFFD600),
+    accentColor: Color = Color(0xFFFF4081),
     bufferedColor: Color = Color.White.copy(alpha = 0.50f),
     inactiveColor: Color = Color.White.copy(alpha = 0.25f),
     thumbColor: Color = Color(0xFFFFD600),
+    enableGradient: Boolean = false,
+    showHeatmap: Boolean = true,
+    showChapters: Boolean = true,
+    isLargeSeekbar: Boolean = false,
+    enableTapToSeek: Boolean = true,
+    hapticsEnabled: Boolean = true,
     isLandscape: Boolean = false
 ) {
     val context = LocalContext.current
@@ -96,17 +103,43 @@ fun YouTubePreciseSeekBar(
     val displayPosition = if (isDragging) scrubPositionMs else if (hasValidDuration) currentPositionMs.coerceIn(0L, safeDuration) else 0L
     val progressFraction = if (hasValidDuration) (displayPosition.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f) else 0f
     val bufferedFraction = if (hasValidDuration) (bufferedPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f) else 0f
-    val hasHeatmap = heatmap != null && heatmap.isNotEmpty
+    val hasHeatmap = showHeatmap && heatmap != null && heatmap.isNotEmpty
 
-    // Animated bar thickness and thumb size for YouTube-authentic feel
+    // Auto-hide bottom progress bar after controls go away (stays for 2.5s then fades out completely)
+    var isBottomBarTemporarilyVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isControlsVisible, isDragging) {
+        if (isControlsVisible || isDragging) {
+            isBottomBarTemporarilyVisible = true
+        } else {
+            kotlinx.coroutines.delay(2500L)
+            isBottomBarTemporarilyVisible = false
+        }
+    }
+
+    val isBarVisible = isControlsVisible || isBottomBarTemporarilyVisible || isDragging
+    val seekbarAlpha by animateFloatAsState(
+        targetValue = if (isBarVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "seekbarAlpha"
+    )
+
+    // Animated bar thickness and thumb size
+    val baseBarHeight = if (isLargeSeekbar) 6.dp else 3.5.dp
+    val draggingBarHeight = if (isLargeSeekbar) 7.5.dp else 4.5.dp
+    val idleBarHeight = if (isLargeSeekbar) 4.dp else 2.5.dp
+
     val animatedBarHeight by animateDpAsState(
-        targetValue = if (isDragging) 4.5.dp else if (isControlsVisible) 3.5.dp else 2.5.dp,
+        targetValue = if (isDragging) draggingBarHeight else if (isControlsVisible) baseBarHeight else idleBarHeight,
         animationSpec = tween(durationMillis = 180),
         label = "barHeight"
     )
 
+    val baseThumbRadius = if (isLargeSeekbar) 6.5.dp else 4.5.dp
+    val draggingThumbRadius = if (isLargeSeekbar) 8.5.dp else 6.5.dp
+
     val animatedThumbRadius by animateDpAsState(
-        targetValue = if (isDragging) 6.5.dp else if (isControlsVisible) 4.5.dp else 0.dp,
+        targetValue = if (isDragging) draggingThumbRadius else if (isControlsVisible) baseThumbRadius else 0.dp,
         animationSpec = tween(durationMillis = 180),
         label = "thumbRadius"
     )
@@ -134,6 +167,7 @@ fun YouTubePreciseSeekBar(
         modifier = modifier
             .fillMaxWidth()
             .height(24.dp)
+            .graphicsLayer { alpha = seekbarAlpha }
             .onSizeChanged { trackWidthPx = it.width.toFloat().coerceAtLeast(1f) },
         contentAlignment = Alignment.BottomCenter
     ) {
@@ -229,25 +263,27 @@ fun YouTubePreciseSeekBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .pointerInput(hasValidDuration, safeDuration) {
+                .pointerInput(hasValidDuration, safeDuration, enableTapToSeek, hapticsEnabled) {
                     if (!hasValidDuration) return@pointerInput
                     detectTapGestures(
                         onPress = { offset ->
-                            isDragging = true
-                            onSeekStarted()
-                            val frac = (offset.x / size.width).coerceIn(0f, 1f)
-                            scrubPositionMs = (frac * safeDuration).toLong()
-                            onSeekScrubbing(scrubPositionMs)
+                            if (enableTapToSeek) {
+                                isDragging = true
+                                onSeekStarted()
+                                val frac = (offset.x / size.width).coerceIn(0f, 1f)
+                                scrubPositionMs = (frac * safeDuration).toLong()
+                                onSeekScrubbing(scrubPositionMs)
 
-                            val released = tryAwaitRelease()
-                            if (released) {
-                                onSeekFinished(scrubPositionMs)
+                                val released = tryAwaitRelease()
+                                if (released) {
+                                    onSeekFinished(scrubPositionMs)
+                                }
+                                isDragging = false
                             }
-                            isDragging = false
                         }
                     )
                 }
-                .pointerInput(hasValidDuration, safeDuration) {
+                .pointerInput(hasValidDuration, safeDuration, hapticsEnabled) {
                     if (!hasValidDuration) return@pointerInput
                     detectDragGestures(
                         onDragStart = { offset ->
@@ -341,7 +377,7 @@ fun YouTubePreciseSeekBar(
                                 brush = Brush.verticalGradient(
                                     colors = listOf(
                                         activeColor.copy(alpha = 0.65f),
-                                        activeColor.copy(alpha = 0.20f)
+                                        accentColor.copy(alpha = 0.30f)
                                     ),
                                     startY = baselineY - maxWaveHeight,
                                     endY = baselineY
@@ -398,19 +434,32 @@ fun YouTubePreciseSeekBar(
                     )
                 }
 
-                // 3. Active / Played progress track (Bright YouTube Yellow)
+                // 3. Active / Played progress track
                 val activeWidth = canvasWidth * progressFraction
                 if (activeWidth > 0f) {
-                    drawRoundRect(
-                        color = activeColor,
-                        topLeft = Offset(0f, centerY - (barHeightPx / 2f)),
-                        size = Size(activeWidth, barHeightPx),
-                        cornerRadius = cornerRadius
-                    )
+                    if (enableGradient && activeColor != accentColor) {
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(activeColor, accentColor),
+                                startX = 0f,
+                                endX = activeWidth.coerceAtLeast(10f)
+                            ),
+                            topLeft = Offset(0f, centerY - (barHeightPx / 2f)),
+                            size = Size(activeWidth, barHeightPx),
+                            cornerRadius = cornerRadius
+                        )
+                    } else {
+                        drawRoundRect(
+                            color = activeColor,
+                            topLeft = Offset(0f, centerY - (barHeightPx / 2f)),
+                            size = Size(activeWidth, barHeightPx),
+                            cornerRadius = cornerRadius
+                        )
+                    }
                 }
 
                 // 3.5 YouTube Chapter Separator Gaps (Clean 2dp black notches dividing chapters)
-                if (chapters.size > 1 && safeDuration > 0) {
+                if (showChapters && chapters.size > 1 && safeDuration > 0) {
                     val gapWidth = 2.dp.toPx()
                     for (ci in 1 until chapters.size) {
                         val ch = chapters[ci]
@@ -426,30 +475,30 @@ fun YouTubePreciseSeekBar(
                     }
                 }
 
-                // 4. Scrubber Thumb Circle (YouTube Yellow Dot) - smooth alpha and radius transition
+                // 4. Scrubber Thumb Circle - smooth alpha and radius transition
                 if (thumbRadiusPx > 0.5f && animatedThumbAlpha > 0.05f) {
                     val thumbX = activeWidth.coerceIn(thumbRadiusPx, canvasWidth - thumbRadiusPx)
 
-                    // Outer subtle glow when dragging
+                    // Outer accent glow when dragging or active
                     if (isDragging) {
                         drawCircle(
-                            color = activeColor.copy(alpha = 0.35f * animatedThumbAlpha),
-                            radius = thumbRadiusPx + 4.dp.toPx(),
+                            color = accentColor.copy(alpha = 0.45f * animatedThumbAlpha),
+                            radius = thumbRadiusPx + 4.5.dp.toPx(),
                             center = Offset(thumbX, centerY)
                         )
                     }
 
-                    // Main yellow thumb circle
+                    // Main thumb circle
                     drawCircle(
                         color = thumbColor.copy(alpha = animatedThumbAlpha),
                         radius = thumbRadiusPx,
                         center = Offset(thumbX, centerY)
                     )
 
-                    // Inner white center highlight dot
+                    // Inner highlight dot
                     drawCircle(
                         color = Color.White.copy(alpha = animatedThumbAlpha),
-                        radius = if (isDragging) 2.2.dp.toPx() else 1.2.dp.toPx(),
+                        radius = if (isDragging) 2.4.dp.toPx() else 1.4.dp.toPx(),
                         center = Offset(thumbX, centerY)
                     )
                 }

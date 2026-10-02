@@ -93,6 +93,84 @@ object TMDBEmbedExtractorEngine {
             }
         }
 
+        if (discoveredStreams.isEmpty() && request.tmdbId.isNotBlank()) {
+            // Attempt 1: Authenticated On-Device WebAssembly ChaCha20 Decryption
+            try {
+                val wasmStreams = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
+                    context = context,
+                    tmdbId = request.tmdbId,
+                    isTv = request.isTv,
+                    season = request.season,
+                    episode = request.episode,
+                    title = request.title,
+                    providerName = specificSource?.displayName ?: "TMDB Cloud"
+                )
+                for (ws in wasmStreams) {
+                    val pUrl = ws.videoUrl ?: continue
+                    discoveredStreams.add(
+                        ExtractedStream(
+                            title = ws.releaseTitle ?: "${request.title} [TMDB Cloud • ${ws.qualityCategory}]",
+                            url = pUrl,
+                            source = specificSource ?: TMDBEmbedSource.VIDLINK,
+                            quality = ws.qualityCategory,
+                            isHls = pUrl.contains(".m3u8") || ws.format.contains("m3u8", true),
+                            headers = ws.headers,
+                            subtitles = ws.subtitles
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "WASM stream decryption fallback note: ${e.message}")
+            }
+        }
+
+        // Attempt 2: Headless multi-server embed sniffing (AutoEmbed & VidSrc & VidLink)
+        if (discoveredStreams.isEmpty() && request.tmdbId.isNotBlank()) {
+            val sniffCandidates = if (request.isTv) {
+                listOf(
+                    "https://autoembed.co/tv/tmdb/${request.tmdbId}-${request.season}-${request.episode}",
+                    "https://vidsrc.to/embed/tv/${request.tmdbId}/${request.season}/${request.episode}",
+                    "https://vidlink.pro/tv/${request.tmdbId}/${request.season}/${request.episode}",
+                    "https://embed.smashystream.com/playere.php?tmdb=${request.tmdbId}&season=${request.season}&episode=${request.episode}"
+                )
+            } else {
+                listOf(
+                    "https://autoembed.co/movie/tmdb/${request.tmdbId}",
+                    "https://vidsrc.to/embed/movie/${request.tmdbId}",
+                    "https://vidlink.pro/movie/${request.tmdbId}",
+                    "https://embed.smashystream.com/playere.php?tmdb=${request.tmdbId}"
+                )
+            }
+
+            for (embedCandidate in sniffCandidates) {
+                try {
+                    val sniffed = com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(context, embedCandidate, 6000L)
+                    val sUrl = sniffed?.videoUrl
+                    if (!sUrl.isNullOrBlank() && !sUrl.contains("/embed/") && (sUrl.contains(".m3u8") || sUrl.contains(".mp4") || sUrl.contains("/hls/"))) {
+                        val sName = when {
+                            embedCandidate.contains("autoembed") -> "AutoEmbed"
+                            embedCandidate.contains("vidsrc") -> "VidSrc"
+                            else -> "Cloud HLS"
+                        }
+                        discoveredStreams.add(
+                            ExtractedStream(
+                                title = "${request.title} [$sName • 1080p]",
+                                url = sUrl,
+                                source = specificSource ?: TMDBEmbedSource.VIDLINK,
+                                quality = "1080p",
+                                isHls = sUrl.contains(".m3u8") || sUrl.contains("/hls/"),
+                                headers = sniffed.headers
+                            )
+                        )
+                        break
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Embed sniff note: ${e.message}")
+                }
+            }
+        }
+
+        // Attempt 3: High-Speed Torrent fallback with HTTP streaming proxy (Never raw magnet to ExoPlayer)
         if (discoveredStreams.isEmpty() && (request.tmdbId.isNotBlank() || request.title.isNotBlank())) {
             val reqTitle = request.title.ifBlank { "Cinema Stream" }
             try {
@@ -105,16 +183,19 @@ object TMDBEmbedExtractorEngine {
                 )
                 val torrentReleases = com.example.torrent.provider.TorrentProviderManager.getInstance()
                     .searchReleases(reqTitle, mediaIdentity)
+                val assignedPort = 8080
                 for (rel in torrentReleases.take(8)) {
+                    val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
+                    val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
                     discoveredStreams.add(
                         ExtractedStream(
                             title = rel.title,
-                            url = rel.magnetUrl,
-                            source = TMDBEmbedSource.SHOWBOX,
+                            url = streamUrl,
+                            source = specificSource ?: TMDBEmbedSource.SHOWBOX,
                             quality = rel.quality,
                             sizeText = rel.formattedSize,
                             seeders = rel.seeders,
-                            isHls = rel.magnetUrl.contains(".m3u8")
+                            isHls = streamUrl.contains(".m3u8")
                         )
                     )
                 }

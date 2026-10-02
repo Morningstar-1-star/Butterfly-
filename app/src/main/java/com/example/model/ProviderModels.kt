@@ -24,7 +24,8 @@ enum class ProviderType {
     VEGA,
     DECRYPTOR,
     EMBED,
-    TMDB_EMBED
+    TMDB_EMBED,
+    NUVIO
 }
 
 enum class ProviderStatusState {

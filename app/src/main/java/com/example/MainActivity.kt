@@ -40,6 +40,16 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        try {
+            val settingsPrefs = getSharedPreferences("app_settings_prefs", MODE_PRIVATE)
+            val savedTheme = settingsPrefs.getString("theme_mode", "AMOLED_DARK")
+            if (savedTheme == "LIGHT") {
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO)
+            } else {
+                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
+            }
+        } catch (_: Exception) {}
+
         val splashScreen = installSplashScreen()
         splashScreen.setOnExitAnimationListener { splashScreenView ->
             try {

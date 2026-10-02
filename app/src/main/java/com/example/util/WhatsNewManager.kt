@@ -26,6 +26,45 @@ object WhatsNewManager {
 
     val RELEASES: List<VersionRelease> = listOf(
         VersionRelease(
+            versionName = "0.0.5-alpha",
+            versionCode = 5,
+            releaseDate = "October 2026",
+            headline = "Aspect Ratio Quick Controls, Smart Auto-Hiding Seekbar, Pinch Zoom & Notification Progress",
+            categories = listOf(
+                ChangelogCategory(
+                    title = "Aspect Ratio Quick Toggle & Custom Ratios",
+                    icon = Icons.Default.AspectRatio,
+                    items = listOf(
+                        "Aspect Ratio Button: Tap near fullscreen to quickly cycle between Fit, Crop, Stretch, 16:9, 4:3, and 21:9 modes.",
+                        "Custom Ratio Sheet: Long-press the Aspect Ratio button to open the custom ratio creator and presets."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "Smart Auto-Hiding Seekbar",
+                    icon = Icons.Default.LinearScale,
+                    items = listOf(
+                        "Auto-Hiding Progress Bar: When video player controls disappear, the bottom progress bar gracefully fades away after 2.5s for a 100% immersive full-screen view."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "Pinch-To-Zoom & Gesture Protection",
+                    icon = Icons.Default.ZoomIn,
+                    items = listOf(
+                        "Fluid Pinch-To-Zoom: Zoom in up to 4.0x with smooth multi-touch gestures and live zoom percentage HUD.",
+                        "Protected Edge Navigation: Device back button and system back swipe gestures are preserved without triggering accidental video rewinds.",
+                        "Double-Tap Zoom Reset: Double-tapping while zoomed instantly snaps back to 100% fit."
+                    )
+                ),
+                ChangelogCategory(
+                    title = "System Media Notification with Live Progress",
+                    icon = Icons.Default.Notifications,
+                    items = listOf(
+                        "Media Notification Progress Bar: Background sound & headphone mode now display full live seekbar with waveform, elapsed time, and scrubber in Android notification panel."
+                    )
+                )
+            )
+        ),
+        VersionRelease(
             versionName = "0.0.4-alpha",
             versionCode = 4,
             releaseDate = "September 2026",

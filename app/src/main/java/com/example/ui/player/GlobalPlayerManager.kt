@@ -187,6 +187,10 @@ object GlobalPlayerManager {
         sessionInstance?.selectBilibiliSubtitleTrack(option)
     }
 
+    fun selectCaptionOption(option: CaptionOption?, context: Context? = null) {
+        sessionInstance?.selectCaptionOption(context, option)
+    }
+
     fun selectAudioTrack(option: AudioTrackOption) {
         sessionInstance?.selectAudioTrack(option)
     }

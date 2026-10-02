@@ -27,9 +27,9 @@ object VidlinkExtractor {
 
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
         val streams = mutableListOf<ExtractedStream>()
-        val headers = mapOf(
+        val streamHeaders = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer" to "$BASE_URL/"
+            "Accept-Ranges" to "bytes"
         )
 
         try {
@@ -68,19 +68,24 @@ object VidlinkExtractor {
                 val streamObj = json?.optJSONObject("stream")
 
                 if (streamObj != null) {
-                    // Extract subtitles if present
+                    // Extract subtitles from captions or tracks
                     val captions = mutableListOf<CaptionOption>()
-                    val tracksArray = streamObj.optJSONArray("tracks")
+                    val tracksArray = streamObj.optJSONArray("captions") ?: streamObj.optJSONArray("tracks")
                     if (tracksArray != null) {
                         for (i in 0 until tracksArray.length()) {
                             val track = tracksArray.optJSONObject(i) ?: continue
-                            val kind = track.optString("kind", "")
-                            if (kind.contains("sub", ignoreCase = true) || kind.contains("captions", ignoreCase = true)) {
-                                val label = track.optString("label", track.optString("name", "Sub $i"))
-                                val file = track.optString("file", track.optString("url", ""))
-                                if (file.isNotBlank()) {
-                                    captions.add(CaptionOption(languageName = label, languageCode = "en", format = "vtt", url = file))
-                                }
+                            val kind = track.optString("type", track.optString("kind", "srt"))
+                            val label = track.optString("language", track.optString("label", track.optString("name", "Sub $i")))
+                            val file = track.optString("url", track.optString("file", ""))
+                            if (file.isNotBlank() && file.startsWith("http")) {
+                                captions.add(
+                                    CaptionOption(
+                                        languageName = label,
+                                        languageCode = label.take(2).lowercase(),
+                                        format = if (kind.contains("vtt", true)) "vtt" else "srt",
+                                        url = file
+                                    )
+                                )
                             }
                         }
                     }
@@ -105,7 +110,7 @@ object VidlinkExtractor {
                                         quality = if (qKey.contains("4k", ignoreCase = true)) "4K" else "${qKey}p",
                                         source = TMDBEmbedSource.VIDLINK,
                                         isHls = qUrl.contains(".m3u8"),
-                                        headers = headers,
+                                        headers = streamHeaders,
                                         subtitles = captions
                                     )
                                 )
@@ -123,7 +128,7 @@ object VidlinkExtractor {
                                 quality = "1080p",
                                 source = TMDBEmbedSource.VIDLINK,
                                 isHls = true,
-                                headers = headers,
+                                headers = streamHeaders,
                                 subtitles = captions
                             )
                         )
@@ -147,16 +152,17 @@ object VidlinkExtractor {
                     if (resp.isSuccessful) resp.body?.string() ?: "" else ""
                 }
                 if (html.isNotBlank()) {
-                    val m = Pattern.compile("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*").matcher(html)
+                    val m = Pattern.compile("https?://[^\"'\\s]+\\.(?:m3u8|mp4)[^\"'\\s]*").matcher(html)
                     if (m.find()) {
+                        val foundUrl = m.group()
                         streams.add(
                             ExtractedStream(
-                                title = "${request.title} [Vidlink • Direct HLS]",
-                                url = m.group(),
+                                title = "${request.title} [Vidlink • Direct Stream]",
+                                url = foundUrl,
                                 quality = "1080p",
                                 source = TMDBEmbedSource.VIDLINK,
-                                isHls = true,
-                                headers = headers
+                                isHls = foundUrl.contains(".m3u8"),
+                                headers = streamHeaders
                             )
                         )
                     }

@@ -223,76 +223,51 @@ object DecryptorProviderClient {
         }
     }
 
-    private fun generateFallbackServers(
+    private suspend fun generateFallbackServers(
         context: Context?,
         tmdbId: String,
         isTv: Boolean,
         season: Int,
         episode: Int,
         title: String
-    ): List<DecryptorServer> {
-        val decryptorRepo = context?.let { DecryptorProviderRepository.getInstance(it) }
+    ): List<DecryptorServer> = withContext(Dispatchers.IO) {
         val servers = mutableListOf<DecryptorServer>()
-        val defaultHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "Referer" to "https://cloudorchestranova.com/",
-            "Origin" to "https://cloudorchestranova.com"
-        )
 
-        data class ServerDef(val id: String, val name: String, val url: String, val headers: Map<String, String>)
-
-        val allConfigs = if (isTv) {
-            listOf(
-                ServerDef("turbo", "Turbo HLS", "https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
-                ServerDef("nxsha", "Nxsha Cloud", "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.to/")),
-                ServerDef("vidhide", "Vidhide Multi-Quality", "https://vidlink.pro/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
-                ServerDef("lulustream", "Lulustream Fast CDN", "https://vidsrc.net/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
-                ServerDef("autoembed", "AutoEmbed Ultra", "https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://player.autoembed.cc/")),
-                ServerDef("vidlink", "VidLink Multi-Server", "https://vidlink.pro/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidlink.pro/")),
-                ServerDef("smashystream", "SmashyStream", "https://embed.smashystream.com/playere.php?tmdb=$tmdbId&season=$season&episode=$episode", mapOf("Referer" to "https://embed.smashystream.com/")),
-                ServerDef("fastcdn", "Fast CDN Direct", "https://vidsrc.net/embed/tv/$tmdbId/$season/$episode", mapOf("Referer" to "https://vidsrc.net/")),
-                ServerDef("2embed", "2Embed Direct", "https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode", mapOf("Referer" to "https://www.2embed.cc/")),
-                ServerDef("superembed", "SuperEmbed VIP", "https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode", mapOf("Referer" to "https://multiembed.mov/")),
-                ServerDef("vidara", "Vidara 1080p", "https://rive.stream/embed?type=tv&id=$tmdbId&season=$season&episode=$episode", mapOf("Referer" to "https://rive.stream/"))
-            )
-        } else {
-            listOf(
-                ServerDef("turbo", "Turbo HLS", "https://player.autoembed.cc/embed/movie/$tmdbId", mapOf("Referer" to "https://player.autoembed.cc/")),
-                ServerDef("nxsha", "Nxsha Cloud", "https://vidsrc.to/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.to/")),
-                ServerDef("vidhide", "Vidhide Multi-Quality", "https://vidlink.pro/movie/$tmdbId", mapOf("Referer" to "https://vidlink.pro/")),
-                ServerDef("lulustream", "Lulustream Fast CDN", "https://vidsrc.net/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.net/")),
-                ServerDef("autoembed", "AutoEmbed Ultra", "https://player.autoembed.cc/embed/movie/$tmdbId", mapOf("Referer" to "https://player.autoembed.cc/")),
-                ServerDef("vidlink", "VidLink Multi-Server", "https://vidlink.pro/movie/$tmdbId", mapOf("Referer" to "https://vidlink.pro/")),
-                ServerDef("smashystream", "SmashyStream", "https://embed.smashystream.com/playere.php?tmdb=$tmdbId", mapOf("Referer" to "https://embed.smashystream.com/")),
-                ServerDef("fastcdn", "Fast CDN Direct", "https://vidsrc.net/embed/movie/$tmdbId", mapOf("Referer" to "https://vidsrc.net/")),
-                ServerDef("2embed", "2Embed Direct", "https://www.2embed.cc/embed/$tmdbId", mapOf("Referer" to "https://www.2embed.cc/")),
-                ServerDef("superembed", "SuperEmbed VIP", "https://multiembed.mov/?video_id=$tmdbId&tmdb=1", mapOf("Referer" to "https://multiembed.mov/")),
-                ServerDef("vidara", "Vidara 1080p", "https://rive.stream/embed?type=movie&id=$tmdbId", mapOf("Referer" to "https://rive.stream/"))
-            )
-        }
-
-        val active = allConfigs.filter { sDef ->
-            decryptorRepo == null || decryptorRepo.isProviderInstalledAndEnabled(sDef.id)
-        }
-
-        active.forEach { sDef ->
-            val hdrs = HashMap(defaultHeaders)
-            hdrs.putAll(sDef.headers)
-            val isDirectMedia = sDef.url.contains(".m3u8", ignoreCase = true) || sDef.url.contains(".mp4", ignoreCase = true)
-            servers.add(
-                DecryptorServer(
-                    name = sDef.name,
-                    type = if (isDirectMedia) "m3u8" else "embed",
-                    quality = "1080p",
-                    proxyUrl = null,
-                    url = sDef.url,
-                    headers = hdrs,
-                    subtitles = emptyList(),
-                    status = "Online"
+        if (context != null) {
+            try {
+                val directOptions = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
+                    context = context,
+                    tmdbIdOrUrl = tmdbId,
+                    mediaType = if (isTv) "tv" else "movie",
+                    season = season,
+                    episode = episode,
+                    title = title,
+                    providerName = "Decryptor"
                 )
-            )
+                directOptions.forEach { opt ->
+                    val url = opt.videoUrl
+                    if (!url.isNullOrBlank() && (url.contains(".m3u8") || url.contains(".mp4") || url.contains("magnet:") || url.contains("/stream"))) {
+                        val isHls = url.contains(".m3u8")
+                        servers.add(
+                            DecryptorServer(
+                                name = opt.sourceName.ifBlank { "Decryptor Cloud" },
+                                type = if (isHls) "m3u8" else "mp4",
+                                quality = opt.qualityCategory.ifBlank { "1080p" },
+                                proxyUrl = null,
+                                url = url,
+                                headers = opt.headers,
+                                subtitles = emptyList(),
+                                status = "Online"
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error generating direct fallback servers for Decryptor: ${e.message}")
+            }
         }
-        return servers
+
+        return@withContext servers
     }
 
     /**

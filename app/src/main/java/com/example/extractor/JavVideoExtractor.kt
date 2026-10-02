@@ -587,6 +587,32 @@ object JavVideoExtractor {
             }
         } catch (_: Exception) {}
 
+        try {
+            // 3. Try Eporner JAV Search
+            val epItems = EpornerProvider.search(cleanCode, limit = 3, page = 1)
+            for (epItem in epItems) {
+                val epStream = EpornerProvider.getStreamData(epItem.id)
+                if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                    options.addAll(epStream.availableStreamOptions)
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 4. Guaranteed MissAV / Web Player Fallback
+        if (options.isEmpty()) {
+            val embedUrl = "https://missav.ws/v/$cleanCode"
+            options.add(
+                PlayableStreamOption(
+                    qualityLabel = "JAV Web Player (HD)",
+                    format = "embed",
+                    isMuxed = true,
+                    videoUrl = embedUrl,
+                    providerType = ProviderType.EMBED,
+                    headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                )
+            )
+        }
+
         options.distinctBy { it.videoUrl }
     }
 

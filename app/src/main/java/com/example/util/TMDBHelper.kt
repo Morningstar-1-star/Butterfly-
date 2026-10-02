@@ -620,13 +620,16 @@ object TMDBHelper {
 
         val isTorrentOrVega = providerId == "torrent" || providerId == "vega" || providerId.startsWith("vega_")
         val isArchiveMulti = (providerId == "archive" || providerId == "archive_org" || providerId == "archive.org") && streamData.availableStreamOptions.size > 1
+        val isTmdbOrDecryptor = providerId.startsWith("tmdb") || providerId == "decryptor" || providerId == "vidsrc"
 
         val titleLower = rawTitle.lowercase()
         val isTvSeriesTitle = titleLower.contains("season") || titleLower.contains("s0") ||
                 titleLower.contains("s1") || titleLower.contains("s2") ||
                 titleLower.contains("episode") || titleLower.contains("ep0") || titleLower.contains("ep ") ||
                 titleLower.contains("ep.") || titleLower.contains(" complete ") ||
-                videoId.contains("tv_") || videoId.contains("_s") || videoId.contains("_e")
+                videoId.contains(":tv:") || videoId.contains("/tv/") || videoId.contains("tv_") ||
+                videoId.contains("_s") || videoId.contains("_e") ||
+                streamData.tags.any { it.equals("series", true) || it.equals("tv", true) }
 
         val isSeriesProvider = providerId == "crunchyroll" || providerId == "sonyliv" ||
                 providerId == "hotstar" || providerId == "bilibili" || providerId == "zee5" ||
@@ -646,7 +649,7 @@ object TMDBHelper {
             }
         }
 
-        if (!isTorrentOrVega && !isSeriesProvider && !isTvSeriesTitle && !hasMultiOptions) {
+        if (!isTorrentOrVega && !isSeriesProvider && !isTmdbOrDecryptor && !isTvSeriesTitle && !hasMultiOptions) {
             return@withContext emptyList()
         }
 
@@ -656,10 +659,14 @@ object TMDBHelper {
         try {
             var tvId: Int? = null
 
-            // 1. Check videoId for explicit tv_ ID or IMDb tt ID
+            // 1. Check videoId for explicit tv_ ID, :tv: ID, or IMDb tt ID
             if (videoId.isNotBlank()) {
                 if (videoId.startsWith("tv_")) {
                     tvId = videoId.removePrefix("tv_").substringBefore("_").toIntOrNull()
+                } else if (videoId.contains(":tv:")) {
+                    tvId = videoId.substringAfter(":tv:").substringBefore(":").substringBefore("_").toIntOrNull()
+                } else if (videoId.contains("/tv/")) {
+                    tvId = videoId.substringAfter("/tv/").substringBefore("/").substringBefore("?").toIntOrNull()
                 } else if (videoId.startsWith("tt")) {
                     val findUrl = "https://api.themoviedb.org/3/find/$videoId?api_key=$TMDB_API_KEY&external_source=imdb_id"
                     val req = Request.Builder().url(findUrl).header("User-Agent", "Mozilla/5.0").build()

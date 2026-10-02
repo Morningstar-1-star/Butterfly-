@@ -27,6 +27,11 @@ object ChannelLogoHelper {
         Pair(Color(0xFF37474F), Color.White)  // Blue Grey
     )
 
+    private fun getColorPair(name: String): Pair<Color, Color> {
+        val index = abs(name.hashCode()) % AVATAR_PALETTE.size
+        return AVATAR_PALETTE[index]
+    }
+
     fun getProductionCompanyForTitle(videoTitle: String?, isTv: Boolean = false): BrandLogoInfo {
         if (videoTitle.isNullOrBlank()) {
             return getBrandInfo(null, null, null)
@@ -73,6 +78,31 @@ object ChannelLogoHelper {
             effectiveAvatar.contains("noface") ||
             effectiveAvatar.contains("default_avatar")
 
+        val isArchive = trimmed.contains("archive", ignoreCase = true) ||
+                effectiveAvatar?.contains("archive.org") == true ||
+                videoTitle?.contains("archive.org") == true
+
+        if (isArchive) {
+            val rawName = if (cleanName.isNotBlank() && cleanName != "Official Creator" && cleanName != "Verified Creator") cleanName else "Internet Archive"
+            val uploaderDisplay = rawName.replace("_", " ").trim()
+            val archiveLogos = if (!effectiveAvatar.isNullOrBlank() && !effectiveAvatar.contains("placeholder") && !effectiveAvatar.contains("favicon")) {
+                listOf(effectiveAvatar, "https://archive.org/images/glogo.png")
+            } else {
+                listOf(
+                    "https://archive.org/images/glogo.png",
+                    "https://archive.org/download/ia-logo/ia-logo.png"
+                )
+            }
+            return BrandLogoInfo(
+                logoUrls = archiveLogos,
+                brandName = uploaderDisplay,
+                brandShortText = getInitials(uploaderDisplay),
+                backgroundColor = Color(0xFF1E212A),
+                textColor = Color.White,
+                subscriberCountText = if (uploaderDisplay.equals("Internet Archive", ignoreCase = true)) "Internet Archive • Public Domain" else "Archive • Public Domain"
+            )
+        }
+
         // If a real remote creator avatar URL is provided (and it's not a generic placeholder/favicon on a movie feed), respect it completely
         if (!effectiveAvatar.isNullOrEmpty() && (effectiveAvatar.startsWith("http://") || effectiveAvatar.startsWith("https://")) && !isGenericAvatar && !isGenericProvider) {
             return BrandLogoInfo(
@@ -83,6 +113,23 @@ object ChannelLogoHelper {
                 textColor = Color.White,
                 subscriberCountText = "Verified Channel"
             )
+        }
+
+        // For non-generic platforms (YouTube, Bilibili, Dailymotion, Archive, etc.) where uploader is a real creator,
+        // NEVER let words in the video title override the creator with a movie studio (unless the creator name itself is a studio)
+        if (!isGenericProvider && cleanName.isNotBlank() && !cleanName.equals("Official Creator", ignoreCase = true) && !cleanName.equals("Verified Creator", ignoreCase = true)) {
+            val isKnownStudio = StudioDetector.isStudioName(cleanName)
+            if (!isKnownStudio) {
+                val pair = getColorPair(cleanName)
+                return BrandLogoInfo(
+                    logoUrls = if (!effectiveAvatar.isNullOrBlank()) listOf(effectiveAvatar) else emptyList(),
+                    brandName = cleanName,
+                    brandShortText = getInitials(cleanName),
+                    backgroundColor = pair.first,
+                    textColor = pair.second,
+                    subscriberCountText = "Verified Channel"
+                )
+            }
         }
 
         val name = cleanName.lowercase()
@@ -740,10 +787,22 @@ object ChannelLogoHelper {
                 subscriberCountText = "19.5M subscribers"
             )
 
-            // Default: If videoTitle is available and no direct match yet, use StudioDetector
-            videoTitle?.isNotBlank() == true -> {
+            // Internet Archive Authentic Brand Matching
+            combined.contains("archive.org") || combined.contains("internet archive") || name.contains("archive") -> BrandLogoInfo(
+                logoUrls = listOf(
+                    "https://archive.org/images/glogo.png",
+                    "https://archive.org/download/ia-logo/ia-logo.png"
+                ),
+                brandName = if (cleanName.isNotBlank() && cleanName != "Official Creator") cleanName else "Internet Archive",
+                brandShortText = getInitials(if (cleanName.isNotBlank()) cleanName else "IA"),
+                backgroundColor = Color(0xFF1E212A),
+                textColor = Color.White,
+                subscriberCountText = "Internet Archive • Public Domain"
+            )
+
+            // Detected movie / TV studio (only if genuine studio name recognized from title)
+            videoTitle?.isNotBlank() == true && StudioDetector.detectStudio(videoTitle, isTv = false).isNotBlank() -> {
                 val detected = StudioDetector.detectStudio(videoTitle, isTv = false)
-                val isTv = videoTitle.contains("season", ignoreCase = true) || videoTitle.contains("series", ignoreCase = true)
                 getBrandInfo(detected, null, null)
             }
             // Major Movie / TV Studios

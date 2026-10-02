@@ -668,6 +668,28 @@ fun SourceBrandLogo(
                 }
             }
 
+            // TUBI TV (Official Tubi Vibrant Red/Coral Badge)
+            cleanId == "tubitv" || cleanId == "tubi" -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFFFA233B), Color(0xFFFF4B5A))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "tubi",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = (size.value * 0.38f).sp,
+                        fontFamily = FontFamily.SansSerif
+                    )
+                }
+            }
+
             // VIMEO (Official Vimeo Cerulean Blue with classic bold italic 'v')
             cleanId == "vimeo" -> {
                 Box(

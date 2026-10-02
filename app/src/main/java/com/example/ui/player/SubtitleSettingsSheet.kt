@@ -83,6 +83,7 @@ fun SubtitleSettingsSheet(
                 icon = Icons.Default.ClosedCaptionDisabled,
                 isSelected = currentSubMode == GlobalPlayerManager.SubtitleMode.OFF && selectedCaption == null && activeSubItem == null,
                 onClick = {
+                    GlobalPlayerManager.selectCaptionOption(null)
                     GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.OFF)
                     onSelectCaption(null)
                     onDismiss()
@@ -108,7 +109,7 @@ fun SubtitleSettingsSheet(
                         icon = Icons.Default.Subtitles,
                         isSelected = isThisSelected,
                         onClick = {
-                            GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.EXTERNAL_PROVIDER)
+                            GlobalPlayerManager.selectCaptionOption(caption)
                             onSelectCaption(caption)
                             onDismiss()
                         }

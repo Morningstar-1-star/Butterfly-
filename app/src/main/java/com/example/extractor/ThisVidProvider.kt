@@ -366,7 +366,45 @@ object ThisVidProvider {
             }
         }
 
-        val directPlayableSources = videoSources.distinctBy { it.videoUrl }
+        var directPlayableSources = videoSources.distinctBy { it.videoUrl }
+
+        // 4. Cross-Provider title matching fallback (Eporner / SpankBang)
+        if (directPlayableSources.isEmpty() && resolvedTitle.isNotBlank() && resolvedTitle != "ThisVid Video") {
+            try {
+                val cleanSearch = resolvedTitle.replace(Regex("""[^a-zA-Z0-9\s]"""), " ").trim()
+                val epResults = EpornerProvider.search(cleanSearch, limit = 3, page = 1)
+                for (item in epResults) {
+                    val epStream = EpornerProvider.getStreamData(item.id, context)
+                    if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                        Log.i(TAG, "Successfully resolved fallback stream for ThisVid via Eporner: ${item.title}")
+                        return@withContext epStream.copy(
+                            videoId = videoSlug,
+                            title = resolvedTitle,
+                            channelName = resolvedChannel.ifBlank { "ThisVid" },
+                            thumbnailUrl = resolvedThumbnail.ifBlank { epStream.thumbnailUrl },
+                            providerId = PROVIDER_ID
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "ThisVid Eporner fallback note: ${e.message}")
+            }
+        }
+
+        // 5. Interactive Web Embed Player fallback
+        if (directPlayableSources.isEmpty() && embedUrl.isNotBlank()) {
+            val embedOption = PlayableStreamOption(
+                qualityLabel = "ThisVid Web Player (HD)",
+                format = "embed",
+                isMuxed = true,
+                videoUrl = embedUrl,
+                providerType = ProviderType.EMBED,
+                headers = defaultHeaders,
+                sourceName = "ThisVid Embed"
+            )
+            directPlayableSources = listOf(embedOption)
+        }
+
         if (directPlayableSources.isEmpty()) {
             Log.w(TAG, "No direct streams found for ThisVid video: $targetUrl")
             return@withContext null

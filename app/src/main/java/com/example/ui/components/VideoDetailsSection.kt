@@ -130,30 +130,61 @@ fun VideoDetailsSection(
         }
     }
 
-    val baseLikes = remember(currentLikeCount, currentViewCount, currentTitle) {
-        if (currentLikeCount > 0) currentLikeCount
-        else {
-            val hash = kotlin.math.abs(currentTitle.hashCode())
-            val estimated = if (currentViewCount > 0) (currentViewCount * 0.085).toLong() else (12500L + (hash % 85000))
-            estimated.coerceAtLeast(397L)
+    var rydMetrics by remember(currentVideoId) { mutableStateOf<com.example.extractor.YouTubeVoteMetrics?>(null) }
+
+    LaunchedEffect(currentVideoId) {
+        if (currentVideoId.isNotBlank()) {
+            val metrics = com.example.extractor.ReturnYouTubeDislikeHelper.fetchVotes(currentVideoId)
+            if (metrics != null) {
+                rydMetrics = metrics
+            }
         }
     }
 
-    val formattedLikes = remember(baseLikes, isLiked) {
-        val total = if (isLiked) baseLikes + 1 else baseLikes
-        if (total >= 1_000_000) String.format("%.1fM", total / 1_000_000.0)
+    val effectiveLikes = remember(currentLikeCount, rydMetrics?.likes, currentViewCount) {
+        val rydLikes = rydMetrics?.likes
+        if (rydLikes != null && rydLikes >= 0) {
+            rydLikes
+        } else if (currentLikeCount > 0) {
+            currentLikeCount
+        } else if (currentViewCount > 0) {
+            (currentViewCount * 0.05).toLong().coerceAtLeast(1L)
+        } else {
+            0L
+        }
+    }
+
+    val formattedLikes = remember(effectiveLikes, isLiked) {
+        val total = if (isLiked) effectiveLikes + 1 else effectiveLikes
+        if (total <= 0) "Like"
+        else if (total >= 1_000_000) String.format(java.util.Locale.US, "%.1fM", total / 1_000_000.0)
         else if (total >= 1000) "${total / 1000}K"
         else "$total"
     }
 
-    val viewCountText = remember(currentViewCount) {
-        if (currentViewCount > 0) {
-            val count = currentViewCount
-            if (count >= 1_000_000) "${String.format("%.1f", count / 1_000_000.0)}M views"
-            else if (count >= 1_000) "${String.format("%.1f", count / 1000.0)}k views"
-            else "$count views"
+    val effectiveDislikes = remember(rydMetrics?.dislikes) {
+        val rydDislikes = rydMetrics?.dislikes
+        if (rydDislikes != null && rydDislikes >= 0) rydDislikes else 0L
+    }
+
+    val formattedDislikes = remember(effectiveDislikes, isDisliked) {
+        val total = if (isDisliked) effectiveDislikes + 1 else effectiveDislikes
+        if (total <= 0) ""
+        else if (total >= 1_000_000) String.format(java.util.Locale.US, "%.1fM", total / 1_000_000.0)
+        else if (total >= 1000) "${total / 1000}K"
+        else "$total"
+    }
+
+    val effectiveViewCount = remember(currentViewCount, rydMetrics?.viewCount) {
+        val rydViews = rydMetrics?.viewCount
+        if (rydViews != null && rydViews > 0) rydViews else currentViewCount
+    }
+
+    val viewCountText = remember(effectiveViewCount) {
+        if (effectiveViewCount > 0) {
+            com.example.util.DateUtils.formatViews(effectiveViewCount)
         } else {
-            "8.8k views"
+            ""
         }
     }
 
@@ -162,10 +193,10 @@ fun VideoDetailsSection(
         if (!tmdbDate.isNullOrBlank()) {
             tmdbDate
         } else if (!currentUploadDate.isNullOrBlank()) {
-            val parsed = TMDBHelper.formatDateToLong(currentUploadDate)
-            if (parsed.isNotBlank()) parsed else currentUploadDate
+            val rel = com.example.util.DateUtils.formatRelativeTime(currentUploadDate)
+            if (rel.isNotBlank()) rel else currentUploadDate
         } else {
-            "10 hr ago"
+            ""
         }
     }
 
@@ -182,11 +213,12 @@ fun VideoDetailsSection(
                 lower == "t" || lower.contains("wetv") || lower.contains("腾讯") || lower.contains("multi-server") ||
                 lower.contains("1cinevood") || lower.contains("bollyflix") || lower.contains("movies4u")
 
-        if (isGenericSource || sanitized.isBlank() || (brandInfo.brandName.isNotBlank() && brandInfo.brandName != "Official Creator")) {
-            brandInfo.brandName
+        val cleanFinal = if (isGenericSource || sanitized.isBlank()) {
+            if (brandInfo.brandName.isNotBlank() && brandInfo.brandName != "Official Creator") brandInfo.brandName else "Verified Creator"
         } else {
             sanitized
         }
+        cleanFinal.replace("_", " ").trim()
     }
     val displaySubCount = remember(currentSubscriberCountText, brandInfo.subscriberCountText) {
         if (!currentSubscriberCountText.isNullOrEmpty() && currentSubscriberCountText != "Subscribers") {
@@ -455,6 +487,15 @@ fun VideoDetailsSection(
                             tint = if (isDisliked) Color.White else Color(0xFFF1F1F1),
                             modifier = Modifier.size(17.dp)
                         )
+                        if (formattedDislikes.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = formattedDislikes,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isDisliked) Color.White else Color(0xFFE0E0E0)
+                            )
+                        }
                     }
                 }
             }
@@ -516,9 +557,14 @@ fun VideoDetailsSection(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val countStr = if (commentsCount > 0) "$commentsCount" else "43"
+                    val countStr = when {
+                        commentsCount >= 1_000_000 -> " • ${String.format("%.1fM", commentsCount / 1_000_000.0)}"
+                        commentsCount >= 1000 -> " • ${String.format("%.1fK", commentsCount / 1000.0)}"
+                        commentsCount > 0 -> " • $commentsCount"
+                        else -> ""
+                    }
                     Text(
-                        text = "Comments $countStr",
+                        text = "Comments$countStr",
                         style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -578,9 +624,9 @@ fun VideoDetailsSection(
             isSubscribed = isSubscribed,
             onSubscribeClick = onSubscribeClick,
             likesCountText = formattedLikes,
-            viewsCountText = viewCountText.replace(" views", "").ifBlank { "8,841" },
-            timeAgoText = accurateDate,
-            exactDateText = currentUploadDate ?: accurateDate,
+            viewsCountText = if (effectiveViewCount > 0) String.format(java.util.Locale.US, "%,d", effectiveViewCount) else viewCountText.replace(" views", "").ifBlank { "–" },
+            timeAgoText = accurateDate.ifBlank { "Recently" },
+            exactDateText = currentUploadDate?.takeIf { it.isNotBlank() } ?: accurateDate.ifBlank { "Recently" },
             fullDescription = (currentDescription ?: "").ifBlank { "Watch $currentTitle on Butterfly Player." },
             tags = topTagsList,
             streamData = streamData,

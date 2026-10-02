@@ -78,7 +78,7 @@ object SmartTagExtractor {
         "bunkr", "telegram", "mega", "bun-tel-meg", "xnxx", "hellporno", "stripchat",
         "chaturbate", "txxx", "pornhub", "xvideos", "spankbang", "supjav",
         "123av", "javtiful", "hanime1", "rule34video", "pmvhaven", "piped", "invidious",
-        "hianime", "aniwatch", "popcorntv", "amazonminitv", "bigo", "kick", "rumble",
+        "hianime", "aniwatch", "popcorntv", "tubitv", "tubi", "amazonminitv", "bigo", "kick", "rumble",
         "vimeo", "soundcloud", "bandcamp", "tiktok"
     )
 

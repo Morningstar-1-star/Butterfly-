@@ -39,13 +39,16 @@ class JavinizerGoClient(
         )
     }
 
-    private fun getHttpClient(timeoutSec: Int): OkHttpClient {
-        val validTimeout = timeoutSec.coerceIn(2, 60).toLong()
+    private fun getHttpClient(timeoutSec: Int, baseUrl: String = ""): OkHttpClient {
+        val isLocal = baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1") || baseUrl.isBlank()
+        val connectTimeoutMs = if (isLocal) 1200L else 2500L
+        val readTimeoutMs = if (isLocal) 2000L else timeoutSec.coerceIn(2, 20).toLong() * 1000L
         return OkHttpClient.Builder()
-            .connectTimeout(validTimeout, TimeUnit.SECONDS)
-            .readTimeout(validTimeout, TimeUnit.SECONDS)
-            .writeTimeout(validTimeout, TimeUnit.SECONDS)
+            .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+            .writeTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
             .followRedirects(true)
+            .retryOnConnectionFailure(false)
             .build()
     }
 
@@ -63,7 +66,7 @@ class JavinizerGoClient(
      */
     suspend fun checkHealth(baseUrl: String, timeoutSec: Int = defaultTimeoutSec): HealthResult = withContext(Dispatchers.IO) {
         val cleanBaseUrl = normalizeBaseUrl(baseUrl)
-        val client = getHttpClient(timeoutSec)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
         val startTime = System.currentTimeMillis()
 
         val endpoints = listOf(
@@ -136,7 +139,7 @@ class JavinizerGoClient(
         if (parsedCode.isBlank()) return@withContext null
 
         val cleanBaseUrl = normalizeBaseUrl(baseUrl)
-        val client = getHttpClient(timeoutSec)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
         val encodedId = URLEncoder.encode(parsedCode, "UTF-8")
 
         // 1. Primary Documented Endpoint: GET /api/v1/movie/{id}
@@ -164,12 +167,23 @@ class JavinizerGoClient(
             Log.d(TAG, "GET movie request failed for $parsedCode: ${e.message}")
         }
 
-        // 2. Secondary Documented Endpoint: POST /api/v1/scrape
+        // 2. Secondary Documented Endpoint: POST /api/v1/scrape (Multi-source aggregation)
         try {
             val postEndpoint = "$cleanBaseUrl/api/v1/scrape"
+            val scrapersArray = JSONArray().apply {
+                put("r18dev")
+                put("dmm")
+                put("fanza")
+                put("javdb")
+                put("javlibrary")
+                put("libredmm")
+            }
             val payload = JSONObject().apply {
                 put("id", parsedCode)
                 put("query", parsedCode)
+                put("scrapers", scrapersArray)
+                put("aggregate", true)
+                put("download_images", false)
             }.toString()
 
             val postRequest = Request.Builder()
@@ -186,7 +200,7 @@ class JavinizerGoClient(
                 if (!postBody.isNullOrBlank()) {
                     val metadata = parseMovieJson(postBody, parsedCode, cleanBaseUrl)
                     if (metadata != null && metadata.title.isNotBlank()) {
-                        Log.i(TAG, "Resolved [$parsedCode] via Javinizer-Go POST /api/v1/scrape")
+                        Log.i(TAG, "Resolved [$parsedCode] via Javinizer-Go POST /api/v1/scrape (aggregated)")
                         return@withContext metadata
                     }
                 }
@@ -196,6 +210,244 @@ class JavinizerGoClient(
         }
 
         null
+    }
+
+    /**
+     * Fetches latest JAV releases from Javinizer-Go.
+     */
+    suspend fun getLatestReleases(
+        baseUrl: String,
+        page: Int = 1,
+        limit: Int = 20,
+        timeoutSec: Int = defaultTimeoutSec
+    ): List<JavMetadata> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = normalizeBaseUrl(baseUrl)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
+        val endpoints = listOf(
+            "$cleanBaseUrl/api/v1/latest?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/movies/latest?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/feed/latest?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/releases?page=$page&limit=$limit"
+        )
+
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Butterfly-Android/1.0 (Javinizer-Go Client)")
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val list = parseSearchJson(body, cleanBaseUrl)
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "getLatestReleases error on $endpoint: ${e.message}")
+            }
+        }
+        emptyList()
+    }
+
+    /**
+     * Fetches popular/trending JAV titles from Javinizer-Go.
+     */
+    suspend fun getPopularMovies(
+        baseUrl: String,
+        page: Int = 1,
+        limit: Int = 20,
+        timeoutSec: Int = defaultTimeoutSec
+    ): List<JavMetadata> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = normalizeBaseUrl(baseUrl)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
+        val endpoints = listOf(
+            "$cleanBaseUrl/api/v1/popular?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/movies/popular?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/feed/popular?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/ranking?page=$page&limit=$limit"
+        )
+
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Butterfly-Android/1.0 (Javinizer-Go Client)")
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val list = parseSearchJson(body, cleanBaseUrl)
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "getPopularMovies error on $endpoint: ${e.message}")
+            }
+        }
+        emptyList()
+    }
+
+    /**
+     * Fetches list of actresses with avatars and bios from Javinizer-Go.
+     */
+    suspend fun getActresses(
+        baseUrl: String,
+        page: Int = 1,
+        limit: Int = 30,
+        query: String = "",
+        sort: String = "popular",
+        timeoutSec: Int = defaultTimeoutSec
+    ): List<JavActor> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = normalizeBaseUrl(baseUrl)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
+        val encodedQ = if (query.isNotBlank()) "&query=${URLEncoder.encode(query, "UTF-8")}" else ""
+        val endpoints = listOf(
+            "$cleanBaseUrl/api/v1/actresses?page=$page&limit=$limit&sort=$sort$encodedQ",
+            "$cleanBaseUrl/api/v1/actors?page=$page&limit=$limit$encodedQ",
+            "$cleanBaseUrl/api/v1/cast?page=$page&limit=$limit$encodedQ"
+        )
+
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Butterfly-Android/1.0 (Javinizer-Go Client)")
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val list = parseActressesListJson(body, cleanBaseUrl)
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "getActresses error on $endpoint: ${e.message}")
+            }
+        }
+        emptyList()
+    }
+
+    /**
+     * Fetches studio/maker list from Javinizer-Go.
+     */
+    suspend fun getStudios(
+        baseUrl: String,
+        timeoutSec: Int = defaultTimeoutSec
+    ): List<String> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = normalizeBaseUrl(baseUrl)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
+        val endpoints = listOf(
+            "$cleanBaseUrl/api/v1/studios",
+            "$cleanBaseUrl/api/v1/makers"
+        )
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Butterfly-Android/1.0 (Javinizer-Go Client)")
+                    .get()
+                    .build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val list = parseStringListJson(body)
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        emptyList()
+    }
+
+    /**
+     * Fetches genres and tags list from Javinizer-Go.
+     */
+    suspend fun getGenres(
+        baseUrl: String,
+        timeoutSec: Int = defaultTimeoutSec
+    ): List<String> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = normalizeBaseUrl(baseUrl)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
+        val endpoints = listOf(
+            "$cleanBaseUrl/api/v1/genres",
+            "$cleanBaseUrl/api/v1/tags"
+        )
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Butterfly-Android/1.0 (Javinizer-Go Client)")
+                    .get()
+                    .build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val list = parseStringListJson(body)
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        emptyList()
+    }
+
+    /**
+     * Searches movies by genre/tag/studio/actress/series via Javinizer-Go.
+     */
+    suspend fun searchByCategory(
+        type: String,
+        value: String,
+        baseUrl: String,
+        page: Int = 1,
+        limit: Int = 20,
+        timeoutSec: Int = defaultTimeoutSec
+    ): List<JavMetadata> = withContext(Dispatchers.IO) {
+        val cleanBaseUrl = normalizeBaseUrl(baseUrl)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
+        val encodedVal = URLEncoder.encode(value.trim(), "UTF-8")
+        val endpoints = listOf(
+            "$cleanBaseUrl/api/v1/browse?type=$type&value=$encodedVal&page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/$type/$encodedVal?page=$page&limit=$limit",
+            "$cleanBaseUrl/api/v1/search?query=$encodedVal&page=$page&limit=$limit"
+        )
+
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Butterfly-Android/1.0 (Javinizer-Go Client)")
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val list = parseSearchJson(body, cleanBaseUrl)
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        emptyList()
     }
 
     /**
@@ -216,7 +468,7 @@ class JavinizerGoClient(
         }
 
         val cleanBaseUrl = normalizeBaseUrl(baseUrl)
-        val client = getHttpClient(timeoutSec)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
         val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
 
         val searchUrl = "$cleanBaseUrl/api/v1/search?query=$encodedQuery"
@@ -252,7 +504,7 @@ class JavinizerGoClient(
         if (cleanName.isBlank()) return@withContext null
 
         val cleanBaseUrl = normalizeBaseUrl(baseUrl)
-        val client = getHttpClient(timeoutSec)
+        val client = getHttpClient(timeoutSec, cleanBaseUrl)
         val encoded = URLEncoder.encode(cleanName, "UTF-8")
 
         val endpoint = "$cleanBaseUrl/api/v1/actress/$encoded"
@@ -505,6 +757,57 @@ class JavinizerGoClient(
         } catch (e: Exception) {
             return null
         }
+    }
+
+    private fun parseActressesListJson(jsonStr: String, baseUrl: String): List<JavActor> {
+        val list = mutableListOf<JavActor>()
+        try {
+            val root = JSONObject(jsonStr)
+            val array = root.optJSONArray("data")
+                ?: root.optJSONArray("results")
+                ?: root.optJSONArray("actresses")
+                ?: root.optJSONArray("actors")
+                ?: root.optJSONArray("items")
+
+            if (array != null) {
+                for (i in 0 until array.length()) {
+                    val obj = array.optJSONObject(i)
+                    if (obj != null) {
+                        val actor = parseActressJson(obj.toString(), "", baseUrl)
+                        if (actor != null && actor.name.isNotBlank()) {
+                            list.add(actor)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Error parsing actresses list JSON: ${e.message}")
+        }
+        return list
+    }
+
+    private fun parseStringListJson(jsonStr: String): List<String> {
+        val list = mutableListOf<String>()
+        try {
+            val root = JSONObject(jsonStr)
+            val array = root.optJSONArray("data")
+                ?: root.optJSONArray("results")
+                ?: root.optJSONArray("items")
+                ?: root.optJSONArray("list")
+
+            if (array != null) {
+                for (i in 0 until array.length()) {
+                    val item = array.opt(i)
+                    if (item is String && item.isNotBlank()) {
+                        list.add(item.trim())
+                    } else if (item is JSONObject) {
+                        val name = item.optString("name", "").ifBlank { item.optString("title", "") }
+                        if (name.isNotBlank()) list.add(name.trim())
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return list
     }
 
     private fun normalizeUrl(url: String?, baseUrl: String): String? {

@@ -107,8 +107,9 @@ fun ExploreScreen(
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
+    val adultEnabled by viewModel.adultContentEnabled.collectAsState()
 
-    var sections by remember { mutableStateOf<List<ExploreSection>>(ExploreMediaHelper.getInstantInitialFeed()) }
+    var sections by remember(adultEnabled) { mutableStateOf<List<ExploreSection>>(ExploreMediaHelper.getInstantInitialFeed(isAdult = adultEnabled)) }
     var isLoadingFeed by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -143,12 +144,12 @@ fun ExploreScreen(
         activeCategorySection = null
     }
 
-    // Load initial explore feed
+    // Load explore feed
     fun loadFeed(forceRefresh: Boolean = false) {
         coroutineScope.launch {
-            if (forceRefresh) isRefreshing = true
+            if (forceRefresh) isRefreshing = true else isLoadingFeed = true
             try {
-                val fresh = ExploreMediaHelper.fetchExploreFeed()
+                val fresh = ExploreMediaHelper.fetchExploreFeed(isAdult = adultEnabled)
                 if (fresh.isNotEmpty()) {
                     sections = fresh
                 }
@@ -161,8 +162,12 @@ fun ExploreScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        loadFeed()
+    LaunchedEffect(adultEnabled) {
+        val instant = ExploreMediaHelper.getInstantInitialFeed(isAdult = adultEnabled)
+        if (instant.isNotEmpty()) {
+            sections = instant
+        }
+        loadFeed(forceRefresh = false)
     }
 
     LaunchedEffect(sections) {
@@ -173,12 +178,12 @@ fun ExploreScreen(
     }
 
     // Live search
-    LaunchedEffect(searchQuery) {
+    LaunchedEffect(searchQuery, adultEnabled) {
         if (searchQuery.isNotBlank()) {
             isSearching = true
             try {
                 val sanitized = com.example.util.SmartSearchSanitizer.sanitizeQuery(searchQuery.trim())
-                searchResults = ExploreMediaHelper.searchAll(sanitized.cleanQuery)
+                searchResults = ExploreMediaHelper.searchAll(sanitized.cleanQuery, isAdult = adultEnabled)
             } catch (e: Exception) {
                 searchResults = emptyList()
             } finally {
@@ -438,10 +443,10 @@ fun ExploreScreen(
             if (selectedMediaForDetails != null) {
                 val currentSelected = selectedMediaForDetails!!
 
-                LaunchedEffect(currentSelected.id) {
+                LaunchedEffect(currentSelected.id, adultEnabled) {
                     isResolvingDetails = true
                     try {
-                        resolvedMediaDetails = ExploreMediaHelper.resolveFullMediaDetails(currentSelected)
+                        resolvedMediaDetails = ExploreMediaHelper.resolveFullMediaDetails(currentSelected, isAdult = adultEnabled)
                     } catch (e: Exception) {
                         resolvedMediaDetails = currentSelected
                     } finally {
@@ -462,33 +467,55 @@ fun ExploreScreen(
                     },
                     onToggleSave = { viewModel.toggleSaveExploreMedia(displayItem) },
                     onPlay = {
-                        val mediaIdentity = com.example.torrent.provider.MediaIdentity(
-                            title = displayItem.title,
-                            year = displayItem.releaseYear.filter { it.isDigit() }.take(4).ifBlank { null },
-                            imdbId = displayItem.imdbId,
-                            tmdbId = displayItem.tmdbId ?: displayItem.id,
-                            mediaType = when (displayItem.mediaType) {
-                                ExploreMediaType.TV -> "tv"
-                                ExploreMediaType.ANIME -> "anime"
-                                else -> "movie"
-                            },
-                            season = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null,
-                            episode = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null
-                        )
-                        activeTorrentMedia = displayItem
-                        activeTorrentIdentity = mediaIdentity
-                        viewModel.searchTorrentReleases(mediaIdentity)
+                        val isJav = adultEnabled || displayItem.source == ExploreSource.JAVINIZER || displayItem.mediaType == ExploreMediaType.JAV || displayItem.mediaType == ExploreMediaType.UNCENSORED || displayItem.mediaType == ExploreMediaType.HENTAI
+                        if (isJav) {
+                            val codeOrTitle = displayItem.tagline ?: com.example.metadata.JavIdParser.parse(displayItem.id) ?: com.example.metadata.JavIdParser.parse(displayItem.title) ?: displayItem.title
+                            selectedMediaForDetails = null
+                            resolvedMediaDetails = null
+                            viewModel.updateSearchQuery(codeOrTitle)
+                            viewModel.performSearch(codeOrTitle)
+                            viewModel.navigateToScreen(AppScreen.HOME)
+                        } else {
+                            val mediaIdentity = com.example.torrent.provider.MediaIdentity(
+                                title = displayItem.title,
+                                year = displayItem.releaseYear.filter { it.isDigit() }.take(4).ifBlank { null },
+                                imdbId = displayItem.imdbId,
+                                tmdbId = displayItem.tmdbId ?: displayItem.id,
+                                mediaType = when (displayItem.mediaType) {
+                                    ExploreMediaType.TV -> "tv"
+                                    ExploreMediaType.ANIME -> "anime"
+                                    else -> "movie"
+                                },
+                                season = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null,
+                                episode = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null
+                            )
+                            activeTorrentMedia = displayItem
+                            activeTorrentIdentity = mediaIdentity
+                            viewModel.searchTorrentReleases(mediaIdentity)
+                        }
                     },
-                    onPlayTrailer = { q ->
-                        selectedMediaForDetails = null
-                        resolvedMediaDetails = null
-                        viewModel.updateSearchQuery(q)
-                        viewModel.performSearch(q)
-                        viewModel.navigateToScreen(AppScreen.HOME)
+                    onPlayTrailer = { trailerKey ->
+                        val isDirect = trailerKey.startsWith("http://") || trailerKey.startsWith("https://")
+                        val videoId = if (isDirect) trailerKey else trailerKey.substringAfter("v=").substringBefore("&")
+                        val videoItem = com.example.model.VideoItem(
+                            id = videoId,
+                            title = "${displayItem.title} • Official Preview",
+                            uploaderName = displayItem.studio ?: displayItem.director ?: "Official Trailer",
+                            thumbnailUrl = displayItem.backdropUrl ?: displayItem.posterUrl,
+                            providerId = if (isDirect) "direct" else "youtube",
+                            durationSeconds = 120L
+                        )
+                        viewModel.playVideo(videoIdOrUrl = videoId, providerIdHint = if (isDirect) "direct" else "youtube", initialItem = videoItem)
                     },
                     onSelectRelatedMedia = { related ->
                         selectedMediaForDetails = related
                         resolvedMediaDetails = null
+                    },
+                    onSearchTagOrCast = { query ->
+                        selectedMediaForDetails = null
+                        resolvedMediaDetails = null
+                        isSearchOverlayOpen = true
+                        searchQuery = query
                     }
                 )
             }
@@ -981,7 +1008,8 @@ fun CinematicMovieDetailsView(
     onToggleSave: () -> Unit,
     onPlay: () -> Unit,
     onPlayTrailer: (String) -> Unit,
-    onSelectRelatedMedia: (ExploreMediaItem) -> Unit
+    onSelectRelatedMedia: (ExploreMediaItem) -> Unit,
+    onSearchTagOrCast: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -1030,19 +1058,48 @@ fun CinematicMovieDetailsView(
                         )
                 )
 
-                // Title and Genres aligned at bottom of backdrop
+                // Title, JAV Code and Genres aligned at bottom of backdrop
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
+                    // JAV Code Badge if present
+                    if (!item.tagline.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier
+                                .padding(bottom = 6.dp)
+                                .bouncyClickable { onSearchTagOrCast(item.tagline) }
+                        ) {
+                            Text(
+                                text = item.tagline,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
                     Text(
                         text = item.title,
-                        fontSize = 28.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
-                        lineHeight = 32.sp
+                        lineHeight = 30.sp
                     )
+
+                    if (!item.originalTitle.isNullOrBlank() && item.originalTitle != item.title) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = item.originalTitle,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.65f)
+                        )
+                    }
 
                     if (item.genres.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -1056,7 +1113,7 @@ fun CinematicMovieDetailsView(
                 }
             }
 
-            // 2. PRIMARY ACTION BUTTONS (PLAY + OPTIONS)
+            // 2. PRIMARY ACTION BUTTONS (PLAY + SAMPLE PREVIEW)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1064,7 +1121,7 @@ fun CinematicMovieDetailsView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Large White Pill Button: ▶ Play
+                // Large White Pill Button: ▶ Play Full Stream
                 Surface(
                     shape = RoundedCornerShape(24.dp),
                     color = Color.White,
@@ -1087,7 +1144,7 @@ fun CinematicMovieDetailsView(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Play",
+                            text = if (item.source == ExploreSource.JAVINIZER || item.mediaType == ExploreMediaType.JAV) "Play Video" else "Play",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
@@ -1095,21 +1152,50 @@ fun CinematicMovieDetailsView(
                     }
                 }
 
-                // Circular Options Button: ···
-                Box(
+                // Sample Preview button
+                val topTrailer = remember(item) {
+                    if (item.clipsAndTrailers.isNotEmpty()) item.clipsAndTrailers.first()
+                    else if (item.trailerYoutubeId != null) MediaClipItem(item.id, "${item.title} Trailer", "Trailer", "YouTube", item.trailerYoutubeId, item.backdropUrl)
+                    else {
+                        val parsed = com.example.metadata.JavIdParser.parse(item.id) ?: com.example.metadata.JavIdParser.parse(item.title) ?: item.tagline ?: item.id.removePrefix("jav_")
+                        val contentId = if (parsed.isNotBlank()) com.example.metadata.JavIdParser.toDmmContentId(parsed) else "ssis00834"
+                        val initialLetter = contentId.firstOrNull()?.lowercaseChar() ?: 's'
+                        val subThree = if (contentId.length >= 3) contentId.substring(0, 3) else contentId
+                        val dmmSampleUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/$initialLetter/$subThree/$contentId/${contentId}_dmb_w.mp4"
+                        MediaClipItem("${parsed}_dmm", "[$parsed] Official HD Sample", "Trailer", "JAV", dmmSampleUrl, item.backdropUrl)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF22222A),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    contentColor = Color.White,
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF22222A))
-                        .bouncyClickable { onPlay() },
-                    contentAlignment = Alignment.Center
+                        .height(48.dp)
+                        .bouncyClickable {
+                            onPlayTrailer(topTrailer.key)
+                        }
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "Options",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Movie,
+                            contentDescription = "Trailer",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Sample",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
             }
 
@@ -1130,7 +1216,7 @@ fun CinematicMovieDetailsView(
                     )
                 }
 
-                val runtime = item.runtimeText ?: if (item.mediaType == ExploreMediaType.MOVIE) "1h 50m" else "45m"
+                val runtime = item.runtimeText ?: if (item.mediaType == ExploreMediaType.MOVIE) "1h 50m" else "120 min"
                 Text(
                     text = "•   $runtime",
                     fontSize = 13.sp,
@@ -1138,7 +1224,7 @@ fun CinematicMovieDetailsView(
                     color = Color.White.copy(alpha = 0.85f)
                 )
 
-                val cert = item.certification ?: if (item.mediaType == ExploreMediaType.MOVIE) "PG-13" else "TV-MA"
+                val cert = item.certification ?: if (item.source == ExploreSource.JAVINIZER) "18+ / Adults Only" else "PG-13"
                 Box(
                     modifier = Modifier
                         .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
@@ -1163,7 +1249,7 @@ fun CinematicMovieDetailsView(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "IMDb",
+                                text = if (item.source == ExploreSource.JAVINIZER) "JAV" else "IMDb",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black
                             )
@@ -1178,26 +1264,38 @@ fun CinematicMovieDetailsView(
                 }
             }
 
-            // 4. CREW ROW (DIRECTOR / WRITER)
+            // 4. CREW ROW (DIRECTOR / STUDIO / MAKER)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 6.dp)
             ) {
-                val directorStr = item.director ?: if (item.title.contains("Mayday", ignoreCase = true)) "Jonathan Goldstein, John Francis Daley" else null
+                val directorStr = item.director
                 if (!directorStr.isNullOrBlank()) {
                     Row {
                         Text(text = "Director: ", fontSize = 13.sp, color = Color.White.copy(alpha = 0.55f))
-                        Text(text = directorStr, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                        Text(
+                            text = directorStr,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White,
+                            modifier = Modifier.bouncyClickable { onSearchTagOrCast(directorStr) }
+                        )
                     }
                 }
 
-                val writerStr = item.writer ?: if (item.title.contains("Mayday", ignoreCase = true)) "John Francis Daley, Jonathan Goldstein" else null
-                if (!writerStr.isNullOrBlank()) {
+                val studioStr = item.studio ?: item.productionCompanies.firstOrNull()
+                if (!studioStr.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Row {
-                        Text(text = "Writer: ", fontSize = 13.sp, color = Color.White.copy(alpha = 0.55f))
-                        Text(text = writerStr, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                        Text(text = "Studio / Maker: ", fontSize = 13.sp, color = Color.White.copy(alpha = 0.55f))
+                        Text(
+                            text = studioStr,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.bouncyClickable { onSearchTagOrCast(studioStr) }
+                        )
                     }
                 }
             }
@@ -1233,35 +1331,30 @@ fun CinematicMovieDetailsView(
                 }
             }
 
-            // 6. PRODUCTION COMPANIES
-            val prodCompanies = remember(item) {
-                if (item.productionCompanies.isNotEmpty()) item.productionCompanies
-                else if (item.title.contains("Mayday", ignoreCase = true)) listOf("Skydance Media", "Maximum Effort", "Apple Studios")
-                else if (item.studio != null) listOf(item.studio)
-                else emptyList()
-            }
-            if (prodCompanies.isNotEmpty()) {
+            // 6. GENRES & TAGS CHIPS
+            if (item.genres.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                        .padding(horizontal = 20.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "Production",
-                        fontSize = 16.sp,
+                        text = "Categories & Tags",
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(prodCompanies) { prod ->
+                        items(item.genres) { tag ->
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = Color(0xFF1E1E26),
-                                contentColor = Color.White.copy(alpha = 0.9f)
+                                contentColor = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.bouncyClickable { onSearchTagOrCast(tag) }
                             ) {
                                 Text(
-                                    text = prod,
+                                    text = tag,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -1272,28 +1365,57 @@ fun CinematicMovieDetailsView(
                 }
             }
 
-            // 7. CAST SECTION
-            val castMembers = remember(item) {
-                if (item.cast.isNotEmpty()) item.cast
-                else if (item.title.contains("Mayday", ignoreCase = true)) {
-                    listOf(
-                        CastMember("Ryan Reynolds", "Troy Kelly", "https://image.tmdb.org/t/p/w185/4SYTH5FRAxWhsvTZ6bs42JoSmqV.jpg"),
-                        CastMember("Kenneth Branagh", "Nikolai Ustinov", "https://image.tmdb.org/t/p/w185/AbC1RzQZ9hWv2x3v7LpT7V9j0.jpg"),
-                        CastMember("Jonathan Goldstein", "Director"),
-                        CastMember("John Francis Daley", "Director"),
-                        CastMember("Maria Bakalova", "Elena"),
-                        CastMember("Marcin Dorociński", "Victor")
-                    )
-                } else emptyList()
-            }
+            // 7. CAST & ACTRESSES SECTION
+            val castMembers = remember(item) { item.cast }
             if (castMembers.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp)
                 ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (item.source == ExploreSource.JAVINIZER) "Actresses & Cast" else "Cast",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "${castMembers.size} stars",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.45f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(castMembers) { member ->
+                            CastMemberItem(
+                                member = member,
+                                onClick = { onSearchTagOrCast(member.name) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 8. HIGH-RES SCREENSHOTS / GALLERY
+            if (item.screenshots.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
                     Text(
-                        text = "Cast",
+                        text = "Screenshots & Gallery",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -1302,116 +1424,150 @@ fun CinematicMovieDetailsView(
                     Spacer(modifier = Modifier.height(10.dp))
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(castMembers) { member ->
-                            CastMemberItem(member = member)
-                        }
-                    }
-                }
-            }
-
-            // 8. TRAILERS & CLIPS SECTION
-            val trailersList = remember(item) {
-                if (item.clipsAndTrailers.isNotEmpty()) item.clipsAndTrailers
-                else listOf(
-                    MediaClipItem(
-                        id = "trailer_1",
-                        name = "Official Trailer",
-                        type = "Trailer",
-                        site = "YouTube",
-                        key = item.trailerYoutubeId ?: "dQw4w9WgXcQ",
-                        thumbnailUrl = item.backdropUrl ?: item.posterUrl ?: ""
-                    )
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Trailers",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 20.dp)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(trailersList) { clip ->
-                        Column(
-                            modifier = Modifier
-                                .width(180.dp)
-                                .bouncyClickable {
-                                    val q = if (clip.key.isNotBlank()) clip.key else "${item.title} trailer"
-                                    onPlayTrailer(q)
-                                }
-                        ) {
+                        items(item.screenshots) { ssUrl ->
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(105.dp)
+                                    .width(220.dp)
+                                    .height(125.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(Color(0xFF202028))
                             ) {
                                 AsyncImage(
-                                    model = clip.thumbnailUrl?.takeIf { it.isNotBlank() } ?: item.backdropUrl ?: item.posterUrl,
-                                    contentDescription = clip.name,
+                                    model = ssUrl,
+                                    contentDescription = "Screenshot",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
-
-                                // Red Play button in center
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Red.copy(alpha = 0.9f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayArrow,
-                                        contentDescription = "Play",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
                             }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Text(
-                                text = clip.name,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Text(
-                                text = "${item.releaseYear.take(4)} • 2m 24s",
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.5f)
-                            )
                         }
                     }
                 }
             }
 
-            // 9. SPECS & MOVIE DETAILS TABLE
+            // 9. TRAILERS & CLIPS SECTION
+            val trailersList = remember(item) {
+                if (item.clipsAndTrailers.isNotEmpty()) {
+                    item.clipsAndTrailers
+                } else if (item.trailerYoutubeId != null) {
+                    listOf(
+                        MediaClipItem(
+                            id = "${item.id}_yt_trailer",
+                            name = "${item.title} Official Trailer",
+                            type = "Trailer",
+                            site = "YouTube",
+                            key = item.trailerYoutubeId,
+                            thumbnailUrl = item.backdropUrl ?: item.posterUrl
+                        )
+                    )
+                } else {
+                    val parsed = com.example.metadata.JavIdParser.parse(item.id) ?: com.example.metadata.JavIdParser.parse(item.title) ?: item.tagline ?: item.id.removePrefix("jav_")
+                    val contentId = if (parsed.isNotBlank()) com.example.metadata.JavIdParser.toDmmContentId(parsed) else "ssis00834"
+                    val initialLetter = contentId.firstOrNull()?.lowercaseChar() ?: 's'
+                    val subThree = if (contentId.length >= 3) contentId.substring(0, 3) else contentId
+                    val dmmSampleUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/$initialLetter/$subThree/$contentId/${contentId}_dmb_w.mp4"
+                    listOf(
+                        MediaClipItem(
+                            id = "${parsed}_dmm_trailer",
+                            name = "[$parsed] Official HD Sample Preview",
+                            type = "Trailer",
+                            site = "JAV",
+                            key = dmmSampleUrl,
+                            thumbnailUrl = item.backdropUrl ?: item.posterUrl ?: "https://pics.dmm.co.jp/mono/movie/adult/$contentId/${contentId}pl.jpg"
+                        )
+                    )
+                }
+            }
+            if (trailersList.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "Sample Trailers & Previews",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(trailersList) { clip ->
+                            Column(
+                                modifier = Modifier
+                                    .width(180.dp)
+                                    .bouncyClickable {
+                                        val q = if (clip.key.isNotBlank()) clip.key else "${item.title} trailer"
+                                        onPlayTrailer(q)
+                                    }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(105.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF202028))
+                                ) {
+                                    AsyncImage(
+                                        model = clip.thumbnailUrl?.takeIf { it.isNotBlank() } ?: item.backdropUrl ?: item.posterUrl,
+                                        contentDescription = clip.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    // Red Play button in center
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Red.copy(alpha = 0.9f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = "Play",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Text(
+                                    text = clip.name,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Text(
+                                    text = "Preview • High Definition",
+                                    fontSize = 11.sp,
+                                    color = Color.White.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 10. SPECS & MOVIE DETAILS TABLE
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = if (item.mediaType == ExploreMediaType.MOVIE) "Movie Details" else "Series Details",
+                    text = "Release Details",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -1427,15 +1583,15 @@ fun CinematicMovieDetailsView(
                     Column(modifier = Modifier.padding(16.dp)) {
                         DetailSpecRow(label = "Status", value = item.status ?: "Released")
                         DetailSpecRow(label = "Release Info", value = item.releaseDateFull ?: item.releaseYear)
-                        DetailSpecRow(label = "Runtime", value = item.runtimeText ?: if (item.mediaType == ExploreMediaType.MOVIE) "1h 50m" else "45m")
-                        DetailSpecRow(label = "Certification", value = item.certification ?: if (item.mediaType == ExploreMediaType.MOVIE) "PG-13" else "TV-MA")
-                        DetailSpecRow(label = "Origin Country", value = item.originCountry ?: "US")
-                        DetailSpecRow(label = "Original Language", value = item.originalLanguage ?: "EN")
+                        DetailSpecRow(label = "Runtime", value = item.runtimeText ?: "120 min")
+                        DetailSpecRow(label = "Certification", value = item.certification ?: if (item.source == ExploreSource.JAVINIZER) "18+ / Adults Only" else "PG-13")
+                        DetailSpecRow(label = "Origin Country", value = item.originCountry ?: "JP")
+                        DetailSpecRow(label = "Original Language", value = item.originalLanguage ?: "JA")
                     }
                 }
             }
 
-            // 10. MORE LIKE THIS SECTION
+            // 11. MORE LIKE THIS SECTION
             val relatedItems = item.relatedContent
             if (relatedItems.isNotEmpty()) {
                 Column(
@@ -1457,7 +1613,7 @@ fun CinematicMovieDetailsView(
                             color = Color.White
                         )
                         Text(
-                            text = "Powered by TMDB",
+                            text = if (item.source == ExploreSource.JAVINIZER) "Powered by Javinizer-Go" else "Powered by TMDB",
                             fontSize = 11.sp,
                             color = Color.White.copy(alpha = 0.4f)
                         )
@@ -1548,11 +1704,14 @@ private fun DetailSpecRow(label: String, value: String) {
 @Composable
 private fun CastMemberItem(
     member: CastMember,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.width(76.dp)
+        modifier = modifier
+            .width(76.dp)
+            .bouncyClickable { onClick() }
     ) {
         Box(
             modifier = Modifier

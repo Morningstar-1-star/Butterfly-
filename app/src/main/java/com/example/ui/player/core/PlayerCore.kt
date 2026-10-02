@@ -39,16 +39,22 @@ class PlayerCore(
 
     private fun initializePlayer() {
         val appContext = context.applicationContext
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                8_000,    // minBufferMs (8s fast buffer and low RAM footprint)
-                30_000,   // maxBufferMs (30s)
-                350,      // bufferForPlaybackMs (350ms for near-instant video playback start)
-                750       // bufferForPlaybackAfterRebufferMs (750ms fast resume)
-            )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(5_000, true)
-            .build()
+        val loadControl = SmartAdaptiveLoadControl.create(appContext)
+        val bandwidthMeter = AdaptiveBandwidthManager.getBandwidthMeter(appContext)
+
+        val trackSelectionFactory = androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
+            /* minDurationForQualityIncreaseMs = */ 2000,
+            /* maxDurationForQualityDecreaseMs = */ 800,
+            /* minDurationToRetainAfterDiscardMs = */ 2000,
+            /* bandwidthFraction = */ 0.75f
+        )
+        val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(appContext, trackSelectionFactory).apply {
+            parameters = buildUponParameters()
+                .setForceHighestSupportedBitrate(false)
+                .setMaxVideoSize(3840, 2160)
+                .setAllowMultipleAdaptiveSelections(true)
+                .build()
+        }
 
         val audioEnhancementProcessor = AudioEnhancementEngine.getAudioProcessor()
         val isEmulator = Build.FINGERPRINT.startsWith("generic") ||
@@ -108,6 +114,8 @@ class PlayerCore(
 
         val exo = ExoPlayer.Builder(appContext)
             .setRenderersFactory(renderersFactory)
+            .setTrackSelector(trackSelector)
+            .setBandwidthMeter(bandwidthMeter)
             .setLoadControl(loadControl)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setAudioAttributes(

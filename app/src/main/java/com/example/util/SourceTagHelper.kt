@@ -278,6 +278,7 @@ object SourceTagHelper {
             pid == "imdb" -> "IMDb"
             pid == "mxplayer" -> "MX Player"
             pid == "popcorntv" || pid == "popcorn" -> "PopcornTV"
+            pid == "tubitv" || pid == "tubi" -> "Tubi TV"
             pid == "decryptor" -> "Decryptor"
             pid == "vidsrc" -> "VidSrc"
 
@@ -309,6 +310,12 @@ object SourceTagHelper {
                 val src = com.example.extractor.tmdbembed.TMDBEmbedSource.fromId(sub)
                 src?.displayName ?: sub.replaceFirstChar { it.uppercase() }
             }
+            pid.startsWith("nuvio_") -> {
+                val sub = pid.removePrefix("nuvio_")
+                val item = com.example.extractor.nuvio.NuvioProviderRepository.ALL_OFFICIAL_PROVIDERS.find { it.id.equals(sub, ignoreCase = true) }
+                item?.name ?: sub.replaceFirstChar { it.uppercase() }
+            }
+            pid == "nuvio" -> "Nuvio"
             pid == "tmdb_embed" || pid == "tmdb" || pid == "tmdb_movies" -> {
                 val matching = com.example.extractor.tmdbembed.TMDBEmbedSource.allSources.firstOrNull { s ->
                     uploader.contains(s.displayName, ignoreCase = true) ||
@@ -470,6 +477,7 @@ object SourceTagHelper {
             s.contains("curiosity") -> "curiositystream"
             s.contains("mx player") -> "mxplayer"
             s.contains("popcorn") -> "popcorntv"
+            s.contains("tubitv") || s.contains("tubi") -> "tubitv"
             s.contains("imdb") -> "imdb"
             s.contains("bunkr") -> "bunkr"
             s.contains("mega") -> "mega"
@@ -530,6 +538,7 @@ object SourceTagHelper {
             s.contains("imdb") -> Pair(Color(0xFFF5C518), Color.Black)
             s.contains("mx player") -> Pair(Color(0xFF1565C0), Color.White)
             s.contains("popcorntv") -> Pair(Color(0xFFD32F2F), Color.White)
+            s.contains("tubitv") || s.contains("tubi") -> Pair(Color(0xFFFA233B), Color.White)
             s.contains("decryptor") -> Pair(Color(0xFF00E5FF), Color.Black)
             s.contains("vidsrc") -> Pair(Color(0xFFFF9100), Color.White)
             s.contains("telegram") -> Pair(Color(0xFF2AABEE), Color.White)
@@ -617,6 +626,9 @@ object SourceTagHelper {
         if (target.startsWith("tmdb_")) {
             val sub = target.removePrefix("tmdb_")
             if (pId == target || pId == sub || pId.contains(sub)) return true
+        }
+        if (target == "nuvio" || target.startsWith("nuvio_")) {
+            if (pId == target || pId == "nuvio" || pId.startsWith("nuvio_")) return true
         }
         return false
     }

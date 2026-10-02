@@ -147,6 +147,7 @@ class PlaybackSession(private val appContext: Context) {
 
         override fun onRenderedFirstFrame() {
             _firstFrameRendered.value = true
+            com.example.ui.player.metrics.PlaybackMetricsTracker.onFirstFrameRendered()
             playerCore?.player?.duration?.let { PlaybackPipelineTracker.logFirstFrame(it) }
         }
 
@@ -159,9 +160,14 @@ class PlaybackSession(private val appContext: Context) {
             val exo = playerCore?.player ?: return
             _isPlaying.value = exo.isPlaying
             _isBuffering.value = (state == Player.STATE_BUFFERING)
+            if (state == Player.STATE_BUFFERING) {
+                com.example.ui.player.metrics.PlaybackMetricsTracker.onRebufferStarted()
+            }
             updatePositions(exo)
 
             if (state == Player.STATE_READY) {
+                com.example.ui.player.metrics.PlaybackMetricsTracker.onSeekCompleted()
+                com.example.ui.player.metrics.PlaybackMetricsTracker.onRebufferEnded()
                 if (exo.playWhenReady) {
                     _isBuffering.value = false
                 }
@@ -184,6 +190,17 @@ class PlaybackSession(private val appContext: Context) {
         }
 
         override fun onTracksChanged(tracks: Tracks) {
+            for (group in tracks.groups) {
+                if (group.type == C.TRACK_TYPE_VIDEO && group.isSelected) {
+                    for (i in 0 until group.length) {
+                        if (group.isTrackSelected(i)) {
+                            val f = group.getTrackFormat(i)
+                            com.example.ui.player.metrics.PlaybackMetricsTracker.updateVideoFormat(f.width, f.height, f.bitrate)
+                            break
+                        }
+                    }
+                }
+            }
             playerCore?.let { core ->
                 val parsed = core.parseAudioTracks(tracks)
                 _audioTracks.value = parsed
@@ -338,6 +355,8 @@ class PlaybackSession(private val appContext: Context) {
         val cur = player.currentPosition
         val dur = player.duration
         val buf = player.bufferedPosition
+        val bufferedDurationSec = ((buf - cur).coerceAtLeast(0L) / 1000f)
+        com.example.ui.player.metrics.PlaybackMetricsTracker.updateBufferHealth(bufferedDurationSec)
         if (dur > 0 && cur >= 0) {
             _currentPositionMs.value = cur
             _durationMs.value = dur
@@ -359,7 +378,7 @@ class PlaybackSession(private val appContext: Context) {
 
         val posSec = cur / 1000f
         val cues = _bilibiliCues.value
-        if (cues.isNotEmpty() && _subtitleMode.value != SubtitleMode.OFF && _subtitleMode.value != SubtitleMode.AI_LIVE_CAPTIONS && _subtitleMode.value != SubtitleMode.EXTERNAL_PROVIDER) {
+        if (cues.isNotEmpty() && _subtitleMode.value != SubtitleMode.OFF && _subtitleMode.value != SubtitleMode.AI_LIVE_CAPTIONS) {
             val activeCue = cues.find { posSec >= it.fromSeconds && posSec <= it.toSeconds }
             if (activeCue != null) {
                 _currentActiveSubtitleText.value = activeCue.text
@@ -433,6 +452,8 @@ class PlaybackSession(private val appContext: Context) {
         _firstFrameRendered.value = false
         _areControlsVisible.value = false
         autoHideControlsJob?.cancel()
+        com.example.ui.player.metrics.PlaybackMetricsTracker.resetSession()
+        com.example.ui.player.metrics.PlaybackMetricsTracker.startPreparation(rawUrl)
         _currentPositionMs.value = effectiveResumePos
         _durationMs.value = 0L
         _bufferedPositionMs.value = 0L
@@ -446,6 +467,15 @@ class PlaybackSession(private val appContext: Context) {
         _selectedSubtitleTrack.value = null
         currentLoadedMediaKey = mediaKey
         resumeController.setPendingResumePosition(effectiveResumePos.takeIf { it > 0L })
+
+        // Auto-enable captions if available on the stream
+        val initialCaption = captionOption ?: streamData?.captionOptions?.firstOrNull {
+            it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
+        } ?: streamData?.captionOptions?.firstOrNull()
+
+        if (initialCaption != null) {
+            selectCaptionOption(appContext ?: context, initialCaption)
+        }
 
         try {
             player.stop()
@@ -572,7 +602,7 @@ class PlaybackSession(private val appContext: Context) {
                         val videoSource = videoSourceFactory.createMediaSource(videoItem)
                         val audioSource = audioSourceFactory.createMediaSource(audioItem)
                         try {
-                            val mergedSource = MergingMediaSource(false, false, videoSource, audioSource)
+                            val mergedSource = MergingMediaSource(true, true, videoSource, audioSource)
                             player.setMediaSource(mergedSource)
                             mediaSourceSet = true
                         } catch (e: Exception) {
@@ -628,6 +658,8 @@ class PlaybackSession(private val appContext: Context) {
             if (effectiveResumePos > 0L) {
                 player.seekTo(effectiveResumePos)
             }
+
+            com.example.ui.player.metrics.PlaybackMetricsTracker.startPreparation(effectivePlayableUrl)
 
             PlaybackPipelineTracker.logPrepare(
                 urlSnippet = effectivePlayableUrl.take(60),
@@ -724,6 +756,7 @@ class PlaybackSession(private val appContext: Context) {
     }
 
     fun seekTo(positionMs: Long) {
+        com.example.ui.player.metrics.PlaybackMetricsTracker.onSeekStarted()
         val player = playerCore?.player
         val playerDur = player?.duration?.takeIf { it > 0 && it != C.TIME_UNSET } ?: _durationMs.value
         val safeMax = if (playerDur > 1000L) (playerDur - 100L) else if (playerDur > 0L) playerDur else Long.MAX_VALUE
@@ -778,33 +811,96 @@ class PlaybackSession(private val appContext: Context) {
     }
 
     fun selectBilibiliSubtitleTrack(option: CaptionOption?) {
+        selectCaptionOption(appContext, option)
+    }
+
+    fun selectCaptionOption(context: Context? = null, option: CaptionOption?) {
         _selectedSubtitleTrack.value = option
         if (option == null) {
             _bilibiliCues.value = emptyList()
+            _currentActiveSubtitleText.value = ""
+            _currentActiveTranslatedText.value = ""
+            _subtitleMode.value = SubtitleMode.OFF
             return
         }
 
+        val rawUrl = option.url
+        if (rawUrl.isBlank()) return
+        val url = if (rawUrl.startsWith("http://")) rawUrl.replaceFirst("http://", "https://") else rawUrl
+
         scope.launch(Dispatchers.IO) {
             try {
-                val req = Request.Builder()
-                    .url(option.url)
-                    .header("User-Agent", NetworkManager.DEFAULT_USER_AGENT)
-                    .header("Referer", "https://www.bilibili.com/")
-                    .build()
-                val jsonStr = NetworkManager.scraperClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
+                val isBili = url.contains("bilibili") || url.contains("biliapi") || url.contains("hdslb") || option.format.contains("json", ignoreCase = true)
+                val isYouTube = url.contains("youtube.com") || url.contains("googlevideo.com") || url.contains("youtu.be")
+                val isArchive = url.contains("archive.org")
+                val isVimeo = url.contains("vimeo") || url.contains("vimeocdn")
+
+                fun fetchUrl(targetUrl: String, withReferer: Boolean = true): String? {
+                    return try {
+                        val reqBuilder = Request.Builder()
+                            .url(targetUrl)
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                        if (withReferer) {
+                            when {
+                                isBili -> {
+                                    reqBuilder.header("Referer", "https://www.bilibili.com/")
+                                }
+                                isYouTube -> {
+                                    reqBuilder.header("Referer", "https://www.youtube.com/")
+                                }
+                                isArchive -> {
+                                    reqBuilder.header("Referer", "https://archive.org/")
+                                }
+                                isVimeo -> {
+                                    reqBuilder.header("Referer", "https://vimeo.com/")
+                                }
+                            }
+                        }
+                        NetworkManager.scraperClient.newCall(reqBuilder.build()).execute().use { resp ->
+                            if (resp.isSuccessful) resp.body?.string() else null
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
-                if (!jsonStr.isNullOrBlank()) {
-                    val rawCues = SubtitleTranslator.parseBilibiliSubtitleJson(jsonStr)
-                    val targetLang = _targetCaptionLanguage.value
-                    val translatedCues = SubtitleTranslator.translateCues(rawCues, targetLang = targetLang)
-                    _bilibiliCues.value = translatedCues
-                    if (_subtitleMode.value == SubtitleMode.OFF) {
-                        _subtitleMode.value = SubtitleMode.BILIBILI_TRANSLATED
+
+                var rawContent = fetchUrl(url)
+                if (rawContent.isNullOrBlank() && isYouTube) {
+                    // Try alternative formats if original URL failed or returned empty
+                    if (url.contains("&fmt=vtt")) {
+                        rawContent = fetchUrl(url.replace("&fmt=vtt", ""))
+                    } else if (url.contains("?fmt=vtt")) {
+                        rawContent = fetchUrl(url.replace("?fmt=vtt", ""))
+                    }
+                    if (rawContent.isNullOrBlank()) {
+                        val sep = if (url.contains("?")) "&" else "?"
+                        rawContent = fetchUrl("$url${sep}fmt=json3") ?: fetchUrl("$url${sep}fmt=vtt")
+                    }
+                }
+                if (rawContent.isNullOrBlank()) {
+                    // Retry without referer (some endpoints prefer direct get without referer)
+                    rawContent = fetchUrl(url, withReferer = false)
+                }
+
+                if (!rawContent.isNullOrBlank()) {
+                    val cleanContent = rawContent.trim().removePrefix("\uFEFF")
+                    val fmt = when {
+                        option.format.contains("json", ignoreCase = true) -> com.example.subtitles.SubtitleFormat.JSON
+                        option.format.contains("vtt", ignoreCase = true) || url.contains(".vtt", ignoreCase = true) -> com.example.subtitles.SubtitleFormat.VTT
+                        option.format.contains("srt", ignoreCase = true) || url.contains(".srt", ignoreCase = true) -> com.example.subtitles.SubtitleFormat.SRT
+                        option.format.contains("ass", ignoreCase = true) || url.contains(".ass", ignoreCase = true) -> com.example.subtitles.SubtitleFormat.ASS
+                        else -> com.example.subtitles.SubtitleFormat.UNKNOWN
+                    }
+                    val cues = com.example.subtitles.SubtitleParser.parse(cleanContent, fmt)
+                    if (cues.isNotEmpty()) {
+                        // Immediately show the cues to the user without blocking
+                        _bilibiliCues.value = cues
+                        _subtitleMode.value = if (isBili) SubtitleMode.BILIBILI_TRANSLATED else SubtitleMode.EXTERNAL_PROVIDER
+                        Log.i("PlaybackSession", "Loaded ${cues.size} caption cues for ${option.languageName} (${option.languageCode}) from $url")
                     }
                 }
             } catch (e: Exception) {
-                Log.w("PlaybackSession", "Failed to load Bilibili subtitle JSON: ${e.message}")
+                Log.w("PlaybackSession", "Failed to load caption track: ${e.message}")
             }
         }
     }

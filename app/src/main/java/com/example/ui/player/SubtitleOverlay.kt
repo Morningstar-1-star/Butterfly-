@@ -66,6 +66,7 @@ fun SubtitleOverlay(modifier: Modifier = Modifier) {
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val isDualTextDifferent = origText.isNotBlank() && transText.isNotBlank() && !origText.trim().equals(transText.trim(), ignoreCase = true)
                 if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL) {
                     Text(
                         text = transText,
@@ -76,8 +77,8 @@ fun SubtitleOverlay(modifier: Modifier = Modifier) {
                         lineHeight = (fontSize * 1.3f).sp
                     )
                 }
-                if (origText.isNotBlank() && (dualEnabled || subtitleMode == GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL || transText.isBlank())) {
-                    if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL) {
+                if (origText.isNotBlank() && (subtitleMode == GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL || (dualEnabled && isDualTextDifferent) || transText.isBlank())) {
+                    if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL && isDualTextDifferent) {
                         Spacer(modifier = Modifier.height(3.dp))
                     }
                     Text(

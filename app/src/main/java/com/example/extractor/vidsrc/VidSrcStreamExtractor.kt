@@ -91,7 +91,32 @@ object VidSrcStreamExtractor {
 
         val options = mutableListOf<PlayableStreamOption>()
 
-        // 1. Primary: Direct API + On-Device WebAssembly Decryption + Host JWT Token
+        // 1. Direct multi-source HLS extraction (Showbox, VixSrc, Videasy, CastleTV, 4KHDHub, NetMirror, etc.)
+        if (appCtx != null && cleanId.isNotBlank()) {
+            try {
+                val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                    tmdbId = cleanId,
+                    mediaType = if (isTv) "tv" else "movie",
+                    title = title,
+                    season = season,
+                    episode = episode
+                )
+                val extracted = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(appCtx, tmdbReq)
+                if (extracted.isNotEmpty()) {
+                    val styledExtracted = extracted.map { opt ->
+                        opt.copy(
+                            qualityLabel = "[$providerName] ${opt.qualityLabel}",
+                            sourceName = providerName
+                        )
+                    }
+                    options.addAll(styledExtracted)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "TMDBEmbedExtractorEngine extraction error: ${e.message}")
+            }
+        }
+
+        // 2. Direct API + On-Device WebAssembly Decryption + Host JWT Token
         if (appCtx != null && (vidSrcRepo == null || vidSrcRepo.isProviderInstalledAndEnabled("vidsrc_wasm"))) {
             try {
                 val decryptedOptions = resolveViaWasmDecryption(appCtx, cleanId, isTv, season, episode, title, providerName)
@@ -103,7 +128,7 @@ object VidSrcStreamExtractor {
             }
         }
 
-        // 2. Secondary: Headless sniffer if WASM API is rotating or undergoing maintenance
+        // 3. Secondary: Headless sniffer if needed
         if (options.isEmpty() && appCtx != null && (vidSrcRepo == null || vidSrcRepo.isProviderInstalledAndEnabled("vidsrc_to"))) {
             val embedUrl = if (isTv) {
                 "https://vidsrc.to/embed/tv/$cleanId/$season/$episode"
@@ -123,33 +148,6 @@ object VidSrcStreamExtractor {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Headless sniffer fallback error: ${e.message}")
-            }
-        }
-
-        // 3. Direct multi-source HLS extraction (Showbox, VixSrc, NetMirror, Videasy, Vidlink, CastleTV, etc.)
-        if (options.isEmpty() && appCtx != null) {
-            try {
-                if (cleanId.isNotBlank()) {
-                    val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
-                        tmdbId = cleanId,
-                        mediaType = if (isTv) "tv" else "movie",
-                        title = title,
-                        season = season,
-                        episode = episode
-                    )
-                    val extracted = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(appCtx, tmdbReq)
-                    if (extracted.isNotEmpty()) {
-                        val styledExtracted = extracted.map { opt ->
-                            opt.copy(
-                                qualityLabel = "[$providerName] ${opt.qualityLabel}",
-                                sourceName = providerName
-                            )
-                        }
-                        options.addAll(styledExtracted)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "TMDBEmbedExtractorEngine extraction error: ${e.message}")
             }
         }
 
@@ -203,7 +201,7 @@ object VidSrcStreamExtractor {
      * Resolves authenticated HLS streams by querying the stream-data API,
      * decrypting the ChaCha20 payload via on-device WebAssembly, and acquiring host JWT tokens.
      */
-    private suspend fun resolveViaWasmDecryption(
+    suspend fun resolveViaWasmDecryption(
         context: Context,
         tmdbId: String,
         isTv: Boolean,

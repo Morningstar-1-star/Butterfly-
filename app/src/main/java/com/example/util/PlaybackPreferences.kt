@@ -37,6 +37,16 @@ class PlaybackPreferences private constructor(context: Context) {
     )
     val loopVideoEnabled: StateFlow<Boolean> = _loopVideoEnabled.asStateFlow()
 
+    private val _autoplayNextVideo = MutableStateFlow(
+        prefs.getBoolean("autoplay_next_video", true)
+    )
+    val autoplayNextVideo: StateFlow<Boolean> = _autoplayNextVideo.asStateFlow()
+
+    fun setAutoplayNextVideo(enabled: Boolean) {
+        _autoplayNextVideo.value = enabled
+        prefs.edit().putBoolean("autoplay_next_video", enabled).apply()
+    }
+
     // Quality, Codec & Decoder Settings (From User Prompt & Screenshot 2)
     private val _prioritizeVideoQuality = MutableStateFlow(
         prefs.getBoolean(KEY_PRIORITIZE_VIDEO_QUALITY, true)

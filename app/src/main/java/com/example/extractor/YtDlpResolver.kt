@@ -44,7 +44,6 @@ object YtDlpResolver {
     }
 
     suspend fun getEngineVersion(ctx: Context): String = withContext(Dispatchers.IO) {
-        ensureInitialized(ctx)
         try {
             val updatedVerFile = java.io.File(ctx.filesDir, "yt_dlp_updated/yt_dlp/version.py")
             if (updatedVerFile.exists()) {
@@ -52,6 +51,7 @@ object YtDlpResolver {
                 val match = Regex("""__version__\s*=\s*'([^']+)'""").find(text)
                 if (match != null) return@withContext match.groupValues[1]
             }
+            ensureInitialized(ctx)
             val request = YtDlpRequest("https://www.youtube.com")
             request.addOption("--version")
             val response = processSemaphore.withPermit {
@@ -62,13 +62,13 @@ object YtDlpResolver {
             if (versionMatch != null) {
                 versionMatch.value
             } else if (output.isNotBlank()) {
-                output.lines().firstOrNull { it.isNotBlank() } ?: "2024.12.13 (AAR-bundled)"
+                output.lines().firstOrNull { it.isNotBlank() } ?: "2024.12.13"
             } else {
-                "2024.12.13 (AAR-bundled)"
+                "2024.12.13"
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Failed to retrieve yt-dlp engine version: ${e.message}")
-            "2024.12.13 (AAR-bundled)"
+            Log.w(TAG, "Notice retrieving yt-dlp engine version: ${e.message}")
+            "2024.12.13"
         }
     }
 
@@ -82,6 +82,8 @@ object YtDlpResolver {
             u.startsWith("md") ||
             u.contains("b23.tv") ||
             u.startsWith("dailymotion:") ||
+            u.startsWith("tubitv:") ||
+            u.startsWith("tubi:") ||
             u.startsWith("amazonminitv:") ||
             u.startsWith("minitv:") ||
             u.startsWith("cam4:") ||
@@ -175,6 +177,7 @@ object YtDlpResolver {
             "curiositystream.com",
             "v.qq.com", "video.qq.com", "qq.com",
             "tiktok.com",
+            "tubitv.com", "tubi.tv",
             "twitch.tv",
             "soundcloud.com"
         )
@@ -325,6 +328,16 @@ object YtDlpResolver {
                 targetUrl.startsWith("curiositystream:series:", ignoreCase = true) -> "https://curiositystream.com/series/${targetUrl.substringAfter("curiositystream:series:")}"
                 targetUrl.startsWith("curiositystream:", ignoreCase = true) -> "https://curiositystream.com/video/${targetUrl.substringAfter("curiositystream:")}"
                 targetUrl.startsWith("curiosity:", ignoreCase = true) -> "https://curiositystream.com/video/${targetUrl.substringAfter("curiosity:")}"
+                targetUrl.startsWith("tubitv:series:", ignoreCase = true) -> "https://tubitv.com/series/${targetUrl.substringAfter("tubitv:series:").trim('/')}"
+                targetUrl.startsWith("tubitv:movies:", ignoreCase = true) -> "https://tubitv.com/movies/${targetUrl.substringAfter("tubitv:movies:").trim('/')}"
+                targetUrl.startsWith("tubitv:", ignoreCase = true) -> {
+                    val sub = targetUrl.substringAfter("tubitv:").trim('/')
+                    if (sub.startsWith("http")) sub else if (sub.contains("series")) "https://tubitv.com/series/${sub.substringAfter("series/")}" else "https://tubitv.com/movies/$sub"
+                }
+                targetUrl.startsWith("tubi:", ignoreCase = true) -> {
+                    val sub = targetUrl.substringAfter("tubi:").trim('/')
+                    if (sub.startsWith("http")) sub else "https://tubitv.com/movies/$sub"
+                }
                 targetUrl.startsWith("youtube:playlist:", ignoreCase = true) -> {
                     val plId = targetUrl.substringAfter("youtube:playlist:").trim()
                     if (plId.startsWith("http")) plId else "https://www.youtube.com/playlist?list=$plId"
@@ -604,6 +617,17 @@ object YtDlpResolver {
                     request.addOption("--add-header", "Origin: https://www.amazon.in")
                     domainHeaders["Referer"] = "https://www.amazon.in/minitv"
                     domainHeaders["Origin"] = "https://www.amazon.in"
+                }
+                lowerUrl.contains("tubitv.com") || lowerUrl.contains("tubi.tv") || lowerUrl.startsWith("tubitv:") || lowerUrl.startsWith("tubi:") -> {
+                    request.addOption("--geo-bypass")
+                    request.addOption("--geo-bypass-country", "US")
+                    request.addOption("--add-header", "X-Forwarded-For: 208.80.154.224")
+                    request.addOption("--add-header", "Referer: https://tubitv.com/")
+                    request.addOption("--add-header", "Origin: https://tubitv.com")
+                    request.addOption("--extractor-args", "tubitv:platform=amazon")
+                    domainHeaders["X-Forwarded-For"] = "208.80.154.224"
+                    domainHeaders["Referer"] = "https://tubitv.com/"
+                    domainHeaders["Origin"] = "https://tubitv.com"
                 }
                 lowerUrl.contains("discoveryplus") -> {
                     request.addOption("--add-header", "Referer: https://www.discoveryplus.in/")
