@@ -286,22 +286,24 @@ fun UnifiedContentSourcesScreen(
     }
 
     // 7. Torrent & Indexer Providers
-    val torrentItems = remember {
+    val torrentItems = remember(enabledProviderIds) {
         listOf(
-            UnifiedSourceItem("prowlarr_v11", "Prowlarr V11 Engine", SourcePillCategory.TORRENT, "Automated YAML indexer proxy, dynamic tracker health testing & sync", true, qualityTag = "YAML Indexer", icon = Icons.Outlined.Radar),
-            UnifiedSourceItem("torrentio", "Torrentio Debrid & P2P", SourcePillCategory.TORRENT, "Multi-tracker torrent aggregator with Real-Debrid & AllDebrid support", true, qualityTag = "P2P / Debrid", icon = Icons.Outlined.Download),
-            UnifiedSourceItem("1337x", "1337x Movies & Series", SourcePillCategory.TORRENT, "Verified community torrent releases with seeds and high health", true, qualityTag = "4K / 1080p Torrent", icon = Icons.Outlined.Hub),
-            UnifiedSourceItem("yts", "YTS / YIFY Movies", SourcePillCategory.TORRENT, "Small file size 720p, 1080p and 4K movie encodes", true, qualityTag = "1080p/4K YIFY", icon = Icons.Outlined.Movie),
-            UnifiedSourceItem("torrentgalaxy", "TorrentGalaxy", SourcePillCategory.TORRENT, "High-speed torrent releases with metadata, posters & previews", true, qualityTag = "Direct Magnet", icon = Icons.Outlined.CloudDownload)
+            UnifiedSourceItem("torrent", "Torrent Master Streamer", SourcePillCategory.TORRENT, "Native BitTorrent streaming client with seed caching & high-speed P2P engine", enabledProviderIds.contains("torrent"), qualityTag = "P2P Stream", icon = Icons.Outlined.Download),
+            UnifiedSourceItem("prowlarr_v11", "Prowlarr V11 Engine", SourcePillCategory.TORRENT, "Automated YAML indexer proxy, dynamic tracker health testing & sync", enabledProviderIds.contains("prowlarr_v11"), qualityTag = "YAML Indexer", icon = Icons.Outlined.Radar),
+            UnifiedSourceItem("torrentio", "Torrentio Debrid & P2P", SourcePillCategory.TORRENT, "Multi-tracker torrent aggregator with Real-Debrid & AllDebrid support", enabledProviderIds.contains("torrentio"), qualityTag = "P2P / Debrid", icon = Icons.Outlined.Download),
+            UnifiedSourceItem("1337x", "1337x Movies & Series", SourcePillCategory.TORRENT, "Verified community torrent releases with seeds and high health", enabledProviderIds.contains("1337x"), qualityTag = "4K / 1080p Torrent", icon = Icons.Outlined.Hub),
+            UnifiedSourceItem("yts", "YTS / YIFY Movies", SourcePillCategory.TORRENT, "Small file size 720p, 1080p and 4K movie encodes", enabledProviderIds.contains("yts"), qualityTag = "1080p/4K YIFY", icon = Icons.Outlined.Movie),
+            UnifiedSourceItem("torrentgalaxy", "TorrentGalaxy", SourcePillCategory.TORRENT, "High-speed torrent releases with metadata, posters & previews", enabledProviderIds.contains("torrentgalaxy"), qualityTag = "Direct Magnet", icon = Icons.Outlined.CloudDownload)
         )
     }
 
     // 8. Cloud & Bunkr Providers
-    val cloudItems = remember {
+    val cloudItems = remember(enabledProviderIds) {
         listOf(
-            UnifiedSourceItem("telegram", "Telegram Cloud Channels", SourcePillCategory.CLOUD, "Direct streaming from connected public channels & saved files", true, qualityTag = "Cloud Stream", icon = Icons.Outlined.Send),
-            UnifiedSourceItem("mega", "MEGA Cloud Storage", SourcePillCategory.CLOUD, "Stream videos directly from shared mega.nz folders & files", true, qualityTag = "Direct Cloud", icon = Icons.Outlined.Cloud),
-            UnifiedSourceItem("bunkr", "Bunkr Albums & Direct CDN", SourcePillCategory.CLOUD, "Auto-extract high bitrate videos from bunkr.cr / bunkr.ac / bunkr.ws albums", true, qualityTag = "Bunkr Direct", icon = Icons.Outlined.CloudDownload)
+            UnifiedSourceItem("bun-tel-meg", "Telegram & Cloud Folders", SourcePillCategory.CLOUD, "Telegram channels, MEGA folders & Bunkr albums direct links", enabledProviderIds.contains("bun-tel-meg") || enabledProviderIds.contains("bunkr"), qualityTag = "Cloud Links", icon = Icons.Outlined.FolderZip),
+            UnifiedSourceItem("telegram", "Telegram Cloud Channels", SourcePillCategory.CLOUD, "Direct streaming from connected public channels & saved files", enabledProviderIds.contains("telegram"), qualityTag = "Cloud Stream", icon = Icons.Outlined.Send),
+            UnifiedSourceItem("mega", "MEGA Cloud Storage", SourcePillCategory.CLOUD, "Stream videos directly from shared mega.nz folders & files", enabledProviderIds.contains("mega"), qualityTag = "Direct Cloud", icon = Icons.Outlined.Cloud),
+            UnifiedSourceItem("bunkr", "Bunkr Albums & Direct CDN", SourcePillCategory.CLOUD, "Auto-extract high bitrate videos from bunkr.cr / bunkr.ac / bunkr.ws albums", enabledProviderIds.contains("bunkr"), qualityTag = "Bunkr Direct", icon = Icons.Outlined.CloudDownload)
         )
     }
 

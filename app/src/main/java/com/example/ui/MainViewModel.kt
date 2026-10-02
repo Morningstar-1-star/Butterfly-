@@ -243,10 +243,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         "youtube", "tencent", "dailymotion", "bilibili", "archive",
         "crunchyroll", "sonyliv", "twitch", "bigo", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
         "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-        "decryptor", "tmdb_embed", "vidsrc"
+        "decryptor", "tmdb_embed", "vidsrc", "torrent", "prowlarr_v11", "torrentio", "1337x", "yts", "torrentgalaxy",
+        "telegram", "mega", "bunkr"
     )
     val defaultDisabledProviderIds = setOf(
-        "twitch", "bigo", "bun-tel-meg", "googledrive", "imdb"
+        "twitch", "bigo", "googledrive", "imdb"
     )
     val defaultEnabledNormalIdsList = normalIdsList.filterNot { it in defaultDisabledProviderIds }
 
@@ -306,7 +307,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val currentSet = _enabledProviderIds.value.toMutableSet()
         val idsToToggle = when (providerId) {
             "archive_org", "archive" -> listOf("archive_org", "archive")
-            "bun-tel-meg", "bunkr" -> listOf("bun-tel-meg", "bunkr")
             else -> listOf(providerId)
         }
 
@@ -1596,7 +1596,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             com.example.recommendation.UserActivityMemory.recordWatchActivity(enriched, savedFraction, savedPos, 0L, getApplication())
             updateRecommendedVideosAsync()
-            repersonalizeHomeFeed()
         }
     }
 

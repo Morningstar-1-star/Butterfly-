@@ -125,23 +125,32 @@ fun HomeScreen(
 
     val currentFeedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
 
-    var isSourceSwitching by remember(activeProviderId, activeCategory) { mutableStateOf(true) }
+    var isSourceSwitching by remember(activeProviderId, activeCategory) { mutableStateOf(currentFeedList.isEmpty()) }
 
     LaunchedEffect(activeProviderId, activeCategory, currentFeedList, isLoadingTrending, isSearching, isFeedRefreshing) {
         if (currentFeedList.isNotEmpty()) {
             isSourceSwitching = false
         } else if (!isLoadingTrending && !isSearching && !isFeedRefreshing) {
-            kotlinx.coroutines.delay(1200L)
+            kotlinx.coroutines.delay(600L)
             if (currentFeedList.isEmpty() && !isLoadingTrending && !isSearching && !isFeedRefreshing) {
                 isSourceSwitching = false
             }
         }
     }
 
+    // When pull-to-refresh or category switch completes, anchor list cleanly at top so user scrolls DOWN
+    LaunchedEffect(isFeedRefreshing) {
+        if (!isFeedRefreshing && currentFeedList.isNotEmpty()) {
+            try {
+                feedListState.scrollToItem(0, 0)
+            } catch (_: Exception) {}
+        }
+    }
+
     LaunchedEffect(activeProviderId, activeCategory) {
         if (feedListState.firstVisibleItemIndex > 0 || feedListState.firstVisibleItemScrollOffset > 0) {
             try {
-                feedListState.scrollToItem(0)
+                feedListState.scrollToItem(0, 0)
             } catch (_: Exception) {}
         }
     }

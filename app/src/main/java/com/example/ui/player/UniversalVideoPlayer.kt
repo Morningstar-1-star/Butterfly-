@@ -807,8 +807,7 @@ fun UniversalVideoPlayer(
                         headers = currentOption?.headers ?: mapOf(
                             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                             "Referer" to "https://tubitv.com/",
-                            "Origin" to "https://tubitv.com",
-                            "X-Forwarded-For" to "208.80.154.224"
+                            "Origin" to "https://tubitv.com"
                         )
                     )
                 }

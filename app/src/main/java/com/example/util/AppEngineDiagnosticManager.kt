@@ -577,8 +577,10 @@ object AppEngineDiagnosticManager {
                 _overallDiagnosticSummary.value = "Checking latest releases for ${_repoList.value.size} repos & testing health..."
 
                 // 1. Update yt-dlp version check first
-                val currentYtDlpVer = YtDlpUpdateManager.refreshVersion(context)
-                updateRepoInstalledVersion("yt-dlp", "v$currentYtDlpVer")
+                YtDlpUpdateManager.refreshVersion(context)
+                val cleanYtVer = YtDlpUpdateManager.engineVersion.value ?: "2024.12.13"
+                val formattedYt = if (cleanYtVer.startsWith("v") || cleanYtVer.startsWith("V")) cleanYtVer else "v$cleanYtVer"
+                updateRepoInstalledVersion("yt-dlp", formattedYt)
 
                 // 2. Concurrently check GitHub API releases for all repos and await completion
                 val currentRepos = _repoList.value

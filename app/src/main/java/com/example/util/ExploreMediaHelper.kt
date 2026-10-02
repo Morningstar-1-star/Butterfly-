@@ -140,162 +140,188 @@ object ExploreMediaHelper {
     /**
      * Real JAV Explore feed using Javinizer-Go (with multi-source scrapers configured).
      */
-    private suspend fun fetchJavExploreFeed(): List<ExploreSection> = supervisorScope {
-        val latestDeferred = async {
-            val fromJavinizer = try { javinizerProvider.fetchLatestReleases(1, 20) } catch (_: Exception) { emptyList() }
-            if (fromJavinizer.isNotEmpty()) {
-                fromJavinizer.map { mapJavToExploreMediaItem(it) }
-            } else {
-                fetchFallbackJavCodes(listOf("SSIS-834", "IPX-912", "MIDV-240", "MIDE-998", "STARS-888", "PRED-450", "JUL-980", "DASS-320", "ADN-450", "CAWD-550"))
+    private suspend fun fetchJavExploreFeed(): List<ExploreSection> = withContext(Dispatchers.IO) {
+        val cached = cache["jav_explore_sections"]
+        if (!cached.isNullOrEmpty()) {
+            return@withContext listOf(
+                ExploreSection("🔥 Latest JAV Releases", "Fresh Japanese & Asian adult titles • JAV HD", "movie", cached.take(20)),
+                ExploreSection("⭐ Popular & Trending JAV", "Top rated masterpieces & community favorites", "award", getCuratedJavPopular()),
+                ExploreSection("✨ Featured Actresses & Idols", "Top adult performers & idol records", "fire", getCuratedActresses()),
+                ExploreSection("👑 Uncensored & High-Class", "Caribbeancom, 1Pondo, Heyzo & Premium Studios", "trending", getCuratedUncensored()),
+                ExploreSection("🎨 Hentai & Animated 18+", "Adult anime, OVA & doujin hits", "anime", getCuratedHentai())
+            )
+        }
+        supervisorScope {
+            val latestDeferred = async {
+                val fromJavinizer = try {
+                    kotlinx.coroutines.withTimeoutOrNull(1500L) { javinizerProvider.fetchLatestReleases(1, 20) }
+                } catch (_: Exception) { null } ?: emptyList()
+                if (fromJavinizer.isNotEmpty()) {
+                    fromJavinizer.map { mapJavToExploreMediaItem(it) }
+                } else {
+                    getCuratedJavReleases()
+                }
             }
-        }
 
-        val popularDeferred = async {
-            val fromJavinizer = try { javinizerProvider.fetchPopular(1, 20) } catch (_: Exception) { emptyList() }
-            if (fromJavinizer.isNotEmpty()) {
-                fromJavinizer.map { mapJavToExploreMediaItem(it) }
-            } else {
-                fetchFallbackJavCodes(listOf("SSIS-001", "IPX-001", "SNIS-999", "MIDE-001", "STARS-001", "PRED-001", "JUL-001", "DASS-001", "ADN-001", "CAWD-001"))
+            val popularDeferred = async {
+                val fromJavinizer = try {
+                    kotlinx.coroutines.withTimeoutOrNull(1500L) { javinizerProvider.fetchPopular(1, 20) }
+                } catch (_: Exception) { null } ?: emptyList()
+                if (fromJavinizer.isNotEmpty()) {
+                    fromJavinizer.map { mapJavToExploreMediaItem(it) }
+                } else {
+                    getCuratedJavPopular()
+                }
             }
-        }
 
-        val actressesDeferred = async {
-            val list = try { javinizerProvider.fetchActresses(1, 25) } catch (_: Exception) { emptyList() }
-            if (list.isNotEmpty()) {
-                list.map { mapActressToExploreMediaItem(it) }
-            } else {
-                getCuratedActresses()
+            val actressesDeferred = async {
+                val list = try {
+                    kotlinx.coroutines.withTimeoutOrNull(1500L) { javinizerProvider.fetchActresses(1, 25) }
+                } catch (_: Exception) { null } ?: emptyList()
+                if (list.isNotEmpty()) {
+                    list.map { mapActressToExploreMediaItem(it) }
+                } else {
+                    getCuratedActresses()
+                }
             }
-        }
 
-        val uncensoredDeferred = async {
-            val list = try { javinizerProvider.searchByCategory("tag", "Uncensored", 1, 15) } catch (_: Exception) { emptyList() }
-            if (list.isNotEmpty()) {
-                list.map { mapJavToExploreMediaItem(it, ExploreMediaType.UNCENSORED) }
-            } else {
-                fetchFallbackJavCodes(listOf("FC2-PPV-3500000", "1pondo-120124_001", "caribbeancom-120124-001", "HEYZO-3000", "pacopacomama-120124_001"), ExploreMediaType.UNCENSORED)
+            val uncensoredDeferred = async {
+                val list = try {
+                    kotlinx.coroutines.withTimeoutOrNull(1500L) { javinizerProvider.searchByCategory("tag", "Uncensored", 1, 15) }
+                } catch (_: Exception) { null } ?: emptyList()
+                if (list.isNotEmpty()) {
+                    list.map { mapJavToExploreMediaItem(it, ExploreMediaType.UNCENSORED) }
+                } else {
+                    getCuratedUncensored()
+                }
             }
-        }
 
-        val hentaiDeferred = async {
-            val list = try { javinizerProvider.searchByCategory("genre", "Hentai", 1, 15) } catch (_: Exception) { emptyList() }
-            if (list.isNotEmpty()) {
-                list.map { mapJavToExploreMediaItem(it, ExploreMediaType.HENTAI) }
-            } else {
-                fetchFallbackJavCodes(listOf("HENTAI-001", "OVA-9001", "ANIM-001", "DOJIN-001"), ExploreMediaType.HENTAI)
+            val hentaiDeferred = async {
+                val list = try {
+                    kotlinx.coroutines.withTimeoutOrNull(1500L) { javinizerProvider.searchByCategory("genre", "Hentai", 1, 15) }
+                } catch (_: Exception) { null } ?: emptyList()
+                if (list.isNotEmpty()) {
+                    list.map { mapJavToExploreMediaItem(it, ExploreMediaType.HENTAI) }
+                } else {
+                    getCuratedHentai()
+                }
             }
-        }
 
-        val studiosDeferred = async {
-            val studios = try { javinizerProvider.fetchStudios() } catch (_: Exception) { emptyList() }
-            val topStudios = studios.ifEmpty { listOf("S1 NO.1 STYLE", "MOODYZ", "SOD CREATE", "IDEA POCKET", "ATTACKERS", "PRESTIGE", "FALENO STAR", "WANZ FACTORY") }
-            topStudios.take(8).map { studioName ->
-                ExploreMediaItem(
-                    id = "studio_${studioName.lowercase().replace(" ", "_")}",
-                    title = studioName,
-                    mediaType = ExploreMediaType.JAV,
-                    source = ExploreSource.JAVINIZER,
-                    posterUrl = "https://pics.dmm.co.jp/mono/movie/adult/ssis00834/ssis00834pl.jpg",
-                    backdropUrl = "https://pics.dmm.co.jp/mono/movie/adult/ssis00834/ssis00834pl.jpg",
-                    rating = 9.2,
-                    ratingSource = "Javinizer-Go",
-                    releaseYear = "Studio",
-                    genres = listOf("Maker", "Studio", "Official Label"),
-                    overview = "Explore top rated titles, premier actresses and award-winning releases from $studioName.",
-                    studio = studioName,
-                    tagline = "STUDIO"
+            val studiosDeferred = async {
+                val studios = try {
+                    kotlinx.coroutines.withTimeoutOrNull(1500L) { javinizerProvider.fetchStudios() }
+                } catch (_: Exception) { null } ?: emptyList()
+                val topStudios = studios.ifEmpty { listOf("S1 NO.1 STYLE", "MOODYZ", "SOD CREATE", "IDEA POCKET", "ATTACKERS", "PRESTIGE", "FALENO STAR", "WANZ FACTORY") }
+                topStudios.take(8).map { studioName ->
+                    ExploreMediaItem(
+                        id = "studio_${studioName.lowercase().replace(" ", "_")}",
+                        title = studioName,
+                        mediaType = ExploreMediaType.JAV,
+                        source = ExploreSource.JAVINIZER,
+                        posterUrl = "https://pics.dmm.co.jp/mono/movie/adult/ssis00834/ssis00834pl.jpg",
+                        backdropUrl = "https://pics.dmm.co.jp/mono/movie/adult/ssis00834/ssis00834pl.jpg",
+                        rating = 9.2,
+                        ratingSource = "Javinizer-Go",
+                        releaseYear = "Studio",
+                        genres = listOf("Maker", "Studio", "Official Label"),
+                        overview = "Explore top rated titles, premier actresses and award-winning releases from $studioName.",
+                        studio = studioName,
+                        tagline = "STUDIO"
+                    )
+                }
+            }
+
+            val latest = try { latestDeferred.await().ifEmpty { getCuratedJavReleases() } } catch (_: Exception) { getCuratedJavReleases() }
+            val popular = try { popularDeferred.await().ifEmpty { getCuratedJavPopular() } } catch (_: Exception) { getCuratedJavPopular() }
+            val actresses = try { actressesDeferred.await().ifEmpty { getCuratedActresses() } } catch (_: Exception) { getCuratedActresses() }
+            val uncensored = try { uncensoredDeferred.await().ifEmpty { getCuratedUncensored() } } catch (_: Exception) { getCuratedUncensored() }
+            val hentai = try { hentaiDeferred.await().ifEmpty { getCuratedHentai() } } catch (_: Exception) { getCuratedHentai() }
+            val studios = try { studiosDeferred.await() } catch (_: Exception) { emptyList() }
+
+            cache["jav_explore_sections"] = latest
+
+            val sections = mutableListOf<ExploreSection>()
+
+            if (latest.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "🔥 Latest JAV Releases",
+                        subtitle = "Fresh Japanese & Asian adult titles • Javinizer Multi-Source",
+                        iconName = "movie",
+                        items = latest
+                    )
                 )
             }
-        }
 
-        val latest = try { latestDeferred.await().ifEmpty { getCuratedJavReleases() } } catch (_: Exception) { getCuratedJavReleases() }
-        val popular = try { popularDeferred.await().ifEmpty { getCuratedJavPopular() } } catch (_: Exception) { getCuratedJavPopular() }
-        val actresses = try { actressesDeferred.await().ifEmpty { getCuratedActresses() } } catch (_: Exception) { getCuratedActresses() }
-        val uncensored = try { uncensoredDeferred.await().ifEmpty { getCuratedUncensored() } } catch (_: Exception) { getCuratedUncensored() }
-        val hentai = try { hentaiDeferred.await().ifEmpty { getCuratedHentai() } } catch (_: Exception) { getCuratedHentai() }
-        val studios = try { studiosDeferred.await() } catch (_: Exception) { emptyList() }
-
-        val sections = mutableListOf<ExploreSection>()
-
-        if (latest.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "🔥 Latest JAV Releases",
-                    subtitle = "Fresh Japanese & Asian adult titles • Javinizer Multi-Source",
-                    iconName = "movie",
-                    items = latest
+            if (popular.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "⭐ Popular & Trending JAV",
+                        subtitle = "Top rated masterpieces & community favorites",
+                        iconName = "award",
+                        items = popular
+                    )
                 )
-            )
-        }
+            }
 
-        if (popular.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "⭐ Popular & Trending JAV",
-                    subtitle = "Top rated masterpieces & community favorites",
-                    iconName = "award",
-                    items = popular
+            val trailerItems = (latest + popular).distinctBy { it.id }.filter { it.clipsAndTrailers.isNotEmpty() }
+            if (trailerItems.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "🎬 Official Trailers & Video Previews",
+                        subtitle = "Instant sample playback, trailers & preview clips • JAV HD",
+                        iconName = "movie",
+                        items = trailerItems
+                    )
                 )
-            )
-        }
+            }
 
-        val trailerItems = (latest + popular).distinctBy { it.id }.filter { it.clipsAndTrailers.isNotEmpty() }
-        if (trailerItems.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "🎬 Official Trailers & Video Previews",
-                    subtitle = "Instant sample playback, trailers & preview clips • JAV HD",
-                    iconName = "movie",
-                    items = trailerItems
+            if (actresses.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "✨ Featured Actresses & Idols",
+                        subtitle = "Top adult performers, debut stars & biographical records",
+                        iconName = "fire",
+                        items = actresses
+                    )
                 )
-            )
-        }
+            }
 
-        if (actresses.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "✨ Featured Actresses & Idols",
-                    subtitle = "Top adult performers, debut stars & biographical records",
-                    iconName = "fire",
-                    items = actresses
+            if (uncensored.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "👑 Uncensored & High-Class",
+                        subtitle = "Caribbeancom, 1Pondo, Heyzo & Premium Studios",
+                        iconName = "trending",
+                        items = uncensored
+                    )
                 )
-            )
-        }
+            }
 
-        if (uncensored.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "👑 Uncensored & High-Class",
-                    subtitle = "Caribbeancom, 1Pondo, Heyzo & Premium Studios",
-                    iconName = "trending",
-                    items = uncensored
+            if (hentai.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "🎨 Hentai & Animated 18+",
+                        subtitle = "Adult anime, OVA & doujin hits",
+                        iconName = "anime",
+                        items = hentai
+                    )
                 )
-            )
-        }
+            }
 
-        if (hentai.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "🎨 Hentai & Animated 18+",
-                    subtitle = "Adult anime, OVA & doujin hits",
-                    iconName = "anime",
-                    items = hentai
+            if (studios.isNotEmpty()) {
+                sections.add(
+                    ExploreSection(
+                        title = "🏢 Top Studios & Makers",
+                        subtitle = "S1, SOD, Moodyz, IdeaPocket, Attackers, Prestige",
+                        iconName = "magic",
+                        items = studios
+                    )
                 )
-            )
-        }
+            }
 
-        if (studios.isNotEmpty()) {
-            sections.add(
-                ExploreSection(
-                    title = "🏢 Top Studios & Makers",
-                    subtitle = "S1, SOD, Moodyz, IdeaPocket, Attackers, Prestige",
-                    iconName = "magic",
-                    items = studios
-                )
-            )
+            sections
         }
-
-        sections
     }
 
     fun getInstantInitialFeed(isAdult: Boolean = false): List<ExploreSection> {

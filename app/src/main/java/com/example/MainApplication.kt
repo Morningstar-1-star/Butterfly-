@@ -221,6 +221,23 @@ class MainApplication : Application() {
                         requestBuilder.header("Referer", "https://supjav.mom/")
                         requestBuilder.header("Origin", "https://supjav.mom")
                     }
+                    urlStr.contains("dmm.co.jp") || urlStr.contains("pics.dmm") || urlStr.contains("dmm.com") || urlStr.contains("fanza") -> {
+                        requestBuilder.header("Referer", "https://www.dmm.co.jp/")
+                        requestBuilder.header("Origin", "https://www.dmm.co.jp")
+                        requestBuilder.header("Cookie", "age_check_done=1; ckcy=1; ckie=1; platform=pc")
+                    }
+                    urlStr.contains("r18.com") -> {
+                        requestBuilder.header("Referer", "https://www.r18.com/")
+                        requestBuilder.header("Cookie", "age_check_done=1")
+                    }
+                    urlStr.contains("javlibrary") || urlStr.contains("javbus") || urlStr.contains("javdb") || urlStr.contains("apijav") || urlStr.contains("missav") || urlStr.contains("jable") -> {
+                        requestBuilder.header("Referer", "https://www.javlibrary.com/")
+                        requestBuilder.header("Cookie", "over18=1")
+                    }
+                    urlStr.contains("tubitv") || urlStr.contains("tubi.tv") || urlStr.contains("canvas-tubitv") || urlStr.contains("canvas-lb.tubitv") || urlStr.contains("tubitv.com") -> {
+                        requestBuilder.header("Referer", "https://tubitv.com/")
+                        requestBuilder.header("Origin", "https://tubitv.com")
+                    }
                 }
 
                 chain.proceed(requestBuilder.build())

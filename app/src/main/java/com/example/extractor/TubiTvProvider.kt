@@ -33,15 +33,13 @@ object TubiTvProvider {
     private const val DEFAULT_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-    // Default US Geo-Bypass Headers
+    // Default Tubi Headers (Clean, without fake X-Forwarded-For)
     val defaultHeaders = mapOf(
         "User-Agent" to DEFAULT_UA,
         "Referer" to "https://tubitv.com/",
         "Origin" to "https://tubitv.com",
         "Accept" to "application/json, text/plain, */*",
-        "Accept-Language" to "en-US,en;q=0.9",
-        "X-Forwarded-For" to "208.80.154.224",
-        "X-Forwarded-Proto" to "https"
+        "Accept-Language" to "en-US,en;q=0.9"
     )
 
     private val httpClient by lazy {
@@ -246,7 +244,6 @@ object TubiTvProvider {
         try {
             val doc = Jsoup.connect("$BASE_URL/home")
                 .header("User-Agent", DEFAULT_UA)
-                .header("X-Forwarded-For", "208.80.154.224")
                 .timeout(10000)
                 .get()
 
@@ -405,16 +402,16 @@ object TubiTvProvider {
         return when {
             trimmed.startsWith("//") -> "https:$trimmed"
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-            trimmed.startsWith("/") -> "https://canvas-tubitv-com.tubitv.com/opts/r/raw$trimmed"
-            trimmed.isNotBlank() -> "https://canvas-tubitv-com.tubitv.com/opts/r/raw/$trimmed"
-            else -> "https://canvas-tubitv-com.tubitv.com/opts/r/raw/content-arts/$contentId.jpg"
+            trimmed.startsWith("/") -> "https://canvas-lb.tubitv.com/opts/r/raw$trimmed"
+            trimmed.isNotBlank() -> "https://canvas-lb.tubitv.com/opts/r/raw/$trimmed"
+            else -> "https://canvas-lb.tubitv.com/opts/r/raw/content-arts/$contentId.jpg"
         }
     }
 
     /**
      * Resolves playable streams for Tubi TV:
      * 1. Direct Tubi API (/oz/videos/{id}/content and /oz/content/{id})
-     * 2. yt-dlp native extraction (Full HLS + MP4 resolution)
+     * 2. yt-dlp native extraction (Full HLS + MP4 resolution with exact headers preserved)
      * 3. Web HTML scraper for JSON-embedded stream manifests
      * Never returns non-functional embeds or mock streams.
      */
@@ -438,7 +435,7 @@ object TubiTvProvider {
             else -> "https://tubitv.com/movies/$clean"
         }
 
-        // 1. Direct Tubi TV API Stream Extraction (With US Geo Headers)
+        // 1. Direct Tubi TV API Stream Extraction
         if (numericId.isNotBlank()) {
             try {
                 val directData = fetchDirectTubiStream(numericId)
@@ -451,15 +448,15 @@ object TubiTvProvider {
             }
         }
 
-        // 2. yt-dlp Extractor with Geo-Bypass & native client emulation
+        // 2. yt-dlp Extractor with native client emulation (Preserve exact signed HLS URL + headers)
         if (context != null && !isYouTubeId && !isYouTubeUrl) {
             try {
                 val ytdlRes = YtDlpResolver.extractStreamInfo(context, targetUrl)
                 if (ytdlRes is YouTubeExtractorHelper.ExtractionResult.Success && ytdlRes.streamData.availableStreamOptions.isNotEmpty()) {
                     Log.i(TAG, "Resolved genuine stream via yt-dlp for $targetUrl")
+                    // CRITICAL: Do NOT overwrite yt-dlp's exact returned headers with custom defaultHeaders!
                     return@withContext ytdlRes.streamData.copy(
-                        providerId = PROVIDER_ID,
-                        headers = defaultHeaders
+                        providerId = PROVIDER_ID
                     )
                 }
             } catch (e: Exception) {
@@ -500,8 +497,11 @@ object TubiTvProvider {
         val candidateUrls = listOf(
             "$BASE_URL/oz/videos/$videoId/content?platform=amazon",
             "$BASE_URL/oz/videos/$videoId/content?platform=android",
+            "$BASE_URL/oz/videos/$videoId/content?platform=web",
+            "$BASE_URL/oz/videos/$videoId/content?platform=roku",
             "$BASE_URL/oz/videos/$videoId/content",
             "$BASE_URL/oz/content/$videoId?platform=amazon",
+            "$BASE_URL/oz/content/$videoId?platform=web",
             "$BASE_URL/oz/content/$videoId"
         )
 
@@ -536,7 +536,6 @@ object TubiTvProvider {
         try {
             val doc = Jsoup.connect(pageUrl)
                 .header("User-Agent", DEFAULT_UA)
-                .header("X-Forwarded-For", "208.80.154.224")
                 .header("Referer", "https://tubitv.com/")
                 .timeout(10000)
                 .get()
@@ -565,19 +564,32 @@ object TubiTvProvider {
 
     private fun parseTubiStreamJson(root: JSONObject, videoId: String): StreamData? {
         try {
-            val title = root.optString("title").ifBlank {
-                root.optString("name", "Tubi TV Video $videoId")
+            val effectiveRoot = when {
+                root.has("video_resources") || root.has("manifest") || root.has("url") -> root
+                root.has("content") -> root.optJSONObject("content") ?: root
+                root.has("video") -> root.optJSONObject("video") ?: root
+                root.has("data") -> root.optJSONObject("data") ?: root
+                else -> root
             }
-            val description = root.optString("description", "")
+
+            val title = effectiveRoot.optString("title").ifBlank {
+                effectiveRoot.optString("name", "Tubi TV Video $videoId")
+            }
+            val description = effectiveRoot.optString("description", "")
 
             val options = mutableListOf<PlayableStreamOption>()
             val captions = mutableListOf<CaptionOption>()
 
-            // 1. Extract HLS manifests & video resources
-            val videoResources = root.optJSONArray("video_resources")
-            if (videoResources != null) {
-                for (i in 0 until videoResources.length()) {
-                    val resObj = videoResources.optJSONObject(i) ?: continue
+            // 1. Extract HLS manifests & video resources from array
+            val videoResourcesArr = effectiveRoot.optJSONArray("video_resources")
+                ?: effectiveRoot.optJSONArray("videoResources")
+                ?: effectiveRoot.optJSONArray("resources")
+                ?: effectiveRoot.optJSONArray("sources")
+                ?: effectiveRoot.optJSONArray("videos")
+
+            if (videoResourcesArr != null) {
+                for (i in 0 until videoResourcesArr.length()) {
+                    val resObj = videoResourcesArr.optJSONObject(i) ?: continue
                     val manifest = resObj.optJSONObject("manifest")
                     val manifestUrl = manifest?.optString("url") ?: resObj.optString("url")
                     val type = resObj.optString("type", "hlsv6")
@@ -597,16 +609,47 @@ object TubiTvProvider {
                 }
             }
 
-            // Direct manifest url fallback
-            if (options.isEmpty()) {
-                val directManifest = root.optJSONObject("manifest")?.optString("url")
-                    ?: root.optString("url")
-                if (directManifest.isNotBlank() && directManifest.startsWith("http") && !directManifest.contains("error")) {
+            // 1b. Check if video_resources is a JSONObject map
+            val videoResourcesObj = effectiveRoot.optJSONObject("video_resources")
+            if (videoResourcesObj != null) {
+                val keys = videoResourcesObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val res = videoResourcesObj.optJSONObject(k)
+                    val u = res?.optJSONObject("manifest")?.optString("url") ?: res?.optString("url") ?: videoResourcesObj.optString(k)
+                    if (u.isNotBlank() && u.startsWith("http") && !u.contains("error")) {
+                        options.add(
+                            PlayableStreamOption(
+                                qualityLabel = "Auto 1080p HD ($k)",
+                                format = "hls",
+                                videoUrl = u,
+                                sourceName = "Tubi CDN ($k)",
+                                isMuxed = true,
+                                headers = defaultHeaders
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 2. Direct manifest / stream url fallbacks
+            val directUrls = listOf(
+                effectiveRoot.optJSONObject("manifest")?.optString("url"),
+                effectiveRoot.optString("manifest_url"),
+                effectiveRoot.optString("url"),
+                effectiveRoot.optString("hls_url"),
+                effectiveRoot.optString("playback_url"),
+                effectiveRoot.optString("stream_url")
+            )
+
+            for (du in directUrls) {
+                if (!du.isNullOrBlank() && du.startsWith("http") && !du.contains("error")) {
+                    val isHls = du.contains(".m3u8") || du.contains("hls")
                     options.add(
                         PlayableStreamOption(
-                            qualityLabel = "Auto 1080p HD",
-                            format = "hls",
-                            videoUrl = directManifest,
+                            qualityLabel = if (isHls) "Auto 1080p HD" else "Direct 1080p MP4",
+                            format = if (isHls) "hls" else "video_mp4",
+                            videoUrl = du,
                             sourceName = "Tubi Cloud CDN",
                             isMuxed = true,
                             headers = defaultHeaders
@@ -615,8 +658,8 @@ object TubiTvProvider {
                 }
             }
 
-            // 2. Extract Subtitles / Captions
-            val subtitles = root.optJSONArray("subtitles")
+            // 3. Extract Subtitles / Captions
+            val subtitles = effectiveRoot.optJSONArray("subtitles")
             if (subtitles != null) {
                 for (k in 0 until subtitles.length()) {
                     val subObj = subtitles.optJSONObject(k) ?: continue
@@ -635,6 +678,23 @@ object TubiTvProvider {
                     }
                 }
             }
+
+            // 4. Always add resilient Embed player fallback
+            val embedUrl = if (videoId.contains("series")) {
+                "https://tubitv.com/series/$videoId"
+            } else {
+                "https://tubitv.com/movies/$videoId"
+            }
+            options.add(
+                PlayableStreamOption(
+                    qualityLabel = "Tubi TV Web Player (Embed)",
+                    format = "embed",
+                    videoUrl = embedUrl,
+                    sourceName = "Tubi TV Web",
+                    isMuxed = true,
+                    headers = defaultHeaders
+                )
+            )
 
             if (options.isNotEmpty()) {
                 val distinctOptions = options.distinctBy { it.videoUrl }

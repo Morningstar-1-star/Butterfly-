@@ -945,7 +945,7 @@ object BilibiliProvider {
                     lower.contains("127.0.0.1") || lower.contains("localhost")
         }
 
-        // 1. First priority: search for verified official CDN mirrors (Tencent COS, Alibaba, Huawei, Akamai, Bcache) in backupArr
+        // If backup_url array has official signed mirror candidates, prefer official non-P2P mirror
         if (backupArr != null && backupArr.length() > 0) {
             val candidates = mutableListOf<String>()
             for (b in 0 until backupArr.length()) {
@@ -968,21 +968,7 @@ object BilibiliProvider {
             }
         }
 
-        // 2. Second priority: If cleanUrl is still P2P/MCDN/szbdyd, rewrite the host to official Tencent Cloud mirror
-        if (isP2pHost(cleanUrl)) {
-            try {
-                val uri = android.net.Uri.parse(cleanUrl)
-                val path = uri.path ?: ""
-                val query = uri.query
-                if (path.isNotBlank()) {
-                    val mirrorHost = "upos-sz-mirrorcos.bilivideo.com"
-                    cleanUrl = "https://$mirrorHost$path" + (if (!query.isNullOrBlank()) "?$query" else "")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error rewriting P2P Bilibili URL: ${e.message}")
-            }
-        }
-
+        // Preserve signed CDN URL byte-for-byte without breaking HMAC query signature
         return cleanUrl
     }
 

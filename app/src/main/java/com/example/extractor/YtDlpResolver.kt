@@ -621,11 +621,9 @@ object YtDlpResolver {
                 lowerUrl.contains("tubitv.com") || lowerUrl.contains("tubi.tv") || lowerUrl.startsWith("tubitv:") || lowerUrl.startsWith("tubi:") -> {
                     request.addOption("--geo-bypass")
                     request.addOption("--geo-bypass-country", "US")
-                    request.addOption("--add-header", "X-Forwarded-For: 208.80.154.224")
                     request.addOption("--add-header", "Referer: https://tubitv.com/")
                     request.addOption("--add-header", "Origin: https://tubitv.com")
                     request.addOption("--extractor-args", "tubitv:platform=amazon")
-                    domainHeaders["X-Forwarded-For"] = "208.80.154.224"
                     domainHeaders["Referer"] = "https://tubitv.com/"
                     domainHeaders["Origin"] = "https://tubitv.com"
                 }
@@ -838,6 +836,58 @@ object YtDlpResolver {
                                 formatNote = note,
                                 protocol = protocol,
                                 httpHeaders = rawNoodleHeaders
+                            )
+                        )
+                        continue
+                    }
+
+                    val isTubi = lowerUrl.contains("tubitv") || lowerUrl.contains("tubi.tv") ||
+                            lowerUrl.startsWith("tubitv:") || lowerUrl.startsWith("tubi:") ||
+                            streamUrl.contains("tubitv.com") || streamUrl.contains("tubi.video")
+                    if (isTubi) {
+                        val rawTubiHeaders = mutableMapOf<String, String>()
+                        if (jsonFmtHeaders != null) {
+                            val hKeys = jsonFmtHeaders.keys()
+                            while (hKeys.hasNext()) {
+                                val hk = hKeys.next()
+                                val hv = jsonFmtHeaders.optString(hk, "")
+                                if (hk.isNotBlank() && hv.isNotBlank() && !hk.equals("X-Forwarded-For", ignoreCase = true)) {
+                                    rawTubiHeaders[hk] = hv
+                                }
+                            }
+                        } else if (jsonTopHeaders != null) {
+                            val hKeys = jsonTopHeaders.keys()
+                            while (hKeys.hasNext()) {
+                                val hk = hKeys.next()
+                                val hv = jsonTopHeaders.optString(hk, "")
+                                if (hk.isNotBlank() && hv.isNotBlank() && !hk.equals("X-Forwarded-For", ignoreCase = true)) {
+                                    rawTubiHeaders[hk] = hv
+                                }
+                            }
+                        }
+                        if (!rawTubiHeaders.containsKey("Referer") && !rawTubiHeaders.containsKey("referer")) {
+                            rawTubiHeaders["Referer"] = "https://tubitv.com/"
+                        }
+                        if (!rawTubiHeaders.containsKey("Origin") && !rawTubiHeaders.containsKey("origin")) {
+                            rawTubiHeaders["Origin"] = "https://tubitv.com"
+                        }
+                        parsedFormats.add(
+                            ParsedFormat(
+                                formatId = formatId,
+                                url = streamUrl,
+                                ext = ext,
+                                resolution = res,
+                                width = width,
+                                height = height,
+                                fps = fps,
+                                tbr = tbr,
+                                vbr = vbr,
+                                abr = abr,
+                                vcodec = vcodec,
+                                acodec = acodec,
+                                formatNote = note,
+                                protocol = protocol,
+                                httpHeaders = rawTubiHeaders
                             )
                         )
                         continue

@@ -63,12 +63,16 @@ object MediaHeaderHelper {
                     val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
                     builder.header("Referer", biliReferer)
                 }
-                val existingUaBili = request.header("User-Agent")
+                val existingUaBili = request.header("User-Agent") ?: request.header("user-agent")
                 if (existingUaBili.isNullOrBlank() || existingUaBili.startsWith("okhttp", ignoreCase = true)) {
                     builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 }
-                builder.header("Accept", "*/*")
-                builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
+                if (request.header("Accept").isNullOrBlank()) {
+                    builder.header("Accept", "*/*")
+                }
+                if (request.header("Accept-Language").isNullOrBlank()) {
+                    builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
+                }
                 builder.removeHeader("Sec-Fetch-Mode")
                 builder.removeHeader("Sec-Fetch-Site")
                 builder.removeHeader("Origin")
@@ -563,10 +567,18 @@ object MediaHeaderHelper {
                     urlStr.contains("akamaized") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") ||
                     urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam")
 
-            val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-            builder.header("Referer", biliReferer)
-            builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            builder.header("Accept", "*/*")
+            val existingRef = request.header("Referer") ?: request.header("referer")
+            if (existingRef.isNullOrBlank()) {
+                val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
+                builder.header("Referer", biliReferer)
+            }
+            val existingUa = request.header("User-Agent") ?: request.header("user-agent")
+            if (existingUa.isNullOrBlank() || existingUa.startsWith("okhttp", ignoreCase = true)) {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            }
+            if (request.header("Accept").isNullOrBlank()) {
+                builder.header("Accept", "*/*")
+            }
             builder.removeHeader("Origin")
             builder.removeHeader("origin")
             builder.removeHeader("Sec-Fetch-Site")
@@ -576,9 +588,15 @@ object MediaHeaderHelper {
                 builder.removeHeader("cookie")
             }
         } else if (isDm) {
-            builder.header("Referer", "https://www.dailymotion.com/")
-            builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            builder.header("Accept", "*/*")
+            if (request.header("Referer").isNullOrBlank()) {
+                builder.header("Referer", "https://www.dailymotion.com/")
+            }
+            if (request.header("User-Agent").isNullOrBlank()) {
+                builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            }
+            if (request.header("Accept").isNullOrBlank()) {
+                builder.header("Accept", "*/*")
+            }
             builder.removeHeader("Origin")
             builder.removeHeader("origin")
             if (urlStr.contains("dmcdn.net")) {

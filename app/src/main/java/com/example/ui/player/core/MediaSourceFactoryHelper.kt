@@ -148,8 +148,8 @@ object MediaSourceFactoryHelper {
                 lowerTarget.contains("bstar") || lowerTarget.contains("biliintl") ||
                 streamData?.providerId == "bilibili"
         if (isBilibiliStream) {
-            // Bilibili CDN hotlink protection rules:
-            // Preserve format & streamData headers if available
+            // Bilibili CDN anti-hotlink authorization:
+            // Strictly hand off Referer, User-Agent, Accept headers without stripping or rewriting
             val biliCleanHeaders = mutableMapOf<String, String>()
             streamData?.headers?.forEach { (k, v) ->
                 if (!k.equals("Cookie", ignoreCase = true) && !k.equals("Origin", ignoreCase = true) && !k.equals("User-Agent", ignoreCase = true)) {
@@ -161,14 +161,24 @@ object MediaSourceFactoryHelper {
                     biliCleanHeaders[k] = v
                 }
             }
-            if (!biliCleanHeaders.containsKey("Referer") && !biliCleanHeaders.containsKey("referer")) {
-                biliCleanHeaders["Referer"] = if (lowerTarget.contains("live") || lowerTarget.contains("gotcha") || lowerTarget.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
-            }
-            biliCleanHeaders["Accept"] = "*/*"
-            biliCleanHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
 
-            val ua = specificHeaders["User-Agent"]
-                ?: streamData?.headers?.get("User-Agent")
+            val existingRef = specificHeaders.entries.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
+                ?: streamData?.headers?.entries?.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
+            val biliReferer = if (!existingRef.isNullOrBlank()) {
+                existingRef
+            } else {
+                if (lowerTarget.contains("live") || lowerTarget.contains("gotcha") || lowerTarget.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
+            }
+            biliCleanHeaders["Referer"] = biliReferer
+            if (!biliCleanHeaders.containsKey("Accept")) {
+                biliCleanHeaders["Accept"] = "*/*"
+            }
+            if (!biliCleanHeaders.containsKey("Accept-Language")) {
+                biliCleanHeaders["Accept-Language"] = "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
+            }
+
+            val ua = specificHeaders.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
+                ?: streamData?.headers?.entries?.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
                 ?: NetworkManager.DEFAULT_USER_AGENT
             return Pair(ua, biliCleanHeaders)
         }
@@ -261,9 +271,12 @@ object MediaSourceFactoryHelper {
                         reqHeaders["Origin"] = "https://www.hotstar.com"
                     }
                     (lowerTarget.contains("tubitv") || lowerTarget.contains("tubi.tv") || streamData?.providerId == "tubitv") -> {
-                        reqHeaders["Referer"] = "https://tubitv.com/"
-                        reqHeaders["Origin"] = "https://tubitv.com"
-                        reqHeaders["X-Forwarded-For"] = "208.80.154.224"
+                        if (!reqHeaders.containsKey("Referer") && !reqHeaders.containsKey("referer")) {
+                            reqHeaders["Referer"] = "https://tubitv.com/"
+                        }
+                        if (!reqHeaders.containsKey("Origin") && !reqHeaders.containsKey("origin")) {
+                            reqHeaders["Origin"] = "https://tubitv.com"
+                        }
                     }
                     (lowerTarget.contains("thisvid") || lowerTarget.contains("thisvid.com") || lowerTarget.contains("tvid") || streamData?.providerId == "thisvid") -> {
                         reqHeaders["Referer"] = "https://thisvid.com/"

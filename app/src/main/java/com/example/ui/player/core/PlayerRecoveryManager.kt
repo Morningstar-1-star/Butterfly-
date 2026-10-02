@@ -1,5 +1,6 @@
 package com.example.ui.player.core
 
+import android.util.Log
 import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.HttpDataSource
 import java.util.Collections
@@ -36,27 +37,43 @@ class PlayerRecoveryManager {
     fun diagnoseError(error: PlaybackException, activeProvider: String?): Pair<String, Int?> {
         val detailedError = StringBuilder()
         val errorCodeName = error.errorCodeName
-        val rootCause = error.cause
         var httpStatus: Int? = null
+        var httpMessage: String? = null
+        var failedDataSpecUri: String? = null
+        val causeList = mutableListOf<String>()
 
         var currentCause: Throwable? = error
         while (currentCause != null) {
+            val causeClassName = currentCause.javaClass.simpleName
+            val causeMsg = currentCause.message ?: ""
+            causeList.add("$causeClassName: $causeMsg")
+
             if (currentCause is HttpDataSource.InvalidResponseCodeException) {
                 httpStatus = currentCause.responseCode
-                break
+                httpMessage = currentCause.responseMessage
+                failedDataSpecUri = currentCause.dataSpec.uri.toString()
             }
             currentCause = currentCause.cause
         }
 
         when {
             httpStatus == 403 -> {
-                detailedError.append("[HTTP 403 Forbidden]: Stream token or hotlink expired for provider '$activeProvider'")
+                val host = failedDataSpecUri?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() } ?: ""
+                detailedError.append("[HTTP 403 Forbidden]: Stream authorization rejected")
+                if (host.isNotBlank()) detailedError.append(" on $host")
+                detailedError.append(" (Provider: '$activeProvider')")
+            }
+            httpStatus == 412 -> {
+                detailedError.append("[HTTP 412 Precondition Failed]: CDN anti-hotlink check failed for '$activeProvider'")
+            }
+            httpStatus == 416 -> {
+                detailedError.append("[HTTP 416 Range Not Satisfiable]: Requested byte range invalid on CDN")
             }
             httpStatus == 404 -> {
                 detailedError.append("[HTTP 404 Not Found]: Stream file not found on remote server")
             }
-            httpStatus != null && httpStatus >= 500 -> {
-                detailedError.append("[HTTP $httpStatus Server Error]: Remote upstream server failure")
+            httpStatus != null && httpStatus in 500..599 -> {
+                detailedError.append("[HTTP $httpStatus Server Error]: Remote server failure ($httpMessage)")
             }
             error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
             error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> {
@@ -66,19 +83,23 @@ class PlayerRecoveryManager {
             error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> {
                 detailedError.append("[NETWORK_TIMEOUT / $errorCodeName]: Connection timed out while streaming")
             }
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> {
+                detailedError.append("[PARSER_ERROR / $errorCodeName]: Media stream container format unsupported or malformed")
+            }
             else -> {
                 detailedError.append("[MEDIA3_ERROR / $errorCodeName]: ${error.message ?: "Playback failure"}")
             }
         }
 
-        if (rootCause != null && !detailedError.contains(rootCause.javaClass.simpleName)) {
-            detailedError.append("\nCause: [${rootCause.javaClass.simpleName}] ${rootCause.message}")
+        if (causeList.isNotEmpty()) {
+            detailedError.append("\nCause Chain:\n - ").append(causeList.joinToString("\n - "))
         }
-        if (httpStatus != null && !detailedError.contains("HTTP $httpStatus")) {
-            detailedError.append(" (HTTP Status $httpStatus)")
-        }
+
+        Log.e("PlaybackDiagnostics", "Playback Exception Surface: errorCode=${error.errorCode}($errorCodeName), httpStatus=$httpStatus, failedUri=$failedDataSpecUri\nDiagnostic: $detailedError")
 
         playbackFailedListener?.invoke(httpStatus)
         return Pair(detailedError.toString(), httpStatus)
     }
 }
+

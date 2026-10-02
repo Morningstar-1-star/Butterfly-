@@ -69,6 +69,11 @@ object MediaFlowProxyHelper {
             return false
         }
 
+        // Tubi signed HLS manifests & direct streams should go direct to Media3 without intermediate proxying
+        if (candidate.providerId == "tubitv" || url.contains("tubitv.com", ignoreCase = true) || url.contains("tubi.video", ignoreCase = true) || url.contains("tubi.tv", ignoreCase = true)) {
+            return false
+        }
+
         // If user configured to proxy all remote streams
         if (AppConfig.isMediaFlowProxyAllStreams()) {
             return true
