@@ -14,6 +14,8 @@ data class BrandLogoInfo(
 
 object ChannelLogoHelper {
 
+    private val brandInfoCache = java.util.concurrent.ConcurrentHashMap<String, BrandLogoInfo>(256)
+
     private val AVATAR_PALETTE = listOf(
         Pair(Color(0xFFE50914), Color.White), // Red
         Pair(Color(0xFF0078D4), Color.White), // Blue
@@ -41,6 +43,17 @@ object ChannelLogoHelper {
     }
 
     fun getBrandInfo(uploaderName: String?, rawAvatarUrl: String?, videoTitle: String? = null): BrandLogoInfo {
+        val cacheKey = "${uploaderName.orEmpty()}|${rawAvatarUrl.orEmpty()}|${videoTitle.orEmpty()}"
+        brandInfoCache[cacheKey]?.let { return it }
+
+        val info = computeBrandInfo(uploaderName, rawAvatarUrl, videoTitle)
+        if (brandInfoCache.size < 1500) {
+            brandInfoCache[cacheKey] = info
+        }
+        return info
+    }
+
+    private fun computeBrandInfo(uploaderName: String?, rawAvatarUrl: String?, videoTitle: String? = null): BrandLogoInfo {
         val trimmed = uploaderName?.trim().orEmpty()
         val isTencentSpecific = trimmed.contains("tencent", ignoreCase = true) ||
                 trimmed.contains("腾讯") ||

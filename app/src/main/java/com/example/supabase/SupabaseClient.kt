@@ -524,7 +524,14 @@ class SupabaseClient(private val context: Context) {
             val desc = json.optString("error_description")
             if (desc.isNotBlank()) return desc
             val message = json.optString("message")
-            if (message.isNotBlank()) return message
+            val details = json.optString("details")
+            val hint = json.optString("hint")
+            if (message.isNotBlank()) {
+                val sb = StringBuilder(message)
+                if (details.isNotBlank() && details != "null") sb.append(" (").append(details).append(")")
+                if (hint.isNotBlank() && hint != "null") sb.append(" [hint: ").append(hint).append("]")
+                return sb.toString()
+            }
             val error = json.optString("error")
             if (error.isNotBlank()) return error
             fallback

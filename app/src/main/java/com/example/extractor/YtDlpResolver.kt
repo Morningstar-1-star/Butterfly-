@@ -897,10 +897,7 @@ object YtDlpResolver {
                             lowerUrl.contains("biliintl") || streamUrl.contains("bilivideo") || streamUrl.contains("bilibili") ||
                             streamUrl.contains("upgcxcode") || streamUrl.contains("szbdyd") || streamUrl.contains("mcdn")
                     if (isBili) {
-                        fmtHeaders.remove("Origin")
-                        fmtHeaders.remove("origin")
-                        fmtHeaders.remove("Cookie")
-                        fmtHeaders.remove("cookie")
+                        // Preserve all headers extracted by yt-dlp (Referer, User-Agent, Origin, Cookie, Accept, etc.)
                         if (!fmtHeaders.containsKey("Referer") && !fmtHeaders.containsKey("referer")) {
                             fmtHeaders["Referer"] = "https://www.bilibili.com/"
                         }

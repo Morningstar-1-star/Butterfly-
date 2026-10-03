@@ -41,6 +41,47 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _isInPipMode = MutableStateFlow(false)
     val isInPipMode: StateFlow<Boolean> = _isInPipMode.asStateFlow()
 
+    val playbackQueue: StateFlow<List<VideoItem>> = com.example.ui.player.GlobalPlayerManager.playbackQueue
+    val currentQueueIndex: StateFlow<Int> = com.example.ui.player.GlobalPlayerManager.currentQueueIndex
+    val hasNextItem: StateFlow<Boolean> = com.example.ui.player.GlobalPlayerManager.hasNextItem
+    val hasPreviousItem: StateFlow<Boolean> = com.example.ui.player.GlobalPlayerManager.hasPreviousItem
+
+    fun addToQueue(video: VideoItem) {
+        com.example.ui.player.GlobalPlayerManager.addToQueue(video)
+    }
+
+    fun playNextInQueue(video: VideoItem) {
+        com.example.ui.player.GlobalPlayerManager.playNextInQueue(video)
+    }
+
+    fun removeFromQueue(index: Int) {
+        com.example.ui.player.GlobalPlayerManager.removeFromQueue(index)
+    }
+
+    fun removeFromQueue(video: VideoItem) {
+        com.example.ui.player.GlobalPlayerManager.removeFromQueue(video)
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        com.example.ui.player.GlobalPlayerManager.moveQueueItem(fromIndex, toIndex)
+    }
+
+    fun clearQueue() {
+        com.example.ui.player.GlobalPlayerManager.clearQueue()
+    }
+
+    fun skipToQueueIndex(index: Int) {
+        com.example.ui.player.GlobalPlayerManager.skipToQueueIndex(index)
+    }
+
+    fun skipToNext(): Boolean {
+        return com.example.ui.player.GlobalPlayerManager.skipToNext()
+    }
+
+    fun skipToPrevious(): Boolean {
+        return com.example.ui.player.GlobalPlayerManager.skipToPrevious()
+    }
+
     fun setPipMode(inPip: Boolean) {
         _isInPipMode.value = inPip
     }

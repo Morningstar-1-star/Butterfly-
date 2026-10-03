@@ -18,7 +18,8 @@ data class SupabaseSyncState(
     val lastSyncTimestamp: Long = 0L,
     val syncMessage: String = "Idle",
     val pendingQueueCount: Int = 0,
-    val autoSyncEnabled: Boolean = true
+    val autoSyncEnabled: Boolean = true,
+    val lastError: String? = null
 )
 
 sealed class SupabaseAuthResult {

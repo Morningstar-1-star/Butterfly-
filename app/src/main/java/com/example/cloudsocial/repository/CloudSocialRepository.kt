@@ -78,6 +78,44 @@ class CloudSocialRepository private constructor(private val context: Context) {
                     val items = telegramResolver.scanChannel(sourceEntity)
                     dao.insertMediaBatch(items)
 
+                    // Persist to local saved_links and enqueue Supabase sync
+                    try {
+                        val savedLink = com.example.db.SavedLinkEntity(
+                            id = java.util.UUID.nameUUIDFromBytes("saved:${sourceEntity.sourceUrl}".toByteArray()).toString(),
+                            url = sourceEntity.sourceUrl,
+                            title = sourceEntity.name,
+                            provider = "telegram",
+                            linkType = "telegram",
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        db.savedLinkDao().insertSavedLink(savedLink)
+
+                        val linkPayload = org.json.JSONObject().apply {
+                            put("id", savedLink.id)
+                            put("url", savedLink.url)
+                            put("title", savedLink.title)
+                            put("provider", savedLink.provider)
+                            put("link_type", savedLink.linkType)
+                            put("created_at", savedLink.createdAt)
+                            put("updated_at", savedLink.updatedAt)
+                        }.toString()
+                        com.example.supabase.SupabaseSyncManager.enqueueSync("SAVED_LINK", savedLink.url, "UPSERT", linkPayload)
+
+                        val srcPayload = org.json.JSONObject().apply {
+                            put("source_id", sourceEntity.id)
+                            put("type", sourceEntity.type)
+                            put("name", sourceEntity.name)
+                            put("source_url", sourceEntity.sourceUrl)
+                            put("enabled", sourceEntity.enabled)
+                            put("last_sync_timestamp", sourceEntity.lastSyncTimestamp)
+                            put("item_count", items.size)
+                        }.toString()
+                        com.example.supabase.SupabaseSyncManager.enqueueSync("CLOUD_SOCIAL_SOURCE", sourceEntity.id, "UPSERT", srcPayload)
+                    } catch (e: Exception) {
+                        android.util.Log.w("CloudSocialRepo", "Link sync enqueue note: ${e.message}")
+                    }
+
                     progress = CloudSyncProgress(
                         sourceId = sourceId,
                         sourceName = sourceEntity.name,
@@ -102,6 +140,44 @@ class CloudSocialRepository private constructor(private val context: Context) {
                     val items = megaResolver.scanSource(sourceEntity)
                     dao.insertMediaBatch(items)
 
+                    // Persist to local saved_links and enqueue Supabase sync
+                    try {
+                        val savedLink = com.example.db.SavedLinkEntity(
+                            id = java.util.UUID.nameUUIDFromBytes("saved:${sourceEntity.sourceUrl}".toByteArray()).toString(),
+                            url = sourceEntity.sourceUrl,
+                            title = sourceEntity.name,
+                            provider = "mega",
+                            linkType = "mega",
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        db.savedLinkDao().insertSavedLink(savedLink)
+
+                        val linkPayload = org.json.JSONObject().apply {
+                            put("id", savedLink.id)
+                            put("url", savedLink.url)
+                            put("title", savedLink.title)
+                            put("provider", savedLink.provider)
+                            put("link_type", savedLink.linkType)
+                            put("created_at", savedLink.createdAt)
+                            put("updated_at", savedLink.updatedAt)
+                        }.toString()
+                        com.example.supabase.SupabaseSyncManager.enqueueSync("SAVED_LINK", savedLink.url, "UPSERT", linkPayload)
+
+                        val srcPayload = org.json.JSONObject().apply {
+                            put("source_id", sourceEntity.id)
+                            put("type", sourceEntity.type)
+                            put("name", sourceEntity.name)
+                            put("source_url", sourceEntity.sourceUrl)
+                            put("enabled", sourceEntity.enabled)
+                            put("last_sync_timestamp", sourceEntity.lastSyncTimestamp)
+                            put("item_count", items.size)
+                        }.toString()
+                        com.example.supabase.SupabaseSyncManager.enqueueSync("CLOUD_SOCIAL_SOURCE", sourceEntity.id, "UPSERT", srcPayload)
+                    } catch (e: Exception) {
+                        android.util.Log.w("CloudSocialRepo", "MEGA sync note: ${e.message}")
+                    }
+
                     progress = CloudSyncProgress(
                         sourceId = sourceId,
                         sourceName = sourceEntity.name,
@@ -114,6 +190,33 @@ class CloudSocialRepository private constructor(private val context: Context) {
                     val report = bunkrRepo.importUrls(input)
                     // Sync Bunkr items into unified CloudSocial DB
                     syncBunkrToCloudSocial()
+
+                    // Persist to saved_links
+                    try {
+                        val savedLink = com.example.db.SavedLinkEntity(
+                            id = java.util.UUID.nameUUIDFromBytes("saved:$input".toByteArray()).toString(),
+                            url = input,
+                            title = "Bunkr Album",
+                            provider = "bunkr",
+                            linkType = "bunkr",
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        db.savedLinkDao().insertSavedLink(savedLink)
+
+                        val linkPayload = org.json.JSONObject().apply {
+                            put("id", savedLink.id)
+                            put("url", savedLink.url)
+                            put("title", savedLink.title)
+                            put("provider", savedLink.provider)
+                            put("link_type", savedLink.linkType)
+                            put("created_at", savedLink.createdAt)
+                            put("updated_at", savedLink.updatedAt)
+                        }.toString()
+                        com.example.supabase.SupabaseSyncManager.enqueueSync("SAVED_LINK", savedLink.url, "UPSERT", linkPayload)
+                    } catch (e: Exception) {
+                        android.util.Log.w("CloudSocialRepo", "Bunkr sync note: ${e.message}")
+                    }
 
                     progress = CloudSyncProgress(
                         sourceId = "bunkr_import",
@@ -257,12 +360,19 @@ class CloudSocialRepository private constructor(private val context: Context) {
     }
 
     suspend fun deleteSource(sourceId: String) = withContext(Dispatchers.IO) {
+        val src = dao.getSourceById(sourceId)
         dao.deleteSource(sourceId)
         dao.deleteMediaBySource(sourceId)
+        com.example.supabase.SupabaseSyncManager.enqueueSync("CLOUD_SOCIAL_SOURCE", sourceId, "DELETE", "{}")
+        if (src != null && src.sourceUrl.isNotBlank()) {
+            db.savedLinkDao().deleteSavedLinkByUrl(src.sourceUrl)
+            com.example.supabase.SupabaseSyncManager.enqueueSync("SAVED_LINK", src.sourceUrl, "DELETE", "{}")
+        }
     }
 
     suspend fun deleteMedia(mediaId: String) = withContext(Dispatchers.IO) {
         dao.deleteMediaById(mediaId)
+        com.example.supabase.SupabaseSyncManager.enqueueSync("CLOUD_SOCIAL_MEDIA", mediaId, "DELETE", "{}")
     }
 
     companion object {

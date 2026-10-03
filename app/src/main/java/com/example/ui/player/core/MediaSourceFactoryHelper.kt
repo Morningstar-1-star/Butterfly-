@@ -149,15 +149,15 @@ object MediaSourceFactoryHelper {
                 streamData?.providerId == "bilibili"
         if (isBilibiliStream) {
             // Bilibili CDN anti-hotlink authorization:
-            // Strictly hand off Referer, User-Agent, Accept headers without stripping or rewriting
+            // Strictly hand off all headers (Referer, User-Agent, Origin, Cookie, Accept, etc.) without stripping
             val biliCleanHeaders = mutableMapOf<String, String>()
             streamData?.headers?.forEach { (k, v) ->
-                if (!k.equals("Cookie", ignoreCase = true) && !k.equals("Origin", ignoreCase = true) && !k.equals("User-Agent", ignoreCase = true)) {
+                if (!k.equals("User-Agent", ignoreCase = true)) {
                     biliCleanHeaders[k] = v
                 }
             }
             specificHeaders.forEach { (k, v) ->
-                if (!k.equals("Cookie", ignoreCase = true) && !k.equals("Origin", ignoreCase = true) && !k.equals("User-Agent", ignoreCase = true)) {
+                if (!k.equals("User-Agent", ignoreCase = true)) {
                     biliCleanHeaders[k] = v
                 }
             }
@@ -246,10 +246,11 @@ object MediaSourceFactoryHelper {
                         if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://www.playvids.com"
                         if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1"
                     }
-                    lowerTarget.contains("spankbang") || lowerTarget.contains("sb-cd.com") || lowerTarget.contains("spankcdn") || streamData?.providerId == "spankbang" -> {
+                    (lowerTarget.contains("spankbang") || lowerTarget.contains("sb-cd.com") || lowerTarget.contains("spankcdn")) -> {
                         reqHeaders["Referer"] = "https://spankbang.com/"
-                        if (!reqHeaders.keys.any { it.equals("Origin", ignoreCase = true) }) reqHeaders["Origin"] = "https://spankbang.com"
-                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1"
+                        reqHeaders.remove("Origin")
+                        reqHeaders.remove("origin")
+                        if (!reqHeaders.keys.any { it.equals("Cookie", ignoreCase = true) }) reqHeaders["Cookie"] = "age_confirmed=1; country=US; platform=pc; ft_mature=1; consent=1; sb_consent=1"
                     }
                     lowerTarget.contains("stripchat") || lowerTarget.contains("doppiocdn") || lowerTarget.contains("strpst") || lowerTarget.contains("b-hls") || lowerTarget.contains("edge-hls") || streamData?.providerId == "stripchat" -> {
                         reqHeaders["Referer"] = "https://stripchat.com/"
@@ -409,5 +410,196 @@ object MediaSourceFactoryHelper {
         return DefaultMediaSourceFactory(ctx, extractorsFactory)
             .setDataSourceFactory(dsFactory)
             .setLoadErrorHandlingPolicy(errorHandlingPolicy)
+    }
+
+    /**
+     * Sanitizes and normalizes media URLs for ExoPlayer.
+     */
+    fun sanitizeMediaUrl(input: String?): String? {
+        if (input.isNullOrBlank()) return null
+        var trimmed = input.trim()
+        if (trimmed.isEmpty()) return null
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") &&
+            !trimmed.startsWith("file://") && !trimmed.startsWith("content://") &&
+            !trimmed.startsWith("asset://") && !trimmed.startsWith("rtmp://") &&
+            !trimmed.startsWith("rtsp://") && !trimmed.startsWith("udp://")
+        ) {
+            if (trimmed.startsWith("/")) {
+                trimmed = "file://$trimmed"
+            } else if (trimmed.contains(".")) {
+                trimmed = "https://$trimmed"
+            } else {
+                return null
+            }
+        }
+        return try {
+            val sanitized = if (trimmed.startsWith("file://") || trimmed.startsWith("content://") || trimmed.startsWith("asset://")) {
+                trimmed
+            } else {
+                trimmed
+                    .replace("\n", "").replace("\r", "").replace("\t", "")
+                    .replace(" ", "%20").replace("\"", "%22").replace("<", "%3C")
+                    .replace(">", "%3E").replace("\\", "/")
+            }
+            val parsed = Uri.parse(sanitized)
+            if (parsed.scheme.isNullOrEmpty()) null else sanitized
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Builds a Media3 MediaItem with MIME detection, subtitle configurations, and optional tag.
+     */
+    fun buildMediaItem(
+        inputUrl: String,
+        format: String? = null,
+        subtitles: List<MediaItem.SubtitleConfiguration> = emptyList(),
+        tag: Any? = null
+    ): MediaItem? {
+        val cleanUrl = sanitizeMediaUrl(inputUrl) ?: return null
+        val uri = Uri.parse(cleanUrl)
+        val lowerUrl = cleanUrl.lowercase()
+        val lowerFormat = format?.lowercase()
+        val builder = MediaItem.Builder().setUri(uri)
+
+        val isExplicitHls = lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.endsWith(".m3u8") || lowerUrl.contains(".m3u8?") || lowerUrl.contains("/hls/")
+        val isExplicitMpd = lowerFormat == "mpd" || lowerUrl.endsWith(".mpd") || lowerUrl.contains(".mpd?")
+        val isExplicitMkv = lowerFormat == "mkv" || lowerUrl.endsWith(".mkv")
+        val isExplicitAudioWebm = lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")
+        val isExplicitVideoWebm = lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.endsWith(".webm")
+        val isExplicitAudioMp4 = lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4")
+        val isExplicitVideoMp4 = lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4")
+
+        if (isExplicitHls) builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+        else if (isExplicitMpd) builder.setMimeType(MimeTypes.APPLICATION_MPD)
+        else if (isExplicitMkv) builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
+        else if (isExplicitAudioWebm) builder.setMimeType(MimeTypes.AUDIO_WEBM)
+        else if (isExplicitVideoWebm) builder.setMimeType(MimeTypes.VIDEO_WEBM)
+        else if (isExplicitAudioMp4) builder.setMimeType(MimeTypes.AUDIO_MP4)
+        else if (isExplicitVideoMp4) builder.setMimeType(MimeTypes.VIDEO_MP4)
+
+        if (subtitles.isNotEmpty()) {
+            builder.setSubtitleConfigurations(subtitles)
+        }
+        if (tag != null) {
+            builder.setTag(tag)
+        }
+        return builder.build()
+    }
+
+    /**
+     * Builds a complete Media3 MediaSource (Progressive, HLS, DASH, or Merging audio+video)
+     * for any given StreamData / PlayableStreamOption.
+     */
+    fun buildMediaSource(
+        context: android.content.Context?,
+        streamData: StreamData?,
+        streamOption: PlayableStreamOption?,
+        captionOption: com.example.model.CaptionOption? = null,
+        hlsUrl: String? = null,
+        tag: Any? = null
+    ): MediaSource? {
+        val rawUrl = streamOption?.videoUrl
+            ?: streamOption?.videoStream?.url
+            ?: hlsUrl
+            ?: streamData?.hlsUrl
+
+        if (rawUrl.isNullOrBlank()) return null
+
+        val isEmbedWebUrl = streamOption?.format.equals("embed", true) ||
+                (rawUrl.contains("/embed/", ignoreCase = true) && !rawUrl.contains(".mp4") && !rawUrl.contains(".m3u8"))
+        if (isEmbedWebUrl) return null
+
+        val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+        if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
+            val cleanCapUrl = sanitizeMediaUrl(captionOption.url)
+            if (cleanCapUrl != null) {
+                val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanCapUrl))
+                    .setMimeType(MimeTypes.TEXT_VTT)
+                    .setLanguage(captionOption.languageCode)
+                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                    .build()
+                subtitleConfigs.add(subtitleConfig)
+            }
+        }
+
+        if (streamOption?.subtitles?.isNotEmpty() == true) {
+            streamOption.subtitles.forEach { sub ->
+                val cleanSubUrl = sanitizeMediaUrl(sub.url)
+                if (cleanSubUrl != null) {
+                    val isVtt = sub.format.equals("vtt", ignoreCase = true) || cleanSubUrl.contains(".vtt", ignoreCase = true)
+                    val mimeType = if (isVtt) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP
+                    val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanSubUrl))
+                        .setMimeType(mimeType)
+                        .setLanguage(sub.languageCode)
+                        .setLabel(sub.languageName)
+                        .setSelectionFlags(if (sub.languageCode.startsWith("en", ignoreCase = true)) C.SELECTION_FLAG_DEFAULT else 0)
+                        .build()
+                    subtitleConfigs.add(config)
+                }
+            }
+        }
+
+        val vUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url
+        val aUrl = streamOption?.audioUrl ?: streamOption?.audioStream?.url
+
+        if (streamOption != null) {
+            if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
+                val mediaSourceFactory = createMediaSourceFactory(vUrl, streamData, streamOption.headers, context)
+                val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs, tag)
+                if (item != null) {
+                    return mediaSourceFactory.createMediaSource(item)
+                }
+            } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
+                val videoSourceFactory = createMediaSourceFactory(vUrl, streamData, streamOption.headers, context)
+                val audioHeaders = if (streamOption.audioHeaders.isNotEmpty()) streamOption.audioHeaders else streamOption.headers
+                val audioSourceFactory = createMediaSourceFactory(aUrl, streamData, audioHeaders, context)
+
+                val videoItem = buildMediaItem(vUrl, streamOption.format.ifEmpty { "video_mp4" }, subtitleConfigs, tag)
+                val audioItem = buildMediaItem(aUrl, if (aUrl.contains("webm")) "audio_webm" else "audio_mp4", emptyList(), tag)
+                if (videoItem != null && audioItem != null) {
+                    val videoSource = videoSourceFactory.createMediaSource(videoItem)
+                    val audioSource = audioSourceFactory.createMediaSource(audioItem)
+                    return try {
+                        MergingMediaSource(true, true, videoSource, audioSource)
+                    } catch (_: Exception) {
+                        videoSource
+                    }
+                } else if (videoItem != null) {
+                    return videoSourceFactory.createMediaSource(videoItem)
+                }
+            } else if (!vUrl.isNullOrEmpty()) {
+                val mediaSourceFactory = createMediaSourceFactory(vUrl, streamData, streamOption.headers, context)
+                val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs, tag)
+                if (item != null) {
+                    return mediaSourceFactory.createMediaSource(item)
+                }
+            }
+        }
+
+        if (!hlsUrl.isNullOrEmpty()) {
+            val cleanHls = sanitizeMediaUrl(hlsUrl)
+            if (cleanHls != null) {
+                val item = buildMediaItem(cleanHls, "hls", subtitleConfigs, tag)
+                if (item != null) {
+                    val mediaSourceFactory = createMediaSourceFactory(cleanHls, streamData, emptyMap(), context)
+                    return mediaSourceFactory.createMediaSource(item)
+                }
+            }
+        }
+
+        if (!rawUrl.isNullOrEmpty()) {
+            val cleanRaw = sanitizeMediaUrl(rawUrl)
+            if (cleanRaw != null) {
+                val item = buildMediaItem(cleanRaw, streamOption?.format, subtitleConfigs, tag)
+                if (item != null) {
+                    val mediaSourceFactory = createMediaSourceFactory(cleanRaw, streamData, streamOption?.headers ?: emptyMap(), context)
+                    return mediaSourceFactory.createMediaSource(item)
+                }
+            }
+        }
+
+        return null
     }
 }

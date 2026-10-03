@@ -19,6 +19,7 @@ object PreviewFrameResolver {
     private const val TAG = "PreviewFrameResolver"
     private val scope = CoroutineScope(Dispatchers.IO)
     private val validatedCache = ConcurrentHashMap<String, List<String>>()
+    private val scrubbingSupportCache = ConcurrentHashMap<String, Boolean>()
 
     /**
      * Checks if this video supports horizontal scrub teaser frames.
@@ -26,17 +27,26 @@ object PreviewFrameResolver {
      * or if explicit multi-frame storyboard preview thumbnails are present.
      */
     fun supportsScrubbing(video: VideoItem): Boolean {
+        val key = "${video.providerId ?: ""}_${video.id}"
+        scrubbingSupportCache[key]?.let { return it }
+
         val provider = (video.providerId ?: "").lowercase()
-        val nonSupporting = listOf("youtube", "vimeo", "dailymotion", "tencent", "qq", "wetv", "bilibili", "twitch", "torrent", "tmdb", "anilist", "jikan", "vega", "vegacloud", "vidsrc", "vidrock", "archiveorg", "mxplayer", "sonyliv", "hotstar", "disney", "discovery", "amazon", "amazonminitv", "curiositystream", "crunchyroll", "all")
-        if (provider in nonSupporting) return false
-        val isAdultTube = com.example.util.SourceTagHelper.isAdultSource(provider) ||
-                provider in listOf("spankbang", "eporner", "xvideos", "xnxx", "hellporno", "pornhub", "thumbzilla", "xhamster", "redtube", "youporn", "4tube", "rule34", "rule34video", "thisvid", "playvid", "txxx")
-        if (isAdultTube) {
-            if (video.previewThumbnails.size > 1) return true
-            val frames = resolvePreviewFrames(video)
-            return frames.size > 1
+        val nonSupporting = setOf("youtube", "vimeo", "dailymotion", "tencent", "qq", "wetv", "bilibili", "twitch", "torrent", "tmdb", "anilist", "jikan", "vega", "vegacloud", "vidsrc", "vidrock", "archiveorg", "mxplayer", "sonyliv", "hotstar", "disney", "discovery", "amazon", "amazonminitv", "curiositystream", "crunchyroll", "all")
+        if (provider in nonSupporting) {
+            scrubbingSupportCache[key] = false
+            return false
         }
-        return false
+        val isAdultTube = com.example.util.SourceTagHelper.isAdultSource(provider) ||
+                provider in setOf("spankbang", "eporner", "xvideos", "xnxx", "hellporno", "pornhub", "thumbzilla", "xhamster", "redtube", "youporn", "4tube", "rule34", "rule34video", "thisvid", "playvid", "txxx")
+        val result = if (isAdultTube) {
+            if (video.previewThumbnails.size > 1) true
+            else resolvePreviewFrames(video).size > 1
+        } else false
+
+        if (scrubbingSupportCache.size < 2000) {
+            scrubbingSupportCache[key] = result
+        }
+        return result
     }
 
     /**

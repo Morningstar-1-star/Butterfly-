@@ -203,11 +203,11 @@ fun HomeScreen(
         label = "bars_visibility"
     )
 
-    var accumulatedScroll by remember { mutableFloatStateOf(0f) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val scrollThresholdPx = remember(density) { with(density) { 24.dp.toPx() } }
 
     val nestedScrollConnection = remember(scrollThresholdPx) {
+        val accumulatedScroll = floatArrayOf(0f)
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val deltaY = available.y
@@ -215,19 +215,19 @@ fun HomeScreen(
                     val isAtTop = feedListState.firstVisibleItemIndex == 0 && feedListState.firstVisibleItemScrollOffset <= 8
                     if (deltaY < 0f) {
                         // Scrolling DOWN -> accumulate downward delta
-                        if (accumulatedScroll > 0f) accumulatedScroll = 0f
-                        accumulatedScroll += deltaY
-                        if (accumulatedScroll < -scrollThresholdPx && !isAtTop) {
+                        if (accumulatedScroll[0] > 0f) accumulatedScroll[0] = 0f
+                        accumulatedScroll[0] += deltaY
+                        if (accumulatedScroll[0] < -scrollThresholdPx && !isAtTop) {
                             if (areBarsVisible) areBarsVisible = false
-                            accumulatedScroll = 0f
+                            accumulatedScroll[0] = 0f
                         }
                     } else if (deltaY > 0f) {
                         // Scrolling UP -> accumulate upward delta
-                        if (accumulatedScroll < 0f) accumulatedScroll = 0f
-                        accumulatedScroll += deltaY
-                        if (accumulatedScroll > scrollThresholdPx) {
+                        if (accumulatedScroll[0] < 0f) accumulatedScroll[0] = 0f
+                        accumulatedScroll[0] += deltaY
+                        if (accumulatedScroll[0] > scrollThresholdPx) {
                             if (!areBarsVisible) areBarsVisible = true
-                            accumulatedScroll = 0f
+                            accumulatedScroll[0] = 0f
                         }
                     }
                 }

@@ -119,8 +119,16 @@ fun SupabaseAuthDialog(
                             Text(
                                 text = "Status: ${syncState.syncMessage}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (syncState.lastError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (syncState.lastError != null) {
+                                Text(
+                                    text = syncState.lastError!!,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 3
+                                )
+                            }
                         }
                     }
 

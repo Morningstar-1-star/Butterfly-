@@ -260,7 +260,7 @@ fun VideoPlayerScreen(
         }
 
         val basePool = if (isAdultCurrent) {
-            val raw = (streamRelated + playerRecommendations + trendingVideos.filter { it.id != activeVideoId })
+            val raw = (streamRelated + playerRecommendations)
             raw.filter {
                 it.id != activeVideoId && (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId)
             }

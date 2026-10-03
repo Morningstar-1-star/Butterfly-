@@ -61,6 +61,15 @@ class PlaybackSession(private val appContext: Context) {
     private val recoveryManager = PlayerRecoveryManager()
     private val smartSkipController = SmartSkipController { appContext }
 
+    // Media3 ConcatenatingMediaSource Queue Manager
+    val queueManager = com.example.ui.player.queue.Media3QueueManager(
+        appContext = appContext,
+        mainScope = scope,
+        onActiveVideoChanged = { newStreamData, videoItem ->
+            onQueueActiveVideoChanged(newStreamData, videoItem)
+        }
+    )
+
     // Media key to avoid duplicate loads
     private var currentLoadedMediaKey: String? = null
 
@@ -189,6 +198,10 @@ class PlaybackSession(private val appContext: Context) {
             }
         }
 
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            queueManager.onMediaItemTransition(mediaItem, reason)
+        }
+
         override fun onTracksChanged(tracks: Tracks) {
             for (group in tracks.groups) {
                 if (group.type == C.TRACK_TYPE_VIDEO && group.isSelected) {
@@ -302,6 +315,7 @@ class PlaybackSession(private val appContext: Context) {
         if (playerCore == null) {
             playerCore = PlayerCore(appContext, playerListener)
             val exo = playerCore!!.player!!
+            queueManager.attachPlayer(exo)
             exo.repeatMode = if (_isLoopEnabled.value) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             startProgressTracker()
             attachVideoEffectsPipeline(exo)
@@ -481,178 +495,29 @@ class PlaybackSession(private val appContext: Context) {
             player.stop()
             player.clearMediaItems()
 
-            fun sanitizeMediaUrl(input: String?): String? {
-                if (input.isNullOrBlank()) return null
-                var trimmed = input.trim()
-                if (trimmed.isEmpty()) return null
-                if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") &&
-                    !trimmed.startsWith("file://") && !trimmed.startsWith("content://") &&
-                    !trimmed.startsWith("asset://") && !trimmed.startsWith("rtmp://") &&
-                    !trimmed.startsWith("rtsp://") && !trimmed.startsWith("udp://")
-                ) {
-                    if (trimmed.startsWith("/")) {
-                        trimmed = "file://$trimmed"
-                    } else if (trimmed.contains(".")) {
-                        trimmed = "https://$trimmed"
-                    } else {
-                        return null
-                    }
-                }
-                return try {
-                    val sanitized = if (trimmed.startsWith("file://") || trimmed.startsWith("content://") || trimmed.startsWith("asset://")) {
-                        trimmed
-                    } else {
-                        trimmed
-                            .replace("\n", "").replace("\r", "").replace("\t", "")
-                            .replace(" ", "%20").replace("\"", "%22").replace("<", "%3C")
-                            .replace(">", "%3E").replace("\\", "/")
-                    }
-                    val parsed = Uri.parse(sanitized)
-                    if (parsed.scheme.isNullOrEmpty()) null else sanitized
-                } catch (_: Throwable) {
-                    null
-                }
-            }
+            val mediaSource = MediaSourceFactoryHelper.buildMediaSource(
+                context = appContext ?: context,
+                streamData = streamData,
+                streamOption = streamOption,
+                captionOption = captionOption,
+                hlsUrl = hlsUrl,
+                tag = streamData?.videoId
+            )
 
-            fun buildMediaItem(
-                inputUrl: String,
-                format: String? = null,
-                subtitles: List<MediaItem.SubtitleConfiguration> = emptyList()
-            ): MediaItem? {
-                val cleanUrl = sanitizeMediaUrl(inputUrl) ?: return null
-                val uri = Uri.parse(cleanUrl)
-                val lowerUrl = cleanUrl.lowercase()
-                val lowerFormat = format?.lowercase()
-                val builder = MediaItem.Builder().setUri(uri)
-
-                val isExplicitHls = lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.endsWith(".m3u8") || lowerUrl.contains(".m3u8?") || lowerUrl.contains("/hls/")
-                val isExplicitMpd = lowerFormat == "mpd" || lowerUrl.endsWith(".mpd") || lowerUrl.contains(".mpd?")
-                val isExplicitMkv = lowerFormat == "mkv" || lowerUrl.endsWith(".mkv")
-                val isExplicitAudioWebm = lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")
-                val isExplicitVideoWebm = lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.endsWith(".webm")
-                val isExplicitAudioMp4 = lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4")
-                val isExplicitVideoMp4 = lowerFormat == "video_mp4" || lowerFormat == "mp4" || lowerUrl.contains(".mp4") || lowerUrl.contains(".m4s") || lowerUrl.contains("mime=video%2fmp4") || lowerUrl.contains("mime=video/mp4")
-
-                if (isExplicitHls) builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                else if (isExplicitMpd) builder.setMimeType(MimeTypes.APPLICATION_MPD)
-                else if (isExplicitMkv) builder.setMimeType(MimeTypes.VIDEO_MATROSKA)
-                else if (isExplicitAudioWebm) builder.setMimeType(MimeTypes.AUDIO_WEBM)
-                else if (isExplicitVideoWebm) builder.setMimeType(MimeTypes.VIDEO_WEBM)
-                else if (isExplicitAudioMp4) builder.setMimeType(MimeTypes.AUDIO_MP4)
-                else if (isExplicitVideoMp4) builder.setMimeType(MimeTypes.VIDEO_MP4)
-
-                if (subtitles.isNotEmpty()) {
-                    builder.setSubtitleConfigurations(subtitles)
-                }
-                return builder.build()
-            }
-
-            var mediaSourceSet = false
-            if (streamOption != null) {
-                val vUrl = streamOption.videoUrl ?: streamOption.videoStream?.url
-                val aUrl = streamOption.audioUrl ?: streamOption.audioStream?.url
-
-                val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
-                if (captionOption != null && !captionOption.url.isNullOrEmpty()) {
-                    val cleanCapUrl = sanitizeMediaUrl(captionOption.url)
-                    if (cleanCapUrl != null) {
-                        val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanCapUrl))
-                            .setMimeType(MimeTypes.TEXT_VTT)
-                            .setLanguage(captionOption.languageCode)
-                            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                            .build()
-                        subtitleConfigs.add(subtitleConfig)
-                    }
-                }
-
-                // Subtitles provided by Decryptor or other multi-stream providers
-                if (streamOption.subtitles.isNotEmpty()) {
-                    streamOption.subtitles.forEach { sub ->
-                        val cleanSubUrl = sanitizeMediaUrl(sub.url)
-                        if (cleanSubUrl != null) {
-                            val isVtt = sub.format.equals("vtt", ignoreCase = true) || cleanSubUrl.contains(".vtt", ignoreCase = true)
-                            val mimeType = if (isVtt) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP
-                            val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(cleanSubUrl))
-                                .setMimeType(mimeType)
-                                .setLanguage(sub.languageCode)
-                                .setLabel(sub.languageName)
-                                .setSelectionFlags(if (sub.languageCode.startsWith("en", ignoreCase = true)) C.SELECTION_FLAG_DEFAULT else 0)
-                                .build()
-                            subtitleConfigs.add(config)
-                        }
-                    }
-                }
-
-                if (streamOption.isMuxed && !vUrl.isNullOrEmpty()) {
-                    val mediaSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(vUrl, streamData, streamOption.headers, context)
-                    val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
-                    if (item != null) {
-                        val mediaSource = mediaSourceFactory.createMediaSource(item)
-                        player.setMediaSource(mediaSource)
-                        mediaSourceSet = true
-                    }
-                } else if (!streamOption.isMuxed && !vUrl.isNullOrEmpty() && !aUrl.isNullOrEmpty()) {
-                    val videoSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(vUrl, streamData, streamOption.headers, context)
-                    val audioHeaders = if (streamOption.audioHeaders.isNotEmpty()) streamOption.audioHeaders else streamOption.headers
-                    val audioSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(aUrl, streamData, audioHeaders, context)
-
-                    val videoItem = buildMediaItem(vUrl, streamOption.format.ifEmpty { "video_mp4" }, subtitleConfigs)
-                    val audioItem = buildMediaItem(aUrl, if (aUrl.contains("webm")) "audio_webm" else "audio_mp4")
-                    if (videoItem != null && audioItem != null) {
-                        val videoSource = videoSourceFactory.createMediaSource(videoItem)
-                        val audioSource = audioSourceFactory.createMediaSource(audioItem)
-                        try {
-                            val mergedSource = MergingMediaSource(true, true, videoSource, audioSource)
-                            player.setMediaSource(mergedSource)
-                            mediaSourceSet = true
-                        } catch (e: Exception) {
-                            Log.w("PlaybackSession", "MergingMediaSource failed, falling back to videoSource: ${e.message}")
-                            player.setMediaSource(videoSource)
-                            mediaSourceSet = true
-                        }
-                    } else if (videoItem != null) {
-                        val videoSource = videoSourceFactory.createMediaSource(videoItem)
-                        player.setMediaSource(videoSource)
-                        mediaSourceSet = true
-                    }
-                } else if (!vUrl.isNullOrEmpty()) {
-                    val mediaSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(vUrl, streamData, streamOption.headers, context)
-                    val item = buildMediaItem(vUrl, streamOption.format, subtitleConfigs)
-                    if (item != null) {
-                        val mediaSource = mediaSourceFactory.createMediaSource(item)
-                        player.setMediaSource(mediaSource)
-                        mediaSourceSet = true
-                    }
-                }
-            }
-
-            if (!mediaSourceSet && !hlsUrl.isNullOrEmpty()) {
-                val cleanHls = sanitizeMediaUrl(hlsUrl)
-                if (cleanHls != null) {
-                    val item = buildMediaItem(cleanHls, "hls")
-                    if (item != null) {
-                        val mediaSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(cleanHls, streamData, emptyMap(), context)
-                        val mediaSource = mediaSourceFactory.createMediaSource(item)
-                        player.setMediaSource(mediaSource)
-                        mediaSourceSet = true
-                    }
-                }
-            } else if (!mediaSourceSet && !rawUrl.isNullOrEmpty()) {
-                val cleanRaw = sanitizeMediaUrl(rawUrl)
-                if (cleanRaw != null) {
-                    val item = buildMediaItem(cleanRaw, streamOption?.format)
-                    if (item != null) {
-                        val mediaSourceFactory = MediaSourceFactoryHelper.createMediaSourceFactory(cleanRaw, streamData, streamOption?.headers ?: emptyMap(), context)
-                        val mediaSource = mediaSourceFactory.createMediaSource(item)
-                        player.setMediaSource(mediaSource)
-                        mediaSourceSet = true
-                    }
-                }
-            }
-
-            if (!mediaSourceSet) {
+            if (mediaSource == null) {
                 _playerError.value = "Unable to parse valid video stream URL"
                 return
+            }
+
+            if (streamData != null) {
+                queueManager.setInitialStream(
+                    streamData = streamData,
+                    streamOption = streamOption,
+                    captionOption = captionOption,
+                    initialMediaSource = mediaSource
+                )
+            } else {
+                player.setMediaSource(mediaSource)
             }
 
             if (effectiveResumePos > 0L) {
@@ -1000,5 +865,112 @@ class PlaybackSession(private val appContext: Context) {
 
     fun setPlaybackFailedListener(listener: ((Int?) -> Unit)?) {
         recoveryManager.setPlaybackFailedListener(listener)
+    }
+
+    private fun onQueueActiveVideoChanged(streamData: StreamData, videoItem: com.example.model.VideoItem) {
+        _activeStreamData.value = streamData
+        _bilibiliSubtitleTracks.value = streamData.captionOptions
+        _selectedSubtitleTrack.value = streamData.captionOptions.firstOrNull()
+        _currentPositionMs.value = 0L
+        _durationMs.value = (videoItem.durationSeconds.takeIf { it > 0 } ?: 0L) * 1000L
+        _progressFraction.value = 0f
+        _playerError.value = null
+        _firstFrameRendered.value = false
+        _playbackEnded.value = false
+        _isPlaying.value = true
+
+        VideoEffectsManager.onVideoChanged(streamData.videoId)
+        VideoEnhancementEngine.onVideoLoaded(
+            videoId = streamData.videoId,
+            title = streamData.title,
+            channel = streamData.channelName,
+            tags = null,
+            description = streamData.description,
+            width = 0,
+            height = 0
+        )
+        com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
+            context = appContext,
+            videoId = streamData.videoId,
+            durationMs = _durationMs.value,
+            title = streamData.title,
+            channelName = streamData.channelName,
+            providerId = streamData.providerId
+        )
+        SubtitleManager.resolveSubtitlesForPlayback(
+            context = appContext,
+            streamData = streamData,
+            onUsableSubtitleFound = null,
+            onFallbackToWhisper = null
+        )
+        scope.launch(Dispatchers.IO) {
+            try {
+                val videoRepo = VideoCacheRepository(appContext)
+                videoRepo.cacheVideoMetadata(
+                    videoId = streamData.videoId,
+                    title = streamData.title,
+                    channelName = streamData.channelName,
+                    thumbnailUrl = streamData.thumbnailUrl ?: "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg",
+                    description = streamData.description,
+                    duration = videoItem.formattedDuration,
+                    providerId = streamData.providerId
+                )
+            } catch (_: Throwable) {}
+        }
+    }
+
+    val playbackQueue: StateFlow<List<com.example.model.VideoItem>>
+        get() = queueManager.videoQueue
+
+    val queueItems: StateFlow<List<com.example.ui.player.queue.MediaQueueItem>>
+        get() = queueManager.queueItems
+
+    val currentQueueIndex: StateFlow<Int>
+        get() = queueManager.currentQueueIndex
+
+    val hasNextItem: StateFlow<Boolean>
+        get() = queueManager.hasNextItem
+
+    val hasPreviousItem: StateFlow<Boolean>
+        get() = queueManager.hasPreviousItem
+
+    fun addToQueue(video: com.example.model.VideoItem) {
+        queueManager.addToQueue(video)
+    }
+
+    fun addPlaylistToQueue(videos: List<com.example.model.VideoItem>) {
+        queueManager.addVideosToQueue(videos, playNext = false)
+    }
+
+    fun playNextInQueue(video: com.example.model.VideoItem) {
+        queueManager.playNextInQueue(video)
+    }
+
+    fun removeFromQueue(index: Int) {
+        queueManager.removeFromQueue(index)
+    }
+
+    fun removeFromQueue(video: com.example.model.VideoItem) {
+        queueManager.removeFromQueue(video)
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        queueManager.moveQueueItem(fromIndex, toIndex)
+    }
+
+    fun clearQueue() {
+        queueManager.clearQueue()
+    }
+
+    fun skipToQueueIndex(index: Int) {
+        queueManager.skipToQueueIndex(index)
+    }
+
+    fun skipToNext(): Boolean {
+        return queueManager.skipToNext()
+    }
+
+    fun skipToPrevious(): Boolean {
+        return queueManager.skipToPrevious()
     }
 }

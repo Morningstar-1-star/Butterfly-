@@ -415,6 +415,22 @@ class DownloadWorker(
                 )
             )
 
+            try {
+                val syncPayload = org.json.JSONObject().apply {
+                    put("video_id", videoId)
+                    put("title", title)
+                    put("channel_name", channelName)
+                    put("thumbnail_url", thumbnailUrl ?: "")
+                    put("quality_label", qualityLabel)
+                    put("total_bytes", finalLength)
+                    put("status", "COMPLETED")
+                    put("timestamp", System.currentTimeMillis())
+                }.toString()
+                com.example.supabase.SupabaseSyncManager.enqueueSync("DOWNLOAD_METADATA", videoId, "UPSERT", syncPayload)
+            } catch (e: Exception) {
+                Log.w(TAG, "Download metadata sync note: ${e.message}")
+            }
+
             showCompletedNotification(notifId, title)
             Log.i(TAG, "Download successfully completed for $videoId: ${targetFile.absolutePath} ($finalLength bytes)")
             Result.success(workDataOf("localPath" to targetFile.absolutePath))

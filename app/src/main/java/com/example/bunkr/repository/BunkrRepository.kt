@@ -268,10 +268,12 @@ class BunkrRepository(private val context: Context) {
     suspend fun deleteAlbum(albumId: String) = withContext(Dispatchers.IO) {
         dao.deleteFilesForAlbum(albumId)
         dao.deleteAlbum(albumId)
+        com.example.supabase.SupabaseSyncManager.enqueueSync("BUNKR_ALBUM", albumId, "DELETE", "{}")
     }
 
     suspend fun deleteFile(fileId: String) = withContext(Dispatchers.IO) {
         dao.deleteFile(fileId)
+        com.example.supabase.SupabaseSyncManager.enqueueSync("BUNKR_FILE", fileId, "DELETE", "{}")
     }
 
     suspend fun toggleAlbumEnabled(albumId: String, isEnabled: Boolean) = withContext(Dispatchers.IO) {

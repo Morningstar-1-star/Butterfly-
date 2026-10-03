@@ -214,7 +214,7 @@ fun VideoCard(
         if (activeImageUrl.isNullOrBlank()) null else {
             ImageRequest.Builder(context)
                 .data(activeImageUrl)
-                .crossfade(60)
+                .crossfade(false)
                 .allowHardware(true)
                 .allowRgb565(true)
                 .memoryCachePolicy(coil.request.CachePolicy.ENABLED)

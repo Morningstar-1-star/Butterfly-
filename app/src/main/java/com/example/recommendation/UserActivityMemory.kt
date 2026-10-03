@@ -206,6 +206,37 @@ object UserActivityMemory {
         return getPrefs(context).getString("disliked_videos_json", "[]") ?: "[]"
     }
 
+    fun restorePreferencesFromCloud(
+        context: Context,
+        dislikedVideosJsonStr: String,
+        dislikedChannelsList: List<String>,
+        dislikedKeywordsList: List<String>,
+        favoriteChannelsList: List<String>
+    ) {
+        ensureInitialized()
+        val prefs = getPrefs(context)
+        val editor = prefs.edit()
+        var changed = false
+        if (dislikedVideos.isEmpty() && dislikedVideosJsonStr.isNotBlank() && dislikedVideosJsonStr != "[]") {
+            editor.putString("disliked_videos_json", dislikedVideosJsonStr)
+            loadDislikes(prefs)
+            changed = true
+        }
+        if (dislikedChannels.isEmpty() && dislikedChannelsList.isNotEmpty()) {
+            dislikedChannels.addAll(dislikedChannelsList)
+            editor.putStringSet("disliked_channels_set", dislikedChannels)
+            changed = true
+        }
+        if (dislikedKeywords.isEmpty() && dislikedKeywordsList.isNotEmpty()) {
+            dislikedKeywords.addAll(dislikedKeywordsList)
+            editor.putStringSet("disliked_keywords_set", dislikedKeywords)
+            changed = true
+        }
+        if (changed) {
+            editor.apply()
+        }
+    }
+
     fun isDisliked(videoId: String): Boolean { ensureInitialized(); return dislikedVideos.containsKey(videoId.trim()) }
 
     // ==========================================

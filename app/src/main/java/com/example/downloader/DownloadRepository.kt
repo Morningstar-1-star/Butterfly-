@@ -113,6 +113,7 @@ class DownloadRepository(private val context: Context) {
             } catch (_: Exception) {}
 
             db.userDataDao().deleteDownload(videoId)
+            com.example.supabase.SupabaseSyncManager.enqueueSync("DOWNLOAD_METADATA", videoId, "DELETE", "{}")
         }
     }
 }

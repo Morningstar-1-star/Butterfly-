@@ -75,17 +75,12 @@ object MediaHeaderHelper {
                 }
                 builder.removeHeader("Sec-Fetch-Mode")
                 builder.removeHeader("Sec-Fetch-Site")
-                builder.removeHeader("Origin")
-                builder.removeHeader("origin")
 
-                if (!isBiliCdn) {
+                if (!isBiliCdn && request.header("Cookie") == null) {
                     val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
-                    if (cookie.isNotBlank() && request.header("Cookie") == null) {
+                    if (cookie.isNotBlank()) {
                         builder.header("Cookie", cookie)
                     }
-                } else {
-                    builder.removeHeader("Cookie")
-                    builder.removeHeader("cookie")
                 }
             }
             urlStr.contains("qq.com") || urlStr.contains("tc.qq.com") || urlStr.contains("v.qq.com") ||
@@ -562,11 +557,6 @@ object MediaHeaderHelper {
         val isDm = urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event")
 
         if (isBili) {
-            val isBiliCdn = urlStr.contains("bilivideo") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
-                    urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo") ||
-                    urlStr.contains("akamaized") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") ||
-                    urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam")
-
             val existingRef = request.header("Referer") ?: request.header("referer")
             if (existingRef.isNullOrBlank()) {
                 val biliReferer = if (urlStr.contains("live") || urlStr.contains("gotcha") || urlStr.contains("xlive")) "https://live.bilibili.com/" else "https://www.bilibili.com/"
@@ -579,14 +569,8 @@ object MediaHeaderHelper {
             if (request.header("Accept").isNullOrBlank()) {
                 builder.header("Accept", "*/*")
             }
-            builder.removeHeader("Origin")
-            builder.removeHeader("origin")
             builder.removeHeader("Sec-Fetch-Site")
             builder.removeHeader("Sec-Fetch-Mode")
-            if (isBiliCdn) {
-                builder.removeHeader("Cookie")
-                builder.removeHeader("cookie")
-            }
         } else if (isDm) {
             if (request.header("Referer").isNullOrBlank()) {
                 builder.header("Referer", "https://www.dailymotion.com/")
@@ -605,6 +589,16 @@ object MediaHeaderHelper {
             }
         }
 
-        chain.proceed(builder.build())
+        val finalReq = builder.build()
+        if (isBili) {
+            val headersSummary = finalReq.headers.names().joinToString(", ") { "$it: ${finalReq.header(it)}" }
+            android.util.Log.d("BilibiliDiagnostics", "OkHttp Outbound Request: ${finalReq.method} ${finalReq.url} | Headers: [$headersSummary]")
+        }
+
+        val resp = chain.proceed(finalReq)
+        if (isBili) {
+            android.util.Log.d("BilibiliDiagnostics", "OkHttp Inbound Response: ${resp.code} ${resp.message} for ${finalReq.url.host} (Content-Type: ${resp.header("Content-Type")}, Content-Length: ${resp.header("Content-Length")})")
+        }
+        resp
     }
 }

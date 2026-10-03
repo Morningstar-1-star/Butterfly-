@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
                 // Safety watchdog: ensure opening animation finishes smoothly without premature cut-off
                 LaunchedEffect(showOpeningAnimation, isOpeningAnimationEnabled) {
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        kotlinx.coroutines.delay(1450L)
+                        kotlinx.coroutines.delay(460L)
                         viewModel.dismissOpeningAnimation()
                     }
                 }

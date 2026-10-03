@@ -29,6 +29,9 @@ object TubiTvProvider {
     private const val TAG = "TubiTvProvider"
     const val PROVIDER_ID = "tubitv"
     private const val BASE_URL = "https://tubitv.com"
+    // Tubi retired the old /oz/search endpoint. This is the current public search service used by
+    // maintained Tubi integrations.
+    private const val SEARCH_API_URL = "https://search.production-public.tubi.io/api/v1/search"
 
     private const val DEFAULT_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -120,7 +123,7 @@ object TubiTvProvider {
             }
         }
 
-        // 4. Curated Tubi Movies & Series fallback with 100% working poster CDN thumbnails
+        // 4. Curated Tubi Movies & Series fallback with working poster CDN thumbnails
         if (results.isEmpty()) {
             val fallbackCatalog = getCuratedTubiCatalog()
             results.addAll(fallbackCatalog)
@@ -143,10 +146,10 @@ object TubiTvProvider {
 
         val results = mutableListOf<VideoItem>()
 
-        // 1. Direct Tubi TV Search API (/oz/search/{query})
+        // 1. Current Tubi TV Search API. The old /oz/search/{query} endpoint is retired.
         try {
             val encodedQuery = URLEncoder.encode(clean, "UTF-8")
-            val searchUrl = "$BASE_URL/oz/search/$encodedQuery"
+            val searchUrl = "$SEARCH_API_URL?query=$encodedQuery&isKidsMode=false&useLinearHeader=true&isMobile=false"
             val request = Request.Builder()
                 .url(searchUrl)
                 .headers(okhttp3.Headers.Builder().apply {
@@ -154,35 +157,28 @@ object TubiTvProvider {
                 }.build())
                 .build()
 
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                val jsonStr = response.body?.string() ?: ""
-                if (jsonStr.isNotBlank()) {
-                    val parsed = parseTubiApiResponse(jsonStr)
-                    if (parsed.isNotEmpty()) {
-                        results.addAll(parsed)
-                        Log.i(TAG, "Tubi TV Search API returned ${parsed.size} items for '$clean'")
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string() ?: ""
+                    if (jsonStr.isNotBlank()) {
+                        val parsed = parseTubiSearchResponse(jsonStr)
+                        if (parsed.isNotEmpty()) {
+                            results.addAll(parsed)
+                            Log.i(TAG, "Tubi TV current Search API returned ${parsed.size} items for '$clean'")
+                        } else {
+                            Log.w(TAG, "Tubi TV Search API returned no parseable results for '$clean'")
+                        }
                     }
+                } else {
+                    Log.w(TAG, "Tubi TV Search API HTTP ${response.code} for '$clean'")
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Tubi TV search API notice: ${e.message}")
+            Log.w(TAG, "Tubi TV current search API notice: ${e.message}")
         }
 
-        // 2. Fallback search against curated Genuine Tubi catalog if API search returns empty
-        if (results.isEmpty()) {
-            val curated = getCuratedTubiCatalog().filter {
-                it.title.contains(clean, ignoreCase = true) ||
-                        (it.description?.contains(clean, ignoreCase = true) == true) ||
-                        it.tags.any { tag -> tag.contains(clean, ignoreCase = true) }
-            }
-            if (curated.isNotEmpty()) {
-                results.addAll(curated)
-            } else {
-                // Return top curated catalog so screen is never blank
-                results.addAll(getCuratedTubiCatalog().take(limit))
-            }
-        }
+        // IMPORTANT: Do not silently replace a failed live search with the hard-coded catalog.
+        // Returning curated titles here made every unrelated query appear to return the same movies.
 
         val distinct = results.distinctBy { it.id }.take(limit)
         Log.i(TAG, "Tubi TV search for '$clean' found ${distinct.size} genuine Tubi items")
@@ -267,6 +263,127 @@ object TubiTvProvider {
             Log.w(TAG, "Web Scraper error: ${e.message}")
         }
         return list
+    }
+
+    /**
+     * Parses the current Tubi search service response. Maintained Tubi integrations use a
+     * top-level JSON array where each result contains at least id/title/type/description.
+     * Artwork field names vary, so accept the common Tubi image shapes without inventing
+     * a poster URL when the source did not provide one.
+     */
+    private fun parseTubiSearchResponse(jsonStr: String): List<VideoItem> {
+        val items = mutableListOf<VideoItem>()
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val item = parseTubiSearchVideoObject(obj)
+                if (item != null) items.add(item)
+            }
+            return items
+        } catch (_: Exception) {
+            // Some Tubi surfaces wrap the array in an object; support that without
+            // falling back to fake/curated search results.
+        }
+
+        return try {
+            val root = JSONObject(jsonStr)
+            val candidates = listOf("results", "items", "data", "contents")
+            for (key in candidates) {
+                val array = root.optJSONArray(key) ?: continue
+                for (i in 0 until array.length()) {
+                    val obj = array.optJSONObject(i) ?: continue
+                    parseTubiSearchVideoObject(obj)?.let(items::add)
+                }
+                if (items.isNotEmpty()) break
+            }
+            items
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing current Tubi search response: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun parseTubiSearchVideoObject(obj: JSONObject): VideoItem? {
+        val id = firstNonBlank(obj, "id", "content_id", "contentId") ?: return null
+        val title = firstNonBlank(obj, "title", "name") ?: return null
+
+        val type = firstNonBlank(obj, "type", "content_type", "contentType")?.lowercase().orEmpty()
+        val isSeries = type == "s" || type == "series" || type == "show" || type == "tv" ||
+                obj.optBoolean("is_series", false) || obj.optBoolean("isSeries", false)
+
+        val description = firstNonBlank(obj, "description", "synopsis", "summary").orEmpty()
+        val year = firstNonBlank(obj, "year", "release_year", "releaseYear").orEmpty()
+        val duration = obj.optLong("duration", obj.optLong("duration_seconds", 0L))
+
+        val thumbnail = extractTubiArtwork(obj, id)
+        val tags = mutableListOf<String>()
+        addStringArrayValues(obj.optJSONArray("tags"), tags)
+        addStringArrayValues(obj.optJSONArray("genres"), tags)
+        if (year.isNotBlank()) tags.add(year)
+        tags.add(if (isSeries) "TV Series" else "Movie")
+
+        val idPrefix = if (isSeries) "tubitv:series:" else "tubitv:movies:"
+        return VideoItem(
+            id = idPrefix + id,
+            title = title,
+            uploaderName = "Tubi TV • Free HD Cinema",
+            uploaderUrl = if (isSeries) "$BASE_URL/series/$id" else "$BASE_URL/movies/$id",
+            thumbnailUrl = thumbnail,
+            durationSeconds = duration,
+            viewCount = 0L,
+            uploadDate = year,
+            providerId = PROVIDER_ID,
+            description = description,
+            tags = tags.distinct()
+        )
+    }
+
+    private fun firstNonBlank(obj: JSONObject, vararg keys: String): String? {
+        for (key in keys) {
+            val value = obj.optString(key).trim()
+            if (value.isNotBlank() && !value.equals("null", ignoreCase = true)) return value
+        }
+        return null
+    }
+
+    private fun addStringArrayValues(array: JSONArray?, target: MutableList<String>) {
+        if (array == null) return
+        for (i in 0 until array.length()) {
+            val value = array.optString(i).trim()
+            if (value.isNotBlank()) target.add(value)
+        }
+    }
+
+    private fun extractTubiArtwork(obj: JSONObject, contentId: String): String {
+        val directKeys = listOf(
+            "thumbnail_url", "thumbnailUrl", "poster_url", "posterUrl",
+            "thumbnail", "poster", "image", "image_url", "imageUrl"
+        )
+        for (key in directKeys) {
+            val value = obj.optString(key).trim()
+            if (value.isNotBlank() && !value.equals("null", ignoreCase = true)) {
+                return normalizeTubiImageUrl(value, contentId)
+            }
+        }
+
+        val arrays = listOf("thumbnails", "posterarts", "landscapearts", "images", "artwork")
+        for (key in arrays) {
+            val array = obj.optJSONArray(key) ?: continue
+            for (i in 0 until array.length()) {
+                val value = when (val entry = array.opt(i)) {
+                    is JSONObject -> firstNonBlank(entry, "url", "src", "href")
+                    else -> entry?.toString()?.trim()
+                }.orEmpty()
+                if (value.isNotBlank() && !value.equals("null", ignoreCase = true)) {
+                    return normalizeTubiImageUrl(value, contentId)
+                }
+            }
+        }
+
+        // Do not invent a URL here. An invalid guessed CDN URL was the reason results
+        // could contain a non-null thumbnail that nevertheless never loaded.
+        return ""
     }
 
     private fun parseTubiApiResponse(jsonStr: String): List<VideoItem> {
@@ -404,7 +521,7 @@ object TubiTvProvider {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
             trimmed.startsWith("/") -> "https://canvas-lb.tubitv.com/opts/r/raw$trimmed"
             trimmed.isNotBlank() -> "https://canvas-lb.tubitv.com/opts/r/raw/$trimmed"
-            else -> "https://canvas-lb.tubitv.com/opts/r/raw/content-arts/$contentId.jpg"
+            else -> ""
         }
     }
 

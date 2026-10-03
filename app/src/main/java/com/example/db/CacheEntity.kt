@@ -288,3 +288,53 @@ interface UserDataDao {
     @Query("DELETE FROM offline_downloads")
     suspend fun clearAllDownloads()
 }
+
+@Entity(
+    tableName = "saved_links",
+    indices = [
+        Index(value = ["url"], unique = true),
+        Index(value = ["createdAt"])
+    ]
+)
+data class SavedLinkEntity(
+    @PrimaryKey val id: String,
+    val url: String,
+    val title: String = "",
+    val provider: String = "",
+    val linkType: String = "", // "telegram", "mega", "bunkr", "external"
+    val thumbnailUrl: String? = null,
+    val metadataJson: String = "{}",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface SavedLinkDao {
+    @Query("SELECT * FROM saved_links ORDER BY createdAt DESC")
+    fun getAllSavedLinksFlow(): Flow<List<SavedLinkEntity>>
+
+    @Query("SELECT * FROM saved_links ORDER BY createdAt DESC")
+    suspend fun getAllSavedLinksList(): List<SavedLinkEntity>
+
+    @Query("SELECT * FROM saved_links WHERE url = :url LIMIT 1")
+    suspend fun getSavedLinkByUrl(url: String): SavedLinkEntity?
+
+    @Query("SELECT * FROM saved_links WHERE id = :id LIMIT 1")
+    suspend fun getSavedLinkById(id: String): SavedLinkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSavedLink(item: SavedLinkEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSavedLinks(items: List<SavedLinkEntity>)
+
+    @Query("DELETE FROM saved_links WHERE id = :id")
+    suspend fun deleteSavedLink(id: String)
+
+    @Query("DELETE FROM saved_links WHERE url = :url")
+    suspend fun deleteSavedLinkByUrl(url: String)
+
+    @Query("DELETE FROM saved_links")
+    suspend fun clearSavedLinks()
+}
+

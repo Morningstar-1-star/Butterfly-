@@ -37,6 +37,9 @@ interface SyncQueueDao {
     @Query("UPDATE sync_queue SET retryCount = retryCount + 1, lastError = :error WHERE id = :id")
     suspend fun recordFailure(id: Long, error: String)
 
+    @Query("DELETE FROM sync_queue WHERE entityType = :entityType AND entityId = :entityId")
+    suspend fun deleteByEntity(entityType: String, entityId: String)
+
     @Query("SELECT COUNT(*) FROM sync_queue")
     suspend fun getQueueSize(): Int
 

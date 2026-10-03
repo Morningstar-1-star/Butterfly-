@@ -880,8 +880,7 @@ fun AccountScreen(
                     if (watchLaterList.isNotEmpty()) {
                         showWatchLaterSheet = false
                         viewModel.clearQueue()
-                        watchLaterList.drop(1).forEach { viewModel.addToQueue(it) }
-                        onSelectVideo(watchLaterList.first())
+                        viewModel.addPlaylistToQueue(watchLaterList)
                     }
                 },
                 onRemoveVideo = { viewModel.removeFromWatchLater(it) },
@@ -903,8 +902,7 @@ fun AccountScreen(
                     if (likedVideos.isNotEmpty()) {
                         showLikedVideosSheet = false
                         viewModel.clearQueue()
-                        likedVideos.drop(1).forEach { viewModel.addToQueue(it) }
-                        onSelectVideo(likedVideos.first())
+                        viewModel.addPlaylistToQueue(likedVideos)
                     }
                 },
                 onRemoveVideo = { viewModel.toggleLikeVideo(it.id) },
@@ -947,8 +945,7 @@ fun AccountScreen(
                     if (watchHistory.isNotEmpty()) {
                         showHistorySheet = false
                         viewModel.clearQueue()
-                        watchHistory.drop(1).forEach { viewModel.addToQueue(it) }
-                        onSelectVideo(watchHistory.first())
+                        viewModel.addPlaylistToQueue(watchHistory)
                     }
                 },
                 onRemoveVideo = { viewModel.removeFromWatchHistory(it) },
@@ -974,8 +971,7 @@ fun AccountScreen(
                     if (freshPl.videos.isNotEmpty()) {
                         selectedPlaylistForDetail = null
                         viewModel.clearQueue()
-                        freshPl.videos.drop(1).forEach { viewModel.addToQueue(it) }
-                        onSelectVideo(freshPl.videos.first())
+                        viewModel.addPlaylistToQueue(freshPl.videos)
                     }
                 },
                 onRemoveVideo = { v -> viewModel.removeFromPlaylist(freshPl.id, v) },

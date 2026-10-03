@@ -116,6 +116,58 @@ object GlobalPlayerManager {
     val playbackEnded: StateFlow<Boolean>
         get() = getOrCreateSession().playbackEnded
 
+    val playbackQueue: StateFlow<List<com.example.model.VideoItem>>
+        get() = getOrCreateSession().playbackQueue
+
+    val currentQueueIndex: StateFlow<Int>
+        get() = getOrCreateSession().currentQueueIndex
+
+    val hasNextItem: StateFlow<Boolean>
+        get() = getOrCreateSession().hasNextItem
+
+    val hasPreviousItem: StateFlow<Boolean>
+        get() = getOrCreateSession().hasPreviousItem
+
+    fun addToQueue(video: com.example.model.VideoItem) {
+        getOrCreateSession().addToQueue(video)
+    }
+
+    fun addPlaylistToQueue(videos: List<com.example.model.VideoItem>) {
+        getOrCreateSession().addPlaylistToQueue(videos)
+    }
+
+    fun playNextInQueue(video: com.example.model.VideoItem) {
+        getOrCreateSession().playNextInQueue(video)
+    }
+
+    fun removeFromQueue(index: Int) {
+        getOrCreateSession().removeFromQueue(index)
+    }
+
+    fun removeFromQueue(video: com.example.model.VideoItem) {
+        getOrCreateSession().removeFromQueue(video)
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        getOrCreateSession().moveQueueItem(fromIndex, toIndex)
+    }
+
+    fun clearQueue() {
+        getOrCreateSession().clearQueue()
+    }
+
+    fun skipToQueueIndex(index: Int) {
+        getOrCreateSession().skipToQueueIndex(index)
+    }
+
+    fun skipToNext(): Boolean {
+        return getOrCreateSession().skipToNext()
+    }
+
+    fun skipToPrevious(): Boolean {
+        return getOrCreateSession().skipToPrevious()
+    }
+
     fun getExoPlayer(context: Context): ExoPlayer {
         return getOrCreateSession(context).getExoPlayer()
     }

@@ -121,16 +121,25 @@ class LibraryRepository(context: Context) {
     suspend fun createPlaylist(title: String, initialVideo: VideoItem? = null) = withContext(Dispatchers.IO) {
         val id = "pl_${System.currentTimeMillis()}"
         val initialList = if (initialVideo != null) listOf(initialVideo) else emptyList()
+        val vJson = serializeVideos(initialList)
         val entity = UserPlaylistEntity(
             id = id,
             title = title.ifBlank { "New Playlist" },
-            videosJson = serializeVideos(initialList)
+            videosJson = vJson
         )
         dao.insertOrUpdatePlaylist(entity)
+        val syncPayload = org.json.JSONObject().apply {
+            put("playlist_id", id)
+            put("title", entity.title)
+            put("videos_json", try { org.json.JSONArray(vJson) } catch (_: Exception) { org.json.JSONArray() })
+            put("created_at", System.currentTimeMillis())
+        }.toString()
+        com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", id, "UPSERT", syncPayload)
     }
 
     suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
         dao.deletePlaylist(playlistId)
+        com.example.supabase.SupabaseSyncManager.enqueueSync("USER_PLAYLIST", playlistId, "DELETE", "{}")
     }
 
     private fun serializeVideos(videos: List<VideoItem>): String {

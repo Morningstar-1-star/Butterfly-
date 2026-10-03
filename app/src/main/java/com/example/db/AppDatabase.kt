@@ -62,9 +62,10 @@ interface SourceMetricsDao {
         com.example.bunkr.db.BunkrFileEntity::class,
         com.example.cloudsocial.db.CloudSocialSourceEntity::class,
         com.example.cloudsocial.db.CloudSocialMediaEntity::class,
-        com.example.db.SyncQueueEntity::class
+        com.example.db.SyncQueueEntity::class,
+        com.example.db.SavedLinkEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -77,6 +78,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bunkrDao(): com.example.bunkr.db.BunkrDao
     abstract fun cloudSocialDao(): com.example.cloudsocial.db.CloudSocialDao
     abstract fun syncQueueDao(): com.example.db.SyncQueueDao
+    abstract fun savedLinkDao(): com.example.db.SavedLinkDao
 
     companion object {
         @Volatile
@@ -367,6 +369,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `saved_links` (
+                        `id` TEXT NOT NULL,
+                        `url` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `linkType` TEXT NOT NULL,
+                        `thumbnailUrl` TEXT,
+                        `metadataJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_saved_links_url` ON `saved_links` (`url`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_saved_links_createdAt` ON `saved_links` (`createdAt`)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -374,7 +397,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "butterfly_app_database.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
