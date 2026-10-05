@@ -990,6 +990,8 @@ fun VideoPlayerScreen(
                                 },
                                 commentsCount = if (videoComments.isNotEmpty()) videoComments.size else 0,
                                 topCommentSnippet = videoComments.firstOrNull()?.commentText,
+                                topCommentAvatarUrl = videoComments.firstOrNull()?.authorAvatarUrl,
+                                topCommentAuthor = videoComments.firstOrNull()?.authorName,
                                 onChannelClick = { channelName ->
                                     viewModel.openChannel(channelName)
                                 },

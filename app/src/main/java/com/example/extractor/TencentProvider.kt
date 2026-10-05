@@ -205,21 +205,29 @@ object TencentProvider {
      */
     suspend fun getHome(page: Int = 1, limit: Int = 24): List<VideoItem> = withContext(Dispatchers.IO) {
         val safePage = if (page < 1) 1 else page
-        YouTubeExtractorHelper.ensureNewPipeInitialized()
 
-        // 1. Dynamic topic rotation from Tencent Video Donghua / Drama catalog
-        val startIndex = ((safePage - 1) * 3) % TENCENT_CORE_TOPICS.size
+        // Curated trending queries on Tencent Video / WeTV
+        val trendingQueries = listOf(
+            "Soul Land",
+            "Perfect World",
+            "Battle Through the Heavens",
+            "Swallowed Star",
+            "A Will Eternal",
+            "Joy of Life",
+            "The Untamed",
+            "Blossoms Shanghai",
+            "The King's Avatar"
+        )
+        val startIndex = ((safePage - 1) * 2) % trendingQueries.size
         val selectedTopics = listOf(
-            TENCENT_CORE_TOPICS[startIndex % TENCENT_CORE_TOPICS.size],
-            TENCENT_CORE_TOPICS[(startIndex + 1) % TENCENT_CORE_TOPICS.size],
-            TENCENT_CORE_TOPICS[(startIndex + 2) % TENCENT_CORE_TOPICS.size],
-            TENCENT_GENRES[(safePage - 1) % TENCENT_GENRES.size]
-        ).distinct()
+            trendingQueries[startIndex % trendingQueries.size],
+            trendingQueries[(startIndex + 1) % trendingQueries.size]
+        )
 
         val results = mutableListOf<VideoItem>()
         val deferredList = selectedTopics.map { topic ->
             async(Dispatchers.IO) {
-                fetchTopicItems(topic, limitPerTopic = 8)
+                searchWeTvApi(topic, limit = 12)
             }
         }
 
@@ -229,11 +237,11 @@ object TencentProvider {
 
         val distinctItems = results.distinctBy { it.id }.take(limit)
         if (distinctItems.isNotEmpty()) {
-            Log.d(TAG, "Tencent Video getHome page $safePage loaded ${distinctItems.size} videos")
+            Log.d(TAG, "Tencent Video getHome page $safePage loaded ${distinctItems.size} real videos")
             return@withContext distinctItems
         }
 
-        // 2. Direct Tencent Search API fallback
+        // Direct Tencent Search API fallback
         val apiItems = searchTencentApi("热播", limit = limit)
         if (apiItems.isNotEmpty()) {
             return@withContext apiItems
@@ -243,7 +251,7 @@ object TencentProvider {
     }
 
     /**
-     * Searches Tencent Video catalog.
+     * Searches Tencent Video catalog using official WeTV & Tencent Video search APIs.
      */
     suspend fun search(query: String, limit: Int = 20, page: Int = 1): List<VideoItem> = withContext(Dispatchers.IO) {
         val cleanQuery = query.trim().removePrefix("tencent:").removePrefix("vqq:").trim()
@@ -265,41 +273,141 @@ object TencentProvider {
             )
         }
 
-        // 1. Direct Tencent Video SmartBox / Search API
+        // 1. Official Tencent / WeTV Search API (clean titles, official posters, real episode lists)
+        val weTvResults = searchWeTvApi(cleanQuery, limit = limit)
+        if (weTvResults.isNotEmpty()) {
+            return@withContext weTvResults
+        }
+
+        // If query contained "tencent" or "video", try searching with stripped keywords
+        val stripped = cleanQuery.replace(Regex("(?i)\\b(tencent|video|vqq|wetv)\\b"), "").trim()
+        if (stripped.isNotBlank() && !stripped.equals(cleanQuery, ignoreCase = true)) {
+            val strippedResults = searchWeTvApi(stripped, limit = limit)
+            if (strippedResults.isNotEmpty()) {
+                return@withContext strippedResults
+            }
+        }
+
+        // 2. Direct Tencent Video SmartBox / Search API
         val directResults = searchTencentApi(cleanQuery, limit = limit)
         if (directResults.isNotEmpty()) {
             return@withContext directResults
         }
 
-        // 2. Multi-tier search fallback via Tencent Video channel catalog
-        val searchQuery = if (cleanQuery.contains("tencent", ignoreCase = true)) cleanQuery else "Tencent Video $cleanQuery"
-        val items = fetchTopicItems(searchQuery, limitPerTopic = limit)
-        if (items.isNotEmpty()) {
-            return@withContext items
+        // 3. High quality trending & popular Tencent Video catalog fallback (authentic Tencent content)
+        val homeFallback = getHome(page = page, limit = limit)
+        if (homeFallback.isNotEmpty()) {
+            val matched = homeFallback.filter { item ->
+                cleanQuery.split(" ").any { kw -> kw.isNotBlank() && (item.title.contains(kw, ignoreCase = true) || item.description?.contains(kw, ignoreCase = true) == true) }
+            }
+            if (matched.isNotEmpty()) return@withContext matched
+            return@withContext homeFallback.take(limit)
         }
 
         emptyList()
     }
 
-    private suspend fun fetchTopicItems(query: String, limitPerTopic: Int = 10): List<VideoItem> = withContext(Dispatchers.IO) {
+    suspend fun searchWeTvApi(query: String, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<VideoItem>()
         try {
-            val ytResults = YouTubeExtractorHelper.searchYouTube(query)
-            if (ytResults.isNotEmpty()) {
-                return@withContext ytResults.take(limitPerTopic).mapNotNull { item ->
-                    val cleanUploader = sanitizeTencentChannelName(item.uploaderName)
-                    val avatar = item.uploaderAvatarUrl?.takeIf { it.isNotBlank() } ?: getTencentAvatar(cleanUploader, item.title)
-                    val modified = item.copy(
-                        providerId = PROVIDER_ID,
-                        uploaderName = cleanUploader,
-                        uploaderAvatarUrl = avatar
-                    )
-                    if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(modified)) modified else null
+            val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+            val url = "https://wetv.vip/api/search?q=$encoded"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", DEFAULT_UA)
+                .header("Referer", "https://wetv.vip/")
+                .build()
+
+            val resp = httpClient.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string()
+                if (!body.isNullOrBlank()) {
+                    val json = JSONObject(body)
+                    val responseObj = json.optJSONObject("response")
+                    val resultObj = responseObj?.optJSONObject("result")
+                    val resArr = resultObj?.optJSONArray("result")
+                    if (resArr != null && resArr.length() > 0) {
+                        for (i in 0 until resArr.length()) {
+                            val item = resArr.optJSONObject(i) ?: continue
+                            val cid = item.optString("cid")
+                            if (cid.isBlank()) continue
+                            val title = item.optString("title", "Tencent Series")
+                            val secondTitle = item.optString("secondTitle", "")
+                            val desc = item.optString("description", "")
+                            val posterVt = item.optString("posterVt")
+                            val posterHz = item.optString("posterHz")
+                            val cover = when {
+                                posterVt.isNotBlank() -> posterVt
+                                posterHz.isNotBlank() -> posterHz
+                                else -> null
+                            }
+                            val score = item.optString("score")
+                            val year = item.optString("year")
+                            val epUpdated = item.optString("episodeUpdated")
+                            val epAll = item.optString("episodeAll")
+                            val episodesSummary = if (epUpdated.isNotBlank()) "Episodes: $epUpdated/$epAll" else ""
+                            val cleanDesc = buildString {
+                                if (secondTitle.isNotBlank()) append("$secondTitle\n")
+                                if (score.isNotBlank() && score != "0") append("Rating: $score ★  ")
+                                if (year.isNotBlank()) append("$year  ")
+                                if (episodesSummary.isNotBlank()) append(episodesSummary)
+                                if (desc.isNotBlank()) {
+                                    if (isNotEmpty()) append("\n\n")
+                                    append(desc)
+                                }
+                            }
+                            val channelName = sanitizeTencentChannelName(title)
+                            val avatar = getTencentAvatar(channelName, title)
+                            val videoUrl = "https://v.qq.com/x/cover/$cid.html"
+                            list.add(
+                                VideoItem(
+                                    id = videoUrl,
+                                    title = title,
+                                    uploaderName = channelName,
+                                    uploaderAvatarUrl = avatar,
+                                    thumbnailUrl = cover,
+                                    durationSeconds = -1L,
+                                    providerId = PROVIDER_ID,
+                                    description = cleanDesc,
+                                    uploadDate = year.takeIf { it.isNotBlank() }
+                                )
+                            )
+                            if (list.size >= limit) break
+                        }
+                    } else {
+                        // Check hot/trending list if primary search has no direct array
+                        val hotArr = responseObj?.optJSONArray("hot")
+                        if (hotArr != null) {
+                            for (i in 0 until hotArr.length()) {
+                                val item = hotArr.optJSONObject(i) ?: continue
+                                val cid = item.optString("cid")
+                                val title = item.optString("title")
+                                if (cid.isBlank() || title.isBlank()) continue
+                                val channelName = sanitizeTencentChannelName(title)
+                                val avatar = getTencentAvatar(channelName, title)
+                                val cover = item.optString("posterVt").ifBlank { item.optString("posterHz") }
+                                list.add(
+                                    VideoItem(
+                                        id = "https://v.qq.com/x/cover/$cid.html",
+                                        title = title,
+                                        uploaderName = channelName,
+                                        uploaderAvatarUrl = avatar,
+                                        thumbnailUrl = cover.takeIf { it.isNotBlank() },
+                                        durationSeconds = -1L,
+                                        providerId = PROVIDER_ID,
+                                        description = "Tencent Video / WeTV Trending Series"
+                                    )
+                                )
+                                if (list.size >= limit) break
+                            }
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed fetching topic items for '$query': ${e.message}")
+            Log.w(TAG, "searchWeTvApi failed for '$query': ${e.message}")
         }
-        emptyList()
+        list
     }
 
     private suspend fun searchTencentApi(keyword: String, limit: Int = 20): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -453,27 +561,6 @@ object TencentProvider {
             .replace("-", " ")
             .replace("_", " ")
             .trim()
-
-        if (cleanName.isNotBlank() && cleanName.length > 2) {
-            val query = if (cleanName.contains("tencent", ignoreCase = true)) cleanName else "Tencent Video $cleanName"
-            val candidates = YouTubeExtractorHelper.searchYouTube(query, context)
-            val firstMatch = candidates.firstOrNull()
-            if (firstMatch != null) {
-                val res = YouTubeExtractorHelper.resolveStream(firstMatch.id, context, "youtube")
-                if (res is YouTubeExtractorHelper.ExtractionResult.Success && res.streamData.availableStreamOptions.isNotEmpty()) {
-                    val extracted = res.streamData
-                    val cleanChannel = sanitizeTencentChannelName(firstMatch.uploaderName.ifBlank { extracted.channelName })
-                    val avatarUrl = firstMatch.uploaderAvatarUrl?.takeIf { it.isNotBlank() }
-                        ?: extracted.channelAvatarUrl?.takeIf { it.isNotBlank() }
-                        ?: getTencentAvatar(cleanChannel, extracted.title)
-                    return@withContext extracted.copy(
-                        providerId = PROVIDER_ID,
-                        channelName = cleanChannel,
-                        channelAvatarUrl = avatarUrl
-                    )
-                }
-            }
-        }
 
         null
     }

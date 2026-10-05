@@ -73,6 +73,8 @@ fun VideoDetailsSection(
     onTitleDragEnd: ((totalDy: Float) -> Unit)? = null,
     commentsCount: Int = 0,
     topCommentSnippet: String? = null,
+    topCommentAvatarUrl: String? = null,
+    topCommentAuthor: String? = null,
     modifier: Modifier = Modifier
 ) {
     var showDescriptionSheet by remember { mutableStateOf(false) }
@@ -591,20 +593,29 @@ fun VideoDetailsSection(
                             .background(Color(0xFF333333)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = Color(0xFFAAAAAA),
-                            modifier = Modifier.size(16.dp)
-                        )
+                        if (!topCommentAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = topCommentAvatarUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = Color(0xFFAAAAAA),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Text(
-                        text = topCommentSnippet?.takeIf { it.isNotBlank() } ?: "Comment...",
+                        text = topCommentSnippet?.takeIf { it.isNotBlank() } ?: "Add a comment...",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        color = Color(0xFFAAAAAA),
+                        color = if (topCommentSnippet.isNullOrBlank()) Color(0xFFAAAAAA) else Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)

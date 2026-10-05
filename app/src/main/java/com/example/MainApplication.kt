@@ -39,6 +39,7 @@ class MainApplication : Application() {
         } catch (_: Exception) {}
 
         com.example.util.AppConfig.init(this)
+        com.example.ui.player.eco.CinemaEcoManager.init(this)
 
         // Move non-essential / cloud / sync systems to background IO initialization
         // so that cold start and Home feed rendering are never blocked
@@ -78,6 +79,12 @@ class MainApplication : Application() {
             } catch (e: Exception) {
                 Log.w("MainApplication", "CardigannManager init note: ${e.message}")
             }
+            try {
+                // Pre-warm DNS queries in background thread for instant thumbnail & media streaming
+                java.net.InetAddress.getAllByName("i.ytimg.com")
+                java.net.InetAddress.getAllByName("yt3.ggpht.com")
+                java.net.InetAddress.getAllByName("googlevideo.com")
+            } catch (_: Exception) {}
         }
 
         // Configure YouTube Proof-of-Origin Token Provider for NewPipe extractor

@@ -215,7 +215,7 @@ object HotstarProvider {
                         durationSeconds = item.duration,
                         uploadDate = item.uploadDate?.offsetDateTime()?.toLocalDate()?.toString() ?: "HD",
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID,
+                        providerId = "youtube",
                         description = "Watch ${item.name} on JioHotstar with crystal-clear 1080p full audio and video."
                     )
                 )

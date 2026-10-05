@@ -603,8 +603,66 @@ object SourceTagHelper {
         if (targetProviderId.isBlank() || targetProviderId.equals("ALL", ignoreCase = true)) return true
         val pId = (itemProviderId ?: "").lowercase(java.util.Locale.ROOT).trim()
         val target = targetProviderId.lowercase(java.util.Locale.ROOT).trim()
+        if (pId.isBlank()) return false
         if (pId == target) return true
-        if (pId.contains(target) || target.contains(pId)) return true
+
+        // Specific Canonical Aliases
+        if ((target == "archive_org" || target == "archive" || target == "ia") &&
+            (pId == "archive_org" || pId == "archive" || pId == "ia")) {
+            return true
+        }
+        if ((target == "tencent" || target == "vqq" || target == "qq" || target == "wetv") &&
+            (pId == "tencent" || pId == "vqq" || pId == "qq" || pId == "wetv" || pId.startsWith("tencent"))) {
+            return true
+        }
+        if ((target == "bilibili" || target == "bili") &&
+            (pId == "bilibili" || pId == "bili")) {
+            return true
+        }
+        if ((target == "tubitv" || target == "tubi") &&
+            (pId == "tubitv" || pId == "tubi")) {
+            return true
+        }
+        if ((target == "youtube" || target == "yt") &&
+            (pId == "youtube" || pId == "yt")) {
+            return true
+        }
+        if ((target == "dailymotion" || target == "dm") &&
+            (pId == "dailymotion" || pId == "dm")) {
+            return true
+        }
+        if ((target == "hotstar" || target == "jiohotstar" || target == "hotstarseries") &&
+            (pId == "hotstar" || pId == "jiohotstar" || pId == "hotstarseries")) {
+            return true
+        }
+        if ((target == "disney" || target == "disneyplus") &&
+            (pId == "disney" || pId == "disneyplus")) {
+            return true
+        }
+        if ((target == "amazonminitv" || target == "minitv") &&
+            (pId == "amazonminitv" || pId == "minitv")) {
+            return true
+        }
+        if ((target == "hbo" || target == "hbomax" || target == "max") &&
+            (pId == "hbo" || pId == "hbomax" || pId == "max")) {
+            return true
+        }
+        if ((target == "curiositystream" || target == "curiosity") &&
+            (pId == "curiositystream" || pId == "curiosity")) {
+            return true
+        }
+        if ((target == "googledrive" || target == "gdrive" || target == "google_drive") &&
+            (pId == "googledrive" || pId == "gdrive" || pId == "google_drive")) {
+            return true
+        }
+        if ((target == "sonyliv" || target == "sonylivseries") &&
+            (pId == "sonyliv" || pId == "sonylivseries")) {
+            return true
+        }
+        if ((target == "popcorntv" || target == "popcorn") &&
+            (pId == "popcorntv" || pId == "popcorn")) {
+            return true
+        }
         if ((target == "bun-tel-meg" || target == "bunkr" || target == "telegram" || target == "mega" || target == "cloud_social") &&
             (pId == "bun-tel-meg" || pId == "bunkr" || pId == "telegram" || pId == "mega" || pId == "cloud_social")) {
             return true
@@ -613,7 +671,7 @@ object SourceTagHelper {
             (pId == "jav_all" || pId == "all_jav" || pId == "supjav" || pId == "123av" || pId == "javtiful" || pId == "sextb" || pId == "javplayer" || pId.contains("jav"))) {
             return true
         }
-        if ((target == "jikan_anime" || target == "anime") &&
+        if ((target == "jikan_anime" || target == "anime" || target == "torrent") &&
             (pId == "jikan_anime" || pId == "anime" || pId == "torrent" || pId == "crunchyroll" || pId == "hanime1")) {
             return true
         }
@@ -627,9 +685,16 @@ object SourceTagHelper {
             val sub = target.removePrefix("tmdb_")
             if (pId == target || pId == sub || pId.contains(sub)) return true
         }
+        if (target == "vidsrc" || target.startsWith("vidsrc_")) {
+            if (pId == target || pId == "vidsrc" || pId.startsWith("vidsrc_")) return true
+        }
+        if (target == "decryptor" || target.startsWith("decryptor_")) {
+            if (pId == target || pId == "decryptor" || pId.startsWith("decryptor_")) return true
+        }
         if (target == "nuvio" || target.startsWith("nuvio_")) {
             if (pId == target || pId == "nuvio" || pId.startsWith("nuvio_")) return true
         }
+        if (pId.contains(target) || target.contains(pId)) return true
         return false
     }
 

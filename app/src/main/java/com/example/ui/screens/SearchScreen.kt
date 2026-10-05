@@ -220,17 +220,16 @@ fun SearchScreen(
         // 3. Ensure popular default providers exist in normal mode
         if (!adultContentEnabled) {
             val defaults = listOf(
-                ProviderSourceItemData("tencent", "Tencent Video", Icons.Default.Tv, Color(0xFF0052D9)),
                 ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
+                ProviderSourceItemData("tencent", "Tencent Video", Icons.Default.Tv, Color(0xFF0052D9)),
                 ProviderSourceItemData("bilibili", "Bilibili", Icons.Default.Tv, Color(0xFF00A1D6)),
-                ProviderSourceItemData("sonyliv", "SonyLIV", Icons.Default.Tv, Color(0xFF003087)),
-                ProviderSourceItemData("hotstar", "Hotstar", Icons.Default.Star, Color(0xFF001435)),
-                ProviderSourceItemData("amazonminitv", "miniTV", Icons.Default.Tv, Color(0xFFFF9900)),
+                ProviderSourceItemData("tmdb_embed", "TMDB Movies", Icons.Default.Movie, Color(0xFF01B4E4)),
+                ProviderSourceItemData("tubitv", "Tubi TV", Icons.Default.Tv, Color(0xFFFA233B)),
                 ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
-                ProviderSourceItemData("jikan_anime", "Anime", Icons.Default.Star, Color(0xFF7B1FA2)),
                 ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
-                ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F)),
-                ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1))
+                ProviderSourceItemData("torrent", "Torrent / Anime", Icons.Default.Download, Color(0xFF7B1FA2)),
+                ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1)),
+                ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F))
             )
             defaults.forEach { item ->
                 if (!processedIds.contains(item.id.lowercase())) {
@@ -1288,8 +1287,12 @@ private fun getProviderChipInfo(id: String, defaultName: String): Triple<String,
     return when (id.lowercase()) {
         "tencent" -> Triple("Tencent Video", Icons.Default.Tv, Color(0xFF0052D9))
         "youtube" -> Triple("YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000))
-        "dailymotion" -> Triple("Dailymotion", Icons.Default.Movie, Color(0xFF0066DC))
         "bilibili" -> Triple("Bilibili", Icons.Default.Tv, Color(0xFF00A1D6))
+        "tmdb_embed", "tmdb", "tmdb_movies" -> Triple("TMDB Movies", Icons.Default.Movie, Color(0xFF01B4E4))
+        "tubitv", "tubi" -> Triple("Tubi TV", Icons.Default.Tv, Color(0xFFFA233B))
+        "dailymotion" -> Triple("Dailymotion", Icons.Default.Movie, Color(0xFF0066DC))
+        "torrent" -> Triple("Torrent / Anime", Icons.Default.Download, Color(0xFF7B1FA2))
+        "archive_org", "internet_archive" -> Triple("Archive.org", Icons.Default.Folder, Color(0xFF5D4037))
         "sonyliv" -> Triple("SonyLIV", Icons.Default.Tv, Color(0xFF003087))
         "hotstar" -> Triple("Hotstar", Icons.Default.Star, Color(0xFF001435))
         "amazonminitv", "minitv" -> Triple("miniTV", Icons.Default.Tv, Color(0xFFFF9900))

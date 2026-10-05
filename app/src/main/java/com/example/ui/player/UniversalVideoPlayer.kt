@@ -114,7 +114,8 @@ fun UniversalVideoPlayer(
     val playbackPrefs = remember(context) { com.example.util.PlaybackPreferences.getInstance(context) }
     val activeStreamData by GlobalPlayerManager.activeStreamData.collectAsState()
 
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    val globalPlaybackSpeed by GlobalPlayerManager.playbackSpeed.collectAsState()
+    var playbackSpeed by remember(globalPlaybackSpeed) { mutableFloatStateOf(globalPlaybackSpeed) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var customAspectRatio by remember { mutableStateOf<Float?>(null) }
     var customAspectRatioLabel by remember { mutableStateOf("Default") }
@@ -161,8 +162,8 @@ fun UniversalVideoPlayer(
         }
     }
 
-    // Resolve Default Playback Speed
-    LaunchedEffect(videoId, rawVideoUrl, activeStreamData) {
+    // Resolve Default Playback Speed only on initial video change
+    LaunchedEffect(videoId, rawVideoUrl) {
         val currentTitle = activeStreamData?.title
         val currentUploader = activeStreamData?.channelName
         val currentDesc = activeStreamData?.description
@@ -178,9 +179,20 @@ fun UniversalVideoPlayer(
         )
         isMusicTrackDetected = isMusic
 
-        val targetSpeed = playbackPrefs.getEffectiveSpeed(isMusic)
-        playbackSpeed = targetSpeed
-        GlobalPlayerManager.setPlaybackSpeed(targetSpeed)
+        // Only enforce 1.0x if music video detected AND user enabled disableSpeedForMusic setting
+        if (isMusic && playbackPrefs.disableSpeedForMusic.value) {
+            playbackSpeed = 1.0f
+            GlobalPlayerManager.setPlaybackSpeed(1.0f)
+        } else {
+            val currentGlobal = GlobalPlayerManager.playbackSpeed.value
+            if (currentGlobal != 1.0f) {
+                playbackSpeed = currentGlobal
+            } else {
+                val targetSpeed = playbackPrefs.getEffectiveSpeed(isMusic)
+                playbackSpeed = targetSpeed
+                GlobalPlayerManager.setPlaybackSpeed(targetSpeed)
+            }
+        }
 
         // Restore video effects for current video
         com.example.effects.VideoEffectsManager.onVideoChanged(videoId ?: activeStreamData?.videoId)
@@ -294,13 +306,15 @@ fun UniversalVideoPlayer(
         }
     }
 
-    LaunchedEffect(isPlaying) {
-        if (isPlaying) GlobalPlayerManager.play() else GlobalPlayerManager.pause()
-    }
-
     LaunchedEffect(streamOption?.videoUrl, streamOption?.videoStream?.url, hlsUrl, captionOption?.languageCode, videoId) {
         val playUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
         if (playUrl.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
+        val curStream = GlobalPlayerManager.activeStreamData.value
+        val isAlreadyLoaded = GlobalPlayerManager.hasLoadedMedia() && 
+            (curStream?.videoId == videoId || (videoId == null && curStream?.selectedStreamOption?.videoUrl == playUrl))
+        if (isAlreadyLoaded) {
             return@LaunchedEffect
         }
         val curPos = GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
@@ -364,6 +378,7 @@ fun UniversalVideoPlayer(
 
     DisposableEffect(Unit) {
         onDispose {
+            com.example.ui.player.eco.CinemaEcoManager.onUserInteraction(currentPlayerActivity)
             currentPlayerActivity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 val window = act.window
@@ -378,6 +393,15 @@ fun UniversalVideoPlayer(
     }
 
     val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
+
+    LaunchedEffect(isLandscape, globalIsPlaying, areControlsVisible, currentPlayerActivity) {
+        com.example.ui.player.eco.CinemaEcoManager.updatePlaybackState(
+            isLandscape = isLandscape,
+            isPlaying = globalIsPlaying,
+            areControlsVisible = areControlsVisible,
+            activity = currentPlayerActivity
+        )
+    }
 
     val playerContainerModifier = if (isLandscape || isPortraitExpanded) {
         Modifier
@@ -397,6 +421,7 @@ fun UniversalVideoPlayer(
             .pointerInput(isLandscape, isPortraitExpanded, doubleTapSeekIntervalSecs, enableTopSpeedGesture, enableSlideToSeek, seekHapticsEnabled) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    com.example.ui.player.eco.CinemaEcoManager.onUserInteraction(currentPlayerActivity)
                     val startPos = down.position
                     val startTime = System.currentTimeMillis()
                     val touchSlop = viewConfiguration.touchSlop
@@ -418,8 +443,8 @@ fun UniversalVideoPlayer(
                     val currentSysBri = getSystemBrightness(context)
                     initialBrightness = if (isAutoBrightness) currentSysBri else brightnessLevel
                     initialVolume = volumeLevel
-                    initialSpeedOnGestureStart = playbackSpeed
-                    speedGestureValue = playbackSpeed
+                    initialSpeedOnGestureStart = GlobalPlayerManager.playbackSpeed.value
+                    speedGestureValue = GlobalPlayerManager.playbackSpeed.value
                     isDraggingHorizontally = false
                     isDraggingVertically = false
                     isDraggingSpeed = false

@@ -275,7 +275,7 @@ object MxPlayerProvider {
                         durationSeconds = item.duration,
                         uploadDate = item.uploadDate?.offsetDateTime()?.toLocalDate()?.toString() ?: "MX Player",
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID,
+                        providerId = "youtube",
                         description = "Watch ${item.name} on MX Player in full HD."
                     )
                 )

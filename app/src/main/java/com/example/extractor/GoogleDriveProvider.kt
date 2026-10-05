@@ -360,7 +360,7 @@ object GoogleDriveProvider {
                             uploaderName = (infoItem.uploaderName ?: "Cloud Storage") + " • Drive",
                             uploaderUrl = infoItem.uploaderUrl ?: "https://drive.google.com",
                             thumbnailUrl = thumb,
-                            providerId = PROVIDER_ID,
+                            providerId = "youtube",
                             durationSeconds = infoItem.duration,
                             viewCount = if (infoItem.viewCount > 0) infoItem.viewCount else 1000000L,
                             uploadDate = "Google Drive",

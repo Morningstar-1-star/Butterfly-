@@ -991,16 +991,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val clipboardUrlSuggestion: StateFlow<String?> = _clipboardUrlSuggestion.asStateFlow()
 
     fun updateSearchFilter(filter: SearchFilterState) {
-        val oldSource = _searchFilter.value.sourceProviderId
+        val oldFilter = _searchFilter.value
         _searchFilter.value = filter
+        val oldSource = oldFilter.sourceProviderId
         val newSource = filter.sourceProviderId
-        if (!newSource.equals(oldSource, ignoreCase = true)) {
-            val cleanId = if (newSource.equals("ALL", ignoreCase = true)) "all" else newSource.lowercase()
-            _activeProviderId.value = cleanId
-            if (cleanId != "all" && !_enabledProviderIds.value.contains(cleanId)) {
-                _enabledProviderIds.value = _enabledProviderIds.value + cleanId
-            }
-            if (_searchQuery.value.isNotBlank()) {
+        val sourceChanged = !newSource.equals(oldSource, ignoreCase = true)
+        val cleanId = if (newSource.equals("ALL", ignoreCase = true)) "all" else newSource.lowercase()
+        _activeProviderId.value = cleanId
+        if (cleanId != "all" && !_enabledProviderIds.value.contains(cleanId)) {
+            _enabledProviderIds.value = _enabledProviderIds.value + cleanId
+        }
+        if (_searchQuery.value.isNotBlank()) {
+            if (sourceChanged) {
+                // Instantly clear old results from previous source and set searching state
+                _searchResults.value = emptyList()
+                _isSearching.value = true
+                performSearch(_searchQuery.value)
+            } else if (filter != oldFilter) {
                 performSearch(_searchQuery.value)
             }
         }
@@ -1014,6 +1021,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _searchFilter.value = SearchFilterState()
         _activeProviderId.value = "all"
         if (_searchQuery.value.isNotBlank()) {
+            _searchResults.value = emptyList()
+            _isSearching.value = true
             performSearch(_searchQuery.value)
         }
     }
@@ -4455,11 +4464,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val isSpecificSource = (activeProv != "all")
 
                     if (isSpecificSource) {
-                        // SINGLE SOURCE DEDICATED SEARCH: Query ONLY the selected source if enabled
-                        if (enabledSet.contains(activeProv) || activeProv.startsWith("vega_")) {
-                            launch(Dispatchers.IO) {
+                        // SINGLE SOURCE DEDICATED SEARCH: Query ONLY the selected source
+                        launch(Dispatchers.IO) {
                             try {
-                                val singleResults = when (activeProv) {
+                                val singleResults: List<VideoItem> = when (activeProv) {
+                                    "youtube", "yt" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                                            com.example.extractor.YouTubeExtractorHelper.searchYouTube(searchTarget, getApplication())
+                                        } ?: emptyList()
+                                    }
+                                    "bilibili", "bili" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                                            com.example.extractor.BilibiliProvider.searchBilibili(searchTarget, 1, 30)
+                                        } ?: emptyList()
+                                    }
+                                    "dailymotion", "dm" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                            com.example.extractor.DailymotionProvider.search(searchTarget, 30)
+                                        } ?: emptyList()
+                                    }
+                                    "archive_org", "archive", "ia" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                                            com.example.extractor.ArchiveOrgProvider.search(searchTarget, 1)
+                                        } ?: emptyList()
+                                    }
+                                    "tencent", "vqq", "qq", "wetv" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                            com.example.extractor.TencentProvider.search(searchTarget, 30)
+                                        } ?: emptyList()
+                                    }
+                                    "tmdb_embed", "tmdb", "tmdb_movies" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                            com.example.extractor.TMDBEmbedProvider.search(searchTarget, 30, context = getApplication())
+                                        } ?: emptyList()
+                                    }
+                                    "vidsrc" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                            com.example.extractor.VidSrcProvider.search(searchTarget, 30)
+                                        } ?: emptyList()
+                                    }
+                                    "decryptor" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                            com.example.extractor.DecryptorProvider.search(searchTarget, 30)
+                                        } ?: emptyList()
+                                    }
+                                    "nuvio" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                            com.example.extractor.NuvioProvider.search(searchTarget, 30, context = getApplication())
+                                        } ?: emptyList()
+                                    }
+                                    "tubitv", "tubi" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                                            com.example.extractor.TubiTvProvider.search(searchTarget, 30)
+                                        } ?: emptyList()
+                                    }
+                                    "torrent", "jikan_anime", "anime" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(9000L) {
+                                            searchTorrentMedia(searchTarget)
+                                        } ?: emptyList()
+                                    }
                                     "eporner" -> {
                                         kotlinx.coroutines.withTimeoutOrNull(7000L) {
                                             com.example.extractor.EpornerProvider.search(searchTarget, 30)
@@ -4480,47 +4543,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                             com.example.extractor.HellPornoProvider.search(searchTarget, 30, 1)
                                         } ?: emptyList()
                                     }
-                                    "youtube" -> {
-                                        kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                            com.example.extractor.YouTubeExtractorHelper.searchYouTube(searchTarget, getApplication())
-                                        } ?: emptyList()
-                                    }
-                                    "bilibili" -> {
-                                        kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                            com.example.extractor.BilibiliProvider.searchBilibili(searchTarget, 1, 30)
-                                        } ?: emptyList()
-                                    }
-                                    "archive_org", "archive" -> {
-                                        kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                            com.example.extractor.ArchiveOrgProvider.search(searchTarget, 1)
-                                        } ?: emptyList()
-                                    }
-                                    "torrent", "jikan_anime", "anime" -> {
-                                        kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                            searchTorrentMedia(searchTarget)
-                                        } ?: emptyList()
-                                    }
-                                    "dailymotion" -> {
-                                        kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                            com.example.extractor.DailymotionProvider.search(searchTarget, 30)
-                                        } ?: emptyList()
-                                    }
                                     else -> {
-                                        kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                            com.example.extractor.MultiSourceProvider.search(getApplication(), activeProv, searchTarget, 30)
-                                        } ?: emptyList()
+                                        if (activeProv.startsWith("vega_")) {
+                                            val rawVegaId = activeProv.removePrefix("vega_")
+                                            kotlinx.coroutines.withTimeoutOrNull(15000L) {
+                                                val vResults = com.example.vega.VegaProviderClient.search(rawVegaId, searchTarget)
+                                                vResults.map { vItem ->
+                                                    val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
+                                                    val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
+                                                    val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, vItem.title).logoUrls.firstOrNull()
+                                                    VideoItem(
+                                                        id = "vega_${rawVegaId}::${vItem.link}",
+                                                        title = vItem.title,
+                                                        uploaderName = studio,
+                                                        uploaderAvatarUrl = studioLogo,
+                                                        thumbnailUrl = vItem.imageUrl ?: "",
+                                                        durationSeconds = -1L,
+                                                        providerId = activeProv
+                                                    )
+                                                }
+                                            } ?: emptyList()
+                                        } else {
+                                            kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                                com.example.extractor.MultiSourceProvider.search(getApplication(), activeProv, searchTarget, 30)
+                                            } ?: emptyList()
+                                        }
                                     }
                                 }
-                                if (singleResults.isNotEmpty()) {
-                                    synchronized(collectedList) { collectedList.addAll(singleResults) }
+                                val normalizedResults = singleResults.map { item ->
+                                    if (item.providerId.isNullOrBlank() || item.providerId == "unknown") {
+                                        item.copy(providerId = activeProv)
+                                    } else item
+                                }
+                                if (normalizedResults.isNotEmpty()) {
+                                    synchronized(collectedList) { collectedList.addAll(normalizedResults) }
                                     updateUiResults()
                                 }
                             } catch (e: Exception) {
                                 Log.w("MainViewModel", "Single source search note for $activeProv: ${e.message}")
                             }
                         }
-                    }
-                } else if (adultEnabled) {
+                    } else if (adultEnabled) {
                         // MULTI SOURCE 18+ SEARCH: Query ONLY adult sources in parallel
                         // 1. Eporner
                         if (enabledSet.contains("eporner")) {
@@ -4604,10 +4667,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         // MULTI SOURCE NORMAL SEARCH: Strictly ENABLED normal providers only (no 18+ sources)
                         // 1. YouTube
-                        if (!isBiliSearch && enabledSet.contains("youtube")) {
+                        if (!isBiliSearch && (enabledSet.contains("youtube") || activeProv == "all")) {
                             launch(Dispatchers.IO) {
                                 try {
-                                    val ytResults = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                    val ytResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                                         com.example.extractor.YouTubeExtractorHelper.searchYouTube(searchTarget, getApplication())
                                     } ?: emptyList()
                                     if (ytResults.isNotEmpty()) {
@@ -4618,11 +4681,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        // 2. Archive.org
-                        if (enabledSet.contains("archive_org") || enabledSet.contains("archive")) {
+                        // 2. Bilibili
+                        if (enabledSet.contains("bilibili") || isBiliSearch || activeProv == "all") {
                             launch(Dispatchers.IO) {
                                 try {
-                                    val archResults = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                    val biliResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                        com.example.extractor.BilibiliProvider.searchBilibili(searchTarget, 1, 20)
+                                    } ?: emptyList()
+                                    if (biliResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(biliResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 3. Tencent Video (WeTV)
+                        if (enabledSet.contains("tencent") || enabledSet.contains("wetv") || activeProv == "all") {
+                            launch(Dispatchers.IO) {
+                                try {
+                                    val tencentResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                        com.example.extractor.TencentProvider.search(searchTarget, 20)
+                                    } ?: emptyList()
+                                    if (tencentResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(tencentResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 4. TMDB Embed (Movies & Series)
+                        if (enabledSet.contains("tmdb_embed") || enabledSet.contains("tmdb") || activeProv == "all") {
+                            launch(Dispatchers.IO) {
+                                try {
+                                    val tmdbResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                        com.example.extractor.TMDBEmbedProvider.search(searchTarget, 20, context = getApplication())
+                                    } ?: emptyList()
+                                    if (tmdbResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(tmdbResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 5. Tubi TV
+                        if (enabledSet.contains("tubitv") || enabledSet.contains("tubi") || activeProv == "all") {
+                            launch(Dispatchers.IO) {
+                                try {
+                                    val tubiResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                        com.example.extractor.TubiTvProvider.search(searchTarget, 20)
+                                    } ?: emptyList()
+                                    if (tubiResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(tubiResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 6. Dailymotion
+                        if (enabledSet.contains("dailymotion") || activeProv == "all") {
+                            launch(Dispatchers.IO) {
+                                try {
+                                    val dmResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
+                                        com.example.extractor.DailymotionProvider.search(searchTarget, 20)
+                                    } ?: emptyList()
+                                    if (dmResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(dmResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 7. Archive.org
+                        if (enabledSet.contains("archive_org") || enabledSet.contains("archive") || activeProv == "all") {
+                            launch(Dispatchers.IO) {
+                                try {
+                                    val archResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
                                         com.example.extractor.ArchiveOrgProvider.search(searchTarget, 1)
                                     } ?: emptyList()
                                     if (archResults.isNotEmpty()) {
@@ -4633,45 +4771,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        // 3. Torrent / Anime
-                        if (enabledSet.contains("torrent")) {
+                        // 8. Torrent / Anime
+                        if (enabledSet.contains("torrent") || activeProv == "all") {
                             launch(Dispatchers.IO) {
                                 try {
-                                    val tResults = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                    val tResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
                                         searchTorrentMedia(searchTarget)
                                     } ?: emptyList()
                                     if (tResults.isNotEmpty()) {
                                         synchronized(collectedList) { collectedList.addAll(tResults) }
-                                        updateUiResults()
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
-
-                        // 4. Dailymotion
-                        if (enabledSet.contains("dailymotion")) {
-                            launch(Dispatchers.IO) {
-                                try {
-                                    val dmResults = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                        com.example.extractor.DailymotionProvider.search(searchTarget, 25)
-                                    } ?: emptyList()
-                                    if (dmResults.isNotEmpty()) {
-                                        synchronized(collectedList) { collectedList.addAll(dmResults) }
-                                        updateUiResults()
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
-
-                        // 5. Bilibili
-                        if ((isBiliSearch || activeProv == "bilibili") && enabledSet.contains("bilibili")) {
-                            launch(Dispatchers.IO) {
-                                try {
-                                    val biliResults = kotlinx.coroutines.withTimeoutOrNull(4500L) {
-                                        com.example.extractor.BilibiliProvider.searchBilibili(searchTarget, 1, 20)
-                                    } ?: emptyList()
-                                    if (biliResults.isNotEmpty()) {
-                                        synchronized(collectedList) { collectedList.addAll(biliResults) }
                                         updateUiResults()
                                     }
                                 } catch (_: Exception) {}
@@ -5302,7 +5410,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadMorePlayerRecommendations(streamData: StreamData? = null) {
-        if (_isLoadingPlayerRecs.value) return
+        if (_isLoadingPlayerRecs.value || com.example.ui.player.eco.CinemaEcoManager.isBackgroundProcessingSuspended.value) return
         _isLoadingPlayerRecs.value = true
 
         viewModelScope.launch(Dispatchers.IO) {

@@ -142,6 +142,9 @@ class PlaybackSession(private val appContext: Context) {
     private val _playbackEnded = MutableStateFlow(false)
     val playbackEnded: StateFlow<Boolean> = _playbackEnded.asStateFlow()
 
+    private val _playbackSpeed = MutableStateFlow(1.0f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+
     private val playerListener = object : Player.Listener {
         override fun onVideoSizeChanged(videoSize: VideoSize) {
             if (videoSize.width > 0 && videoSize.height > 0) {
@@ -540,6 +543,7 @@ class PlaybackSession(private val appContext: Context) {
             player.prepare()
             player.playWhenReady = true
             _isPlaying.value = true
+            playerCore?.setPlaybackSpeed(_playbackSpeed.value)
 
             if (streamData != null) {
                 VideoEffectsManager.onVideoChanged(streamData.videoId)
@@ -648,6 +652,7 @@ class PlaybackSession(private val appContext: Context) {
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        _playbackSpeed.value = speed
         playerCore?.setPlaybackSpeed(speed)
     }
 
@@ -878,6 +883,7 @@ class PlaybackSession(private val appContext: Context) {
         _firstFrameRendered.value = false
         _playbackEnded.value = false
         _isPlaying.value = true
+        playerCore?.setPlaybackSpeed(_playbackSpeed.value)
 
         VideoEffectsManager.onVideoChanged(streamData.videoId)
         VideoEnhancementEngine.onVideoLoaded(

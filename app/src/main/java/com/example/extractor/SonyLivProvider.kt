@@ -124,7 +124,7 @@ object SonyLivProvider {
         val ytResults = YouTubeExtractorHelper.searchYouTube(searchQuery)
         val mapped = ytResults.take(limit).map { item ->
             item.copy(
-                providerId = PROVIDER_ID,
+                providerId = "youtube",
                 uploaderName = item.uploaderName
             )
         }
@@ -139,7 +139,7 @@ object SonyLivProvider {
         if (fallbackResults.isNotEmpty()) {
             return@withContext fallbackResults.take(limit).map { item ->
                 item.copy(
-                    providerId = PROVIDER_ID,
+                    providerId = "youtube",
                     uploaderName = item.uploaderName
                 )
             }

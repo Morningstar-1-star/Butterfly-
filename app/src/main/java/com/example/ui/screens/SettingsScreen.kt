@@ -1024,6 +1024,16 @@ fun SettingsScreen(
                                             checked = loopVideoEnabled,
                                             onCheckedChange = { coroutineScope.launch { playbackPrefs.setLoopVideoEnabled(it) } }
                                         )
+
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                        val isCinemaEcoEnabled by com.example.ui.player.eco.CinemaEcoManager.isEcoFeatureEnabled.collectAsState()
+                                        YouTubeSwitchRow(
+                                            title = "Landscape Cinema Eco Mode",
+                                            subtitle = "Auto-freezes background scrapers, sync & drops display refresh to 60Hz/24Hz during landscape playback for max battery life",
+                                            checked = isCinemaEcoEnabled,
+                                            onCheckedChange = { com.example.ui.player.eco.CinemaEcoManager.setEcoFeatureEnabled(it, context) }
+                                        )
                                     }
                                 }
                             }

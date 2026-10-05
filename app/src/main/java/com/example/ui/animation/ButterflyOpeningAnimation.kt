@@ -46,7 +46,7 @@ fun ButterflyOpeningAnimation(
 ) {
     var isSkipped by remember { mutableStateOf(false) }
 
-    // Master animation clock (0ms to 1400ms accelerated to 450ms)
+    // Master animation clock (0ms to 1400ms accelerated to 220ms for instant app opening)
     val animClock = remember { Animatable(0f) }
 
     // Launch animation sequence with safety fallback
@@ -56,14 +56,14 @@ fun ButterflyOpeningAnimation(
                 animClock.animateTo(
                     targetValue = 1400f,
                     animationSpec = tween(
-                        durationMillis = 450,
+                        durationMillis = 220,
                         easing = FastOutSlowInEasing
                     )
                 )
             } catch (_: Exception) {}
         }
         val timeoutJob = launch {
-            delay(500L)
+            delay(250L)
             if (!isSkipped) {
                 isSkipped = true
                 onAnimationFinished()

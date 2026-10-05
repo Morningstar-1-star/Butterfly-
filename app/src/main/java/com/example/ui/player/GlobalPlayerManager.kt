@@ -116,6 +116,9 @@ object GlobalPlayerManager {
     val playbackEnded: StateFlow<Boolean>
         get() = getOrCreateSession().playbackEnded
 
+    val playbackSpeed: StateFlow<Float>
+        get() = getOrCreateSession().playbackSpeed
+
     val playbackQueue: StateFlow<List<com.example.model.VideoItem>>
         get() = getOrCreateSession().playbackQueue
 

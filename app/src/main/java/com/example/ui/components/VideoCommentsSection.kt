@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +31,11 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.VideoComment
 import java.util.regex.Pattern
+
+private val YT_BLUE_LINK = Color(0xFF3EA6FF)
+private val YT_DARK_SURFACE = Color(0xFF1E1E1E)
+private val YT_DARK_CARD = Color(0xFF282828)
+private val YT_SECONDARY_TEXT = Color(0xFFAAAAAA)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -240,22 +246,30 @@ fun VideoCommentsSection(
     }
 }
 
+/**
+ * YouTube-style Single Comment Card with Author handle, time ago, styled interactive timestamps,
+ * and like/dislike/reply metrics.
+ */
 @Composable
 fun SingleCommentCard(
     comment: VideoComment,
     onLikeClick: () -> Unit,
     onSeekToTimestamp: (Long) -> Unit
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
+
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
         // Author Avatar
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(36.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
+                .background(Color(0xFF333333)),
             contentAlignment = Alignment.Center
         ) {
             if (!comment.authorAvatarUrl.isNullOrBlank()) {
@@ -267,49 +281,55 @@ fun SingleCommentCard(
                 )
             } else {
                 Text(
-                    text = comment.authorName.take(1).uppercase(),
+                    text = comment.authorName.trimStart('@').take(1).uppercase(),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    fontSize = 15.sp,
+                    color = Color.White
                 )
             }
         }
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Comment Content Column
+        // Comment Body Column
         Column(modifier = Modifier.weight(1f)) {
-            // Author Name & Time & Badge Row
+            // Author Name / Handle + Time ago + Badges
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                val authorDisplay = if (comment.authorName.startsWith("@")) comment.authorName else "@${comment.authorName.replace(" ", "")}"
                 Text(
-                    text = comment.authorName,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = authorDisplay,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = Color(0xFFCCCCCC),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
                 Spacer(modifier = Modifier.width(6.dp))
+
                 Text(
-                    text = "• ${comment.timeAgo}",
+                    text = comment.timeAgo,
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = YT_SECONDARY_TEXT
                 )
+
                 if (!comment.sourceBadge.isNullOrBlank()) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF333333)
                     ) {
                         Text(
                             text = comment.sourceBadge,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFAAAAAA),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                         )
                     }
                 }
@@ -317,22 +337,44 @@ fun SingleCommentCard(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Comment Text with Clickable Timestamps
-            val annotatedText = buildAnnotatedStringWithTimestamps(comment.commentText)
+            // Comment Text with Parsed Clickable Timestamps
+            val annotatedText = remember(comment.commentText) {
+                buildAnnotatedStringWithTimestamps(comment.commentText)
+            }
+
+            val isLongComment = comment.commentText.length > 200 || comment.commentText.count { it == '\n' } > 3
+
             ClickableText(
                 text = annotatedText,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 20.sp
+                    color = Color.White,
+                    fontSize = 13.5.sp,
+                    lineHeight = 19.sp
                 ),
+                maxLines = if (isExpanded) Int.MAX_VALUE else 4,
+                overflow = TextOverflow.Ellipsis,
                 onClick = { offset ->
-                    annotatedText.getStringAnnotations("TIMESTAMP", offset, offset)
-                        .firstOrNull()?.let { annotation ->
-                            val seconds = annotation.item.toLongOrNull() ?: 0L
-                            onSeekToTimestamp(seconds * 1000L)
-                        }
+                    val annotations = annotatedText.getStringAnnotations("TIMESTAMP", offset, offset)
+                    if (annotations.isNotEmpty()) {
+                        val seconds = annotations.first().item.toLongOrNull() ?: 0L
+                        onSeekToTimestamp(seconds * 1000L)
+                    } else if (isLongComment) {
+                        isExpanded = !isExpanded
+                    }
                 }
             )
+
+            if (isLongComment) {
+                Text(
+                    text = if (isExpanded) "Show less" else "Read more",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = YT_SECONDARY_TEXT,
+                    modifier = Modifier
+                        .clickable { isExpanded = !isExpanded }
+                        .padding(vertical = 2.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -341,73 +383,97 @@ fun SingleCommentCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                // Like Button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
                         .clickable { onLikeClick() }
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
                 ) {
                     Icon(
                         imageVector = if (comment.isLikedByMe) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                         contentDescription = "Like",
-                        tint = if (comment.isLikedByMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
+                        tint = if (comment.isLikedByMe) YT_BLUE_LINK else YT_SECONDARY_TEXT,
+                        modifier = Modifier.size(15.dp)
                     )
                     if (comment.likeCount > 0) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = formatCount(comment.likeCount),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (comment.isLikedByMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = if (comment.isLikedByMe) YT_BLUE_LINK else YT_SECONDARY_TEXT
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(18.dp))
 
+                // Dislike Button
                 Icon(
-                    imageVector = Icons.Outlined.ThumbDown,
+                    imageVector = if (comment.isDislikedByMe) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
                     contentDescription = "Dislike",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
+                    tint = YT_SECONDARY_TEXT,
+                    modifier = Modifier.size(15.dp)
                 )
 
-                if (!comment.totalReviewsCountText.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.width(20.dp))
-                    Text(
-                        text = comment.totalReviewsCountText,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
+                Spacer(modifier = Modifier.width(20.dp))
+
+                // Reply Button / Count
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { /* Expand / Add reply */ }
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ModeComment,
+                        contentDescription = "Reply",
+                        tint = YT_SECONDARY_TEXT,
+                        modifier = Modifier.size(14.dp)
                     )
+                    if (!comment.totalReviewsCountText.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = comment.totalReviewsCountText,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = YT_BLUE_LINK
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/**
+ * Builds AnnotatedString identifying video timestamps (e.g., 0:30, 01:45, 1:15:30) and formatting
+ * them with YouTube blue clickable links.
+ */
 private fun buildAnnotatedStringWithTimestamps(text: String): AnnotatedString {
     return buildAnnotatedString {
         append(text)
-        val matcher = Pattern.compile("\\b(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{2})\\b").matcher(text)
+        val pattern = Pattern.compile("\\b(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{2})\\b")
+        val matcher = pattern.matcher(text)
         while (matcher.find()) {
             val start = matcher.start()
             val end = matcher.end()
             val matchStr = matcher.group()
 
             val parts = matchStr.split(":")
-            val totalSeconds = if (parts.size == 3) {
-                parts[0].toLong() * 3600 + parts[1].toLong() * 60 + parts[2].toLong()
-            } else if (parts.size == 2) {
-                parts[0].toLong() * 60 + parts[1].toLong()
-            } else 0L
+            val totalSeconds = when (parts.size) {
+                3 -> (parts[0].toLongOrNull() ?: 0L) * 3600 + (parts[1].toLongOrNull() ?: 0L) * 60 + (parts[2].toLongOrNull() ?: 0L)
+                2 -> (parts[0].toLongOrNull() ?: 0L) * 60 + (parts[1].toLongOrNull() ?: 0L)
+                else -> 0L
+            }
 
             addStyle(
                 style = SpanStyle(
-                    color = Color(0xFF3EA6FF), // YouTube blue timestamp link
-                    fontWeight = FontWeight.Bold,
-                    textDecoration = TextDecoration.Underline
+                    color = YT_BLUE_LINK,
+                    fontWeight = FontWeight.SemiBold,
+                    textDecoration = TextDecoration.None
                 ),
                 start = start,
                 end = end
@@ -425,13 +491,13 @@ private fun buildAnnotatedStringWithTimestamps(text: String): AnnotatedString {
 private fun formatCount(count: Int): String {
     return when {
         count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format("%.1fK", count / 1_000.0)
+        count >= 1_000 -> String.format("%.1fK", count / 1000.0)
         else -> "$count"
     }
 }
 
 /**
- * YouTube-style Modern Comments Inline Panel & Sheet
+ * YouTube-style Full Comments Bottom Sheet / Panel
  */
 @Composable
 fun CommentsPanel(
@@ -447,6 +513,7 @@ fun CommentsPanel(
     var userCommentInput by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Top") }
     val filterOptions = listOf("Top", "Newest")
+    val quickEmojis = listOf("❤️", "🔥", "👏", "😂", "😍", "🎉", "💡", "👍", "🙌")
 
     val sortedComments = remember(comments, selectedFilter) {
         when (selectedFilter) {
@@ -457,7 +524,7 @@ fun CommentsPanel(
 
     Surface(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = Color.Black,
+        color = Color(0xFF0F0F0F),
         modifier = modifier.fillMaxSize()
     ) {
         Column(
@@ -472,13 +539,13 @@ fun CommentsPanel(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(36.dp)
+                        .width(40.dp)
                         .height(4.dp)
                         .background(Color(0xFF555555), RoundedCornerShape(2.dp))
                 )
             }
 
-            // Header Row
+            // Header Row: Title + Count + Sort Chips + Close button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -486,11 +553,21 @@ fun CommentsPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (comments.isNotEmpty()) "Comments ${comments.size}" else "Comments",
+                    text = "Comments",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = Color.White
                 )
+                if (comments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = formatCount(comments.size),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = YT_SECONDARY_TEXT
+                    )
+                }
+
                 Spacer(modifier = Modifier.weight(1f))
 
                 // Sort Chips
@@ -513,9 +590,11 @@ fun CommentsPanel(
                     }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(32.dp).padding(start = 4.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
@@ -526,9 +605,9 @@ fun CommentsPanel(
                 }
             }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
 
-            // Comments List
+            // Comments List Area
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -539,20 +618,32 @@ fun CommentsPanel(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(32.dp), color = MaterialTheme.colorScheme.primary)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Loading comments...",
+                                fontSize = 13.sp,
+                                color = YT_SECONDARY_TEXT
+                            )
+                        }
                     }
                 } else if (sortedComments.isEmpty()) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(24.dp),
+                            .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ChatBubbleOutline,
                             contentDescription = null,
-                            tint = Color(0xFFAAAAAA),
+                            tint = Color(0xFF666666),
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
@@ -564,16 +655,29 @@ fun CommentsPanel(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Be the first one to comment!",
+                            text = "Say something to start the conversation!",
                             fontSize = 13.sp,
-                            color = Color(0xFFAAAAAA)
+                            color = YT_SECONDARY_TEXT
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        FilledTonalButton(
+                            onClick = onRefresh,
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Refresh Comments")
+                        }
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         items(sortedComments, key = { it.id }) { comment ->
                             SingleCommentCard(
@@ -589,108 +693,96 @@ fun CommentsPanel(
                 }
             }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
 
-            // Sticky Bottom Input Bar
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            // Sticky Bottom Comment Input Bar with Emoji Row
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF181818))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF333333)),
-                    contentAlignment = Alignment.Center
+                // Quick emoji row
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "User",
-                        tint = Color(0xFFAAAAAA),
-                        modifier = Modifier.size(18.dp)
-                    )
+                    items(quickEmojis) { emoji ->
+                        Text(
+                            text = emoji,
+                            fontSize = 20.sp,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { userCommentInput += emoji }
+                                .padding(4.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
-
-                TextField(
-                    value = userCommentInput,
-                    onValueChange = { userCommentInput = it },
-                    placeholder = {
-                        Text("Add a comment...", fontSize = 13.sp, color = Color(0xFFAAAAAA))
-                    },
-                    maxLines = 3,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(Color(0xFF272727), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 8.dp)
-                )
-
-                if (userCommentInput.isNotBlank()) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    IconButton(
-                        onClick = {
-                            onAddComment(userCommentInput)
-                            userCommentInput = ""
-                        },
-                        modifier = Modifier.size(36.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF333333)),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Post Comment",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "You",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    TextField(
+                        value = userCommentInput,
+                        onValueChange = { userCommentInput = it },
+                        placeholder = {
+                            Text("Add a comment...", fontSize = 13.5.sp, color = YT_SECONDARY_TEXT)
+                        },
+                        singleLine = false,
+                        maxLines = 4,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF222222),
+                            unfocusedContainerColor = Color(0xFF222222),
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 40.dp)
+                    )
+
+                    if (userCommentInput.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                onAddComment(userCommentInput.trim())
+                                userCommentInput = ""
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Send",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
-
-/**
- * YouTube-style Modern Comments Bottom Sheet
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CommentsBottomSheet(
-    comments: List<VideoComment>,
-    isLoading: Boolean = false,
-    onAddComment: (String) -> Unit = {},
-    onLikeComment: (String) -> Unit = {},
-    onSeekToTimestamp: (Long) -> Unit = {},
-    onRefresh: () -> Unit = {},
-    onDismiss: () -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color(0xFF0F0F0F),
-        dragHandle = null
-    ) {
-        CommentsPanel(
-            comments = comments,
-            isLoading = isLoading,
-            onAddComment = onAddComment,
-            onLikeComment = onLikeComment,
-            onSeekToTimestamp = onSeekToTimestamp,
-            onRefresh = onRefresh,
-            onDismiss = onDismiss,
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f)
-        )
-    }
-}
-

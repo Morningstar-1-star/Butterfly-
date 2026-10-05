@@ -106,28 +106,16 @@ object LanguageFilterHelper {
      * Check if a video item is in one of the allowed languages (English, Hindi, Chinese, Japanese).
      */
     fun isAllowedVideoItem(item: VideoItem): Boolean {
-        // 1. Check title for disallowed scripts & keywords
-        if (hasDisallowedScript(item.title) || hasDisallowedScript(item.originalTitle)) {
+        // 1. Check title for disallowed scripts & regional news spam keywords
+        if (hasDisallowedScript(item.title)) {
             return false
         }
-        if (containsDisallowedKeywords(item.title) || containsDisallowedKeywords(item.originalTitle)) {
-            return false
-        }
-
-        // 2. Check channel/uploader for disallowed scripts & keywords
-        if (hasDisallowedScript(item.uploaderName) || containsDisallowedKeywords(item.uploaderName)) {
+        if (containsDisallowedKeywords(item.title)) {
             return false
         }
 
-        // 3. Check tags
-        for (tag in item.tags) {
-            if (hasDisallowedScript(tag) || containsDisallowedKeywords(tag)) {
-                return false
-            }
-        }
-
-        // 4. Check description
-        if (hasDisallowedScript(item.description)) {
+        // 2. Check channel/uploader for regional news spam keywords (e.g. regional news channels)
+        if (containsDisallowedKeywords(item.uploaderName)) {
             return false
         }
 

@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
                     0f
                 ).apply {
                     interpolator = android.view.animation.AccelerateDecelerateInterpolator()
-                    duration = 180L
+                    duration = 100L
                     doOnEnd { splashScreenView.remove() }
                 }
                 fadeOut.start()
@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
                 // Safety watchdog: ensure opening animation finishes smoothly without premature cut-off
                 LaunchedEffect(showOpeningAnimation, isOpeningAnimationEnabled) {
                     if (showOpeningAnimation && isOpeningAnimationEnabled) {
-                        kotlinx.coroutines.delay(460L)
+                        kotlinx.coroutines.delay(240L)
                         viewModel.dismissOpeningAnimation()
                     }
                 }

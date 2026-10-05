@@ -210,7 +210,7 @@ object CuriosityStreamProvider {
                         durationSeconds = item.duration,
                         uploadDate = item.uploadDate?.offsetDateTime()?.toLocalDate()?.toString() ?: "CuriosityStream",
                         thumbnailUrl = thumb,
-                        providerId = PROVIDER_ID,
+                        providerId = "youtube",
                         description = "Watch ${item.name} on CuriosityStream."
                     )
                 )
