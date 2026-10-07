@@ -639,6 +639,10 @@ object SourceTagHelper {
             (pId == "disney" || pId == "disneyplus")) {
             return true
         }
+        if ((target == "tencent" || target == "wetv" || target == "vqq" || target == "qq") &&
+            (pId == "tencent" || pId == "wetv" || pId == "vqq" || pId == "qq")) {
+            return true
+        }
         if ((target == "amazonminitv" || target == "minitv") &&
             (pId == "amazonminitv" || pId == "minitv")) {
             return true

@@ -12,7 +12,7 @@ class VegaProviderRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _isVegaMasterEnabled = MutableStateFlow(
-        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, false)
+        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, true)
     )
     val isVegaMasterEnabled: StateFlow<Boolean> = _isVegaMasterEnabled.asStateFlow()
 
@@ -58,20 +58,6 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     private fun loadInstalledProviders() {
-        val migrationDone = prefs.getBoolean(KEY_MIGRATION_V3, false)
-        if (!migrationDone) {
-            // User requested all Vega sources uninstalled and disabled by default
-            prefs.edit()
-                .putString(KEY_INSTALLED_PROVIDERS, "[]")
-                .putBoolean(KEY_VEGA_MASTER_ENABLED, false)
-                .putBoolean(KEY_MIGRATION_V3, true)
-                .apply()
-            _isVegaMasterEnabled.value = false
-            VegaProviderClient.isVegaGloballyEnabled = false
-            _installedProviders.value = emptyList()
-            return
-        }
-
         val jsonStr = prefs.getString(KEY_INSTALLED_PROVIDERS, null)
         val list = mutableListOf<InstalledVegaProvider>()
 
@@ -98,6 +84,24 @@ class VegaProviderRepository(private val context: Context) {
             } catch (e: Exception) {
                 // Ignore parse errors
             }
+        }
+
+        // If no providers installed yet, populate with registered providers enabled by default
+        if (list.isEmpty()) {
+            val registered = VegaProviderRegistry.getAllProviders()
+            val initialList = registered.map { p ->
+                InstalledVegaProvider(
+                    id = p.id.lowercase().trim(),
+                    name = p.name,
+                    isEnabled = true,
+                    installedAtMs = System.currentTimeMillis()
+                )
+            }
+            list.addAll(initialList)
+            saveInstalledProviders(list)
+            _isVegaMasterEnabled.value = true
+            VegaProviderClient.isVegaGloballyEnabled = true
+            prefs.edit().putBoolean(KEY_VEGA_MASTER_ENABLED, true).apply()
         }
 
         _installedProviders.value = list

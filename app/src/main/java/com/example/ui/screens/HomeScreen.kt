@@ -94,6 +94,7 @@ fun HomeScreen(
     val notInterestedChannels by viewModel.notInterestedChannels.collectAsState()
     val adultContentEnabled by viewModel.adultContentEnabled.collectAsState()
     val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
+    val enabledProviderIds by viewModel.enabledProviderIds.collectAsState()
 
     val userProfile by viewModel.userProfile.collectAsState()
     val globalActiveStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
@@ -204,7 +205,7 @@ fun HomeScreen(
     )
 
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val scrollThresholdPx = remember(density) { with(density) { 24.dp.toPx() } }
+    val scrollThresholdPx = remember(density) { with(density) { 48.dp.toPx() } }
 
     val nestedScrollConnection = remember(scrollThresholdPx) {
         val accumulatedScroll = floatArrayOf(0f)
@@ -459,8 +460,12 @@ fun HomeScreen(
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
-                            val feedList = remember(rawFeed) { rawFeed }
-                            val shortsFeedList = remember(rawFeed) { rawFeed }
+                            val feedList = remember(rawFeed, enabledProviderIds) {
+                                rawFeed.filter { viewModel.isItemProviderEnabled(it.providerId, enabledProviderIds) }
+                            }
+                            val shortsFeedList = remember(rawFeed, enabledProviderIds) {
+                                rawFeed.filter { viewModel.isItemProviderEnabled(it.providerId, enabledProviderIds) }
+                            }
 
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
@@ -492,11 +497,17 @@ fun HomeScreen(
                             val pullRefreshState = rememberPullToRefreshState()
                             val isRefreshingFeed = isFeedRefreshing
 
+                            LaunchedEffect(isRefreshingFeed) {
+                                if (isRefreshingFeed) {
+                                    feedListState.scrollToItem(0, 0)
+                                }
+                            }
+
                             PullToRefreshBox(
                                 isRefreshing = isRefreshingFeed,
                                 onRefresh = {
                                     coroutineScope.launch {
-                                        feedListState.scrollToItem(0)
+                                        feedListState.scrollToItem(0, 0)
                                     }
                                     viewModel.refreshFeed()
                                 },

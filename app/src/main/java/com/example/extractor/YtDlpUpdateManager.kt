@@ -72,25 +72,32 @@ object YtDlpUpdateManager {
                 }
             }
 
-            // Sync plugin extractors (like noodlemagazine.py) from assets into safe plugin directories
+            // Sync plugin extractors (like noodlemagazine.py) from assets into proper yt_dlp_plugins/extractor namespace
             try {
                 val assetMgr = context.assets
                 val pluginFiles = assetMgr.list("yt_plugins/yt_dlp_plugins/extractor") ?: emptyArray()
                 if (pluginFiles.isNotEmpty()) {
-                    val candidatePluginDirs = listOf(
-                        File(context.filesDir, "yt-dlp/yt_dlp/extractor"),
-                        File(context.filesDir, "yt_dlp_updated/yt_dlp/extractor")
+                    val candidatePluginBases = listOf(
+                        File(context.filesDir, "yt-dlp"),
+                        File(context.filesDir, "yt_dlp_updated"),
+                        context.filesDir
                     )
-                    for (ed in candidatePluginDirs) {
-                        if (ed.exists() && ed.isDirectory) {
-                            for (pName in pluginFiles) {
-                                if (pName.endsWith(".py")) {
-                                    val destPy = File(ed, pName)
-                                    assetMgr.open("yt_plugins/yt_dlp_plugins/extractor/$pName").use { input ->
-                                        FileOutputStream(destPy).use { out -> input.copyTo(out) }
-                                    }
-                                    Log.i(TAG, "Synced asset extractor plugin $pName to ${destPy.absolutePath}")
+                    for (baseDir in candidatePluginBases) {
+                        val pluginNamespaceDir = File(baseDir, "yt_dlp_plugins/extractor")
+                        pluginNamespaceDir.mkdirs()
+                        // Ensure root namespace __init__.py exists
+                        val rootInit = File(baseDir, "yt_dlp_plugins/__init__.py")
+                        if (!rootInit.exists()) {
+                            try { rootInit.writeText("# yt-dlp plugins namespace\n") } catch (_: Exception) {}
+                        }
+                        // Copy all files including __init__.py and noodlemagazine.py
+                        for (pName in pluginFiles) {
+                            if (pName.endsWith(".py")) {
+                                val destPy = File(pluginNamespaceDir, pName)
+                                assetMgr.open("yt_plugins/yt_dlp_plugins/extractor/$pName").use { input ->
+                                    FileOutputStream(destPy).use { out -> input.copyTo(out) }
                                 }
+                                Log.i(TAG, "Synced asset extractor plugin $pName to ${destPy.absolutePath}")
                             }
                         }
                     }

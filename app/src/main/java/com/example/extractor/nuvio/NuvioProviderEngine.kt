@@ -179,21 +179,16 @@ object NuvioProviderEngine {
             "allmovieland" -> AllMovieLandNuvioExtractor.extract(request)
             "vidnest" -> VidnestNuvioExtractor.extract(request)
 
-            // Additional dynamic Nuvio scrapers mapped to high-speed extractors
+            // Additional dynamic Nuvio scrapers mapped to verified extractors
             "vixsrc" -> VixSrcExtractor.extract(request).map { it.toNuvioStreamResult("VixSrc", pid) }
             "videasy" -> VideasyExtractor.extract(request).map { it.toNuvioStreamResult("VIDEASY", pid) }
             "netmirror" -> NetMirrorExtractor.extract(request).map { it.toNuvioStreamResult("NetMirror", pid) }
             "streamflix" -> StreamFlixExtractor.extract(request).map { it.toNuvioStreamResult("StreamFlix", pid) }
             "dahmermovies" -> DahmerMoviesExtractor.extract(request).map { it.toNuvioStreamResult("DahmerMovies", pid) }
-            "moviebox", "dvdplay", "yflix", "mallumv", "cinevibe", "cinemacity", "movieblast", "mycima", "animepahe", "anizone", "kurage", "vidnest-anime" -> {
-                val streams = mutableListOf<NuvioStreamResult>()
-                try {
-                    val s = VixSrcExtractor.extract(request)
-                    streams.addAll(s.map { it.toNuvioStreamResult(providerId.replaceFirstChar { c -> c.uppercase() }, pid) })
-                } catch (e: Exception) {}
-                streams
+            else -> {
+                Log.d(TAG, "Nuvio provider '$pid' has no dedicated extractor registered; skipping rather than using fake mapping")
+                emptyList()
             }
-            else -> emptyList()
         }
     }
 

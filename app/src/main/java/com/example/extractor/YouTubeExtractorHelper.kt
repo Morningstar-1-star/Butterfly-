@@ -63,6 +63,26 @@ object YouTubeExtractorHelper {
         ensureNewPipeInitialized()
     }
 
+    private val streamResolutionCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, StreamData>>()
+    private const val RESOLUTION_CACHE_TTL_MS = 600_000L // 10 minutes
+
+    fun getCachedStream(providerId: String?, urlOrId: String): StreamData? {
+        val key = "${providerId ?: ""}_$urlOrId"
+        val entry = streamResolutionCache[key] ?: return null
+        if (System.currentTimeMillis() - entry.first < RESOLUTION_CACHE_TTL_MS && entry.second.availableStreamOptions.isNotEmpty()) {
+            return entry.second
+        }
+        streamResolutionCache.remove(key)
+        return null
+    }
+
+    fun cacheStream(providerId: String?, urlOrId: String, data: StreamData) {
+        if (data.availableStreamOptions.isNotEmpty()) {
+            val key = "${providerId ?: ""}_$urlOrId"
+            streamResolutionCache[key] = Pair(System.currentTimeMillis(), data)
+        }
+    }
+
     suspend fun fetchYouTubeTrending(context: Context? = null, page: Int = 1, forceRefresh: Boolean = false): List<VideoItem> = withContext(Dispatchers.IO) {
         val combinedTrending = mutableListOf<VideoItem>()
 
@@ -300,6 +320,12 @@ object YouTubeExtractorHelper {
     }
 
     suspend fun resolveStream(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult = withContext(Dispatchers.IO) {
+        val cached = getCachedStream(providerId, urlOrId)
+        if (cached != null) {
+            Log.i(TAG, "Returning cached stream for $urlOrId (provider: $providerId)")
+            return@withContext ExtractionResult.Success(cached)
+        }
+
         // Step 0: Direct Vault / M3U8 / Local file handling (zero transcoding/downloading)
         val isM3u8OrLocal = providerId == "m3u8" || providerId == "local" || providerId == "vault" || providerId == "gdrive" ||
                 urlOrId.startsWith("content://") || urlOrId.startsWith("file://") ||
@@ -818,22 +844,17 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isTencent = providerId == "tencent" || providerId == "vqq" || providerId == "qq" ||
+        val isTencent = providerId == "tencent" || providerId == "vqq" || providerId == "qq" || providerId == "wetv" ||
                 urlOrId.contains("v.qq.com") || urlOrId.contains("video.qq.com") ||
-                urlOrId.startsWith("tencent:", ignoreCase = true) || urlOrId.startsWith("vqq:", ignoreCase = true)
+                urlOrId.startsWith("tencent:", ignoreCase = true) || urlOrId.startsWith("vqq:", ignoreCase = true) ||
+                urlOrId.contains("wetv.vip")
         if (isTencent) {
             val tencentData = TencentProvider.getStreamData(urlOrId, context)
-            if (tencentData != null) {
+            if (tencentData != null && tencentData.availableStreamOptions.isNotEmpty()) {
+                cacheStream(providerId, urlOrId, tencentData)
+                cacheStream(TencentProvider.PROVIDER_ID, urlOrId, tencentData)
                 Log.i(TAG, "Resolved via TencentProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(tencentData)
-            } else if (context != null) {
-                Log.i(TAG, "Routing Tencent to YtDlpResolver fallback for $urlOrId")
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, urlOrId)
-                if (ytdlResult is ExtractionResult.Success) {
-                    return@withContext ExtractionResult.Success(
-                        ytdlResult.streamData.copy(providerId = TencentProvider.PROVIDER_ID)
-                    )
-                }
             }
         }
 
@@ -1466,6 +1487,8 @@ object YouTubeExtractorHelper {
                         )
                     )
                     Log.i(TAG, "NewPipe extraction success: ${sortedOptions.size} formats available. Selected: ${bestOption.qualityLabel}")
+                    cacheStream("youtube", videoId, streamData)
+                    cacheStream(providerId, urlOrId, streamData)
                     return@withContext ExtractionResult.Success(streamData)
                 }
             } catch (e: Exception) {

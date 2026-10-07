@@ -178,12 +178,93 @@ object VidSrcWasmDecryptor {
                         WebAssembly.instantiate(wasmBin, {}).then(function(inst) {
                             var ex = inst.exports;
                             var encBin = Uint8Array.from(atob(encStr), function(c) { return c.charCodeAt(0); });
-                            var ptr = ex.alloc(encBin.length);
-                            new Uint8Array(ex.memory.buffer, ptr, encBin.length).set(encBin);
-                            var outLen = ex.decrypt(ptr, encBin.length);
-                            var decBytes = new Uint8Array(ex.memory.buffer, ptr + 12, outLen);
-                            var res = new TextDecoder().decode(decBytes);
-                            window.VidSrcBridge.onDecrypted(res);
+                            var allocFn = ex.alloc || ex.malloc || ex._malloc;
+                            if (!allocFn) {
+                                window.VidSrcBridge.onError("No alloc/malloc export found in WASM");
+                                return;
+                            }
+                            var ptr = allocFn(encBin.length);
+                            var memU8 = new Uint8Array(ex.memory.buffer);
+                            memU8.set(encBin, ptr);
+
+                            var decryptFn = ex.decrypt || ex.decode || ex._decrypt;
+                            if (!decryptFn) {
+                                window.VidSrcBridge.onError("No decrypt export found in WASM");
+                                return;
+                            }
+                            var retVal = decryptFn(ptr, encBin.length);
+                            memU8 = new Uint8Array(ex.memory.buffer); // re-acquire in case of memory growth
+
+                            var res = null;
+                            var decoder = new TextDecoder();
+
+                            // Strategy 1: Check if export get_result / getResult exists
+                            if (typeof ex.get_result === 'function' || typeof ex.getResult === 'function') {
+                                try {
+                                    var resPtr = (ex.get_result || ex.getResult)();
+                                    if (resPtr > 0 && resPtr < memU8.length) {
+                                        var end = resPtr;
+                                        while (end < memU8.length && memU8[end] !== 0 && (end - resPtr) < 8192) end++;
+                                        var candidate = decoder.decode(memU8.subarray(resPtr, end));
+                                        if (candidate.indexOf("http") !== -1 || candidate.indexOf(".m3u8") !== -1) {
+                                            res = candidate;
+                                        }
+                                    }
+                                } catch(e) {}
+                            }
+
+                            // Strategy 2: retVal is output length with 12-byte nonce offset (ptr + 12)
+                            if (!res && retVal > 0 && retVal < 100000 && (ptr + 12 + retVal) <= memU8.length) {
+                                try {
+                                    var candidate = decoder.decode(memU8.subarray(ptr + 12, ptr + 12 + retVal));
+                                    if (candidate.indexOf("http") !== -1 || candidate.indexOf(".m3u8") !== -1) {
+                                        res = candidate;
+                                    }
+                                } catch(e) {}
+                            }
+
+                            // Strategy 3: retVal is output length starting at ptr (no nonce offset)
+                            if (!res && retVal > 0 && retVal < 100000 && (ptr + retVal) <= memU8.length) {
+                                try {
+                                    var candidate = decoder.decode(memU8.subarray(ptr, ptr + retVal));
+                                    if (candidate.indexOf("http") !== -1 || candidate.indexOf(".m3u8") !== -1) {
+                                        res = candidate;
+                                    }
+                                } catch(e) {}
+                            }
+
+                            // Strategy 4: retVal is an output pointer to null-terminated string
+                            if (!res && retVal > 0 && retVal < memU8.length) {
+                                try {
+                                    var end = retVal;
+                                    while (end < memU8.length && memU8[end] !== 0 && (end - retVal) < 8192) end++;
+                                    var candidate = decoder.decode(memU8.subarray(retVal, end));
+                                    if (candidate.indexOf("http") !== -1 || candidate.indexOf(".m3u8") !== -1) {
+                                        res = candidate;
+                                    }
+                                } catch(e) {}
+                            }
+
+                            // Strategy 5: Memory scan around ptr for "http" or JSON
+                            if (!res) {
+                                for (var off = 0; off <= 32; off += 4) {
+                                    var start = ptr + off;
+                                    if (start + 8 < memU8.length) {
+                                        var head = String.fromCharCode(memU8[start], memU8[start+1], memU8[start+2], memU8[start+3]);
+                                        if (head === "http" || head === "{\"") {
+                                            var len = (retVal > 0 && retVal < 10000) ? retVal : (encBin.length - off);
+                                            res = decoder.decode(memU8.subarray(start, Math.min(start + len, memU8.length)));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (res) {
+                                window.VidSrcBridge.onDecrypted(res);
+                            } else {
+                                window.VidSrcBridge.onError("Could not locate decrypted URL in WASM memory");
+                            }
                         }).catch(function(err) {
                             window.VidSrcBridge.onError(String(err));
                         });

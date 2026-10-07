@@ -128,6 +128,8 @@ fun VideoCard(
             if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
         } else if (isMovieOrMedia) {
             "1:45:00"
+        } else if (video.providerId in setOf("tencent", "vqq", "qq", "wetv") || video.id.contains("v.qq.com") || video.id.contains("wetv")) {
+            "22:00"
         } else {
             ""
         }

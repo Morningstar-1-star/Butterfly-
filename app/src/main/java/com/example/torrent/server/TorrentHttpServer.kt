@@ -1,5 +1,6 @@
 package com.example.torrent.server
 
+import android.content.Context
 import android.util.Log
 import com.example.torrent.engine.TorrentEngine
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,17 @@ class TorrentHttpServer(
     companion object {
         private const val TAG = "TorrentHttpServer"
         private const val BUFFER_SIZE = 64 * 1024 // 64 KB chunk
+
+        @Volatile
+        private var instance: TorrentHttpServer? = null
+
+        fun getInstance(context: Context): TorrentHttpServer {
+            return instance ?: synchronized(this) {
+                instance ?: TorrentHttpServer(TorrentEngine.getInstance(context), port = 0).also {
+                    instance = it
+                }
+            }
+        }
     }
 
     private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())

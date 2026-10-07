@@ -33,7 +33,14 @@ class TorrentioProvider(
     private val baseUrl: String get() = com.example.util.PlaybackPreferences.torrentioBaseUrl
 
     override suspend fun search(query: String, identity: MediaIdentity): List<TorrentResult> = withContext(Dispatchers.IO) {
-        val imdbId = identity.imdbId?.trim()
+        var imdbId = identity.imdbId?.trim()
+        if (imdbId.isNullOrBlank() || !imdbId.startsWith("tt")) {
+            val tmdbId = identity.tmdbId?.trim()
+            if (!tmdbId.isNullOrBlank()) {
+                val mediaType = if (identity.mediaType.equals("tv", ignoreCase = true)) "tv" else "movie"
+                imdbId = TorrentProviderManager.getInstance().fetchImdbFromTmdb(tmdbId, mediaType)
+            }
+        }
         if (imdbId.isNullOrBlank() || !imdbId.startsWith("tt")) {
             return@withContext emptyList()
         }
@@ -83,19 +90,25 @@ class TorrentioProvider(
                 val titleLines = streamTitle.split("\n")
                 val releaseName = titleLines.firstOrNull()?.trim() ?: identity.title
 
-                var seeders = if (directUrl.isNotBlank() || streamName.contains("RD") || streamName.contains("AD") || streamName.contains("PM")) 999 else 0
+                val isDebridStream = directUrl.startsWith("http://") || directUrl.startsWith("https://") ||
+                        Regex("""\[(RD|AD|PM|TB|DL|OC)\+?\]""").containsMatchIn(streamName) ||
+                        Regex("""(?i)\b(real-?debrid|all-?debrid|premiumize)\b""").containsMatchIn(streamName)
+
+                var seeders = if (isDebridStream) 999 else 0
                 var sizeBytes = 0L
                 var formattedSize = ""
 
                 for (line in titleLines) {
-                    if (line.contains("👤") || line.contains("seed", ignoreCase = true)) {
-                        val seederMatch = Regex("👤\\s*(\\d+)").find(line)
+                    if (!isDebridStream && (line.contains("👤") || line.contains("seed", ignoreCase = true))) {
+                        val seederMatch = Regex("""👤\s*(\d+)""").find(line)
+                            ?: Regex("""(?i)(\d+)\s*seeds?""").find(line)
+                            ?: Regex("""(?i)seeders?:\s*(\d+)""").find(line)
                         if (seederMatch != null) {
                             seeders = seederMatch.groupValues[1].toIntOrNull() ?: seeders
                         }
                     }
                     if (line.contains("💾") || line.contains("GB", ignoreCase = true) || line.contains("MB", ignoreCase = true)) {
-                        val sizeMatch = Regex("💾\\s*([0-9.]+\\s*[GM]B)").find(line)
+                        val sizeMatch = Regex("""💾\s*([0-9.]+\s*[GM]B)""").find(line)
                         if (sizeMatch != null) {
                             formattedSize = sizeMatch.groupValues[1]
                             sizeBytes = TorrentResult.parseBytes(formattedSize)
@@ -114,14 +127,11 @@ class TorrentioProvider(
 
                 val magnetUrl = if (directUrl.isNotBlank()) directUrl else MagnetParser.buildMagnetUrl(infoHash, releaseName)
 
-                val providerLabel = if (streamName.contains("[RD+]") || streamName.contains("RD")) {
-                    "Torrentio (Real-Debrid)"
-                } else if (streamName.contains("[AD+]") || streamName.contains("AD")) {
-                    "Torrentio (AllDebrid)"
-                } else if (streamName.contains("[PM+]") || streamName.contains("PM")) {
-                    "Torrentio (Premiumize)"
-                } else {
-                    "Torrentio"
+                val providerLabel = when {
+                    Regex("""(?i)\[RD\+?\]|\bReal-?Debrid\b""").containsMatchIn(streamName) -> "Torrentio (Real-Debrid)"
+                    Regex("""(?i)\[AD\+?\]|\bAll-?Debrid\b""").containsMatchIn(streamName) -> "Torrentio (AllDebrid)"
+                    Regex("""(?i)\[PM\+?\]|\bPremiumize\b""").containsMatchIn(streamName) -> "Torrentio (Premiumize)"
+                    else -> "Torrentio"
                 }
 
                 results.add(

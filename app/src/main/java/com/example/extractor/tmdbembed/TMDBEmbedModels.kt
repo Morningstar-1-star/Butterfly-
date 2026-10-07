@@ -13,7 +13,14 @@ data class TMDBMediaRequest(
     val year: String = "",
     val imdbId: String? = null
 ) {
-    val isTv: Boolean get() = mediaType.equals("tv", ignoreCase = true) || season > 0 && episode > 0
+    val isTv: Boolean
+        get() = if (mediaType.equals("movie", ignoreCase = true)) {
+            false
+        } else {
+            mediaType.equals("tv", ignoreCase = true) ||
+            mediaType.equals("series", ignoreCase = true) ||
+            (mediaType.isEmpty() && season > 0 && episode > 0)
+        }
 }
 
 data class ExtractedStream(

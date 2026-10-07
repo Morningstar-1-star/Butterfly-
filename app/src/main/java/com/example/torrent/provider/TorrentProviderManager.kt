@@ -136,7 +136,7 @@ class TorrentProviderManager(
         Pair(null, null)
     }
 
-    private fun fetchImdbFromTmdb(tmdbId: String, mediaType: String): String? {
+    fun fetchImdbFromTmdb(tmdbId: String, mediaType: String): String? {
         val endpoint = if (mediaType.equals("tv", ignoreCase = true)) "tv" else "movie"
         val url = "https://api.themoviedb.org/3/$endpoint/$tmdbId/external_ids?api_key=$TMDB_API_KEY"
 

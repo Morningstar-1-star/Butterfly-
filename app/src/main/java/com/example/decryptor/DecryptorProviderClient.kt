@@ -58,9 +58,9 @@ object DecryptorProviderClient {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
             .followRedirects(true)
             .retryOnConnectionFailure(true)
             .build()
@@ -178,7 +178,13 @@ object DecryptorProviderClient {
 
             if (!response.isSuccessful) {
                 val errorMsg = "Decryptor server returned HTTP ${response.code}: ${response.message}"
-                Log.w(TAG, "$errorMsg - Body: $responseBody")
+                Log.w(TAG, "$errorMsg - attempting fallback servers")
+                val fallbackServers = generateFallbackServers(context, cleanInput, isTv, s, ep, title)
+                if (fallbackServers.isNotEmpty()) {
+                    val fallbackResult = DecryptorExtractResult(success = true, servers = fallbackServers)
+                    memoryCache[cacheKey] = CachedResult(timestamp = now, result = fallbackResult)
+                    return@withContext fallbackResult
+                }
                 return@withContext DecryptorExtractResult(
                     success = false,
                     errorMessage = errorMsg
@@ -187,7 +193,13 @@ object DecryptorProviderClient {
 
             val parsedServers = parseServersResponse(responseBody, baseUrl)
             if (parsedServers.isEmpty()) {
-                Log.w(TAG, "No playable servers extracted from Decryptor response")
+                Log.w(TAG, "No playable servers extracted from Decryptor response - attempting fallback servers")
+                val fallbackServers = generateFallbackServers(context, cleanInput, isTv, s, ep, title)
+                if (fallbackServers.isNotEmpty()) {
+                    val fallbackResult = DecryptorExtractResult(success = true, servers = fallbackServers)
+                    memoryCache[cacheKey] = CachedResult(timestamp = now, result = fallbackResult)
+                    return@withContext fallbackResult
+                }
                 return@withContext DecryptorExtractResult(
                     success = false,
                     errorMessage = "No playable stream servers were found by Decryptor for this title."

@@ -198,13 +198,54 @@ object DecryptorProvider {
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
         val clean = urlOrId.trim()
         val parts = clean.split(":")
-        val isTv = parts.contains("tv") || clean.contains("tv_")
-        val tmdbId = parts.lastOrNull { it.all { c -> c.isDigit() } }
-            ?: Regex("""\d+""").find(clean)?.value
-            ?: "157336"
+        val isTv = clean.contains(":tv:", ignoreCase = true) ||
+                clean.startsWith("tv:", ignoreCase = true) ||
+                clean.contains("tv_") ||
+                parts.any { it.equals("tv", ignoreCase = true) }
 
-        val season = if (parts.size >= 4 && isTv) parts[2].toIntOrNull() ?: 1 else 1
-        val episode = if (parts.size >= 5 && isTv) parts[3].toIntOrNull() ?: 1 else 1
+        val tmdbId: String
+        val season: Int
+        val episode: Int
+
+        if (isTv && parts.size >= 5) {
+            // e.g. decryptor:tv:1399:2:5 -> tmdbId=1399, season=2, episode=5
+            tmdbId = parts[2].trim()
+            season = parts[3].toIntOrNull() ?: 1
+            episode = parts[4].toIntOrNull() ?: 1
+        } else if (isTv && parts.size == 4) {
+            // e.g. decryptor:tv:1399:2 -> tmdbId=1399, season=2, episode=1
+            tmdbId = parts[2].trim()
+            season = parts[3].toIntOrNull() ?: 1
+            episode = 1
+        } else if (isTv && parts.size == 3 && parts[1].equals("tv", ignoreCase = true)) {
+            // e.g. decryptor:tv:1399 -> tmdbId=1399, season=1, episode=1
+            tmdbId = parts[2].trim()
+            season = 1
+            episode = 1
+        } else if (!isTv && parts.size >= 3 && parts[1].equals("movie", ignoreCase = true)) {
+            // e.g. decryptor:movie:1399 -> tmdbId=1399, season=1, episode=1
+            tmdbId = parts[2].trim()
+            season = 1
+            episode = 1
+        } else if (parts.size == 2 && parts[1].all { it.isDigit() }) {
+            // e.g. decryptor:1399 -> tmdbId=1399
+            tmdbId = parts[1].trim()
+            season = 1
+            episode = 1
+        } else {
+            // Fallback for custom formatted strings
+            val tvMatch = Regex("""tv[_\:](\d+)[_\:](\d+)[_\:](\d+)""").find(clean)
+            if (tvMatch != null) {
+                tmdbId = tvMatch.groupValues[1]
+                season = tvMatch.groupValues[2].toIntOrNull() ?: 1
+                episode = tvMatch.groupValues[3].toIntOrNull() ?: 1
+            } else {
+                val digitParts = parts.filter { it.all { c -> c.isDigit() } && it.isNotEmpty() }
+                tmdbId = digitParts.firstOrNull() ?: Regex("""\d+""").find(clean)?.value ?: "157336"
+                season = if (digitParts.size >= 2 && isTv) digitParts[1].toIntOrNull() ?: 1 else 1
+                episode = if (digitParts.size >= 3 && isTv) digitParts[2].toIntOrNull() ?: 1 else 1
+            }
+        }
 
         Log.i(TAG, "Resolving Decryptor stream data for tmdbId=$tmdbId isTv=$isTv s=$season e=$episode")
 

@@ -299,7 +299,10 @@ object VegaProviderClient {
                     .build()
 
                 queryClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use
+                    if (!response.isSuccessful) {
+                        Log.d(TAG, "Vega search request: provider=$providerId stage=SEARCH endpoint=$targetUrl httpStatus=${response.code} reason=${response.message}")
+                        return@use
+                    }
 
                     val bodyStr = response.body?.string() ?: return@use
                     val trimmed = bodyStr.trim()
@@ -753,7 +756,10 @@ object VegaProviderClient {
                             .build()
 
                         streamClient.newCall(request).execute().use { response ->
-                            if (!response.isSuccessful) return@use
+                            if (!response.isSuccessful) {
+                                Log.w(TAG, "Vega stream request failed: provider=$providerId stage=STREAM endpoint=$url httpStatus=${response.code} reason=${response.message}")
+                                return@use
+                            }
 
                             val bodyStr = response.body?.string() ?: return@use
                             val trimmed = bodyStr.trim()
@@ -786,8 +792,13 @@ object VegaProviderClient {
                                 }
                             }
                         }
-                        if (streams.isNotEmpty()) break
-                    } catch (_: Exception) {}
+                        if (streams.isNotEmpty()) {
+                            Log.i(TAG, "Vega stream extraction succeeded: provider=$providerId stage=STREAM endpoint=$url count=${streams.size}")
+                            break
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Vega stream endpoint error: provider=$providerId stage=STREAM endpoint=$url reason=${e.message}")
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting stream for $providerId: ${e.message}")

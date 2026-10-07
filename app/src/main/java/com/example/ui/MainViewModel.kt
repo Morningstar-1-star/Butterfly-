@@ -283,13 +283,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             // Restore normal providers: ALWAYS ensure normal providers are fully enabled and never wiped!
             val savedNormal = settingsPrefs.getStringSet("normal_enabled_provider_ids", null)
-            val normalToEnable = if (savedNormal.isNullOrEmpty() || savedNormal.filter { it != "all" && !isAdultProviderId(it) }.size < 2) {
+            val normalToEnable = if (savedNormal.isNullOrEmpty() || savedNormal.filter { it != "all" && !isAdultProviderId(it) }.isEmpty()) {
                 defaultEnabledNormalIdsList
             } else {
                 savedNormal.filter { !isAdultProviderId(it) }
             }
             currentSet.addAll(normalToEnable)
-            currentSet.addAll(setOf("youtube", "tencent", "dailymotion", "bilibili", "archive"))
             currentSet.add("all")
             // Remove adult providers from the active set
             currentSet.removeAll(adultIdsList.toSet())
@@ -305,8 +304,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleProviderEnabled(providerId: String, isEnabled: Boolean) {
         val currentSet = _enabledProviderIds.value.toMutableSet()
-        val idsToToggle = when (providerId) {
-            "archive_org", "archive" -> listOf("archive_org", "archive")
+        val idsToToggle = when (providerId.lowercase()) {
+            "archive_org", "archive", "ia" -> listOf("archive_org", "archive", "ia")
+            "tencent", "vqq", "qq", "wetv" -> listOf("tencent", "vqq", "qq", "wetv")
+            "bilibili", "bili" -> listOf("bilibili", "bili")
+            "youtube", "yt" -> listOf("youtube", "yt")
+            "dailymotion", "dm" -> listOf("dailymotion", "dm")
+            "disney", "disneyplus" -> listOf("disney", "disneyplus")
+            "hotstar", "jiohotstar", "hotstarseries" -> listOf("hotstar", "jiohotstar", "hotstarseries")
+            "hbo", "hbomax", "max" -> listOf("hbo", "hbomax", "max")
+            "bun-tel-meg", "bunkr", "telegram", "mega" -> listOf("bun-tel-meg", "bunkr", "telegram", "mega")
             else -> listOf(providerId)
         }
 
@@ -317,6 +324,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (idsToToggle.contains(_activeProviderId.value)) {
                 _activeProviderId.value = "all"
             }
+            // Immediately purge any items matching the disabled provider from trending feed, search, and cache
+            _trendingVideos.value = _trendingVideos.value.filter { item ->
+                isItemProviderEnabled(item.providerId, currentSet)
+            }
+            _searchResults.value = _searchResults.value.filter { item ->
+                isItemProviderEnabled(item.providerId, currentSet)
+            }
+            com.example.util.HomeFeedCacheManager.saveCachedFeed(getApplication(), _trendingVideos.value)
         }
         _enabledProviderIds.value = currentSet
 
@@ -331,6 +346,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsPrefs.edit().putStringSet("enabled_provider_ids", currentSet).apply()
         refreshProvidersList()
         loadTrending(forceRefresh = true)
+    }
+
+    fun isItemProviderEnabled(itemProviderId: String?, enabledSet: Set<String> = _enabledProviderIds.value): Boolean {
+        val pid = (itemProviderId ?: "youtube").lowercase().trim()
+        if (pid.isBlank()) return true
+        if (enabledSet.contains(pid)) return true
+        return enabledSet.any { enabledId ->
+            if (enabledId.equals("all", ignoreCase = true)) false
+            else com.example.util.SourceTagHelper.matchesProvider(pid, enabledId)
+        }
     }
 
     private val _themeMode = MutableStateFlow(
@@ -820,18 +845,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
         val savedNormal = settingsPrefs.getStringSet("normal_enabled_provider_ids", null)
 
-        val resolved = if (!savedNormal.isNullOrEmpty() && savedNormal.filter { it != "all" && !isAdultProviderId(it) }.size >= 2) {
-            (savedNormal.filter { !isAdultProviderId(it) } + setOf("all", "youtube", "tencent")).toMutableSet()
+        val resolved = if (!savedNormal.isNullOrEmpty() && savedNormal.filter { it != "all" && !isAdultProviderId(it) }.isNotEmpty()) {
+            val s = savedNormal.filter { !isAdultProviderId(it) }.toMutableSet()
+            s.add("all")
+            s
         } else if (saved != null && saved.isNotEmpty()) {
             val normalInSaved = saved.filter { pid -> pid != "all" && !isAdultProviderId(pid) }
             val filtered = saved.toMutableSet()
-            if (!filtered.contains("all")) {
-                filtered.add("all")
-            }
-            if (normalInSaved.size < 2) {
+            filtered.add("all")
+            if (normalInSaved.isEmpty()) {
                 filtered.addAll(baseSet)
-            } else {
-                filtered.addAll(setOf("youtube", "tencent", "dailymotion", "bilibili", "archive"))
             }
             filtered
         } else {
@@ -4848,21 +4871,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _searchQuery.value = ""
         _isFeedRefreshing.value = true
         _isLoadingTrending.value = true
+        _trendingVideos.value = emptyList()
         loadTrending(forceRefresh = true)
     }
 
     fun loadTrending(forceRefresh: Boolean = false) {
         currentTrendingPage = 1
-        val hasCachedItems = _trendingVideos.value.isNotEmpty()
-        if (!hasCachedItems) {
-            _isLoadingTrending.value = true
-        }
         if (forceRefresh) {
+            _trendingVideos.value = emptyList()
+            _searchResults.value = emptyList()
             _isFeedRefreshing.value = true
+            _isLoadingTrending.value = true
             homeRefreshCounter++
             com.example.util.HomeFeedCacheManager.clearCache(getApplication())
             com.example.util.ExploreMediaHelper.clearCache()
         } else {
+            val hasCachedItems = _trendingVideos.value.isNotEmpty()
+            if (!hasCachedItems) {
+                _isLoadingTrending.value = true
+            }
             _isFeedRefreshing.value = false
         }
         val targetPage = if (forceRefresh) ((homeRefreshCounter - 1) % 6) + 1 else 1
@@ -4870,7 +4897,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         feedLoadingJob?.cancel()
         feedLoadingJob = viewModelScope.launch(Dispatchers.IO) {
             _feedError.value = null
-            if (forceRefresh && _trendingVideos.value.isEmpty()) {
+            if (forceRefresh) {
+                _trendingVideos.value = emptyList()
                 _searchResults.value = emptyList()
             }
             try {
@@ -4887,6 +4915,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         .distinctBy { (it.providerId ?: "") + "_" + it.id }
                         .filter {
                             if (!com.example.util.LanguageFilterHelper.isAllowedVideoItem(it)) return@filter false
+                            if (!isItemProviderEnabled(it.providerId, enabledSet)) return@filter false
                             if (activeProv != "all") {
                                 val matches = com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                                 if (isProvAdult) {
@@ -4929,6 +4958,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 .distinctBy { (it.providerId ?: "") + "_" + it.id }
                                 .filterNot { isBlockedVideo(it) }
                                 .filter {
+                                    if (!isItemProviderEnabled(it.providerId, enabledSet)) return@filter false
                                     if (adultEnabled) isAdultVideoItem(it) && !isNormalProvider(it.providerId)
                                     else !isAdultVideoItem(it) && !isAdultProviderId(it.providerId)
                                 }
@@ -4956,7 +4986,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val currentSnapshot = synchronized(collectedFeed) { ArrayList(collectedFeed) }
                     val balanced = buildBalancedFeed(currentSnapshot)
                     if (balanced.isNotEmpty()) {
-                        _trendingVideos.value = balanced
+                        val existing = _trendingVideos.value
+                        if (existing.isEmpty() || forceRefresh) {
+                            _trendingVideos.value = balanced
+                        } else {
+                            val existingIds = existing.mapTo(HashSet()) { (it.providerId ?: "") + "_" + it.id }
+                            val newAppendOnly = balanced.filter { !existingIds.contains((it.providerId ?: "") + "_" + it.id) }
+                            if (newAppendOnly.isNotEmpty()) {
+                                _trendingVideos.value = existing + newAppendOnly
+                            }
+                        }
                         _isLoadingTrending.value = false
                         _isFeedRefreshing.value = false
                         lastUiUpdateTime = System.currentTimeMillis()
@@ -5289,7 +5328,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "playvid", "txxx"
                         ) else listOf(
-                            "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
+                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
                             "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc", "nuvio"
                         )
@@ -5304,6 +5343,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     val filtered = newItems.filter {
+                        if (!isItemProviderEnabled(it.providerId, enabledSet)) return@filter false
                         if (activeProv != "all") {
                             val matches = com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                             if (isAdultProviderId(activeProv)) {
@@ -5346,7 +5386,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "playvid", "txxx"
                         ) else listOf(
-                            "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
+                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
                             "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
                             "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc", "nuvio"
                         )
@@ -5361,6 +5401,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     val filtered = newItems.filter {
+                        if (!isItemProviderEnabled(it.providerId, enabledSet)) return@filter false
                         if (activeProv != "all") {
                             val matches = com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                             if (isAdultProviderId(activeProv)) {
@@ -5819,6 +5860,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _activeVideoItem.value = initialVideoItem
 
+        if (targetProviderId == "tencent" || cleanIdOrUrl.contains("v.qq.com") || cleanIdOrUrl.startsWith("tencent:") || cleanIdOrUrl.startsWith("vqq:") || cleanIdOrUrl.contains("wetv")) {
+            com.example.extractor.TencentProvider.registerMetadata(cleanIdOrUrl, initialVideoItem.title, initialVideoItem.durationSeconds)
+        }
+
         if (currentMatch != null) {
             recordVideoView(currentMatch)
         } else {
@@ -6077,7 +6122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         if (directOptions.isNotEmpty() || releases.isNotEmpty()) {
-                            val assignedPort = if (releases.isNotEmpty()) getOrStartTorrentServer() else 8080
+                            val assignedPort = getOrStartTorrentServer()
                             val torrentOptions = releases.map { rel ->
                                 val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
                                 val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
@@ -6875,7 +6920,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val activeTorrentReleasesMap = java.util.concurrent.ConcurrentHashMap<String, com.example.torrent.model.TorrentRelease>()
 
     private fun getOrStartTorrentServer(): Int {
-        val server = torrentHttpServer ?: com.example.torrent.server.TorrentHttpServer(torrentEngine, port = 0).also {
+        val server = torrentHttpServer ?: com.example.torrent.server.TorrentHttpServer.getInstance(app).also {
             torrentHttpServer = it
         }
         return server.start()

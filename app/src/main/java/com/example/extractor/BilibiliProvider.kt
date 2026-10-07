@@ -142,13 +142,18 @@ object BilibiliProvider {
         "buvid3=$buvid3; buvid4=$buvid3; b_nut=$bNut; CURRENT_FNVAL=4048; _uuid=$uuid"
     }
 
+    @Volatile
+    private var hasSpiCookie: Boolean = false
+    @Volatile
+    private var lastSpiFetchTime: Long = 0L
+
     fun getBilibiliCookie(): String {
         return cachedCookie
     }
 
     suspend fun ensureCookieValid() = withContext(Dispatchers.IO) {
-        val currentCookie = cachedCookie
-        if (!currentCookie.contains("infoc") && currentCookie.contains("b_3")) return@withContext
+        val now = System.currentTimeMillis()
+        if (hasSpiCookie && (now - lastSpiFetchTime) < 3600_000L) return@withContext
         try {
             val req = Request.Builder()
                 .url("https://api.bilibili.com/x/frontend/finger/spi")
@@ -166,6 +171,8 @@ object BilibiliProvider {
                         if (b3.isNotBlank()) {
                             val bNut = System.currentTimeMillis() / 1000
                             cachedCookie = "buvid3=$b3; buvid4=$b4; b_nut=$bNut; CURRENT_FNVAL=4048"
+                            hasSpiCookie = true
+                            lastSpiFetchTime = now
                         }
                     }
                 }
@@ -1208,11 +1215,10 @@ object BilibiliProvider {
             val rnd2 = (514 * random.nextDouble()).toInt()
             val of = "[${3 * 10 + 2 * 0 + rnd2},${4 * 10 - 4 * 0 + 2 * rnd2},$rnd2]"
             val dmInter = """{"ds":[],"wh":$wh,"of":$of}"""
-            val dmImgStr = android.util.Base64.encodeToString("abcdefghijklmnopqrstuvwxyz0123456789".toByteArray(), android.util.Base64.NO_WRAP).take(40)
             return mapOf(
                 "dm_img_list" to "[]",
-                "dm_img_str" to dmImgStr,
-                "dm_cover_img_str" to dmImgStr,
+                "dm_img_str" to "",
+                "dm_cover_img_str" to "",
                 "dm_img_inter" to dmInter
             )
         }

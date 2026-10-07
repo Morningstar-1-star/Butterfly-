@@ -183,21 +183,36 @@ object TMDBEmbedExtractorEngine {
                 )
                 val torrentReleases = com.example.torrent.provider.TorrentProviderManager.getInstance()
                     .searchReleases(reqTitle, mediaIdentity)
-                val assignedPort = 8080
-                for (rel in torrentReleases.take(8)) {
-                    val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-                    val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
-                    discoveredStreams.add(
-                        ExtractedStream(
-                            title = rel.title,
-                            url = streamUrl,
-                            source = specificSource ?: TMDBEmbedSource.SHOWBOX,
-                            quality = rel.quality,
-                            sizeText = rel.formattedSize,
-                            seeders = rel.seeders,
-                            isHls = streamUrl.contains(".m3u8")
+                if (torrentReleases.isNotEmpty()) {
+                    val server = com.example.torrent.server.TorrentHttpServer.getInstance(context)
+                    val assignedPort = server.start()
+                    val engine = com.example.torrent.engine.TorrentEngine.getInstance(context)
+
+                    val primaryRel = torrentReleases.firstOrNull { !it.magnetUrl.startsWith("http://") && !it.magnetUrl.startsWith("https://") }
+                    if (primaryRel != null) {
+                        try {
+                            engine.startSession(primaryRel, streamPort = assignedPort)
+                            Log.i(TAG, "Started torrent fallback session on dynamic port $assignedPort for hash ${primaryRel.infoHash}")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Notice starting torrent session: ${e.message}")
+                        }
+                    }
+
+                    for (rel in torrentReleases.take(8)) {
+                        val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
+                        val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
+                        discoveredStreams.add(
+                            ExtractedStream(
+                                title = rel.title,
+                                url = streamUrl,
+                                source = specificSource ?: TMDBEmbedSource.SHOWBOX,
+                                quality = rel.quality,
+                                sizeText = rel.formattedSize,
+                                seeders = rel.seeders,
+                                isHls = streamUrl.contains(".m3u8")
+                            )
                         )
-                    )
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Direct fallback error for TMDB: ${e.message}")

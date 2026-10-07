@@ -402,7 +402,7 @@ object YtDlpResolver {
             ensureInitialized(ctx)
 
             val isBilibiliUrl = videoUrl.contains("bilibili") || videoUrl.contains("b23.tv") || videoUrl.startsWith("bilisearch", ignoreCase = true)
-            val isMultiItemUrl = isBilibiliUrl && (
+            val isMultiItemUrl = (isBilibiliUrl && (
                 videoUrl.startsWith("bilisearch", ignoreCase = true) ||
                 (videoUrl.contains("/v/") && !videoUrl.contains("/video/")) ||
                 videoUrl.contains("collectiondetail") ||
@@ -411,6 +411,12 @@ object YtDlpResolver {
                 videoUrl.contains("favlist") ||
                 videoUrl.contains("playlist") ||
                 videoUrl.contains("watchlater")
+            )) || (
+                videoUrl.contains("v.qq.com/x/cover/") ||
+                videoUrl.contains("video.qq.com/x/cover/") ||
+                videoUrl.contains("vqq:series") ||
+                videoUrl.contains("wetv.vip/play/") ||
+                videoUrl.startsWith("tencent:", ignoreCase = true)
             )
 
             val request = YtDlpRequest(videoUrl)
