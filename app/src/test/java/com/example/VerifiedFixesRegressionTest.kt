@@ -42,29 +42,46 @@ class VerifiedFixesRegressionTest {
 
     @Test
     fun testDecryptorIdParsing() {
-        // Bug 3 verified: "decryptor:tv:1399:2:5"
-        val clean = "decryptor:tv:1399:2:5"
-        val parts = clean.split(":")
-        val isTv = clean.contains(":tv:", ignoreCase = true) || parts.any { it.equals("tv", ignoreCase = true) }
+        // 1. Movie format: "decryptor:movie:27205"
+        val movieClean = "decryptor:movie:27205"
+        val movieParts = movieClean.split(":")
+        val isTvMovie = movieClean.contains(":tv:", ignoreCase = true) || movieParts.any { it.equals("tv", ignoreCase = true) }
+        assertFalse(isTvMovie)
+        val movieTmdbId = movieParts[2].trim()
+        assertEquals("27205", movieTmdbId)
+
+        // 2. TV format with season and episode: "decryptor:tv:1399:2:5"
+        val tvClean = "decryptor:tv:1399:2:5"
+        val tvParts = tvClean.split(":")
+        val isTv = tvClean.contains(":tv:", ignoreCase = true) || tvParts.any { it.equals("tv", ignoreCase = true) }
         assertTrue(isTv)
-
-        val tmdbId: String
-        val season: Int
-        val episode: Int
-
-        if (isTv && parts.size >= 5) {
-            tmdbId = parts[2].trim()
-            season = parts[3].toIntOrNull() ?: 1
-            episode = parts[4].toIntOrNull() ?: 1
+        val tvTmdbId: String
+        val tvSeason: Int
+        val tvEpisode: Int
+        if (isTv && tvParts.size >= 5) {
+            tvTmdbId = tvParts[2].trim()
+            tvSeason = tvParts[3].toIntOrNull() ?: 1
+            tvEpisode = tvParts[4].toIntOrNull() ?: 1
         } else {
-            tmdbId = ""
-            season = 1
-            episode = 1
+            tvTmdbId = ""
+            tvSeason = 1
+            tvEpisode = 1
         }
+        assertEquals("1399", tvTmdbId)
+        assertEquals(2, tvSeason)
+        assertEquals(5, tvEpisode)
 
-        assertEquals("1399", tmdbId)
-        assertEquals(2, season)
-        assertEquals(5, episode)
+        // 3. TV format with season only: "decryptor:tv:1399:2"
+        val tvSeasonOnlyClean = "decryptor:tv:1399:2"
+        val tvSeasonOnlyParts = tvSeasonOnlyClean.split(":")
+        val isTvSeasonOnly = tvSeasonOnlyClean.contains(":tv:", ignoreCase = true) || tvSeasonOnlyParts.any { it.equals("tv", ignoreCase = true) }
+        assertTrue(isTvSeasonOnly)
+        val sOnlyTmdbId = tvSeasonOnlyParts[2].trim()
+        val sOnlySeason = tvSeasonOnlyParts[3].toIntOrNull() ?: 1
+        val sOnlyEpisode = 1
+        assertEquals("1399", sOnlyTmdbId)
+        assertEquals(2, sOnlySeason)
+        assertEquals(1, sOnlyEpisode)
     }
 
     @Test

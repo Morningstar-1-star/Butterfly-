@@ -38,11 +38,19 @@ class NuvioProviderRepository(private val context: Context) {
         private const val KEY_INITIALIZED = "nuvio_initialized_v2"
         private const val MANIFEST_URL = "https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json"
 
+        // Nuvio on Android executes via verified, high-performance native Kotlin scraper engines.
+        // Providers without a dedicated native implementation are explicitly marked as Unsupported.
+        val SUPPORTED_NATIVE_PROVIDER_IDS = setOf(
+            "uhdmovies", "moviesmod", "moviesdrive", "hdhub4u", "4khdhub",
+            "vidlink", "showbox", "castle", "vidnest", "dooflix",
+            "allmovieland", "hianime", "dahmermovies", "netmirror", "streamflix",
+            "vixsrc", "videasy"
+        )
+
         val ALL_OFFICIAL_PROVIDERS: List<NuvioScraperManifestItem> = listOf(
-            // Top Priority Scrapers
+            // Top Priority Verified Scrapers (Native Kotlin Implementations)
             NuvioScraperManifestItem("uhdmovies", "UHDMovies", "UHDMovies 4K/1080p high-speed cloud streams with HubCloud & FastDL", "1.1.0", "Nuvio Team", listOf("movie", "tv"), "providers/uhdmovies.js", true, listOf("mkv", "mp4"), "https://uhdmovies.pink/favicon.ico", listOf("en", "hin"), priority = 100),
             NuvioScraperManifestItem("moviesmod", "MoviesMod", "MoviesMod direct stream links with dual audio & multi-resolution", "1.1.0", "Nuvio Team", listOf("movie", "tv"), "providers/moviesmod.js", true, listOf("mkv", "mp4"), "https://moviesmod.cc/favicon.ico", listOf("en", "hin"), priority = 98),
-            NuvioScraperManifestItem("olamovies", "OlaMovies", "OlaMovies (Status: UNAVAILABLE upstream - Domain defunct / removed in official Nuvio manifest)", "0.9.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mkv"), "", listOf("en", "hin"), priority = 10),
             NuvioScraperManifestItem("moviesdrive", "MoviesDrive", "MoviesDrive streaming with HubCloud, GDFlix & FastDL direct mirrors", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/moviesdrive.js", true, listOf("mkv", "mp4"), "https://www.google.com/s2/favicons?domain=moviesdrives.my&sz=128", listOf("en", "hin"), priority = 96),
             NuvioScraperManifestItem("hdhub4u", "HDHub4u", "Direct links from HDHub4u with high-speed download & direct streaming", "1.1.0", "Nuvio Team", listOf("movie", "tv"), "providers/hdhub4u.js", true, listOf("mkv", "mp4"), "https://www.google.com/s2/favicons?domain=new6.hdhub4u.fo&sz=128", listOf("en", "hin"), priority = 95),
             NuvioScraperManifestItem("4khdhub", "4KHDHub", "4KHDHub direct links and Ultra HD streams", "1.0.2", "Nuvio Team", listOf("movie", "tv"), "providers/4khdhub.js", true, listOf("mkv"), "https://www.google.com/s2/favicons?domain=4khdhub.click&sz=128", listOf("en"), priority = 94),
@@ -50,26 +58,29 @@ class NuvioProviderRepository(private val context: Context) {
             NuvioScraperManifestItem("showbox", "ShowBox / FebBox", "ShowBox streaming with multiple quality options and cloud speed", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/showbox.js", true, listOf("mp4", "mkv"), "https://raw.githubusercontent.com/tapframe/nuvio-providers/main/Assets/Logo-2.png", listOf("en"), priority = 90),
             NuvioScraperManifestItem("castle", "Castle Multi-Lang", "Multi-Language movie and TV series stream provider", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/castle.js", true, listOf("mp4", "m3u8"), "https://static.hbayy.com/simple-blog-13/prod/_nuxt/big-logo.DESZ4mBj.png", listOf("en", "hi", "ta", "te", "ml", "kn"), priority = 88),
             NuvioScraperManifestItem("vidnest", "Vidnest", "Vidnest streaming with encrypted AES-GCM sources and fast CDN", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/vidnest.js", true, listOf("mp4", "m3u8"), "https://vidnest.fun/favicon.ico", listOf("en"), priority = 86),
-            NuvioScraperManifestItem("vidnest-anime", "VidnestAnime", "Vidnest anime streaming with TMDB→AniList mapping and multi-server proxy", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/vidnest-anime.js", true, listOf("m3u8"), "https://vidnest.fun/favicon.ico", listOf("en", "hi", "ja"), priority = 85),
             NuvioScraperManifestItem("dooflix", "DooFlix", "Fast streaming provider with direct TMDB integration", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/dooflix.js", true, listOf("m3u8"), "https://www.google.com/s2/favicons?domain=dooflix.org&sz=128", listOf("en", "hi"), priority = 84),
             NuvioScraperManifestItem("allmovieland", "AllMovieLand", "AllMovieLand streaming provider with multi-language support", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/allmovieland.js", true, listOf("m3u8"), "https://www.google.com/s2/favicons?domain=allmovieland.one&sz=128", listOf("en", "hi", "ta", "te"), priority = 82),
             NuvioScraperManifestItem("hianime", "HiAnime", "HiAnime multi-server anime streaming with real-time mapping and subtitles", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/hianime.js", true, listOf("m3u8"), "https://www.google.com/s2/favicons?domain=hianime.to&sz=128", listOf("en"), priority = 80),
-            NuvioScraperManifestItem("kurage", "Kurage", "Kurage.live anime streaming with tRPC API and multi-server proxy", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/kurage.js", true, listOf("mp4"), "https://kurage.live/favicon.ico", listOf("en"), priority = 78),
-            NuvioScraperManifestItem("anizone", "AniZone", "AniZone high-quality anime streaming with multi-audio and soft subtitles", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/anizone.js", true, listOf("m3u8"), "https://anizone.to/favicon.ico", listOf("en"), priority = 76),
-            NuvioScraperManifestItem("animepahe", "AnimePahe", "AnimePahe Sub & Dub anime stream provider", "1.0.1", "Nuvio Team", listOf("movie", "tv"), "providers/animepahe.js", true, listOf("m3u8"), "https://www.google.com/s2/favicons?domain=animepahe.ru&sz=128", listOf("en"), priority = 75),
             NuvioScraperManifestItem("dahmermovies", "DahmerMovies", "Direct catalog film and TV series mirror", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/dahmermovies.js", true, listOf("mkv"), "https://dahmermovies.top/favicon.ico", listOf("en"), priority = 74),
             NuvioScraperManifestItem("netmirror", "NetMirror", "Modern cinema and TV series player mirror", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/netmirror.js", true, listOf("m3u8", "mp4"), "https://netmirror.app/favicon.ico", listOf("en"), priority = 72),
             NuvioScraperManifestItem("streamflix", "StreamFlix HD", "Clean high-definition stream embed", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/streamflix.js", true, listOf("mkv"), "https://streamflix.one/favicon.ico", listOf("en"), priority = 70),
-            NuvioScraperManifestItem("moviebox", "MovieBox", "MovieBox direct multi-format streams", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/moviebox.js", true, listOf("mp4", "mpd"), "https://moviebox.ph/favicon.ico", listOf("en"), priority = 68),
             NuvioScraperManifestItem("vixsrc", "VixSrc", "VixSrc direct stream provider", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/vixsrc.js", true, listOf("m3u8", "mp4"), "https://vixsrc.to/favicon.ico", listOf("en"), priority = 66),
-            NuvioScraperManifestItem("dvdplay", "DVDPlay", "DVDPlay retro & modern cinema streams", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/dvdplay.js", true, listOf("mkv"), "https://dvdplay.live/favicon.ico", listOf("en"), priority = 64),
-            NuvioScraperManifestItem("yflix", "YFlix", "YFlix movies & series fast player", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/yflix.js", true, listOf("m3u8", "mp4"), "https://yflix.to/favicon.ico", listOf("en"), priority = 62),
             NuvioScraperManifestItem("videasy", "VIDEASY", "Videasy smooth adaptive streaming", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/videasy.js", true, listOf("m3u8", "mp4"), "https://player.videasy.net/favicon.ico", listOf("en"), priority = 60),
-            NuvioScraperManifestItem("mallumv", "MalluMV", "South Indian cinema & Malayalam stream direct links", "1.0.0", "Nuvio Team", listOf("movie"), "providers/mallumv.js", true, listOf("mkv", "mp4"), "https://mallumv.lat/favicon.ico", listOf("ml", "ta", "hi", "en"), priority = 58),
-            NuvioScraperManifestItem("cinevibe", "Cinevibe", "Cinevibe movies streaming engine", "1.0.0", "Nuvio Team", listOf("movie"), "providers/cinevibe.js", true, listOf("mp4", "m3u8"), "https://www.google.com/s2/favicons?domain=cinevibe.online&sz=128", listOf("en"), priority = 56),
-            NuvioScraperManifestItem("cinemacity", "CinemaCity", "CinemaCity multi-language streaming", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/cinemacity.js", true, listOf("mp4"), "https://www.google.com/s2/favicons?domain=cinema-city.pl&sz=128", listOf("en", "hi", "ta", "te", "id", "pl", "ar"), priority = 54),
-            NuvioScraperManifestItem("movieblast", "MovieBlast", "Direct links via MovieBlast API with multi-language support", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/movieblast.js", true, listOf("mp4", "mkv"), "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/movieblast.png", listOf("te", "hi", "en"), priority = 52),
-            NuvioScraperManifestItem("mycima", "MyCima", "Arabic and international streaming provider", "1.0.0", "Nuvio Team", listOf("movie", "tv"), "providers/mycima.js", true, listOf("mp4", "m3u8"), "https://www.google.com/s2/favicons?domain=wecima.show&sz=128", listOf("ar"), priority = 50)
+
+            // Unsupported / Unimplemented providers in current manifest (explicitly disabled)
+            NuvioScraperManifestItem("olamovies", "OlaMovies", "OlaMovies (Status: UNAVAILABLE upstream - Domain defunct)", "0.9.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mkv"), "", listOf("en", "hin"), priority = 10),
+            NuvioScraperManifestItem("vidnest-anime", "VidnestAnime", "VidnestAnime (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("m3u8"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("kurage", "Kurage", "Kurage (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mp4"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("anizone", "AniZone", "AniZone (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("m3u8"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("animepahe", "AnimePahe", "AnimePahe (Status: Unsupported - No native engine)", "1.0.1", "Legacy", listOf("movie", "tv"), "", false, listOf("m3u8"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("moviebox", "MovieBox", "MovieBox (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mp4"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("dvdplay", "DVDPlay", "DVDPlay (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mkv"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("yflix", "YFlix", "YFlix (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("m3u8"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("mallumv", "MalluMV", "MalluMV (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie"), "", false, listOf("mkv"), "", listOf("ml"), priority = 10),
+            NuvioScraperManifestItem("cinevibe", "Cinevibe", "Cinevibe (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie"), "", false, listOf("mp4"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("cinemacity", "CinemaCity", "CinemaCity (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mp4"), "", listOf("en"), priority = 10),
+            NuvioScraperManifestItem("movieblast", "MovieBlast", "MovieBlast (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mp4"), "", listOf("te"), priority = 10),
+            NuvioScraperManifestItem("mycima", "MyCima", "MyCima (Status: Unsupported - No native engine)", "1.0.0", "Legacy", listOf("movie", "tv"), "", false, listOf("mp4"), "", listOf("ar"), priority = 10)
         )
 
         @Volatile
@@ -99,20 +110,22 @@ class NuvioProviderRepository(private val context: Context) {
         val initialized = prefs.getBoolean(KEY_INITIALIZED, false)
         if (!initialized) {
             val defaultList = ALL_OFFICIAL_PROVIDERS.map {
+                val isSupported = SUPPORTED_NATIVE_PROVIDER_IDS.contains(it.id.lowercase().trim())
                 InstalledNuvioProvider(
                     id = it.id,
                     name = it.name,
                     description = it.description,
                     version = it.version,
                     author = it.author,
-                    isEnabled = it.id != "olamovies",
-                    isInstalled = true,
+                    isEnabled = isSupported,
+                    isInstalled = isSupported,
                     supportedTypes = it.supportedTypes,
                     formats = it.formats,
                     contentLanguage = it.contentLanguage,
                     logo = it.logo,
                     priority = it.priority,
-                    status = if (it.id == "olamovies") "Unavailable" else "Active"
+                    status = if (!isSupported) "Unsupported" else "Active",
+                    lastError = if (!isSupported) "No native Kotlin engine implementation" else null
                 )
             }
             saveProviders(defaultList)
@@ -287,8 +300,13 @@ class NuvioProviderRepository(private val context: Context) {
     }
 
     suspend fun testProviderLive(providerId: String): String = withContext(Dispatchers.IO) {
-        if (providerId == "olamovies") {
+        val cleanId = providerId.lowercase().trim()
+        if (cleanId == "olamovies") {
             return@withContext "UNAVAILABLE (Upstream Domain Defunct)"
+        }
+        if (!SUPPORTED_NATIVE_PROVIDER_IDS.contains(cleanId)) {
+            markStatus(cleanId, "Unsupported", "No native Kotlin engine implementation")
+            return@withContext "UNSUPPORTED (No Native Engine)"
         }
         try {
             val testRequest = TMDBMediaRequest(

@@ -17,12 +17,15 @@ import java.util.concurrent.TimeUnit
 
 object VegaProviderClient {
     private const val TAG = "VegaProviderClient"
-    const val DEFAULT_SERVER_URL = ""
+    const val DEFAULT_SERVER_URL = "https://vega.strem.fun"
 
     @Volatile
     var isVegaGloballyEnabled: Boolean = true
 
-    val BACKUP_SERVER_URLS: List<String> = emptyList()
+    val BACKUP_SERVER_URLS: List<String> = listOf(
+        "https://vega.strem.fun",
+        "https://vega-providers.fly.dev"
+    )
 
     // Stage-specific timeout configuration
     private const val SEARCH_TIMEOUT_MS = 20_000L

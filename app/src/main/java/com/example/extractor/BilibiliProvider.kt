@@ -1383,6 +1383,7 @@ object BilibiliProvider {
 
         // 1. Primary path: Targeted HTML5 Progressive MP4 request (direct, unified audio+video playback)
         try {
+            val dmParams = BilibiliWbiHelper.getDmParams()
             val progUrl = if (mixinKey != null) {
                 val params = mutableMapOf<String, Any>(
                     "bvid" to resolvedBvid,
@@ -1393,6 +1394,7 @@ object BilibiliProvider {
                     "platform" to "html5",
                     "high_quality" to 1
                 )
+                params.putAll(dmParams)
                 val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
                 "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
             } else {
@@ -1407,10 +1409,19 @@ object BilibiliProvider {
                 .build()
 
             val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                if (resp.code == 403 || resp.code == 412 || resp.code == 352) {
+                    Log.w(TAG, "Bilibili progressive playurl risk-control challenge: HTTP ${resp.code}. Initiating yt-dlp fallback.")
+                }
                 if (resp.isSuccessful) resp.body?.string() else null
             }
             if (!jsonStr.isNullOrBlank()) {
-                parseProgressivePlayurlResponse(jsonStr, streamOptions, biliHeaders)
+                val testJson = try { JSONObject(jsonStr) } catch (_: Exception) { null }
+                val apiCode = testJson?.optInt("code", 0) ?: 0
+                if (apiCode == -352 || apiCode == -403 || apiCode == -412) {
+                    Log.w(TAG, "Bilibili risk-control code $apiCode: ${testJson?.optString("message", "challenge")} for $resolvedBvid")
+                } else {
+                    parseProgressivePlayurlResponse(jsonStr, streamOptions, biliHeaders)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error fetching HTML5 playurl: ${e.message}")
@@ -1428,10 +1439,19 @@ object BilibiliProvider {
                     .build()
 
                 val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                    if (resp.code == 403 || resp.code == 412 || resp.code == 352) {
+                        Log.w(TAG, "Bilibili direct playurl risk-control challenge: HTTP ${resp.code}")
+                    }
                     if (resp.isSuccessful) resp.body?.string() else null
                 }
                 if (!jsonStr.isNullOrBlank()) {
-                    parseProgressivePlayurlResponse(jsonStr, streamOptions, biliHeaders)
+                    val testJson = try { JSONObject(jsonStr) } catch (_: Exception) { null }
+                    val apiCode = testJson?.optInt("code", 0) ?: 0
+                    if (apiCode == -352 || apiCode == -403 || apiCode == -412) {
+                        Log.w(TAG, "Bilibili risk-control code $apiCode: ${testJson?.optString("message", "challenge")}")
+                    } else {
+                        parseProgressivePlayurlResponse(jsonStr, streamOptions, biliHeaders)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error fetching direct HTML5 playurl: ${e.message}")
@@ -1441,7 +1461,8 @@ object BilibiliProvider {
         // 2. Secondary path: WBI DASH Request (fnval=4048 or 16, qn=80)
         if (mixinKey != null) {
             try {
-                val params = mapOf(
+                val dmParams = BilibiliWbiHelper.getDmParams()
+                val params = mutableMapOf<String, Any>(
                     "bvid" to resolvedBvid,
                     "cid" to cid,
                     "qn" to 80,
@@ -1449,6 +1470,7 @@ object BilibiliProvider {
                     "fnver" to 0,
                     "fourk" to 1
                 )
+                params.putAll(dmParams)
                 val signedQuery = BilibiliWbiHelper.signParams(params, mixinKey)
                 val wbiUrl = "https://api.bilibili.com/x/player/wbi/playurl?$signedQuery"
                 val req = Request.Builder()
@@ -1459,10 +1481,19 @@ object BilibiliProvider {
                     .build()
 
                 val jsonStr = httpClient.newCall(req).execute().use { resp ->
+                    if (resp.code == 403 || resp.code == 412 || resp.code == 352) {
+                        Log.w(TAG, "Bilibili DASH playurl risk-control challenge: HTTP ${resp.code}")
+                    }
                     if (resp.isSuccessful) resp.body?.string() else null
                 }
                 if (!jsonStr.isNullOrBlank()) {
-                    parseDashPlayurlResponse(jsonStr, streamOptions, biliHeaders)
+                    val testJson = try { JSONObject(jsonStr) } catch (_: Exception) { null }
+                    val apiCode = testJson?.optInt("code", 0) ?: 0
+                    if (apiCode == -352 || apiCode == -403 || apiCode == -412) {
+                        Log.w(TAG, "Bilibili DASH risk-control code $apiCode: ${testJson?.optString("message", "challenge")}")
+                    } else {
+                        parseDashPlayurlResponse(jsonStr, streamOptions, biliHeaders)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error fetching WBI DASH playurl: ${e.message}")

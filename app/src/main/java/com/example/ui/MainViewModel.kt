@@ -3178,29 +3178,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val deferredList = batch.map { prov ->
                         this.async(Dispatchers.IO) {
                             try {
-                                val res = com.example.vega.VegaInAppEngine.search(prov.id, "2024")
-                                if (res.isNotEmpty()) {
-                                    map[prov.id] = "Online (${res.size} items)"
+                                val baseUrl = com.example.vega.VegaProviderRegistry.getBaseUrl(prov.id).trim()
+                                if (baseUrl.isBlank()) {
+                                    map[prov.id] = "UNKNOWN (No Endpoint)"
                                 } else {
-                                    val altRes = com.example.vega.VegaInAppEngine.search(prov.id, "spider")
-                                    if (altRes.isNotEmpty()) {
-                                        map[prov.id] = "Online (${altRes.size} items)"
+                                    val res = com.example.vega.VegaInAppEngine.search(prov.id, "2024")
+                                    if (res.isNotEmpty()) {
+                                        map[prov.id] = "READY (${res.size} items)"
                                     } else {
-                                        val baseUrl = com.example.vega.VegaProviderRegistry.getBaseUrl(prov.id)
-                                        if (baseUrl.isNotBlank()) {
-                                            map[prov.id] = "Online (Ready)"
+                                        val altRes = com.example.vega.VegaInAppEngine.search(prov.id, "spider")
+                                        if (altRes.isNotEmpty()) {
+                                            map[prov.id] = "READY (${altRes.size} items)"
                                         } else {
-                                            map[prov.id] = "Ready"
+                                            // Perform an actual HTTP probe to the baseUrl to determine if server is online
+                                            val probeReq = okhttp3.Request.Builder()
+                                                .url(baseUrl)
+                                                .header("User-Agent", "Mozilla/5.0")
+                                                .head()
+                                                .build()
+                                            val resp = try {
+                                                com.example.util.NetworkManager.scraperClient.newCall(probeReq).execute()
+                                            } catch (_: Exception) {
+                                                val getReq = okhttp3.Request.Builder().url(baseUrl).header("User-Agent", "Mozilla/5.0").build()
+                                                com.example.util.NetworkManager.scraperClient.newCall(getReq).execute()
+                                            }
+                                            if (resp.isSuccessful) {
+                                                map[prov.id] = "READY"
+                                            } else {
+                                                map[prov.id] = "HTTP_ERROR (${resp.code})"
+                                            }
+                                            resp.close()
                                         }
                                     }
                                 }
                             } catch (e: Exception) {
-                                val baseUrl = com.example.vega.VegaProviderRegistry.getBaseUrl(prov.id)
-                                if (baseUrl.isNotBlank()) {
-                                    map[prov.id] = "Online (Ready)"
-                                } else {
-                                    map[prov.id] = "Ready"
-                                }
+                                val errType = e.javaClass.simpleName
+                                map[prov.id] = "OFFLINE ($errType)"
                             }
                             _providerHealthMap.value = map.toMap()
                         }
