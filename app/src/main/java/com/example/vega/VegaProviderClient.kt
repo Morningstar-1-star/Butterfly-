@@ -234,18 +234,8 @@ object VegaProviderClient {
         val cleanProv = providerId.trim().lowercase()
         val cleanQuery = query.trim()
 
-        // 1. In-App Scraper Engine execution (instant response, 0 cold-start delay)
-        val inAppResults = try {
-            VegaInAppEngine.search(cleanProv, cleanQuery.ifBlank { "2024" })
-        } catch (e: Exception) {
-            Log.d(TAG, "In-app search error for $cleanProv: ${e.message}")
-            emptyList()
-        }
-        if (inAppResults.isNotEmpty()) {
-            return@withContext inAppResults
-        }
-
-        executeWithServerFallbacks(baseUrl, { currentUrl ->
+        // 1. Primary path: Execute Vega provider server (runs real bundled/hosted provider JS)
+        val serverResults = executeWithServerFallbacks(baseUrl, { currentUrl ->
             withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
                 var results = searchSingleQuery(cleanProv, cleanQuery.ifBlank { "2024" }, currentUrl)
                 if (results.isNotEmpty()) return@withTimeoutOrNull results
@@ -263,6 +253,19 @@ object VegaProviderClient {
                 results
             }
         }, { res -> !res.isNullOrEmpty() }) ?: emptyList()
+
+        if (serverResults.isNotEmpty()) {
+            return@withContext serverResults
+        }
+
+        // 2. Secondary fallback: In-App Scraper Engine when server is unreachable
+        val inAppResults = try {
+            VegaInAppEngine.search(cleanProv, cleanQuery.ifBlank { "2024" })
+        } catch (e: Exception) {
+            Log.d(TAG, "In-app search error for $cleanProv: ${e.message}")
+            emptyList()
+        }
+        return@withContext inAppResults
     }
 
     private suspend fun searchSingleQuery(
