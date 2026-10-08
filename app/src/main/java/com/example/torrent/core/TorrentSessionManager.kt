@@ -111,8 +111,8 @@ class TorrentSessionManager(
     }
 
     fun startSession(release: TorrentRelease, streamPort: Int = 8899): TorrentStreamSession {
-        isStopping.set(false)
         stopSession(clearCache = false)
+        isStopping.set(false)
 
         val parsedMagnet = MagnetParser.parse(release.magnetUrl)
         val infoHash = when {

@@ -1106,9 +1106,6 @@ object BilibiliProvider {
             }
         }
 
-        if (streamOptions.isEmpty() && bvid.isNotBlank() && cid > 0L) {
-            return@withContext fetchPlayurlStreams(bvid, cid, biliHeaders)
-        }
         return@withContext streamOptions
     }
 

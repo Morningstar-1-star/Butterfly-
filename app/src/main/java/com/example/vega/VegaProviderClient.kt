@@ -387,7 +387,7 @@ object VegaProviderClient {
         } catch (_: Exception) {
             null
         }
-        if (inAppMeta != null && (inAppMeta.linkList.isNotEmpty() || !inAppMeta.title.equals("Untitled", ignoreCase = true))) {
+        if (inAppMeta != null && inAppMeta.linkList.isNotEmpty()) {
             return@withContext inAppMeta
         }
 

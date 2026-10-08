@@ -26,7 +26,7 @@ object DahmerMoviesExtractor {
         val streams = mutableListOf<ExtractedStream>()
         try {
             val cleanTitle = request.title.replace(":", "").trim()
-            val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
+            val encTitle = URLEncoder.encode(cleanTitle, "UTF-8").replace("+", "%20")
             val targetPath = if (request.isTv) {
                 val sStr = if (request.season < 10) "0${request.season}" else "${request.season}"
                 "/tvs/$encTitle/Season%20$sStr/"

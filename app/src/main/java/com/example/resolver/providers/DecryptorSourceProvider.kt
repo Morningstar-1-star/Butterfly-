@@ -25,7 +25,9 @@ import kotlinx.coroutines.flow.flowOn
  * - Strict Referer/Origin/User-Agent header pass-through
  * - Seamless Media3 ExoPlayer integration
  */
-class DecryptorSourceProvider : SourceProvider {
+class DecryptorSourceProvider(private val context: android.content.Context) : SourceProvider {
+
+    override val timeoutMs: Long get() = 60_000L
 
     companion object {
         private const val TAG = "DecryptorSourceProvider"
@@ -73,6 +75,7 @@ class DecryptorSourceProvider : SourceProvider {
 
         try {
             val extractResult = DecryptorProviderClient.extract(
+                context = context,
                 tmdbIdOrUrl = targetId,
                 mediaType = if (isTv) "tv" else "movie",
                 season = season,

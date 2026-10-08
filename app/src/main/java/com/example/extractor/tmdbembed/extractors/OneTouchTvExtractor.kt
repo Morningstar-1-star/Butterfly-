@@ -56,7 +56,8 @@ object OneTouchTvExtractor {
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
         val streams = mutableListOf<ExtractedStream>()
         try {
-            val title = request.title.ifBlank { "Fight Club" }
+            if (request.title.isBlank()) return@withContext emptyList()
+            val title = request.title
             val encoded = URLEncoder.encode(title, "UTF-8")
             val searchUrl = "$MAIN_URL/api/search?q=$encoded"
 

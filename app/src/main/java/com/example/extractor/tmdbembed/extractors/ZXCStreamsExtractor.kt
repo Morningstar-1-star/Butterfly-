@@ -32,6 +32,7 @@ object ZXCStreamsExtractor {
     }
 
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
+        if (request.tmdbId.isBlank()) return@withContext emptyList()
         val streams = mutableListOf<ExtractedStream>()
         try {
             val servers = listOf("icarus", "berkas", "orion", "athena")
@@ -45,19 +46,36 @@ object ZXCStreamsExtractor {
                     "$INITIAL_BASE/stream/$srv/movie/${request.tmdbId}?token=$token"
                 }
 
-                streams.add(
-                    ExtractedStream(
-                        title = "${request.title} [ZXCStreams • ${srv.replaceFirstChar { it.uppercase() }}]",
-                        url = streamUrl,
-                        quality = "1080p",
-                        source = TMDBEmbedSource.ZXCSTREAMS,
-                        isHls = true,
-                        headers = mapOf(
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                            "Referer" to "$INITIAL_BASE/"
+                val req = Request.Builder()
+                    .url(streamUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Referer", "$INITIAL_BASE/")
+                    .head()
+                    .build()
+
+                val isResponding = try {
+                    client.newCall(req).execute().use { resp ->
+                        resp.isSuccessful || resp.code in 300..399
+                    }
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (isResponding) {
+                    streams.add(
+                        ExtractedStream(
+                            title = "${request.title} [ZXCStreams • ${srv.replaceFirstChar { it.uppercase() }}]",
+                            url = streamUrl,
+                            quality = "1080p",
+                            source = TMDBEmbedSource.ZXCSTREAMS,
+                            isHls = true,
+                            headers = mapOf(
+                                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Referer" to "$INITIAL_BASE/"
+                            )
                         )
                     )
-                )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "ZXCStreams extraction failed: ${e.message}", e)

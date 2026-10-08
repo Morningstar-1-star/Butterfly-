@@ -32,6 +32,8 @@ class VegaSourceAdapter(
     override val priority: Int = 100
 ) : SourceProvider {
 
+    override val timeoutMs: Long get() = 45_000L
+
     companion object {
         private const val TAG = "VegaSourceAdapter"
         private const val MAX_CONCURRENT_PROVIDERS = 5

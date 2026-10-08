@@ -7309,8 +7309,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val activeProv = _activeVideoItem.value?.providerId ?: ""
         val titleLower = identity.title.lowercase()
         val isJav = com.example.metadata.JavIdParser.isJavCode(identity.title) || com.example.metadata.JavIdParser.isJavCode(identity.rawQueryOrUrl)
-        val isMultiSourceMedia = force || isJav || activeProv == "torrent" || activeProv == "vega" || activeProv.startsWith("vega_") ||
-                titleLower.contains("movie") || titleLower.contains("season") || titleLower.contains("s0") || titleLower.contains("s1")
+        val isMultiSourceMedia = true
 
         if (!isMultiSourceMedia) {
             _isResolvingUnifiedSources.value = false

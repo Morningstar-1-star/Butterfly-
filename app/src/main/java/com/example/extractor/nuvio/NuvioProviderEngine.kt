@@ -217,7 +217,7 @@ object NuvioProviderEngine {
         val candidates = mutableListOf<SourceCandidate>()
         val installed = repo.installedProviders.value.filter { it.isEnabled }.sortedByDescending { it.priority }
 
-        for (provider in installed.take(6)) {
+        for (provider in installed) {
             try {
                 val results = extractFromProvider(provider.id, enrichedReq)
                 results.forEach { candidates.add(it.toSourceCandidate()) }

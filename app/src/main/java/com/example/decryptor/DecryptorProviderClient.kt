@@ -245,7 +245,7 @@ object DecryptorProviderClient {
     ): List<DecryptorServer> = withContext(Dispatchers.IO) {
         val servers = mutableListOf<DecryptorServer>()
 
-        if (context != null) {
+        run {
             try {
                 val directOptions = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
                     context = context,

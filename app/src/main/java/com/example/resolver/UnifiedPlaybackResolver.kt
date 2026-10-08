@@ -112,14 +112,19 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
 
         val effectiveCandidate = if (isEmbed && !initialCandidate.urlOrMagnet.contains(".m3u8", ignoreCase = true) && !initialCandidate.urlOrMagnet.contains(".mp4", ignoreCase = true)) {
             onStatus("Extracting native video stream from ${candidate.serverName}...")
-            val tmdbId = Regex("""\d+""").find(candidate.urlOrMagnet)?.value ?: ""
+            val tmdbId = Regex("""(?:/(?:movie|tv)/|[?&]tmdb=)(\d+)""").find(candidate.urlOrMagnet)?.groupValues?.get(1).orEmpty()
             val isTv = candidate.urlOrMagnet.contains("/tv") || candidate.urlOrMagnet.contains("tv=")
+            val tvMatch = Regex("""/tv/\d+/(\d+)/(\d+)|[?&]season=(\d+)&episode=(\d+)""").find(candidate.urlOrMagnet)
+            val epSeason = tvMatch?.let { it.groupValues[1].ifEmpty { it.groupValues[3] }.toIntOrNull() } ?: 1
+            val epEpisode = tvMatch?.let { it.groupValues[2].ifEmpty { it.groupValues[4] }.toIntOrNull() } ?: 1
             val directStreams = if (tmdbId.isNotBlank()) {
                 try {
                     com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveMultiServerOptions(
                         context = context,
                         tmdbIdOrUrl = tmdbId,
                         mediaType = if (isTv) "tv" else "movie",
+                        season = epSeason,
+                        episode = epEpisode,
                         title = candidate.title,
                         providerName = candidate.providerName
                     )

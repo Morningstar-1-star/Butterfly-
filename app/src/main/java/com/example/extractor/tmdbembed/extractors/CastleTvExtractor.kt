@@ -87,7 +87,8 @@ object CastleTvExtractor {
             val aesKey = deriveKey(secKey)
 
             // Step 2: Search by title
-            val cleanTitle = request.title.ifBlank { "Fight Club" }
+            if (request.title.isBlank()) return@withContext emptyList()
+            val cleanTitle = request.title
             val encodedTitle = URLEncoder.encode(cleanTitle, "UTF-8")
             val searchUrl = "$BASE_URL/film-api/v1.1.0/movie/searchByKeyword?channel=$CHANNEL&clientType=$CLIENT&keyword=$encodedTitle&lang=$LANG&mode=1&packageName=$PKG&page=1&size=5"
             val searchReq = Request.Builder()

@@ -30,6 +30,8 @@ class NuvioDirectSourceProvider(
     private val context: Context? = null
 ) : SourceProvider {
 
+    override val timeoutMs: Long get() = 120_000L
+
     companion object {
         private const val TAG = "NuvioDirectSourceProvider"
     }

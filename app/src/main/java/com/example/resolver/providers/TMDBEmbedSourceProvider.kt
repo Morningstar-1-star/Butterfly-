@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.flowOn
 
 class TMDBEmbedSourceProvider(private val context: Context) : SourceProvider {
 
+    override val timeoutMs: Long get() = 60_000L
+
     companion object {
         private const val TAG = "TMDBEmbedSourceProvider"
     }
@@ -51,7 +53,7 @@ class TMDBEmbedSourceProvider(private val context: Context) : SourceProvider {
         }
 
         val tmdbId = identity.tmdbId?.takeIf { it.isNotBlank() }
-        val imdbId = identity.imdbId ?: identity.toStremioImdbId()?.substringBefore(":")
+        val imdbId = identity.imdbId?.takeIf { it.startsWith("tt") }
         val targetId = tmdbId ?: imdbId ?: ""
 
         if (targetId.isBlank() && identity.title.isBlank()) {

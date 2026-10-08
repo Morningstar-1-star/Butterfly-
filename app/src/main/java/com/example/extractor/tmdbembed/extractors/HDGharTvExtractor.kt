@@ -26,7 +26,8 @@ object HDGharTvExtractor {
     suspend fun extract(request: TMDBMediaRequest): List<ExtractedStream> = withContext(Dispatchers.IO) {
         val streams = mutableListOf<ExtractedStream>()
         try {
-            val title = request.title.ifBlank { "Fight Club" }
+            if (request.title.isBlank()) return@withContext emptyList()
+            val title = request.title
             val encoded = URLEncoder.encode(title, "UTF-8")
             val searchUrl = "$BASE_URL/search?q=$encoded"
 
