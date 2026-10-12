@@ -260,7 +260,8 @@ object VidSrcStreamExtractor {
                         val orchHtml = httpClient.newCall(orchReq).execute().body?.string().orEmpty()
                         val playerUrlMatch = Regex("""["']playerUrl["']\s*:\s*["']([^"']+)["']""").find(orchHtml)
                         if (playerUrlMatch != null) {
-                            val playerUrl = "https://cloudorchestranova.com" + playerUrlMatch.groupValues[1]
+                            val raw = playerUrlMatch.groupValues[1]
+                            val playerUrl = if (raw.startsWith("http")) raw else "https://cloudorchestranova.com" + raw
                             val pReq = Request.Builder().url(playerUrl).header("Referer", embedSrc).header("User-Agent", DEFAULT_UA).build()
                             val pHtml = httpClient.newCall(pReq).execute().body?.string().orEmpty()
                             val apiMatch = Regex("""["']api["']\s*:\s*["']([^"']+)["']""").find(pHtml)
@@ -367,7 +368,7 @@ object VidSrcStreamExtractor {
     }
 
     private fun parseJwtToken(text: String): String {
-        if (text.isBlank() || text.contains("<html", ignoreCase = true) || text.contains("429") || text.contains("Too Many", ignoreCase = true)) return ""
+        if (text.isBlank() || text.contains("<html", ignoreCase = true) || text.contains("Too Many", ignoreCase = true)) return ""
         val clean = text.trim()
         if (clean.startsWith("{") || clean.startsWith("[")) {
             try {

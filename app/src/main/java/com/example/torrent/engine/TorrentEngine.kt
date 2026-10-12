@@ -61,9 +61,7 @@ class TorrentEngine(private val context: Context) : TorrentEngineInterface {
     }
 
     override fun getActiveFileLength(): Long {
-        return sessionManager.activeFileItem?.length
-            ?: sessionManager.activeRelease?.sizeBytes
-            ?: 0L
+        return sessionManager.activeFileItem?.length ?: 0L
     }
 
     override fun getActiveFilePath(): String? {

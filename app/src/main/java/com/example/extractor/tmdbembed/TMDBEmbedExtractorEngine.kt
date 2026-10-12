@@ -226,7 +226,7 @@ object TMDBEmbedExtractorEngine {
             val qualitySuffix = if (stream.seeders > 0) " [${stream.seeders} seeds]" else ""
             PlayableStreamOption(
                 qualityLabel = "${stream.source.displayName} • ${stream.quality}$qualitySuffix",
-                format = if (isDirectMedia) (if (stream.isHls) "hls" else "mp4") else if (isTorrent) "mkv" else "mp4",
+                format = if (stream.isHls) "hls" else if (isDirectMedia) "mp4" else if (isTorrent) "mkv" else "mp4",
                 isMuxed = true,
                 videoUrl = stream.url,
                 audioUrl = null,

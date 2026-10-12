@@ -69,6 +69,7 @@ object NuvioDomainManager {
         if (System.currentTimeMillis() - lastFetchTime < CACHE_DURATION_MS && domainCache.isNotEmpty()) {
             return
         }
+        lastFetchTime = System.currentTimeMillis()
         try {
             val req = Request.Builder()
                 .url(DOMAINS_URL)

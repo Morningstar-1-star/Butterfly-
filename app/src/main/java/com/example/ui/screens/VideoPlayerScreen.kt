@@ -459,13 +459,33 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(displayTitle, activeVideoId, shouldRenderDetails) {
+    val playingImdbId = remember(activeVideoId, currentStreamData) {
+        val vid = activeVideoId ?: currentStreamData?.videoId
+        vid?.takeIf { it.startsWith("tt") }
+    }
+    val playingTmdbId = remember(activeVideoId, currentStreamData, tvSeasons) {
+        val vid = activeVideoId ?: currentStreamData?.videoId
+        vid?.let { id ->
+            when {
+                id.startsWith("tmdb:") -> id.removePrefix("tmdb:").substringBefore(":")
+                id.startsWith("tv_") -> id.removePrefix("tv_").substringBefore("_")
+                id.matches(Regex("""^\d{2,9}$""")) -> id
+                else -> null
+            }
+        } ?: tvSeasons.firstOrNull()?.episodes?.firstOrNull()?.id?.let { epId ->
+            if (epId.startsWith("tv_")) epId.removePrefix("tv_").substringBefore("_") else null
+        }
+    }
+
+    LaunchedEffect(displayTitle, activeVideoId, shouldRenderDetails, playingTmdbId, playingImdbId) {
         if (!shouldRenderDetails) return@LaunchedEffect
         if (displayTitle.isNotBlank() && displayTitle != "Loading video...") {
             val cleanTitle = displayTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
             viewModel.resolveUnifiedSourcesForMedia(
                 com.example.model.MediaIdentity(
                     title = cleanTitle,
+                    tmdbId = playingTmdbId,
+                    imdbId = playingImdbId,
                     mediaType = if (cleanTitle.contains("season", true) || cleanTitle.contains("episode", true)) com.example.model.MediaType.TV else com.example.model.MediaType.MOVIE
                 )
             )
@@ -1030,6 +1050,8 @@ fun VideoPlayerScreen(
                                         viewModel.resolveUnifiedSourcesForMedia(
                                             com.example.model.MediaIdentity(
                                                 title = cleanTitle,
+                                                tmdbId = playingTmdbId,
+                                                imdbId = playingImdbId,
                                                 mediaType = if (cleanTitle.contains("season", true) || cleanTitle.contains("episode", true)) com.example.model.MediaType.TV else com.example.model.MediaType.MOVIE
                                             ),
                                             force = true

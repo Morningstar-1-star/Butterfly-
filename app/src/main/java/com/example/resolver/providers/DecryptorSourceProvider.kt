@@ -62,9 +62,9 @@ class DecryptorSourceProvider(private val context: android.content.Context) : So
 
         val tmdbId = identity.tmdbId?.takeIf { it.isNotBlank() }
         val imdbId = identity.imdbId ?: identity.toStremioImdbId()?.substringBefore(":")
-        val targetId = tmdbId ?: imdbId ?: identity.title
+        val targetId = tmdbId ?: imdbId
 
-        if (targetId.isBlank()) {
+        if (targetId.isNullOrBlank()) {
             emit(emptyList())
             return@flow
         }

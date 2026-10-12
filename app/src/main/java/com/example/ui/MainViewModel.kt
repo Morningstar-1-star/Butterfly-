@@ -7323,7 +7323,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         unifiedResolutionJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                unifiedResolver.resolveSources(identity).collect { candidates ->
+                val effectiveIdentity = if (identity.tmdbId.isNullOrBlank() && identity.imdbId.isNullOrBlank() && identity.title.isNotBlank()) {
+                    val (tmdb, imdb) = com.example.torrent.provider.TorrentProviderManager.getInstance().resolveTmdbAndImdb(
+                        title = identity.title,
+                        mediaType = if (identity.mediaType == com.example.model.MediaType.TV) "tv" else "movie"
+                    )
+                    identity.copy(tmdbId = tmdb, imdbId = imdb)
+                } else {
+                    identity
+                }
+                unifiedResolver.resolveSources(effectiveIdentity).collect { candidates ->
                     _unifiedCandidates.value = candidates
                     if (candidates.isNotEmpty()) {
                         _unifiedStatusMessage.value = "Found ${candidates.size} sources"
