@@ -65,12 +65,9 @@ fun AmbientPlayerGlow(
         label = "ambientTop"
     )
 
-    val isCinemaEcoActive by com.example.ui.player.eco.CinemaEcoManager.isCinemaEcoActive.collectAsState()
-    val effectiveEnabled = isEnabled && !isCinemaEcoActive
-
-    // Smoothly fade in/out when toggling Ambient Mode or entering Cinema Eco Mode
+    // Smoothly fade in/out when toggling Ambient Mode
     val glowAlpha by animateFloatAsState(
-        targetValue = if (effectiveEnabled) 1.0f else 0.0f,
+        targetValue = if (isEnabled) 1.0f else 0.0f,
         animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
         label = "ambientAlpha"
     )

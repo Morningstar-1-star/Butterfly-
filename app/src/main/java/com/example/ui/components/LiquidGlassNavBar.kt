@@ -184,12 +184,7 @@ private fun YouNavItem(
     val activeColor = MaterialTheme.colorScheme.onSurface
     val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
 
-    val avatarUrl = userProfile?.avatarUrl
-    val presetId = userProfile?.avatarPreset
-    val matchedPreset = remember(presetId) {
-        BuiltinAvatarPresets.models.find { it.id == presetId }
-    }
-    val effectiveAvatarUrl = avatarUrl ?: matchedPreset?.imageUrl
+    val effectiveAvatarUrl = userProfile?.avatarUrl
 
     Box(
         modifier = modifier
@@ -234,29 +229,6 @@ private fun YouNavItem(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
-                }
-            } else if (matchedPreset != null) {
-                // Gradient emoji fallback
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .then(
-                            if (isSelected) {
-                                Modifier.border(
-                                    width = 2.dp,
-                                    color = activeColor,
-                                    shape = CircleShape
-                                )
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .padding(if (isSelected) 2.dp else 0.dp)
-                        .clip(CircleShape)
-                        .background(Brush.linearGradient(matchedPreset.gradientColors)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = matchedPreset.emoji, fontSize = 13.sp)
                 }
             } else {
                 // Dynamic theme rounded AccountCircle icon

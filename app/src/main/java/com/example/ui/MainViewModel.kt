@@ -241,10 +241,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     private val normalIdsList = listOf(
         "youtube", "tencent", "dailymotion", "bilibili", "archive",
-        "crunchyroll", "sonyliv", "twitch", "bigo", "vimeo", "archive_org", "hotstar", "bun-tel-meg",
-        "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-        "decryptor", "tmdb_embed", "vidsrc", "torrent", "prowlarr_v11", "torrentio", "1337x", "yts", "torrentgalaxy",
-        "telegram", "mega", "bunkr"
+        "twitch", "bigo", "vimeo", "archive_org",
+        "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
+        "decryptor", "tmdb_embed", "vidsrc", "nuvio", "torrent", "prowlarr_v11", "torrentio", "1337x", "yts", "torrentgalaxy"
     )
     val defaultDisabledProviderIds = setOf(
         "twitch", "bigo", "googledrive", "imdb"
@@ -371,13 +370,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         settingsPrefs.edit().putString("theme_mode", mode.name).apply()
-        try {
-            if (mode == ThemeMode.LIGHT) {
-                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO)
-            } else {
-                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
-            }
-        } catch (_: Exception) {}
     }
 
     fun setAccentColor(accent: AppAccentColor) {
@@ -3627,73 +3619,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
-                    id = "hotstar",
-                    name = "Hotstar (JioHotstar)",
-                    description = "Hotstar & JioHotstar streaming catalog, series & serials",
-                    category = "Video",
-                    isEnabled = enabledSet.contains("hotstar"),
-                    isDefault = (activeId == "hotstar")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "bun-tel-meg",
-                    name = "bun-tel-meg",
-                    description = "Telegram Channels, MEGA Folders & Bunkr Albums video links",
-                    category = "Cloud & Social",
-                    isEnabled = enabledSet.contains("bun-tel-meg") || enabledSet.contains("bunkr"),
-                    isDefault = (activeId == "bun-tel-meg")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
                     id = "torrent",
                     name = "Torrent (P2P)",
-                    description = "Stream Movies, TV Series & Anime via native BitTorrent releases",
+                    description = "Stream Movies, TV Series & Anime via Butterfly MediaServer",
                     category = "Torrent",
                     providerType = com.example.model.ProviderType.TORRENT,
                     isEnabled = enabledSet.contains("torrent"),
                     isDefault = (activeId == "torrent")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "amazonminitv",
-                    name = "Amazon miniTV",
-                    description = "Amazon miniTV free web series, comedy, romance & drama",
-                    category = "Video",
-                    isEnabled = enabledSet.contains("amazonminitv"),
-                    isDefault = (activeId == "amazonminitv")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "discoveryplus",
-                    name = "Discovery+",
-                    description = "Discovery+, Science, Animal Planet & TLC docu-series",
-                    category = "Doc/Series",
-                    isEnabled = enabledSet.contains("discoveryplus"),
-                    isDefault = (activeId == "discoveryplus")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "disney",
-                    name = "Disney / Disney+",
-                    description = "Disney, Pixar, Marvel, Star Wars & Nat Geo cinema releases",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("disney"),
-                    isDefault = (activeId == "disney")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "hbo",
-                    name = "HBO / Max",
-                    description = "HBO Originals, House of the Dragon, Game of Thrones, The Last of Us & Max Hits",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("hbo"),
-                    isDefault = (activeId == "hbo")
                 )
             )
             uiList.add(
@@ -3734,26 +3666,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = "Video",
                     isEnabled = enabledSet.contains("mxplayer"),
                     isDefault = (activeId == "mxplayer")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "crunchyroll",
-                    name = "Crunchyroll",
-                    description = "Crunchyroll anime catalog, simulcasts, popular series & episodes",
-                    category = "Anime",
-                    isEnabled = enabledSet.contains("crunchyroll"),
-                    isDefault = (activeId == "crunchyroll")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "sonyliv",
-                    name = "SonyLIV",
-                    description = "SonyLIV TV shows, live sports, premium web series & cinema",
-                    category = "Video",
-                    isEnabled = enabledSet.contains("sonyliv"),
-                    isDefault = (activeId == "sonyliv")
                 )
             )
             uiList.add(
@@ -5174,12 +5086,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 } else {
                     if (activeProv == "all") {
-                        listOf("tencent", "hotstar", "twitch", "bigo", "bun-tel-meg")
+                        listOf("tencent", "twitch", "bigo")
                     } else {
                         listOf(
-                            "tencent", "hotstar", "twitch", "bigo", "bun-tel-meg",
-                            "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc"
+                            "tencent", "twitch", "bigo",
+                            "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
+                            "decryptor", "tmdb_embed", "vidsrc"
                         )
                     }
                 }
@@ -5326,9 +5238,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "playvid", "txxx"
                         ) else listOf(
-                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
-                            "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc", "nuvio"
+                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo",
+                            "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
+                            "decryptor", "tmdb_embed", "vidsrc", "nuvio"
                         )
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
                             try {
@@ -5384,9 +5296,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "playvid", "txxx"
                         ) else listOf(
-                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo", "hotstar", "bun-tel-meg",
-                            "amazonminitv", "discoveryplus", "disney", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-                            "crunchyroll", "sonyliv", "decryptor", "tmdb_embed", "vidsrc", "nuvio"
+                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo",
+                            "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
+                            "decryptor", "tmdb_embed", "vidsrc", "nuvio"
                         )
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
                             try {
@@ -5449,7 +5361,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadMorePlayerRecommendations(streamData: StreamData? = null) {
-        if (_isLoadingPlayerRecs.value || com.example.ui.player.eco.CinemaEcoManager.isBackgroundProcessingSuspended.value) return
+        if (_isLoadingPlayerRecs.value) return
         _isLoadingPlayerRecs.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -6247,22 +6159,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         lastFallbackAttemptTime = now
 
+        val activePlayerOption = com.example.ui.player.GlobalPlayerManager.activeStreamData.value?.selectedStreamOption
+        if (activePlayerOption != null && _selectedStreamOption.value?.videoUrl != activePlayerOption.videoUrl) {
+            _selectedStreamOption.value = activePlayerOption
+            if (com.example.ui.player.GlobalPlayerManager.isPlaying.value || com.example.ui.player.GlobalPlayerManager.isBuffering.value) {
+                return
+            }
+        }
+
         val current = _selectedStreamOption.value ?: return
         val ext = _extractionResult.value
         if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
             val options = ext.streamData.availableStreamOptions
             val currentIndex = options.indexOfFirst { it.videoUrl == current.videoUrl }
             val nextIndex = if (currentIndex >= 0) currentIndex + 1 else 1
+            val isBilibili = ext.streamData.providerId.equals("bilibili", ignoreCase = true) ||
+                ext.streamData.videoId.startsWith("BV", ignoreCase = true)
 
-            // On HTTP 403 or when candidate formats are exhausted, trigger direct yt-dlp engine fallback
-            if (errorCode == 403 || nextIndex >= options.size || fallbackAttemptsCount >= 5) {
+            // For Bilibili, try all extracted CDN mirrors & progressive/DASH options before invoking yt-dlp
+            val shouldTriggerYtDlp = if (isBilibili) {
+                nextIndex >= options.size || fallbackAttemptsCount >= 8
+            } else {
+                errorCode == 403 || nextIndex >= options.size || fallbackAttemptsCount >= 5
+            }
+
+            if (shouldTriggerYtDlp) {
                 fallbackAttemptsCount++
-                val videoId = ext.streamData.videoId
-                val currentPos = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
-                Log.w("MainViewModel", "[Fallback] HTTP $errorCode / formats exhausted for video $videoId. Triggering yt-dlp resolver recovery...")
+                val rawVideoId = ext.streamData.videoId
+                val targetForYtDlp = if (isBilibili && !rawVideoId.startsWith("http", ignoreCase = true)) {
+                    if (rawVideoId.startsWith("BV", ignoreCase = true) || rawVideoId.startsWith("av", ignoreCase = true)) {
+                        "https://www.bilibili.com/video/$rawVideoId"
+                    } else if (rawVideoId.startsWith("ep", ignoreCase = true) || rawVideoId.startsWith("ss", ignoreCase = true)) {
+                        "https://www.bilibili.com/bangumi/play/$rawVideoId"
+                    } else {
+                        "https://www.bilibili.com/video/$rawVideoId"
+                    }
+                } else {
+                    rawVideoId
+                }
+                Log.w("MainViewModel", "[Fallback] HTTP $errorCode / formats exhausted for video $targetForYtDlp. Triggering yt-dlp resolver recovery...")
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
-                        val ytDlpResult = com.example.extractor.YtDlpResolver.extractStreamInfo(getApplication(), videoId)
+                        val ytDlpResult = com.example.extractor.YtDlpResolver.extractStreamInfo(getApplication(), targetForYtDlp)
                         if (ytDlpResult is YouTubeExtractorHelper.ExtractionResult.Success) {
                             withContext(Dispatchers.Main) {
                                 _extractionResult.value = ytDlpResult
@@ -6280,10 +6218,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         Log.e("MainViewModel", "[Fallback] yt-dlp fallback extraction error: ${e.message}")
                     }
                 }
-            } else if (nextIndex < options.size && fallbackAttemptsCount < 6) {
+            } else if (nextIndex < options.size && fallbackAttemptsCount < 8) {
                 fallbackAttemptsCount++
                 val nextOption = options[nextIndex]
-                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto switching ($fallbackAttemptsCount/6) to backup option: '${nextOption.qualityLabel}'")
+                Log.d("MainViewModel", "[Fallback] Playback failed for '${current.qualityLabel}'. Auto switching ($fallbackAttemptsCount/8) to backup option: '${nextOption.qualityLabel}'")
                 selectStreamOption(nextOption)
             } else {
                 Log.w("MainViewModel", "[Fallback] All fallback stream options exhausted.")

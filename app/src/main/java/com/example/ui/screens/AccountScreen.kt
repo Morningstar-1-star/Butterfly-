@@ -39,8 +39,6 @@ import com.example.model.AppScreen
 import com.example.model.UserPlaylist
 import com.example.model.VideoItem
 import com.example.ui.MainViewModel
-import com.example.ui.components.AvatarCustomizerSheet
-import com.example.ui.components.BuiltinAvatarPresets
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -82,10 +80,8 @@ fun AccountScreen(
     var showDownloadsSheet by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showMoviesAndTvSheet by remember { mutableStateOf(false) }
-    var showBadgesSheet by remember { mutableStateOf(false) }
     var showTimeManagementSheet by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
-    var showAvatarPickerSheet by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
     var showAccountsAndSourcesSheet by remember { mutableStateOf(false) }
     var showSupabaseDialog by remember { mutableStateOf(false) }
@@ -134,18 +130,13 @@ fun AccountScreen(
                         modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Profile Avatar with Neon Ring & 3D Cartoon Model / Custom Logo
+                        // Profile Avatar with Neon Ring
                         Box(
                             modifier = Modifier
                                 .size(74.dp)
-                                .clickable { showAvatarPickerSheet = true }
+                                .clickable { showEditProfileDialog = true }
                         ) {
-                            val activeModel = BuiltinAvatarPresets.models.find { it.id == userProfile.avatarPreset }
-                            val ringGradient = if (activeModel != null) {
-                                Brush.linearGradient(activeModel.gradientColors)
-                            } else {
-                                Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFFFF007F), Color(0xFFFFD600)))
-                            }
+                            val ringGradient = Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFFFF007F), Color(0xFFFFD600)))
 
                             Box(
                                 modifier = Modifier
@@ -164,39 +155,12 @@ fun AccountScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop
                                     )
-                                } else if (activeModel != null) {
-                                    AsyncImage(
-                                        model = activeModel.imageUrl,
-                                        contentDescription = activeModel.name,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
                                 } else {
-                                    // Default Lucifer 3D demon character placeholder
                                     Icon(
                                         imageVector = Icons.Filled.AccountCircle,
                                         contentDescription = "Profile Avatar",
                                         tint = Color.White.copy(alpha = 0.9f),
                                         modifier = Modifier.size(56.dp)
-                                    )
-                                }
-                            }
-
-                            // Camera / 3D Customizer Badge Overlay
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFF00E5FF),
-                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF12121A)),
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .align(Alignment.BottomEnd)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PhotoCamera,
-                                        contentDescription = "Change 3D Avatar or Upload Logo",
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(13.dp)
                                     )
                                 }
                             }
@@ -480,16 +444,9 @@ fun AccountScreen(
                     )
 
                     AccountMenuListItem(
-                        icon = Icons.Outlined.MilitaryTech,
-                        title = "Badges & Achievements",
-                        subtitle = "Personality, Hall of Fame, Hall of Shame & Trophies",
-                        onClick = { showBadgesSheet = true }
-                    )
-
-                    AccountMenuListItem(
                         icon = Icons.Outlined.Hub,
                         title = "Accounts & Sources",
-                        subtitle = "Connect YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV",
+                        subtitle = "Connect YouTube, Bilibili, Tencent Video & Google Drive",
                         onClick = { showAccountsAndSourcesSheet = true }
                     )
                 }
@@ -558,69 +515,6 @@ fun AccountScreen(
                 title = { Text("Channel Details", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // Avatar preview & change button
-                        Surface(
-                            onClick = {
-                                showEditProfileDialog = false
-                                showAvatarPickerSheet = true
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF1E1E2C)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!userProfile.avatarUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = userProfile.avatarUrl,
-                                            contentDescription = "Avatar",
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Filled.AccountCircle,
-                                            contentDescription = null,
-                                            tint = Color(0xFF00E5FF),
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "3D Cartoon Model / Logo",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "Tap to pick 3D model or upload from gallery",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF00E5FF)
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Filled.PhotoCamera,
-                                    contentDescription = "Edit",
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { nameInput = it },
@@ -666,23 +560,6 @@ fun AccountScreen(
                     TextButton(onClick = { showEditProfileDialog = false }) {
                         Text("Cancel")
                     }
-                }
-            )
-        }
-
-        // AVATAR CUSTOMIZER & 3D MODEL / GALLERY PICKER SHEET
-        if (showAvatarPickerSheet) {
-            AvatarCustomizerSheet(
-                userProfile = userProfile,
-                onDismiss = { showAvatarPickerSheet = false },
-                onAvatarSelected = { avatarUrl, presetId ->
-                    viewModel.updateUserProfile(
-                        name = userProfile.name,
-                        handle = userProfile.handle,
-                        bio = userProfile.bio,
-                        avatarUrl = avatarUrl,
-                        avatarPreset = presetId
-                    )
                 }
             )
         }
@@ -1031,14 +908,6 @@ fun AccountScreen(
                 onRemoveMedia = { video ->
                     viewModel.removeFromWatchLater(video)
                 }
-            )
-        }
-
-        // BADGES & PERSONALITY METER SHEET
-        if (showBadgesSheet) {
-            com.example.ui.components.PersonalityBadgesSheet(
-                viewModel = viewModel,
-                onDismiss = { showBadgesSheet = false }
             )
         }
 

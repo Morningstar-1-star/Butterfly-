@@ -326,25 +326,14 @@ object YouTubeExtractorHelper {
             return@withContext ExtractionResult.Success(cached)
         }
 
-        // Step 0: Direct Vault / M3U8 / Local file handling (zero transcoding/downloading)
-        val isM3u8OrLocal = providerId == "m3u8" || providerId == "local" || providerId == "vault" || providerId == "gdrive" ||
+        // Step 0: Direct M3U8 / Local file handling (zero transcoding/downloading)
+        val isM3u8OrLocal = providerId == "m3u8" || providerId == "local" || providerId == "gdrive" ||
                 urlOrId.startsWith("content://") || urlOrId.startsWith("file://") ||
                 urlOrId.contains(".m3u8", ignoreCase = true) || urlOrId.startsWith("m3u8_") || urlOrId.startsWith("local_") || urlOrId.startsWith("gdrive_")
 
         if (isM3u8OrLocal) {
             val isHls = urlOrId.contains(".m3u8", ignoreCase = true)
-            val effectiveUrl = if (urlOrId.startsWith("content://") || urlOrId.startsWith("file://") || urlOrId.startsWith("http://") || urlOrId.startsWith("https://")) {
-                urlOrId
-            } else if (context != null) {
-                try {
-                    val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
-                    repo.resolveStreamUrlByUrlOrId(urlOrId).ifBlank { urlOrId }
-                } catch (e: Exception) {
-                    urlOrId
-                }
-            } else {
-                urlOrId
-            }
+            val effectiveUrl = urlOrId
 
             val option = PlayableStreamOption(
                 qualityLabel = if (isHls) "HLS Master Stream" else "Original Video",
@@ -358,8 +347,8 @@ object YouTubeExtractorHelper {
             val streamData = StreamData(
                 videoId = urlOrId,
                 videoUrl = effectiveUrl,
-                title = if (isHls) "M3U8 Stream" else "Butterfly Vault Video",
-                channelName = "Butterfly Vault",
+                title = if (isHls) "M3U8 Stream" else "Local Video",
+                channelName = "Direct Media",
                 channelAvatarUrl = null,
                 description = "Saved Stream Reference / Device Video",
                 availableStreamOptions = listOf(option),
@@ -369,7 +358,6 @@ object YouTubeExtractorHelper {
                 providerType = com.example.model.ProviderType.DIRECT,
                 headers = option.headers
             )
-            Log.i(TAG, "Resolved stream via Butterfly Vault for $urlOrId -> $effectiveUrl")
             return@withContext ExtractionResult.Success(streamData)
         }
 
@@ -379,57 +367,6 @@ object YouTubeExtractorHelper {
             if (pluginStream != null) {
                 Log.i(TAG, "Resolved via specialized ExtractorPlugin for $urlOrId")
                 return@withContext ExtractionResult.Success(pluginStream)
-            }
-        }
-
-        val isCloudSocial = providerId == "bun-tel-meg" || providerId == "cloud_social" || providerId == "bunkr" || providerId == "telegram" || providerId == "mega" || urlOrId.contains("bunkr") || urlOrId.contains("mega.nz") || urlOrId.contains("mega.io") || urlOrId.contains("t.me/") || urlOrId.startsWith("tg_") || urlOrId.startsWith("mega_") || urlOrId.startsWith("bunkr_")
-        if (isCloudSocial && context != null) {
-            try {
-                val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
-                val streamUrl = repo.resolveStreamUrlByUrlOrId(urlOrId)
-                if (streamUrl.isNotBlank() && (streamUrl.startsWith("http://") || streamUrl.startsWith("https://"))) {
-                    val streamHeaders = when {
-                        streamUrl.contains("bunkr") || urlOrId.contains("bunkr") -> mapOf(
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                            "Referer" to "https://bunkr.site/",
-                            "Origin" to "https://bunkr.site"
-                        )
-                        streamUrl.contains("mega.nz") || streamUrl.contains("mega.co.nz") || streamUrl.contains("userstorage.mega") || urlOrId.contains("mega") -> mapOf(
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                            "Referer" to "https://mega.nz/"
-                        )
-                        streamUrl.contains("t.me") || streamUrl.contains("telesco.pe") || urlOrId.contains("tg_") -> mapOf(
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                            "Referer" to "https://t.me/"
-                        )
-                        else -> mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    }
-                    val option = PlayableStreamOption(
-                        qualityLabel = "HD Direct Stream",
-                        format = if (streamUrl.contains(".m3u8")) "hls" else "mp4",
-                        isMuxed = true,
-                        videoUrl = streamUrl,
-                        audioUrl = null,
-                        providerType = com.example.model.ProviderType.DIRECT,
-                        headers = streamHeaders
-                    )
-                    val streamData = StreamData(
-                        videoId = urlOrId,
-                        title = "bun-tel-meg Stream",
-                        channelName = "bun-tel-meg",
-                        channelAvatarUrl = null,
-                        description = "Direct stream resolved from bun-tel-meg Cloud & Social provider",
-                        availableStreamOptions = listOf(option),
-                        selectedStreamOption = option,
-                        providerId = "bun-tel-meg",
-                        providerType = com.example.model.ProviderType.DIRECT,
-                        headers = option.headers
-                    )
-                    Log.i(TAG, "Resolved stream via CloudSocialRepository for $urlOrId -> $streamUrl")
-                    return@withContext ExtractionResult.Success(streamData)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "CloudSocial stream resolution failed: ${e.message}", e)
             }
         }
 
@@ -733,26 +670,6 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isCrunchyroll = providerId == "crunchyroll" || urlOrId.contains("crunchyroll.com") ||
-                urlOrId.startsWith("crunchyroll:", ignoreCase = true)
-        if (isCrunchyroll) {
-            val crData = CrunchyrollProvider.getStreamData(urlOrId, context)
-            if (crData != null) {
-                Log.i(TAG, "Resolved via CrunchyrollProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(crData)
-            }
-        }
-
-        val isSonyLiv = providerId == "sonyliv" || urlOrId.contains("sonyliv.com") ||
-                urlOrId.startsWith("sonyliv:", ignoreCase = true)
-        if (isSonyLiv) {
-            val slData = SonyLivProvider.getStreamData(urlOrId, context)
-            if (slData != null) {
-                Log.i(TAG, "Resolved via SonyLivProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(slData)
-            }
-        }
-
         val isNoodleMagazine = providerId == "noodlemagazine" || providerId == "noodlemag" || urlOrId.contains("noodlemagazine.com") ||
                 urlOrId.startsWith("noodlemagazine:", ignoreCase = true) || urlOrId.startsWith("noodlemag:", ignoreCase = true)
         if (isNoodleMagazine) {
@@ -782,65 +699,12 @@ object YouTubeExtractorHelper {
             }
         }
 
-        val isHotstar = providerId == "hotstar" || providerId == "jiohotstar" || urlOrId.contains("hotstar.com") || urlOrId.contains("jiohotstar.com")
-        if (isHotstar) {
-            val hotstarData = HotstarProvider.getStreamData(urlOrId, context)
-            if (hotstarData != null) {
-                Log.i(TAG, "Resolved via HotstarProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(hotstarData)
-            } else if (context != null) {
-                Log.i(TAG, "Routing Hotstar to YtDlpResolver fallback for $urlOrId")
-                val ytdlResult = YtDlpResolver.extractStreamInfo(context, urlOrId)
-                if (ytdlResult is ExtractionResult.Success) {
-                    return@withContext ExtractionResult.Success(
-                        ytdlResult.streamData.copy(providerId = HotstarProvider.PROVIDER_ID)
-                    )
-                }
-            }
-        }
-
-        val isMiniTv = providerId == "amazonminitv" || providerId == "minitv" || urlOrId.contains("amazon.in/minitv") || urlOrId.contains("amazonminitv")
-        if (isMiniTv) {
-            val miniTvData = AmazonMiniTvProvider.getStreamData(urlOrId, context)
-            if (miniTvData != null) {
-                Log.i(TAG, "Resolved via AmazonMiniTvProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(miniTvData)
-            }
-        }
-
-        val isDiscovery = providerId == "discoveryplus" || providerId == "discovery" || urlOrId.contains("discoveryplus")
-        if (isDiscovery) {
-            val discData = DiscoveryPlusProvider.getStreamData(urlOrId, context)
-            if (discData != null) {
-                Log.i(TAG, "Resolved via DiscoveryPlusProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(discData)
-            }
-        }
-
-        val isHbo = providerId == "hbo" || providerId == "hbomax" || providerId == "max" || urlOrId.contains("max.com") || urlOrId.contains("hbo.com") || urlOrId.contains("hbomax.com")
-        if (isHbo) {
-            val hboData = HboProvider.getStreamData(urlOrId, context)
-            if (hboData != null) {
-                Log.i(TAG, "Resolved via HboProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(hboData)
-            }
-        }
-
         val isCuriosity = providerId == "curiositystream" || providerId == "curiosity" || urlOrId.contains("curiositystream.com") || urlOrId.startsWith("curiositystream:") || urlOrId.startsWith("curiosity:")
         if (isCuriosity) {
             val curiosityData = CuriosityStreamProvider.getStreamData(urlOrId, context)
             if (curiosityData != null) {
                 Log.i(TAG, "Resolved via CuriosityStreamProvider for $urlOrId")
                 return@withContext ExtractionResult.Success(curiosityData)
-            }
-        }
-
-        val isDisney = providerId == "disney" || providerId == "disneyplus" || urlOrId.contains("disneyplus.com")
-        if (isDisney) {
-            val disneyData = DisneyProvider.getStreamData(urlOrId, context)
-            if (disneyData != null) {
-                Log.i(TAG, "Resolved via DisneyProvider for $urlOrId")
-                return@withContext ExtractionResult.Success(disneyData)
             }
         }
 

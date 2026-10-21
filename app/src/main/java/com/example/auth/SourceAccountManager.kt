@@ -35,64 +35,24 @@ enum class SourcePlatform(
         icon = Icons.Outlined.VideoLibrary,
         supportsPremiumStream = true
     ),
+    BILIBILI(
+        id = "bilibili",
+        displayName = "Bilibili (哔哩哔哩)",
+        subtitle = "1080p60 / 4K Anime, Bangumi & creator streams",
+        defaultLoginUrl = "https://passport.bilibili.com/login",
+        primaryDomain = ".bilibili.com",
+        brandColor = Color(0xFF00A1D6),
+        icon = Icons.Outlined.SmartDisplay,
+        supportsPremiumStream = true
+    ),
     GOOGLE_DRIVE(
         id = "googledrive",
         displayName = "Google Drive",
-        subtitle = "Cloud video streaming vault & resumable uploads",
+        subtitle = "Cloud video streaming & private shared files",
         defaultLoginUrl = "https://accounts.google.com/ServiceLogin?continue=https://drive.google.com",
         primaryDomain = ".google.com",
         brandColor = Color(0xFF4285F4),
         icon = Icons.Outlined.CloudQueue,
-        supportsPremiumStream = true
-    ),
-    CRUNCHYROLL(
-        id = "crunchyroll",
-        displayName = "Crunchyroll Anime",
-        subtitle = "Simulcasts, premium 1080p anime catalog & watchlist",
-        defaultLoginUrl = "https://www.crunchyroll.com/login",
-        primaryDomain = ".crunchyroll.com",
-        brandColor = Color(0xFFF47521),
-        icon = Icons.Outlined.Animation,
-        supportsPremiumStream = true
-    ),
-    HOTSTAR(
-        id = "hotstar",
-        displayName = "Disney+ Hotstar",
-        subtitle = "Blockbusters, live cricket & sports, Disney & HBO hits",
-        defaultLoginUrl = "https://www.hotstar.com/in/mypage",
-        primaryDomain = ".hotstar.com",
-        brandColor = Color(0xFF001435),
-        icon = Icons.Outlined.Tv,
-        supportsPremiumStream = true
-    ),
-    SONYLIV(
-        id = "sonyliv",
-        displayName = "SonyLIV",
-        subtitle = "LIV originals, UEFA Champions League, WWE & cinema",
-        defaultLoginUrl = "https://www.sonyliv.com/signin",
-        primaryDomain = ".sonyliv.com",
-        brandColor = Color(0xFF003087),
-        icon = Icons.Outlined.LiveTv,
-        supportsPremiumStream = true
-    ),
-    TELEGRAM(
-        id = "telegram",
-        displayName = "Telegram Cloud",
-        subtitle = "Direct cloud streaming from Telegram channels & bot bridge",
-        defaultLoginUrl = "https://web.telegram.org",
-        primaryDomain = ".telegram.org",
-        brandColor = Color(0xFF229ED9),
-        icon = Icons.Outlined.Send,
-        supportsPremiumStream = false
-    ),
-    DISCOVERY_PLUS(
-        id = "discoveryplus",
-        displayName = "Discovery+",
-        subtitle = "Discovery, Science, Animal Planet & TLC docu-series",
-        defaultLoginUrl = "https://www.discoveryplus.in/login",
-        primaryDomain = ".discoveryplus.in",
-        brandColor = Color(0xFF00838F),
-        icon = Icons.Outlined.Explore,
         supportsPremiumStream = true
     ),
     CURIOSITY_STREAM(
@@ -105,16 +65,6 @@ enum class SourcePlatform(
         icon = Icons.Outlined.Lightbulb,
         supportsPremiumStream = true
     ),
-    HBO_MAX(
-        id = "hbomax",
-        displayName = "HBO Max",
-        subtitle = "HBO Originals, Max Exclusives, Warner Bros & DC blockbusters",
-        defaultLoginUrl = "https://play.max.com/login",
-        primaryDomain = ".max.com",
-        brandColor = Color(0xFF5822B4),
-        icon = Icons.Outlined.Movie,
-        supportsPremiumStream = true
-    ),
     MX_PLAYER(
         id = "mxplayer",
         displayName = "MX Player",
@@ -123,16 +73,6 @@ enum class SourcePlatform(
         primaryDomain = ".mxplayer.in",
         brandColor = Color(0xFF0084FF),
         icon = Icons.Outlined.PlayCircleOutline,
-        supportsPremiumStream = true
-    ),
-    AMAZON_MINITV(
-        id = "amazonminitv",
-        displayName = "Amazon miniTV",
-        subtitle = "Free web series, romance, comedy & youth originals",
-        defaultLoginUrl = "https://www.amazon.in/minitv",
-        primaryDomain = ".amazon.in",
-        brandColor = Color(0xFFFF9900),
-        icon = Icons.Outlined.Tv,
         supportsPremiumStream = true
     ),
     IMDB(

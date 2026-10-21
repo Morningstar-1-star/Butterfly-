@@ -292,6 +292,8 @@ object GlobalPlayerManager {
 
     fun hasLoadedMedia(): Boolean = sessionInstance?.hasLoadedMedia() ?: false
 
+    fun isStreamFailed(url: String?): Boolean = sessionInstance?.isStreamFailed(url) ?: false
+
     fun stopAndClear() {
         sessionInstance?.stopAndClear()
     }

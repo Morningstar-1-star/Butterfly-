@@ -56,7 +56,6 @@ object MultiSourceProvider {
 
         // 1. Try custom scrapers / APIs first
         val customItems = when (pid) {
-            "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> getCloudSocialHome(context, pid, limit, page)
             "thisvid" -> ThisVidProvider.getHome(limit, page)
             "tnaflix" -> TnaFlixProvider.getHome(limit, page)
             "spankbang" -> SpankBangProvider.getHome(limit, page)
@@ -65,8 +64,6 @@ object MultiSourceProvider {
             "stripchat" -> StripchatProvider.getHome(limit, page)
             "playvid" -> PlayvidProvider.getHome(limit, page, context)
             "txxx" -> TxxxProvider.getHome(limit, page, context)
-            "crunchyroll" -> CrunchyrollProvider.getHome(limit, page)
-            "sonyliv", "sonylivseries" -> SonyLivProvider.getHome(limit, page)
             "noodlemagazine", "noodlemag" -> NoodleMagazineProvider.getHome(limit, page)
             "cam4" -> CAM4Provider.getHome(limit, page)
             "cammodels" -> CamModelsProvider.getHome(limit, page)
@@ -79,12 +76,7 @@ object MultiSourceProvider {
             "xhamster" -> getXHamsterHome(limit, page)
             "redtube" -> RedTubeProvider.getHome(page, limit)
             "youporn" -> getYouPornHome(page, limit)
-            "hotstar", "jiohotstar", "hotstarseries" -> HotstarProvider.getHome(page, limit)
-            "amazonminitv", "minitv" -> AmazonMiniTvProvider.getHome(limit, page)
-            "discoveryplus", "discovery", "discoverynetworksde", "discoveryplusindia", "discoveryplusindiashow" -> DiscoveryPlusProvider.getHome(limit, page)
-            "disney", "disneyplus" -> DisneyProvider.getHome(page, limit)
             "tencent", "vqq", "qq", "wetv" -> TencentProvider.getHome(page, limit)
-            "hbo", "hbomax", "max" -> HboProvider.getHome(page, limit)
             "curiositystream", "curiosity" -> CuriosityStreamProvider.getHome(page, limit)
             "googledrive", "gdrive", "google_drive" -> GoogleDriveProvider.getHome(limit, page)
             "imdb" -> ImdbProvider.getHome(limit, page)
@@ -136,7 +128,6 @@ object MultiSourceProvider {
         }
 
         when (pid) {
-            "bun-tel-meg", "cloud_social", "bunkr", "telegram", "mega" -> searchCloudSocial(context, pid, query, limit, page)
             "thisvid" -> ThisVidProvider.search(query, limit, page)
             "tnaflix" -> TnaFlixProvider.search(query, limit, page)
             "spankbang" -> SpankBangProvider.search(query, limit, page)
@@ -145,8 +136,6 @@ object MultiSourceProvider {
             "stripchat" -> StripchatProvider.search(query, limit, page)
             "playvid" -> PlayvidProvider.search(query, limit, page, context)
             "txxx" -> TxxxProvider.search(query, limit, page, context)
-            "crunchyroll" -> CrunchyrollProvider.search(query, limit, page)
-            "sonyliv", "sonylivseries" -> SonyLivProvider.search(query, limit, page)
             "noodlemagazine", "noodlemag" -> NoodleMagazineProvider.search(query, limit, page)
             "cam4" -> CAM4Provider.search(query, limit, page)
             "cammodels" -> CamModelsProvider.search(query, limit, page)
@@ -159,12 +148,7 @@ object MultiSourceProvider {
             "xhamster" -> searchXHamster(query, limit, page)
             "redtube" -> RedTubeProvider.search(query, page, limit)
             "youporn" -> searchYouPorn(query, page, limit)
-            "hotstar", "jiohotstar", "hotstarseries" -> HotstarProvider.search(query, page, limit)
-            "amazonminitv", "minitv" -> AmazonMiniTvProvider.search(query, limit, page)
-            "discoveryplus", "discovery", "discoverynetworksde", "discoveryplusindia", "discoveryplusindiashow" -> DiscoveryPlusProvider.search(query, limit, page)
-            "disney", "disneyplus" -> DisneyProvider.search(query, limit, page)
             "tencent", "vqq", "qq", "wetv" -> TencentProvider.search(query, limit, page)
-            "hbo", "hbomax", "max" -> HboProvider.search(query, limit, page)
             "curiositystream", "curiosity" -> CuriosityStreamProvider.search(query, limit, page)
             "googledrive", "gdrive", "google_drive" -> GoogleDriveProvider.search(query, limit, page)
             "imdb" -> ImdbProvider.search(query, limit, page)
@@ -589,84 +573,5 @@ object MultiSourceProvider {
             Log.w(TAG, "Rule34Video parse error: ${e.message}")
         }
         return list
-    }
-
-    private suspend fun getCloudSocialHome(context: Context, providerId: String, limit: Int, page: Int): List<VideoItem> {
-        val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
-        val allMedia = repo.getAllMediaList()
-        val filtered = when (providerId.lowercase()) {
-            "bunkr" -> allMedia.filter { it.type == "BUNKR" }
-            "telegram" -> allMedia.filter { it.type == "TELEGRAM" }
-            "mega" -> allMedia.filter { it.type == "MEGA" }
-            else -> allMedia
-        }
-
-        if (filtered.isEmpty()) {
-            if (providerId.lowercase() == "bun-tel-meg" || providerId.lowercase() == "bunkr" || providerId.lowercase() == "mega" || providerId.lowercase() == "telegram") {
-                return listOf(
-                    VideoItem(
-                        id = "bun_tel_meg_help",
-                        title = "No Cloud & Social Links Added Yet (Tap to Add)",
-                        uploaderName = "bun-tel-meg",
-                        thumbnailUrl = null,
-                        providerId = "bun-tel-meg",
-                        description = "Tap here to paste Telegram (t.me/...), MEGA (mega.nz/...), or Bunkr (bunkr.is/...) links directly inside the app."
-                    )
-                )
-            }
-            return emptyList()
-        }
-
-        val startIndex = (page - 1) * limit
-        val pagedItems = if (startIndex < filtered.size) {
-            filtered.drop(startIndex).take(limit)
-        } else {
-            emptyList()
-        }
-
-        return pagedItems.map { item ->
-            val fallbackThumb = when (item.type) {
-                "BUNKR" -> "https://i.bunkr.site/thumbs/${item.remoteId}.jpg"
-                "MEGA" -> "https://mega.nz/favicon.ico"
-                else -> null
-            }
-            VideoItem(
-                id = item.id,
-                title = item.title,
-                uploaderName = "bun-tel-meg • ${item.type}",
-                uploaderUrl = item.sourceUrl,
-                thumbnailUrl = item.thumbnailUrl?.ifBlank { null } ?: fallbackThumb,
-                providerId = "bun-tel-meg",
-                durationSeconds = if (item.durationMs > 0) item.durationMs / 1000 else -1L,
-                description = item.caption ?: item.title
-            )
-        }
-    }
-
-    private suspend fun searchCloudSocial(context: Context, providerId: String, query: String, limit: Int, page: Int): List<VideoItem> {
-        val repo = com.example.cloudsocial.repository.CloudSocialRepository.getInstance(context)
-        val allMedia = repo.getAllMediaList()
-        val filtered = allMedia.filter { item ->
-            item.title.contains(query, ignoreCase = true) ||
-            item.caption?.contains(query, ignoreCase = true) == true ||
-            item.sourceUrl.contains(query, ignoreCase = true)
-        }
-        return filtered.drop((page - 1) * limit).take(limit).map { item ->
-            val fallbackThumb = when (item.type) {
-                "BUNKR" -> "https://i.bunkr.site/thumbs/${item.remoteId}.jpg"
-                "MEGA" -> "https://mega.nz/favicon.ico"
-                else -> null
-            }
-            VideoItem(
-                id = item.id,
-                title = item.title,
-                uploaderName = "bun-tel-meg • ${item.type}",
-                uploaderUrl = item.sourceUrl,
-                thumbnailUrl = item.thumbnailUrl?.ifBlank { null } ?: fallbackThumb,
-                providerId = "bun-tel-meg",
-                durationSeconds = if (item.durationMs > 0) item.durationMs / 1000 else -1L,
-                description = item.caption ?: item.title
-            )
-        }
     }
 }

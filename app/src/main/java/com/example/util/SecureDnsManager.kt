@@ -46,14 +46,96 @@ object SecureDnsManager {
         .followRedirects(true)
         .build()
 
+    private val defaultDohDns: Dns by lazy {
+        try {
+            val cf1 = InetAddress.getByAddress("1.1.1.1", byteArrayOf(1, 1, 1, 1))
+            val cf2 = InetAddress.getByAddress("1.0.0.1", byteArrayOf(1, 0, 0, 1))
+            val gg1 = InetAddress.getByAddress("8.8.8.8", byteArrayOf(8, 8, 8, 8))
+            DnsOverHttps.Builder()
+                .client(bootstrapClient)
+                .url("https://cloudflare-dns.com/dns-query".toHttpUrlOrNull()!!)
+                .bootstrapDnsHosts(listOf(cf1, cf2, gg1))
+                .includeIPv6(false)
+                .build()
+        } catch (_: Throwable) {
+            Dns.SYSTEM
+        }
+    }
+
     private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InetAddress>>>()
     private const val DNS_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes TTL
 
+    fun isValidPublicIp(addr: InetAddress): Boolean {
+        if (addr.isLoopbackAddress || addr.isAnyLocalAddress || addr.isLinkLocalAddress ||
+            addr.isSiteLocalAddress || addr.isMulticastAddress
+        ) {
+            return false
+        }
+        val bytes = addr.address
+        if (bytes.size == 4) {
+            val b0 = bytes[0].toInt() and 0xFF
+            val b1 = bytes[1].toInt() and 0xFF
+            // Reject 0.x.x.x, 10.x.x.x, 127.x.x.x, 100.64.0.0/10 (CGNAT/sinkhole), 198.18.0.0/15 (Fake-IP / benchmark)
+            if (b0 == 0 || b0 == 10 || b0 == 127) return false
+            if (b0 == 100 && (b1 in 64..127)) return false
+            if (b0 == 169 && b1 == 254) return false
+            if (b0 == 172 && (b1 in 16..31)) return false
+            if (b0 == 192 && b1 == 168) return false
+            if (b0 == 198 && (b1 == 18 || b1 == 19)) return false
+            if (b0 >= 224) return false
+        }
+        return true
+    }
+
     fun prioritizeIpv4(addresses: List<InetAddress>): List<InetAddress> {
-        if (addresses.isEmpty()) return addresses
-        val v4 = addresses.filterIsInstance<java.net.Inet4Address>()
-        val v6 = addresses.filterIsInstance<java.net.Inet6Address>()
-        return if (v4.isNotEmpty()) v4 + v6 else addresses
+        val valid = addresses.filter { isValidPublicIp(it) }
+        val pool = if (valid.isNotEmpty()) valid else addresses
+        if (pool.isEmpty()) return pool
+        val v4 = pool.filterIsInstance<java.net.Inet4Address>()
+        val v6 = pool.filterIsInstance<java.net.Inet6Address>()
+        return if (v4.isNotEmpty()) v4 + v6 else pool
+    }
+
+    private fun resolveViaDohJson(hostname: String): List<InetAddress> {
+        val endpoints = listOf(
+            "https://1.1.1.1/dns-query?name=$hostname&type=A",
+            "https://8.8.8.8/resolve?name=$hostname&type=A"
+        )
+        for (url in endpoints) {
+            try {
+                val req = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/dns-json")
+                    .build()
+                bootstrapClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string()
+                        if (!body.isNullOrBlank()) {
+                            val json = org.json.JSONObject(body)
+                            val answers = json.optJSONArray("Answer")
+                            if (answers != null && answers.length() > 0) {
+                                val resolved = mutableListOf<InetAddress>()
+                                for (i in 0 until answers.length()) {
+                                    val ans = answers.optJSONObject(i) ?: continue
+                                    if (ans.optInt("type") == 1) { // A record (IPv4)
+                                        val ipStr = ans.optString("data", "").trim()
+                                        if (ipStr.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$"))) {
+                                            val parts = ipStr.split(".").map { it.toInt().toByte() }.toByteArray()
+                                            val addr = InetAddress.getByAddress(hostname, parts)
+                                            if (isValidPublicIp(addr)) {
+                                                resolved.add(addr)
+                                            }
+                                        }
+                                    }
+                                }
+                                if (resolved.isNotEmpty()) return resolved
+                            }
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+        return emptyList()
     }
 
     val bilibiliDns: Dns = object : Dns {
@@ -65,18 +147,42 @@ object SecureDnsManager {
                 }
             }
 
-            // 1. Try System DNS first (optimal for geo-located CDN routing) with IPv4 sorted first
-            val sysResult = try {
-                prioritizeIpv4(Dns.SYSTEM.lookup(hostname))
+            val combined = mutableListOf<InetAddress>()
+            val activeDoh = if (delegateDns != Dns.SYSTEM) delegateDns else defaultDohDns
+
+            // 1. Resolve via DoH first so mobile ISP DNS poisoning/sinkholing on bilibili/bilivideo/hdslb is bypassed
+            val dohResult = try {
+                prioritizeIpv4(activeDoh.lookup(hostname))
             } catch (_: Exception) {
                 emptyList()
             }
-            if (sysResult.isNotEmpty()) {
-                dnsCache[hostname] = Pair(now, sysResult)
-                return sysResult
+            combined.addAll(dohResult)
+
+            // 2. If DoH returned empty, try direct IP-literal DoH JSON query (1.1.1.1 / 8.8.8.8)
+            if (combined.isEmpty()) {
+                val jsonDoh = resolveViaDohJson(hostname)
+                combined.addAll(jsonDoh)
             }
 
-            // 2. Fallback to resilient DNS lookup with IPv4 prioritized
+            // 3. Also query System DNS (filtered for valid public IPs) and append distinct IPs as fallback routes
+            val sysResult = try {
+                prioritizeIpv4(Dns.SYSTEM.lookup(hostname).filter { isValidPublicIp(it) })
+            } catch (_: Exception) {
+                emptyList()
+            }
+            for (addr in sysResult) {
+                if (combined.none { it.hostAddress == addr.hostAddress }) {
+                    combined.add(addr)
+                }
+            }
+
+            val finalIps = prioritizeIpv4(combined)
+            if (finalIps.isNotEmpty()) {
+                dnsCache[hostname] = Pair(now, finalIps)
+                return finalIps
+            }
+
+            // 4. Last-resort fallback lookup
             val fallback = prioritizeIpv4(fallbackLookup(hostname))
             if (fallback.isNotEmpty()) {
                 dnsCache[hostname] = Pair(now, fallback)
@@ -88,8 +194,6 @@ object SecureDnsManager {
     val appDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val lowerHost = hostname.lowercase()
-            // Bilibili and Tencent / WeTV CDN and API endpoints use Geo-DNS/Anycast that must match the device's native ISP/System DNS
-            // Custom DoH resolvers (Cloudflare, Google) often route these requests to overseas edge nodes that 403, buffer, or throttle.
             if (lowerHost.contains("bilibili") || lowerHost.contains("bilivideo") ||
                 lowerHost.contains("hdslb") || lowerHost.contains("szbdyd") ||
                 lowerHost.contains("mcdn") || lowerHost.contains("upgcxcode") ||
@@ -112,9 +216,9 @@ object SecureDnsManager {
                 }
             }
 
-            val primaryDns = delegateDns
+            val primaryDns = if (delegateDns != Dns.SYSTEM) delegateDns else defaultDohDns
             val resolved = try {
-                val results = primaryDns.lookup(hostname)
+                val results = prioritizeIpv4(primaryDns.lookup(hostname))
                 if (results.isNotEmpty()) results else fallbackLookup(hostname)
             } catch (e: Exception) {
                 Log.w(TAG, "Primary DoH lookup failed for $hostname (${e.message}), falling back to system DNS")
@@ -129,33 +233,19 @@ object SecureDnsManager {
     }
 
     private fun fallbackLookup(hostname: String): List<InetAddress> {
+        val dohJson = resolveViaDohJson(hostname)
+        if (dohJson.isNotEmpty()) return prioritizeIpv4(dohJson)
+
         return try {
-            prioritizeIpv4(Dns.SYSTEM.lookup(hostname))
+            val sys = prioritizeIpv4(Dns.SYSTEM.lookup(hostname).filter { isValidPublicIp(it) })
+            if (sys.isNotEmpty()) sys else throw UnknownHostException("Empty valid system DNS for $hostname")
         } catch (e: Exception) {
             try {
-                prioritizeIpv4(InetAddress.getAllByName(hostname).toList())
+                val activeDoh = if (delegateDns != Dns.SYSTEM) delegateDns else defaultDohDns
+                val doh = prioritizeIpv4(activeDoh.lookup(hostname))
+                if (doh.isNotEmpty()) doh else prioritizeIpv4(InetAddress.getAllByName(hostname).toList())
             } catch (fallbackError: Exception) {
-                try {
-                    val primaryDns = delegateDns
-                    if (primaryDns != Dns.SYSTEM) {
-                        prioritizeIpv4(primaryDns.lookup(hostname))
-                    } else {
-                        // Attempt fallback to standard public DNS if system DNS is corrupted on mobile ISP
-                        val bootstrapHosts = listOf("223.5.5.5", "8.8.8.8", "1.1.1.1")
-                        for (bsIp in bootstrapHosts) {
-                            try {
-                                val bsAddr = InetAddress.getByName(bsIp)
-                                if (bsAddr != null) {
-                                    val direct = InetAddress.getAllByName(hostname).toList()
-                                    if (direct.isNotEmpty()) return direct
-                                }
-                            } catch (_: Throwable) {}
-                        }
-                        throw fallbackError
-                    }
-                } catch (_: Exception) {
-                    throw UnknownHostException("Unable to resolve host $hostname: ${e.message}")
-                }
+                throw UnknownHostException("Unable to resolve host $hostname: ${e.message}")
             }
         }
     }

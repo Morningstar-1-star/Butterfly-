@@ -104,8 +104,6 @@ fun HomeScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var showPoTokenDialog by remember { mutableStateOf(false) }
-    var showAddCloudDialog by remember { mutableStateOf(false) }
-    var showUploadSheet by remember { mutableStateOf(false) }
     var showSourceSelectorSheet by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
 
@@ -270,11 +268,8 @@ fun HomeScreen(
                 }
         }
     }
-    val globalProgress by com.example.ui.player.GlobalPlayerManager.progressFraction.collectAsState()
-    val globalIsPlaying by com.example.ui.player.GlobalPlayerManager.isPlaying.collectAsState()
     val isPipMode by viewModel.isPipMode.collectAsState()
     val playbackCardOriginY by viewModel.playbackCardOriginY.collectAsState()
-    val activeVideoProgress = if (globalProgress > 0f) globalProgress else (activeVideoId?.let { watchProgressMap[it] } ?: 0f)
 
     if (isPipMode) {
         Box(
@@ -349,11 +344,9 @@ fun HomeScreen(
                 AnimatedContent(
                     targetState = currentTabScreen,
                     transitionSpec = {
-                        (fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
-                         scaleIn(initialScale = 0.98f, animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)))
+                        fadeIn(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing))
                             .togetherWith(
-                                fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
-                                scaleOut(targetScale = 1.02f, animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing))
+                                fadeOut(animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing))
                             )
                     },
                     label = "screen_transition"
@@ -430,26 +423,6 @@ fun HomeScreen(
                             )
                         }
 
-                        AppScreen.BUNKR -> {
-                            BunkrScreen(
-                                viewModel = viewModel,
-                                onBackClick = { viewModel.navigateToScreen(AppScreen.HOME) }
-                            )
-                        }
-
-                        AppScreen.CLOUD_SOCIAL_SETTINGS -> {
-                            CloudSocialSettingsScreen(
-                                onNavigateBack = { viewModel.navigateToScreen(AppScreen.SETTINGS) }
-                            )
-                        }
-
-                        AppScreen.CLOUD_SOCIAL_LIBRARY -> {
-                            CloudSocialLibraryScreen(
-                                viewModel = viewModel,
-                                onNavigateBack = { viewModel.navigateToScreen(AppScreen.HOME) }
-                            )
-                        }
-
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
@@ -462,7 +435,7 @@ fun HomeScreen(
 
                             LaunchedEffect(feedList) {
                                 if (feedList.isNotEmpty()) {
-                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 6)
+                                    com.example.util.ThumbnailOptimizer.preloadThumbnails(context, feedList, maxCount = 12)
                                 }
                             }
 
@@ -600,13 +573,7 @@ fun HomeScreen(
                                                      video = video,
                                                      watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                                                      showProviderBadge = showThumbnailTags,
-                                                     onClick = {
-                                                         if (video.id == "bun_tel_meg_help") {
-                                                             showAddCloudDialog = true
-                                                         } else {
-                                                             viewModel.playVideo(video)
-                                                         }
-                                                     },
+                                                     onClick = { viewModel.playVideo(video) },
                                                      onPlayNextInQueue = onPlayNextInQueueAction,
                                                      onAddToQueue = onAddToQueueAction,
                                                      onSaveToWatchLater = onSaveToWatchLaterAction,
@@ -628,13 +595,7 @@ fun HomeScreen(
                                                      video = video,
                                                      watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                                                      showProviderBadge = showThumbnailTags,
-                                                     onClick = {
-                                                         if (video.id == "bun_tel_meg_help") {
-                                                             showAddCloudDialog = true
-                                                         } else {
-                                                             viewModel.playVideo(video)
-                                                         }
-                                                     },
+                                                     onClick = { viewModel.playVideo(video) },
                                                      onPlayNextInQueue = onPlayNextInQueueAction,
                                                      onAddToQueue = onAddToQueueAction,
                                                      onSaveToWatchLater = onSaveToWatchLaterAction,
@@ -656,13 +617,7 @@ fun HomeScreen(
                                                          video = video,
                                                          watchProgressFraction = watchProgressMap[video.id] ?: 0f,
                                                          showProviderBadge = showThumbnailTags,
-                                                         onClick = {
-                                                             if (video.id == "bun_tel_meg_help") {
-                                                                 showAddCloudDialog = true
-                                                             } else {
-                                                                 viewModel.playVideo(video)
-                                                             }
-                                                         },
+                                                         onClick = { viewModel.playVideo(video) },
                                                          onPlayNextInQueue = onPlayNextInQueueAction,
                                                          onAddToQueue = onAddToQueueAction,
                                                          onSaveToWatchLater = onSaveToWatchLaterAction,
@@ -789,18 +744,6 @@ fun HomeScreen(
                             }
                         },
                         actions = {
-                            // ＋ Upload Button
-                            IconButton(
-                                onClick = { showUploadSheet = true },
-                                modifier = Modifier.testTag("upload_vault_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Upload",
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
                             if (currentScreen == AppScreen.ACCOUNT) {
                                 IconButton(onClick = {
                                     viewModel.navigateToScreen(AppScreen.SETTINGS)
@@ -1174,11 +1117,8 @@ fun HomeScreen(
                                         )
 
                                         val ottCinemaSources = listOf(
-                                            Pair("sonyliv", "SonyLIV"),
-                                            Pair("hotstar", "Disney+ Hotstar"),
-                                            Pair("amazonminitv", "Amazon miniTV"),
-                                            Pair("crunchyroll", "Crunchyroll"),
-                                            Pair("disney", "Disney+"),
+                                            Pair("mxplayer", "MX Player"),
+                                            Pair("curiositystream", "CuriosityStream"),
                                             Pair("popcorntv", "PopcornTV"),
                                             Pair("tubitv", "Tubi TV")
                                         )
@@ -1249,36 +1189,6 @@ fun HomeScreen(
                         }
 
 
-                        // DIRECT ADD LINK BUTTON (when viewing Cloud/Social sources)
-                        if (activeProviderId == "bun-tel-meg" || activeProviderId == "bunkr") {
-                            item {
-                                Surface(
-                                    onClick = { showAddCloudDialog = true },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Add,
-                                            contentDescription = "Add Link",
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Text(
-                                            text = "Add Link",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
                         // CATEGORY TAG CHIPS
                         items(smartTagsList) { tag ->
                             val isSelected = when {
@@ -1345,6 +1255,9 @@ fun HomeScreen(
                 .zIndex(92f)
         ) {
             if (playingStreamData != null) {
+                val globalProgress by com.example.ui.player.GlobalPlayerManager.progressFraction.collectAsState()
+                val globalIsPlaying by com.example.ui.player.GlobalPlayerManager.isPlaying.collectAsState()
+                val activeVideoProgress = if (globalProgress > 0f) globalProgress else (activeVideoId?.let { watchProgressMap[it] } ?: 0f)
                 LiquidGlassMiniPlayer(
                     streamData = playingStreamData,
                     progressFraction = activeVideoProgress,
@@ -1498,25 +1411,6 @@ fun HomeScreen(
             )
         }
 
-        if (showAddCloudDialog) {
-            AddCloudSocialSourceDialog(
-                onDismiss = { showAddCloudDialog = false },
-                onSourceAdded = {
-                    showAddCloudDialog = false
-                    viewModel.refreshFeed()
-                }
-            )
-        }
-
-        if (showUploadSheet) {
-            com.example.ui.vault.ButterflyUploadSheet(
-                onDismiss = { showUploadSheet = false },
-                onPlayVideo = { url, provider ->
-                    viewModel.playVideo(url, provider)
-                }
-            )
-        }
-
         if (showSourceSelectorSheet) {
             com.example.ui.components.SourceSelectorSheet(
                 viewModel = viewModel,
@@ -1532,15 +1426,11 @@ fun ExploreContent(
 ) {
     val categories = listOf(
         "Tencent Video" to Icons.Default.LiveTv,
-        "SonyLIV" to Icons.Default.Tv,
-        "Hotstar" to Icons.Default.Tv,
         "YouTube" to Icons.Default.VideoLibrary,
-        "Amazon miniTV" to Icons.Default.Tv,
+        "Bilibili" to Icons.Default.SmartDisplay,
         "MX Player" to Icons.Default.PlayCircle,
-        "Disney+" to Icons.Default.Stars,
         "PopcornTV" to Icons.Default.LocalMovies,
         "IMDb" to Icons.Default.Movie,
-        "Discovery+" to Icons.Default.Public,
         "Google Drive" to Icons.Default.CloudQueue,
         "Dailymotion" to Icons.Default.OndemandVideo,
         "Music" to Icons.Default.MusicNote,

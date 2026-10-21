@@ -34,17 +34,17 @@ object ThumbnailOptimizer {
             trimmed = "https:$trimmed"
         }
 
-        // 1. YouTube thumbnails: Deliver crisp, high-definition thumbnails
+        // 1. YouTube thumbnails: Deliver crisp thumbnails with zero HTTP 404 fallback delay
         if (trimmed.contains("i.ytimg.com") || trimmed.contains("img.youtube.com")) {
             val vIdPattern = java.util.regex.Pattern.compile("/(vi|vi_webp)/([a-zA-Z0-9_-]{11})/")
             val matcher = vIdPattern.matcher(trimmed)
             if (matcher.find()) {
                 val vId = matcher.group(2)
                 if (!vId.isNullOrBlank()) {
-                    return if (preferCompact) {
-                        "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
-                    } else {
+                    return if (!preferCompact && trimmed.contains("hq720")) {
                         "https://i.ytimg.com/vi/$vId/hq720.jpg"
+                    } else {
+                        "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
                     }
                 }
             }

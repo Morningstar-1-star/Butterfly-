@@ -27,19 +27,7 @@ class MainApplication : Application() {
         super.onCreate()
         appContext = this
 
-        // Synchronize night mode with user's saved ThemeMode preference for splash screen and system assets
-        try {
-            val settingsPrefs = getSharedPreferences("app_settings_prefs", MODE_PRIVATE)
-            val savedTheme = settingsPrefs.getString("theme_mode", "AMOLED_DARK")
-            if (savedTheme == "LIGHT") {
-                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO)
-            } else {
-                androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
-            }
-        } catch (_: Exception) {}
-
         com.example.util.AppConfig.init(this)
-        com.example.ui.player.eco.CinemaEcoManager.init(this)
 
         // Move non-essential / cloud / sync systems to background IO initialization
         // so that cold start and Home feed rendering are never blocked
@@ -121,10 +109,10 @@ class MainApplication : Application() {
         val imageOkHttpClient = okhttp3.OkHttpClient.Builder()
             .dns(com.example.util.SecureDnsManager.appDns)
             .dispatcher(okhttp3.Dispatcher().apply {
-                maxRequests = 32
-                maxRequestsPerHost = 12
+                maxRequests = 64
+                maxRequestsPerHost = 16
             })
-            .connectionPool(okhttp3.ConnectionPool(16, 3, java.util.concurrent.TimeUnit.MINUTES))
+            .connectionPool(okhttp3.ConnectionPool(24, 3, java.util.concurrent.TimeUnit.MINUTES))
             .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
             .addInterceptor { chain ->
@@ -262,11 +250,11 @@ class MainApplication : Application() {
             }
             .respectCacheHeaders(false)
             .allowHardware(true)
-            .allowRgb565(false)
+            .allowRgb565(true)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(100)
+            .crossfade(80)
             .build()
         Coil.setImageLoader(imageLoader)
 

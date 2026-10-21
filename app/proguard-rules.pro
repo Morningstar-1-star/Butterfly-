@@ -39,9 +39,11 @@
     @com.squareup.moshi.JsonClass *;
 }
 
-# yt-dlp / youtubedl-android
--keep class com.yausername.youtubedl_android.** { *; }
--dontwarn com.yausername.youtubedl_android.**
+# yt-dlp / youtubedl-android & Jackson JSON mapper
+-keep class com.yausername.** { *; }
+-dontwarn com.yausername.**
+-keep class com.fasterxml.jackson.** { *; }
+-dontwarn com.fasterxml.jackson.**
 
 # Native C++ JNI bindings
 -keepclassmembers class * {

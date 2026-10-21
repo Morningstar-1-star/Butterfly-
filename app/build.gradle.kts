@@ -10,16 +10,20 @@ android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
+  val enableAbiSplits = project.findProperty("enableAbiSplits")?.toString()?.toBoolean() == true
+
   defaultConfig {
     applicationId = "com.aistudio.butterfly.youtubeclient"
     minSdk = 28
     targetSdk = 36
-    versionCode = 5
-    versionName = "0.0.5-alpha"
+    versionCode = 6
+    versionName = "0.0.6-alpha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    ndk {
-      abiFilters += listOf("x86_64", "arm64-v8a")
+    if (!enableAbiSplits) {
+      ndk {
+        abiFilters += listOf("x86_64", "arm64-v8a")
+      }
     }
 
     val poTokenUrl: String = (project.findProperty("PO_TOKEN_SERVER_URL") as String?) ?: "http://127.0.0.1:4416"
@@ -43,7 +47,10 @@ android {
 
   splits {
     abi {
-      isEnable = false
+      isEnable = enableAbiSplits
+      reset()
+      include("arm64-v8a", "x86_64")
+      isUniversalApk = true
     }
   }
 
@@ -96,6 +103,12 @@ android {
     includeInApk = false
     includeInBundle = true
   }
+
+  packaging {
+    jniLibs {
+      useLegacyPackaging = true
+    }
+  }
 }
 
 secrets {
@@ -126,11 +139,11 @@ dependencies {
   implementation(libs.androidx.media3.exoplayer.dash)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
-  implementation(libs.androidx.media3.effect)
+  // implementation(libs.androidx.media3.effect)
   implementation(libs.androidx.media3.datasource)
   implementation(libs.androidx.media3.database)
   implementation(libs.androidx.media3.datasource.okhttp)
-  implementation(libs.play.services.mlkit.text.recognition)
+  // implementation(libs.play.services.mlkit.text.recognition)
 
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)

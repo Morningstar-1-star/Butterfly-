@@ -124,14 +124,12 @@ fun UniversalVideoPlayer(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChaptersSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
-    var showVideoEffectsSheet by remember { mutableStateOf(false) }
     var showAudioEnhancementSheet by remember { mutableStateOf(false) }
     var showSponsorBlockSheet by remember { mutableStateOf(false) }
     var showSpeedSubMenu by remember { mutableStateOf(false) }
     var showQualitySubMenu by remember { mutableStateOf(false) }
     var showAudioTrackSubMenu by remember { mutableStateOf(false) }
     var showAdditionalSettingsSubMenu by remember { mutableStateOf(false) }
-    var showLensOverlay by remember { mutableStateOf(false) }
 
     val isAmbientModeEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
     val isLoopVideoEnabled by GlobalPlayerManager.isLoopEnabled.collectAsState()
@@ -193,9 +191,6 @@ fun UniversalVideoPlayer(
                 GlobalPlayerManager.setPlaybackSpeed(targetSpeed)
             }
         }
-
-        // Restore video effects for current video
-        com.example.effects.VideoEffectsManager.onVideoChanged(videoId ?: activeStreamData?.videoId)
     }
 
     val seekbarPrefs = remember { com.example.util.SeekbarPreferences.getInstance(context) }
@@ -303,18 +298,27 @@ fun UniversalVideoPlayer(
         }
     }
 
-    LaunchedEffect(streamOption?.videoUrl, streamOption?.videoStream?.url, hlsUrl, captionOption?.languageCode, videoId) {
+    LaunchedEffect(streamOption?.videoUrl, streamOption?.videoStream?.url, hlsUrl, captionOption?.languageCode, videoId, streamData?.videoId) {
         val playUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
         if (playUrl.isNullOrBlank()) {
             return@LaunchedEffect
         }
         val curStream = GlobalPlayerManager.activeStreamData.value
-        val isAlreadyLoaded = GlobalPlayerManager.hasLoadedMedia() && 
-            (curStream?.videoId == videoId || (videoId == null && curStream?.selectedStreamOption?.videoUrl == playUrl))
+        val isSameVideo = curStream != null && (
+            (videoId != null && curStream.videoId == videoId) ||
+            (streamData?.videoId != null && curStream.videoId == streamData.videoId) ||
+            (videoId == null && streamData?.videoId == null && curStream.selectedStreamOption?.videoUrl == playUrl)
+        )
+        val activeOptionUrl = curStream?.selectedStreamOption?.videoUrl
+            ?: curStream?.selectedStreamOption?.videoStream?.url
+            ?: curStream?.videoUrl
+            ?: curStream?.hlsUrl
+        val isAlreadyLoaded = GlobalPlayerManager.hasLoadedMedia() && isSameVideo &&
+            (activeOptionUrl == playUrl || GlobalPlayerManager.isStreamFailed(playUrl))
         if (isAlreadyLoaded) {
             return@LaunchedEffect
         }
-        val curPos = GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
+        val curPos = if (isSameVideo) GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L) else 0L
         val resumePos = if (curPos > 0L) {
             curPos
         } else {
@@ -375,7 +379,6 @@ fun UniversalVideoPlayer(
 
     DisposableEffect(Unit) {
         onDispose {
-            com.example.ui.player.eco.CinemaEcoManager.onUserInteraction(currentPlayerActivity)
             currentPlayerActivity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 val window = act.window
@@ -390,15 +393,6 @@ fun UniversalVideoPlayer(
     }
 
     val areControlsVisible by GlobalPlayerManager.areControlsVisible.collectAsState()
-
-    LaunchedEffect(isLandscape, globalIsPlaying, areControlsVisible, currentPlayerActivity) {
-        com.example.ui.player.eco.CinemaEcoManager.updatePlaybackState(
-            isLandscape = isLandscape,
-            isPlaying = globalIsPlaying,
-            areControlsVisible = areControlsVisible,
-            activity = currentPlayerActivity
-        )
-    }
 
     val playerContainerModifier = if (isLandscape || isPortraitExpanded) {
         Modifier
@@ -418,7 +412,6 @@ fun UniversalVideoPlayer(
             .pointerInput(isLandscape, isPortraitExpanded, doubleTapSeekIntervalSecs, enableTopSpeedGesture, enableSlideToSeek, seekHapticsEnabled) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    com.example.ui.player.eco.CinemaEcoManager.onUserInteraction(currentPlayerActivity)
                     val startPos = down.position
                     val startTime = System.currentTimeMillis()
                     val touchSlop = viewConfiguration.touchSlop
@@ -889,13 +882,6 @@ fun UniversalVideoPlayer(
                 }
             }
 
-            // Real-time GPU Video Effects Overlay
-            val videoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
-            VideoEffectsOverlay(
-                config = videoEffectsConfig,
-                modifier = Modifier.fillMaxSize()
-            )
-
             // YouTube Lightweight White Buffering Spinner Overlay
             if (showLoadingIndicator && playerError == null) {
                 Box(
@@ -1106,22 +1092,6 @@ fun UniversalVideoPlayer(
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
-                        }
-
-                        // Google Lens / Visual Search & Text Copy Button
-                        IconButton(
-                            onClick = {
-                                GlobalPlayerManager.pause()
-                                showLensOverlay = true
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CameraAlt,
-                                contentDescription = "Google Lens & Circle to Search",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
                         }
 
                         // Settings Gear Icon
@@ -2337,45 +2307,6 @@ fun UniversalVideoPlayer(
                             )
                         }
 
-                        // 5. Video Effects & Filters
-                        val videoEffectsConfig by com.example.effects.VideoEffectsManager.currentConfig.collectAsState()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    showSettingsSheet = false
-                                    showVideoEffectsSheet = true
-                                }
-                                .padding(vertical = 14.dp, horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Video Effects & Filters",
-                                    tint = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Video Effects & Filters",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Text(
-                                text = if (!videoEffectsConfig.isEnabled) "Off"
-                                else if (videoEffectsConfig.selectedPreset != com.example.effects.PresetFilter.NONE) videoEffectsConfig.selectedPreset.displayName
-                                else "Active",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (videoEffectsConfig.isEnabled) Color(0xFF00E5FF) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (videoEffectsConfig.isEnabled) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-
                         // 6. Audio Enhancement
                         val audioEnhancementConfig by com.example.ui.player.audio.AudioEnhancementEngine.config.collectAsState()
                         Row(
@@ -2525,43 +2456,6 @@ fun UniversalVideoPlayer(
                             )
                         }
 
-                        // 8. Google Lens & Circle-to-Search
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    showSettingsSheet = false
-                                    GlobalPlayerManager.pause()
-                                    showLensOverlay = true
-                                }
-                                .padding(vertical = 14.dp, horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "Circle to Search & Google Lens",
-                                    tint = Color(0xFF4285F4)
-                                )
-                                Text(
-                                    text = "Circle to Search & Google Lens",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Text(
-                                text = "Extract Text & Search",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
                         // Playback Diagnostics ("Stats for Nerds")
                         val showDiagnosticsState by com.example.ui.player.metrics.PlaybackMetricsTracker.showDiagnosticsOverlay.collectAsState()
                         Row(
@@ -2698,12 +2592,6 @@ fun UniversalVideoPlayer(
                     onSelectCaptionOption(caption)
                 },
                 onDismiss = { showSubtitleSheet = false }
-            )
-        }
-
-        if (showVideoEffectsSheet) {
-            VideoEffectsSettingsSheet(
-                onDismiss = { showVideoEffectsSheet = false }
             )
         }
 
@@ -3138,22 +3026,6 @@ fun UniversalVideoPlayer(
                     )
                 }
             }
-        }
-
-        // Google Lens, Circle-to-Search & On-Device OCR Text Recognition Layer
-        if (showLensOverlay) {
-            com.example.ui.player.lens.PlayerLensOverlay(
-                onDismiss = { showLensOverlay = false },
-                videoTitle = activeStreamData?.title ?: streamData?.title,
-                videoArtist = activeStreamData?.channelName ?: streamData?.channelName,
-                onPlayToggle = { play ->
-                    if (play) {
-                        exoPlayer?.play()
-                    } else {
-                        exoPlayer?.pause()
-                    }
-                }
-            )
         }
 
         // Seekbar & Gesture Settings Dialog

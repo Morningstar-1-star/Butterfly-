@@ -52,11 +52,12 @@ object MediaHeaderHelper {
                     urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") ||
                     urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") ||
                     urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
-                    urlStr.contains("biliintl") -> {
+                    urlStr.contains("biliintl") || urlStr.contains("/live-bvc/") ||
+                    (request.header("Referer")?.contains("bilibili.com", ignoreCase = true) == true) -> {
                 val isBiliCdn = urlStr.contains("bilivideo") || urlStr.contains("szbdyd") || urlStr.contains("mcdn") ||
                         urlStr.contains("upos") || urlStr.contains("upgcxcode") || urlStr.contains("acgvideo") ||
                         urlStr.contains("akamaized") || urlStr.contains("mirrorali") || urlStr.contains("mirrorcos") ||
-                        urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam")
+                        urlStr.contains("mirrorhw") || urlStr.contains("mirrorakam") || urlStr.contains("/live-bvc/")
 
                 val existingRef = request.header("Referer") ?: request.header("referer")
                 if (existingRef.isNullOrBlank()) {
@@ -75,6 +76,9 @@ object MediaHeaderHelper {
                 }
                 builder.removeHeader("Sec-Fetch-Mode")
                 builder.removeHeader("Sec-Fetch-Site")
+                if (isBiliCdn) {
+                    builder.removeHeader("X-Forwarded-For")
+                }
 
                 if (!isBiliCdn && request.header("Cookie") == null) {
                     val cookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
@@ -552,7 +556,8 @@ object MediaHeaderHelper {
                 urlStr.contains("akamaized") || urlStr.contains("bcache") || urlStr.contains("mirrorali") ||
                 urlStr.contains("mirrorcos") || urlStr.contains("mirrorhw") || urlStr.contains("mirrorbos") ||
                 urlStr.contains("mirror08c") || urlStr.contains("mirrorakam") || urlStr.contains("bstar") ||
-                urlStr.contains("biliintl")
+                urlStr.contains("biliintl") || urlStr.contains("/live-bvc/") ||
+                (request.header("Referer")?.contains("bilibili.com", ignoreCase = true) == true)
 
         val isDm = urlStr.contains("dailymotion") || urlStr.contains("dmcdn") || urlStr.contains("dai.ly") || urlStr.contains("dm-event")
 
@@ -571,6 +576,7 @@ object MediaHeaderHelper {
             }
             builder.removeHeader("Sec-Fetch-Site")
             builder.removeHeader("Sec-Fetch-Mode")
+            builder.removeHeader("X-Forwarded-For")
         } else if (isDm) {
             if (request.header("Referer").isNullOrBlank()) {
                 builder.header("Referer", "https://www.dailymotion.com/")

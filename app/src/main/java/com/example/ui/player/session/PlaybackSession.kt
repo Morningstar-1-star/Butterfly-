@@ -14,9 +14,6 @@ import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import com.example.db.VideoCacheRepository
-import com.example.effects.ShaderEnhancementLoader
-import com.example.effects.VideoEffectsManager
-import com.example.effects.VideoEnhancementEngine
 import com.example.model.AudioTrackOption
 import com.example.model.CaptionOption
 import com.example.model.PlayableStreamOption
@@ -157,7 +154,6 @@ class PlaybackSession(private val appContext: Context) {
                 if (ratio in 0.4f..2.5f) {
                     _videoAspectRatio.value = ratio
                 }
-                VideoEnhancementEngine.updateVideoDimensions(videoSize.width, videoSize.height)
             }
         }
 
@@ -294,6 +290,14 @@ class PlaybackSession(private val appContext: Context) {
                 } ?: availableOptions.firstOrNull { opt ->
                     !opt.videoUrl.isNullOrBlank() && !recoveryManager.isStreamFailed(opt.videoUrl)
                 }
+            } else if (isBilibili && currentOption != null && !currentOption.isMuxed) {
+                // For Bilibili DASH, prefer either a muxed MP4 stream or a DASH mirror that uses a different audio/video CDN host first
+                availableOptions.firstOrNull { opt ->
+                    !opt.videoUrl.isNullOrBlank() && !recoveryManager.isStreamFailed(opt.videoUrl) &&
+                            (opt.isMuxed || (opt.audioUrl != currentOption.audioUrl && !opt.audioUrl.isNullOrBlank()))
+                } ?: availableOptions.firstOrNull { opt ->
+                    !opt.videoUrl.isNullOrBlank() && !recoveryManager.isStreamFailed(opt.videoUrl)
+                }
             } else {
                 availableOptions.firstOrNull { opt ->
                     !opt.videoUrl.isNullOrBlank() && !recoveryManager.isStreamFailed(opt.videoUrl)
@@ -406,31 +410,6 @@ class PlaybackSession(private val appContext: Context) {
 
     private fun attachVideoEffectsPipeline(player: ExoPlayer) {
         videoEffectsJob?.cancel()
-        videoEffectsJob = CoroutineScope(Dispatchers.Main).launch {
-            VideoEnhancementEngine.config.collect { config ->
-                try {
-                    val isAnime = VideoEnhancementEngine.telemetry.value.isAnimeDetected
-                    val effect = ShaderEnhancementLoader.createEffect(config, isAnime)
-                    if (effect != null) {
-                        try {
-                            player.setVideoEffects(listOf(effect))
-                            hasAppliedCustomEffects = true
-                        } catch (e: Throwable) {
-                            Log.w("PlaybackSession", "setVideoEffects fallback: ${e.message}")
-                            player.setVideoEffects(emptyList())
-                            hasAppliedCustomEffects = false
-                        }
-                    } else if (hasAppliedCustomEffects) {
-                        try {
-                            player.setVideoEffects(emptyList())
-                        } catch (_: Throwable) {}
-                        hasAppliedCustomEffects = false
-                    }
-                } catch (e: Throwable) {
-                    Log.w("PlaybackSession", "Video effects update notice: ${e.message}")
-                }
-            }
-        }
     }
 
     private fun updatePositions(player: ExoPlayer) {
@@ -484,7 +463,12 @@ class PlaybackSession(private val appContext: Context) {
         hlsUrl: String? = null
     ) {
         val player = getExoPlayer()
-        _activeStreamData.value = streamData
+        val previousVideoId = _activeStreamData.value?.videoId
+        _activeStreamData.value = if (streamData != null && streamOption != null && streamData.selectedStreamOption != streamOption) {
+            streamData.copy(selectedStreamOption = streamOption)
+        } else {
+            streamData
+        }
         _bilibiliSubtitleTracks.value = streamData?.captionOptions ?: emptyList()
         _selectedSubtitleTrack.value = captionOption
 
@@ -521,7 +505,7 @@ class PlaybackSession(private val appContext: Context) {
         }
 
         val previousPos = _currentPositionMs.value.coerceAtLeast(try { playerCore?.player?.currentPosition ?: 0L } catch (_: Throwable) { 0L })
-        val isQualitySwitch = streamData?.videoId != null && streamData.videoId == _activeStreamData.value?.videoId && previousPos > 0L
+        val isQualitySwitch = streamData?.videoId != null && streamData.videoId == previousVideoId && previousPos > 0L
 
         val effectiveResumePos = resumeController.resolveEffectiveResumePosition(
             context = appContext,
@@ -611,16 +595,6 @@ class PlaybackSession(private val appContext: Context) {
             playerCore?.setPlaybackSpeed(_playbackSpeed.value)
 
             if (streamData != null) {
-                VideoEffectsManager.onVideoChanged(streamData.videoId)
-                VideoEnhancementEngine.onVideoLoaded(
-                    videoId = streamData.videoId,
-                    title = streamData.title,
-                    channel = streamData.channelName,
-                    tags = null,
-                    description = streamData.description,
-                    width = 0,
-                    height = 0
-                )
                 com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
                     context = appContext,
                     videoId = streamData.videoId,
@@ -904,6 +878,8 @@ class PlaybackSession(private val appContext: Context) {
 
     fun hasLoadedMedia(): Boolean = currentLoadedMediaKey != null && (playerCore?.player?.mediaItemCount ?: 0) > 0
 
+    fun isStreamFailed(url: String?): Boolean = recoveryManager.isStreamFailed(url)
+
     fun stopAndClear() {
         autoHideControlsJob?.cancel()
         resumeController.clearPendingResumePosition()
@@ -951,16 +927,6 @@ class PlaybackSession(private val appContext: Context) {
         _isPlaying.value = true
         playerCore?.setPlaybackSpeed(_playbackSpeed.value)
 
-        VideoEffectsManager.onVideoChanged(streamData.videoId)
-        VideoEnhancementEngine.onVideoLoaded(
-            videoId = streamData.videoId,
-            title = streamData.title,
-            channel = streamData.channelName,
-            tags = null,
-            description = streamData.description,
-            width = 0,
-            height = 0
-        )
         com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
             context = appContext,
             videoId = streamData.videoId,

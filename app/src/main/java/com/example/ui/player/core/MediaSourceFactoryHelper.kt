@@ -40,13 +40,24 @@ object MediaSourceFactoryHelper {
     val bilibiliMediaClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .dns(com.example.util.SecureDnsManager.bilibiliDns)
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             .connectionPool(okhttp3.ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
-            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .hostnameVerifier { hostname, session ->
+                okhttp3.internal.tls.OkHostnameVerifier.verify(hostname, session) ||
+                        hostname.contains("bilivideo", ignoreCase = true) ||
+                        hostname.contains("bilibili", ignoreCase = true) ||
+                        hostname.contains("hdslb", ignoreCase = true) ||
+                        hostname.contains("szbdyd", ignoreCase = true) ||
+                        hostname.contains("mcdn", ignoreCase = true) ||
+                        hostname.contains("akamaized", ignoreCase = true) ||
+                        hostname.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$"))
+            }
             .addInterceptor(MediaHeaderHelper.mediaHeaderInterceptor)
             .addNetworkInterceptor(MediaHeaderHelper.networkHeaderInterceptor)
             .build()
@@ -179,7 +190,7 @@ object MediaSourceFactoryHelper {
 
             val ua = specificHeaders.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
                 ?: streamData?.headers?.entries?.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
-                ?: NetworkManager.DEFAULT_USER_AGENT
+                ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             return Pair(ua, biliCleanHeaders)
         }
 
@@ -383,9 +394,20 @@ object MediaSourceFactoryHelper {
         val ctx = context ?: com.example.MainApplication.appContext
         val upstreamFactory = DefaultDataSource.Factory(ctx, httpDsFactory)
 
-        // Don't cache local localhost / 127.0.0.1 torrent engine streams (already stored locally)
-        val isLocalHost = targetUrl.contains("127.0.0.1") || targetUrl.contains("localhost")
-        if (isLocalHost) {
+        // Don't cache local localhost / 127.0.0.1 streams or Bilibili signed range streams
+        // (CacheDataSource fragments range requests into 4MB chunks which triggers 403/stalls on Bilibili CDNs)
+        val lowerTarget = targetUrl.lowercase()
+        val isLocalHost = lowerTarget.contains("127.0.0.1") || lowerTarget.contains("localhost")
+        val isBiliStream = lowerTarget.contains("bilibili") || lowerTarget.contains("bilivideo") ||
+                lowerTarget.contains("biliapi") || lowerTarget.contains("hdslb") ||
+                lowerTarget.contains("szbdyd") || lowerTarget.contains("mcdn") ||
+                lowerTarget.contains("upgcxcode") || lowerTarget.contains("upos") ||
+                lowerTarget.contains("bcache") || lowerTarget.contains("mirrorakam") ||
+                lowerTarget.contains("mirrorali") || lowerTarget.contains("mirrorcos") ||
+                lowerTarget.contains("mirrorhw") || lowerTarget.contains("mirrorbos") ||
+                lowerTarget.contains("mirror08c") || lowerTarget.contains("bstar") ||
+                lowerTarget.contains("biliintl") || streamData?.providerId?.startsWith("bilibili") == true
+        if (isLocalHost || isBiliStream) {
             return upstreamFactory
         }
 
@@ -562,7 +584,7 @@ object MediaSourceFactoryHelper {
                     val videoSource = videoSourceFactory.createMediaSource(videoItem)
                     val audioSource = audioSourceFactory.createMediaSource(audioItem)
                     return try {
-                        MergingMediaSource(true, true, videoSource, audioSource)
+                        MergingMediaSource(videoSource, audioSource)
                     } catch (_: Exception) {
                         videoSource
                     }

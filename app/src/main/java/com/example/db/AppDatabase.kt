@@ -58,14 +58,10 @@ interface SourceMetricsDao {
         VideoMetadataCacheEntity::class,
         PreloadedVideoCacheEntity::class,
         TranslationCacheEntity::class,
-        com.example.bunkr.db.BunkrAlbumEntity::class,
-        com.example.bunkr.db.BunkrFileEntity::class,
-        com.example.cloudsocial.db.CloudSocialSourceEntity::class,
-        com.example.cloudsocial.db.CloudSocialMediaEntity::class,
         com.example.db.SyncQueueEntity::class,
         com.example.db.SavedLinkEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -75,8 +71,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun videoCacheDao(): VideoCacheDao
     abstract fun translationCacheDao(): TranslationCacheDao
-    abstract fun bunkrDao(): com.example.bunkr.db.BunkrDao
-    abstract fun cloudSocialDao(): com.example.cloudsocial.db.CloudSocialDao
     abstract fun syncQueueDao(): com.example.db.SyncQueueDao
     abstract fun savedLinkDao(): com.example.db.SavedLinkDao
 
@@ -398,6 +392,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "butterfly_app_database.db"
                 )
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                .fallbackToDestructiveMigration()
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 INSTANCE = instance

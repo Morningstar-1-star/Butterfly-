@@ -57,9 +57,6 @@ class UnifiedSourceResolver(private val context: Context) {
     private val javtifulProvider = JavtifulSourceProvider()
     private val hanime1Provider = Hanime1SourceProvider()
     private val javPyProvider = JavPySourceProvider()
-    private val bunkrProvider = com.example.resolver.providers.BunkrSourceProvider(context)
-    private val telegramProvider = com.example.resolver.providers.TelegramSourceProvider(context)
-    private val megaProvider = com.example.resolver.providers.MegaSourceProvider(context)
 
     // Embed Providers
     private val vidlinkProvider = EmbedSourceProviderAdapter(VidlinkEmbedProvider())
@@ -81,9 +78,6 @@ class UnifiedSourceResolver(private val context: Context) {
             vidsrcMeProvider,
             decryptorProvider,
             nuvioDirectProvider,
-            bunkrProvider,
-            telegramProvider,
-            megaProvider,
             jableMissAvProvider,
             supjavProvider,
             sextbProvider,

@@ -146,15 +146,6 @@ fun SourceLoginSandboxDialog(
                                             isPremium = true,
                                             planType = "Premium Active"
                                         )
-
-                                        if (platform == SourcePlatform.CRUNCHYROLL) {
-                                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                                try {
-                                                    com.example.extractor.CrunchyrollApiClient.getAuthInfo(forceRefresh = true)
-                                                } catch (_: Exception) {}
-                                            }
-                                        }
-
                                         Toast.makeText(context, "${platform.displayName} session saved successfully!", Toast.LENGTH_SHORT).show()
                                         webViewRef?.destroy()
                                         onLoginSuccess()

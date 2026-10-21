@@ -41,12 +41,10 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     GENERAL("General", "Theme, colors, language & layout preferences", Icons.Outlined.Palette),
     PLAYBACK("Playback", "Resolution, speed, seek gestures & Secure DNS", Icons.Outlined.PlayCircle),
     SEEKBAR("Seekbar", "Seek gestures, custom progress & accent colors, DVR & appearance", Icons.Outlined.LinearScale),
-    ACCOUNTS_SOURCES("Accounts & Sources", "Tencent Video, YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
-    PROVIDERS("Content Sources & Providers", "Manage all 100+ sources: Normal, 18+, Vega, VidSrc, Decryptor & TMDB", Icons.Outlined.Source),
+    ACCOUNTS_SOURCES("Accounts & Sources", "YouTube, Bilibili, Tencent Video & Google Drive", Icons.Outlined.Hub),
+    PROVIDERS("Content Sources & Providers", "Manage all sources: Normal, 18+, VidSrc, Decryptor & TMDB", Icons.Outlined.Source),
     SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
-    CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
-    BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
-    VEGA("Vega Movies & Series", "All 52+ in-app movie extensions & anime providers", Icons.Outlined.Movie),
+    VEGA("Vega Movies & Series", "All 52+ movie extensions & anime providers via Butterfly Server", Icons.Outlined.Movie),
     VIDSRC("VidSrc Sources", "VidLink, AutoEmbed, Smashy & cloud mirrors", Icons.Outlined.VideoLibrary),
     DECRYPTOR("Decryptor Sources", "Vidhide, Turbo, Nxsha & fast servers", Icons.Outlined.LockOpen),
     TMDB_EMBED("TMDB Sources", "VixSrc, Showbox, Videasy & VIP servers", Icons.Outlined.MovieCreation),
@@ -1017,16 +1015,6 @@ fun SettingsScreen(
                                             checked = loopVideoEnabled,
                                             onCheckedChange = { coroutineScope.launch { playbackPrefs.setLoopVideoEnabled(it) } }
                                         )
-
-                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                                        val isCinemaEcoEnabled by com.example.ui.player.eco.CinemaEcoManager.isEcoFeatureEnabled.collectAsState()
-                                        YouTubeSwitchRow(
-                                            title = "Landscape Cinema Eco Mode",
-                                            subtitle = "Auto-freezes background scrapers, sync & drops display refresh to 60Hz/24Hz during landscape playback for max battery life",
-                                            checked = isCinemaEcoEnabled,
-                                            onCheckedChange = { com.example.ui.player.eco.CinemaEcoManager.setEcoFeatureEnabled(it, context) }
-                                        )
                                     }
                                 }
                             }
@@ -1265,204 +1253,6 @@ fun SettingsScreen(
                             viewModel = viewModel,
                             onNavigateToCategory = { currentCategory = it }
                         )
-                    }
-                    SettingsCategory.CLOUD_SOCIAL -> {
-                        CloudSocialSettingsScreen(
-                            onNavigateBack = { currentCategory = null }
-                        )
-                    }
-
-                    SettingsCategory.BUNKR -> {
-                        val bunkrRepo = remember { com.example.bunkr.repository.BunkrRepository.getInstance(context) }
-                        val bunkrAlbums by bunkrRepo.allAlbums.collectAsState(initial = emptyList())
-                        val bunkrFiles by bunkrRepo.allFiles.collectAsState(initial = emptyList())
-                        val isBunkrScanning by bunkrRepo.isScanning.collectAsState()
-                        var bunkrInputText by remember { mutableStateOf("") }
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            // 1. Overview Card
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Text("Bunkr Album & File Integration", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            "Paste album URLs (https://bunkr.cr/a/...) or file URLs (https://bunkr.cr/f/...). Butterfly will auto-crawl album items, resolve direct CDN streams, and cache metadata.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text("${bunkrAlbums.size} Saved Albums", fontWeight = FontWeight.SemiBold)
-                                            Text("${bunkrFiles.size} Total Videos", fontWeight = FontWeight.SemiBold)
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 2. Multiline Input Card
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Text("Add / Import Bunkr URLs", fontWeight = FontWeight.SemiBold)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        OutlinedTextField(
-                                            value = bunkrInputText,
-                                            onValueChange = { bunkrInputText = it },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(140.dp),
-                                            placeholder = { Text("Paste album/file URLs (one per line):\nhttps://bunkr.cr/a/cmFzH1Cf\nhttps://bunkr.cr/f/DJOH6o7Gg5UeN") },
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    val clip = clipboard.primaryClip
-                                                    if (clip != null && clip.itemCount > 0) {
-                                                        val txt = clip.getItemAt(0).text?.toString() ?: ""
-                                                        if (txt.isNotBlank()) {
-                                                            bunkrInputText = if (bunkrInputText.isBlank()) txt else "$bunkrInputText\n$txt"
-                                                        }
-                                                    }
-                                                },
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Paste All")
-                                            }
-
-                                            Button(
-                                                onClick = {
-                                                    val input = bunkrInputText.trim()
-                                                    if (input.isNotBlank()) {
-                                                        bunkrInputText = ""
-                                                        coroutineScope.launch {
-                                                            Toast.makeText(context, "Scanning Bunkr URLs...", Toast.LENGTH_SHORT).show()
-                                                            val report = bunkrRepo.importUrls(input)
-                                                            Toast.makeText(context, "Added ${report.totalAlbumsProcessed} albums (${report.totalItemsDiscovered} videos)", Toast.LENGTH_LONG).show()
-                                                        }
-                                                    }
-                                                },
-                                                enabled = !isBunkrScanning && bunkrInputText.isNotBlank(),
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                if (isBunkrScanning) {
-                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                                                } else {
-                                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Add & Scan")
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 3. Batch Actions Row
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                Toast.makeText(context, "Rescanning all albums...", Toast.LENGTH_SHORT).show()
-                                                bunkrRepo.refreshAlbums()
-                                            }
-                                        },
-                                        enabled = !isBunkrScanning && bunkrAlbums.isNotEmpty(),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Rescan All")
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                bunkrRepo.clearAll()
-                                                Toast.makeText(context, "Cleared Bunkr cache", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Clear All")
-                                    }
-                                }
-                            }
-
-                            // 4. List of saved albums
-                            if (bunkrAlbums.isNotEmpty()) {
-                                item {
-                                    Text("Saved Bunkr Albums (${bunkrAlbums.size})", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                }
-
-                                items(bunkrAlbums, key = { it.albumId }) { album ->
-                                    val count = bunkrFiles.count { it.albumId == album.albumId }
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(album.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text("$count videos • ${album.sourceUrl}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            }
-                                            IconButton(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        bunkrRepo.refreshAlbums(listOf(album.albumId))
-                                                    }
-                                                }
-                                            ) {
-                                                Icon(Icons.Default.Refresh, contentDescription = "Rescan")
-                                            }
-                                            IconButton(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        bunkrRepo.deleteAlbum(album.albumId)
-                                                    }
-                                                }
-                                            ) {
-                                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
 
                     SettingsCategory.VEGA,

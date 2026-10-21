@@ -202,13 +202,29 @@ object YtDlpResolver {
         val httpHeaders: Map<String, String> = emptyMap()
     ) {
         val isAudioOnly: Boolean
-            get() = (vcodec == "none" || vcodec.isBlank()) && (acodec != "none" && acodec.isNotBlank())
+            get() {
+                val noVideo = vcodec == "none" || vcodec == "unknown" || vcodec.isBlank()
+                val hasAudio = acodec != "none" && acodec != "unknown" && acodec.isNotBlank()
+                val isAudioExt = ext.lowercase() in listOf("m4a", "mp3", "aac", "ogg", "opus", "flac", "wav")
+                return noVideo && (hasAudio || isAudioExt)
+            }
 
         val isVideoOnly: Boolean
-            get() = (vcodec != "none" && vcodec.isNotBlank()) && (acodec == "none" || acodec.isBlank())
+            get() {
+                val hasVideo = vcodec != "none" && vcodec != "unknown" && vcodec.isNotBlank()
+                val noAudio = acodec == "none" || acodec == "unknown" || acodec.isBlank()
+                return hasVideo && noAudio
+            }
 
         val isMuxed: Boolean
-            get() = (vcodec != "none" && vcodec.isNotBlank()) && (acodec != "none" && acodec.isNotBlank())
+            get() {
+                val hasVideo = vcodec != "none" && vcodec != "unknown" && vcodec.isNotBlank()
+                val hasAudio = acodec != "none" && acodec != "unknown" && acodec.isNotBlank()
+                if (hasVideo && hasAudio) return true
+                // Direct progressive MP4/FLV formats (such as Bilibili durl) often omit explicit vcodec/acodec in yt-dlp JSON
+                val isDirectVideoExt = ext.lowercase() in listOf("mp4", "flv", "webm", "mkv", "mov", "ts")
+                return !isHlsOrDash && !isAudioOnly && !isVideoOnly && isDirectVideoExt
+            }
 
         val isHlsOrDash: Boolean
             get() = protocol.contains("m3u8", ignoreCase = true) ||
@@ -218,6 +234,13 @@ object YtDlpResolver {
 
         val isH264: Boolean
             get() = vcodec.startsWith("avc", ignoreCase = true) || vcodec.startsWith("h264", ignoreCase = true)
+
+        val isP2pHost: Boolean
+            get() {
+                val lower = url.lowercase()
+                return lower.contains("mcdn.bilivideo") || lower.contains("szbdyd.com") ||
+                        lower.contains(".p2p.") || Regex("https?://xy\\d+x").containsMatchIn(lower)
+            }
 
         val effectiveHeight: Int
             get() {
@@ -243,6 +266,9 @@ object YtDlpResolver {
                 }
                 if (isMuxed) {
                     score += 1_000_000L // Prefer muxed stream for direct playback without merging
+                }
+                if (isP2pHost) {
+                    score -= 50_000_000L // Strongly demote P2P/MCDN nodes that fail on mobile carriers
                 }
                 score += tbr.toLong()
                 return score
@@ -698,7 +724,18 @@ object YtDlpResolver {
 
             val updatedDir = java.io.File(ctx.filesDir, "yt_dlp_updated")
             if (updatedDir.exists() && java.io.File(updatedDir, "yt_dlp").exists()) {
+                try {
+                    android.system.Os.setenv(
+                        "PYTHONPATH",
+                        "${updatedDir.absolutePath}:${ctx.filesDir.absolutePath}",
+                        true
+                    )
+                } catch (_: Throwable) {}
                 Log.d(TAG, "Using OTA updated yt-dlp package at: ${updatedDir.absolutePath}")
+            }
+            val pluginsDir = java.io.File(ctx.filesDir, "yt_dlp_plugins")
+            if (pluginsDir.exists()) {
+                request.addOption("--plugin-dirs", ctx.filesDir.absolutePath)
             }
 
             ensureInitialized(ctx)
@@ -1046,16 +1083,29 @@ object YtDlpResolver {
                 )
             }
 
-            // Deduplicate options by quality label
-            val distinctOptions = streamOptions.distinctBy { it.qualityLabel }
+            // Deduplicate options by videoUrl while ensuring unique quality labels so backup mirrors are preserved
+            val seenLabels = mutableSetOf<String>()
+            val distinctOptions = streamOptions
+                .distinctBy { it.videoUrl ?: it.qualityLabel }
+                .mapIndexed { idx, opt ->
+                    if (seenLabels.add(opt.qualityLabel)) {
+                        opt
+                    } else {
+                        opt.copy(qualityLabel = "${opt.qualityLabel} #${idx + 1}")
+                    }
+                }
 
-            // Select best option: For Bilibili, prefer Progressive MP4 / H.264 (720p / 1080p)
-            val isBiliSource = lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") || lowerUrl.contains("biliintl")
+            // Select best option: For Bilibili, prefer non-P2P Progressive MP4 / H.264 (720p / 1080p)
+            val isBiliSource = lowerUrl.contains("bilibili") || lowerUrl.contains("b23.tv") || lowerUrl.startsWith("bilisearch") ||
+                    lowerUrl.contains("biliintl") || lowerUrl.startsWith("bv", ignoreCase = true) ||
+                    json.optString("extractor_key", "").contains("bili", ignoreCase = true)
             val bestOption = if (isBiliSource) {
                 distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && (it.format.equals("mp4", ignoreCase = true) || it.qualityLabel.contains("mp4", ignoreCase = true)) }
                     ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && (it.format.equals("mp4", ignoreCase = true) || it.qualityLabel.contains("mp4", ignoreCase = true)) }
                     ?: distinctOptions.firstOrNull { it.isMuxed && (it.format.equals("mp4", ignoreCase = true) || it.qualityLabel.contains("mp4", ignoreCase = true)) }
                     ?: distinctOptions.firstOrNull { it.isMuxed }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("H.264", ignoreCase = true) && it.qualityLabel.contains("720p") }
+                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("H.264", ignoreCase = true) && it.qualityLabel.contains("1080p") }
                     ?: distinctOptions.firstOrNull { it.qualityLabel.contains("H.264", ignoreCase = true) }
                     ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("720p") }
                     ?: distinctOptions.firstOrNull { it.qualityLabel.startsWith("1080p") }
@@ -1069,7 +1119,11 @@ object YtDlpResolver {
                     ?: distinctOptions.first()
             }
 
-            val providerId = if (isYouTube) "youtube" else json.optString("extractor_key", "generic").lowercase()
+            val providerId = when {
+                isYouTube -> "youtube"
+                isBiliSource -> "bilibili"
+                else -> json.optString("extractor_key", "generic").lowercase()
+            }
 
             val extractedTags = mutableListOf<String>()
             val tagsArr = json.optJSONArray("tags")

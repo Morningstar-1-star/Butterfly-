@@ -165,10 +165,10 @@ fun VideoCard(
                 )
                 fallbackList[kotlin.math.abs(video.id.hashCode()) % fallbackList.size]
             }
-            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hq720.jpg"
+            video.id.length == 11 && !video.id.contains("/") -> "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
             (video.providerId == "youtube" || video.providerId == "all") && video.id.contains("v=") -> {
                 val vId = video.id.substringAfter("v=").substringBefore("&")
-                "https://i.ytimg.com/vi/$vId/hq720.jpg"
+                "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
             }
             video.providerId == "beeg" && video.id.isNotBlank() -> {
                 val fileId = Regex("""\d+""").find(video.id)?.value ?: ""
@@ -243,13 +243,6 @@ fun VideoCard(
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .then(
-                    if (onClickWithOrigin != null) {
-                        Modifier.onGloballyPositioned { coordinates ->
-                            cardYPosition[0] = coordinates.positionInRoot().y
-                        }
-                    } else Modifier
-                )
         ) {
             if (thumbnailImageRequest != null) {
                 val isStandardVideoTube = remember(video.providerId) {

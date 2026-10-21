@@ -1,0 +1,6 @@
+{
+  "summary":  "Comprehensive architectural and performance optimization plan to reduce APK size by ~60 MB, remove dead/dummy features (ML Kit OCR, DRM OTT scrapers, CloudSocial/Bunkr/Vault, simulated shaders/badges), wire genuine yt-dlp GitHub OTA updates while routing movie/series scraping to Butterfly-MediaServer, and achieve 120fps scrolling with instant HD thumbnail loading.",
+  "updatedAt":  "2026-10-21T10:35:03.660066517Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
