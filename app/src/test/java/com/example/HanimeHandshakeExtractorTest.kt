@@ -80,7 +80,7 @@ class HanimeHandshakeExtractorTest {
             .header("X-Time", ts.toString())
             .header("X-Signature-Version", "web2")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            .post(okhttp3.RequestBody.create(null, reqBodyStr))
+            .post(okhttp3.RequestBody.create(null as okhttp3.MediaType?, reqBodyStr.toByteArray()))
             .build()
 
         val response = client.newCall(request).execute()

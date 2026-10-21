@@ -1078,7 +1078,7 @@ object TMDBHelper {
 
                             val authorDetails = obj.optJSONObject("author_details")
                             val ratingVal = authorDetails?.optDouble("rating", 0.0) ?: 0.0
-                            var avatarPath = authorDetails?.optString("avatar_path", null)
+                            var avatarPath: String? = authorDetails?.optString("avatar_path", "")?.ifBlank { null }
                             if (avatarPath != null && avatarPath != "null") {
                                 avatarPath = if (avatarPath.startsWith("http")) {
                                     avatarPath.removePrefix("/")
@@ -1091,7 +1091,7 @@ object TMDBHelper {
 
                             val createdAt = obj.optString("created_at", "")
                             val timeAgo = if (createdAt.length >= 10) createdAt.take(10) else "Recently"
-                            val reviewUrl = obj.optString("url", null)
+                            val reviewUrl: String? = obj.optString("url", "").ifBlank { null }
 
                             val ratingBadge = if (ratingVal > 0.0) "${String.format("%.1f", ratingVal)}/10 ★" else null
 
