@@ -223,7 +223,7 @@ object SupJavWebViewFallback {
                 }
 
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                    handler?.proceed()
+                    handler?.cancel()
                 }
             }
 
@@ -297,7 +297,7 @@ object SupJavWebViewFallback {
                 }
 
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                    handler?.proceed()
+                    handler?.cancel()
                 }
             }
 

@@ -34,6 +34,8 @@ import com.example.util.PlaybackPipelineTracker
 import com.example.util.PlaybackPreferences
 import com.example.util.SubtitleCue
 import com.example.util.SubtitleTranslator
+import com.example.extractor.YtDlpResolver
+import com.example.extractor.YouTubeExtractorHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,6 +44,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.Request
 
 /**
@@ -55,6 +58,7 @@ class PlaybackSession(private val appContext: Context) {
     private var autoHideControlsJob: Job? = null
     private var videoEffectsJob: Job? = null
     private var hasAppliedCustomEffects = false
+    private val urlRetryCountMap = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     // Coordinators
     private val resumeController = PlaybackResumeController { appContext }
@@ -178,6 +182,7 @@ class PlaybackSession(private val appContext: Context) {
             updatePositions(exo)
 
             if (state == Player.STATE_READY) {
+                urlRetryCountMap.clear()
                 com.example.ui.player.metrics.PlaybackMetricsTracker.onSeekCompleted()
                 com.example.ui.player.metrics.PlaybackMetricsTracker.onRebufferEnded()
                 if (exo.playWhenReady) {
@@ -239,24 +244,38 @@ class PlaybackSession(private val appContext: Context) {
 
             val failedUrl = currentOption?.videoUrl ?: playerCore?.player?.currentMediaItem?.localConfiguration?.uri?.toString()
 
-            if (activeProvider == "bilibili" || failedUrl?.contains("bilivideo") == true || failedUrl?.contains("bilibili") == true) {
-                val host = runCatching { android.net.Uri.parse(failedUrl).host }.getOrNull() ?: "unknown"
-                val protocol = runCatching { android.net.Uri.parse(failedUrl).scheme }.getOrNull() ?: "unknown"
-                Log.w("BilibiliDiagnostics", "Bilibili Playback Error: httpStatus=$httpStatus, error=${error.message}, protocol=$protocol, host=$host, failedUrl=${failedUrl?.take(120)}")
+            val isBilibili = activeProvider == "bilibili" ||
+                    activeData?.providerId == "bilibili" ||
+                    failedUrl?.contains("bilivideo") == true ||
+                    failedUrl?.contains("bilibili") == true
+
+            val host = runCatching { android.net.Uri.parse(failedUrl).host }.getOrNull() ?: "unknown"
+            val protocol = runCatching { android.net.Uri.parse(failedUrl).scheme }.getOrNull() ?: "unknown"
+
+            if (isBilibili) {
+                Log.w("BilibiliDiagnostics", "Bilibili Playback Error: httpStatus=$httpStatus, errorCode=${error.errorCode} (${error.errorCodeName}), error=${error.message}, protocol=$protocol, host=$host, failedUrl=${failedUrl?.take(120)}")
             }
 
-            // If error is transient (e.g. during seek or network timeout on YouTube/HLS), retry on current option first
+            // Cap transient retries: prevent infinite buffering loop at 0:00 on unreachable CDN hosts
             val isTransientSeekOrNetError = (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
                     error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
                     error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW)
-            if (isTransientSeekOrNetError && activeData != null && currentOption != null) {
+
+            val retryKey = failedUrl ?: (currentOption?.qualityLabel ?: "unknown")
+            val currentRetryCount = urlRetryCountMap.getOrDefault(retryKey, 0)
+            val maxTransientRetries = if (isBilibili) 1 else 2
+
+            if (isTransientSeekOrNetError && activeData != null && currentOption != null && currentRetryCount < maxTransientRetries) {
+                urlRetryCountMap[retryKey] = currentRetryCount + 1
                 val curPos = _currentPositionMs.value.coerceAtLeast(0L)
-                Log.i("PlaybackSession", "Transient playback error $httpStatus on ${currentOption.qualityLabel}, retrying at $curPos ms")
+                Log.i("PlaybackSession", "Transient playback error $httpStatus (attempt ${currentRetryCount + 1}/$maxTransientRetries) on ${currentOption.qualityLabel}, retrying at $curPos ms")
                 _playerError.value = null
                 prepareAndPlay(appContext, activeData, currentOption, initialPos = curPos)
                 return
             }
 
+            // Exhausted retries for this URL: mark failed so we advance to the next candidate
+            urlRetryCountMap.remove(retryKey)
             recoveryManager.markStreamFailed(failedUrl)
             if (currentOption?.providerType == com.example.model.ProviderType.DECRYPTOR || currentOption?.sourceName.equals("Decryptor", ignoreCase = true)) {
                 com.example.decryptor.DecryptorProviderClient.markServerFailed(failedUrl)
@@ -289,6 +308,45 @@ class PlaybackSession(private val appContext: Context) {
                 return
             }
 
+            // Fallback for Bilibili: If all direct stream options failed, try YtDlpResolver emergency fallback
+            if (isBilibili && activeData != null) {
+                val bvidOrUrl = activeData.videoId
+                val ytdlKey = "ytdlp_fallback:$bvidOrUrl"
+                if (!recoveryManager.isStreamFailed(ytdlKey)) {
+                    recoveryManager.markStreamFailed(ytdlKey)
+                    Log.i("PlaybackSession", "All direct Bilibili streams failed. Initiating YtDlpResolver emergency fallback for $bvidOrUrl")
+                    _playerError.value = "Direct stream failed. Resolving alternate via yt-dlp..."
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val fullUrl = if (bvidOrUrl.startsWith("http", ignoreCase = true)) bvidOrUrl else "https://www.bilibili.com/video/$bvidOrUrl"
+                            val ytRes = YtDlpResolver.extractStreamInfo(appContext, fullUrl)
+                            if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success && ytRes.streamData.availableStreamOptions.isNotEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    _playerError.value = null
+                                    val ytData = ytRes.streamData.copy(
+                                        providerId = "bilibili",
+                                        title = if (ytRes.streamData.title != "Video") ytRes.streamData.title else activeData.title,
+                                        channelName = if (ytRes.streamData.channelName != "Bilibili") ytRes.streamData.channelName else activeData.channelName,
+                                        thumbnailUrl = if (!ytRes.streamData.thumbnailUrl.isNullOrBlank()) ytRes.streamData.thumbnailUrl else activeData.thumbnailUrl
+                                    )
+                                    val chosen = ytData.selectedStreamOption ?: ytData.availableStreamOptions.first()
+                                    prepareAndPlay(appContext, ytData, chosen)
+                                }
+                                return@launch
+                            }
+                        } catch (e: Exception) {
+                            Log.w("PlaybackSession", "YtDlpResolver emergency fallback failed: ${e.message}")
+                        }
+                        withContext(Dispatchers.Main) {
+                            val hostMsg = if (host != "unknown") " [$host, $protocol, ${error.errorCodeName}]" else ""
+                            _playerError.value = "Bilibili playback failed$hostMsg: $diagnostics"
+                            _isPlaying.value = false
+                        }
+                    }
+                    return
+                }
+            }
+
             // Auto-Recovery Fallback to Web/Embed Player if direct stream fails
             if (activeData != null) {
                 val embedOption = activeData.availableStreamOptions.firstOrNull { it.format.equals("embed", true) }
@@ -302,7 +360,14 @@ class PlaybackSession(private val appContext: Context) {
                 }
             }
 
-            _playerError.value = diagnostics
+            val finalErrorMessage = if (isBilibili) {
+                val hostMsg = if (host != "unknown") " [$host, $protocol, ${error.errorCodeName}]" else ""
+                "Bilibili playback failed$hostMsg: $diagnostics"
+            } else {
+                diagnostics
+            }
+
+            _playerError.value = finalErrorMessage
             _isPlaying.value = false
         }
     }
@@ -861,6 +926,7 @@ class PlaybackSession(private val appContext: Context) {
 
     fun releasePlayer() {
         autoHideControlsJob?.cancel()
+        urlRetryCountMap.clear()
         currentLoadedMediaKey = null
         _activeStreamData.value = null
         _isPlaying.value = false

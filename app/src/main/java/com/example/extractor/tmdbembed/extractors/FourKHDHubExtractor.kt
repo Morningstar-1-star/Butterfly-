@@ -51,7 +51,7 @@ object FourKHDHubExtractor {
                     var count = 0
                     while (matcher.find() && count < 3) {
                         val intermediateUrl = matcher.group(1) ?: continue
-                        val directList = com.example.vega.VegaExtractorEngine.extractStreams(intermediateUrl)
+                        val directList = com.example.vega.VegaProviderClient.getStream("4khdhub", intermediateUrl)
                         for (st in directList) {
                             streams.add(
                                 ExtractedStream(

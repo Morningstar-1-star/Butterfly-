@@ -38,7 +38,6 @@ enum class SourcePillCategory(val label: String, val icon: ImageVector, val colo
     DECRYPTOR("Decryptor", Icons.Outlined.LockOpen, Color(0xFF00BCD4)),
     TMDB("TMDB Embeds", Icons.Outlined.MovieCreation, Color(0xFF4CAF50)),
     NUVIO("Nuvio (29+)", Icons.Outlined.Extension, Color(0xFFE91E63)),
-    TORRENT("Torrents", Icons.Outlined.Radar, Color(0xFF673AB7)),
     CLOUD("Cloud & Bunkr", Icons.Outlined.Cloud, Color(0xFF009688))
 }
 
@@ -131,7 +130,6 @@ fun UnifiedContentSourcesScreen(
             UnifiedSourceItem("popcorntv", "PopcornTV", SourcePillCategory.NORMAL, "Blockbuster movies, cinema classics & open streaming titles", enabledProviderIds.contains("popcorntv"), qualityTag = "4K Cinema", icon = Icons.Outlined.Theaters),
             UnifiedSourceItem("tubitv", "Tubi TV", SourcePillCategory.NORMAL, "Free movies & TV series, 50,000+ titles with US/CA geo bypass", enabledProviderIds.contains("tubitv"), qualityTag = "1080p HD", icon = Icons.Outlined.LiveTv),
             UnifiedSourceItem("decryptor", "Decryptor Multi-Server", SourcePillCategory.NORMAL, "Nxsha multi-server HLS engine: Vidhide, Turbo & fast CDNs", enabledProviderIds.contains("decryptor"), qualityTag = "Multi-Server", icon = Icons.Outlined.Dns),
-            UnifiedSourceItem("torrent", "BitTorrent (P2P)", SourcePillCategory.NORMAL, "Stream Movies, TV Series & Anime via native BitTorrent releases", enabledProviderIds.contains("torrent"), qualityTag = "P2P Stream", icon = Icons.Outlined.Download),
             UnifiedSourceItem("bun-tel-meg", "Telegram & Cloud Folders", SourcePillCategory.NORMAL, "Telegram channels, MEGA folders & Bunkr albums direct links", enabledProviderIds.contains("bun-tel-meg") || enabledProviderIds.contains("bunkr"), qualityTag = "Cloud Links", icon = Icons.Outlined.FolderZip)
         )
         defaultNormal
@@ -285,18 +283,6 @@ fun UnifiedContentSourcesScreen(
         }
     }
 
-    // 7. Torrent & Indexer Providers
-    val torrentItems = remember(enabledProviderIds) {
-        listOf(
-            UnifiedSourceItem("torrent", "Torrent Master Streamer", SourcePillCategory.TORRENT, "Native BitTorrent streaming client with seed caching & high-speed P2P engine", enabledProviderIds.contains("torrent"), qualityTag = "P2P Stream", icon = Icons.Outlined.Download),
-            UnifiedSourceItem("prowlarr_v11", "Prowlarr V11 Engine", SourcePillCategory.TORRENT, "Automated YAML indexer proxy, dynamic tracker health testing & sync", enabledProviderIds.contains("prowlarr_v11"), qualityTag = "YAML Indexer", icon = Icons.Outlined.Radar),
-            UnifiedSourceItem("torrentio", "Torrentio Debrid & P2P", SourcePillCategory.TORRENT, "Multi-tracker torrent aggregator with Real-Debrid & AllDebrid support", enabledProviderIds.contains("torrentio"), qualityTag = "P2P / Debrid", icon = Icons.Outlined.Download),
-            UnifiedSourceItem("1337x", "1337x Movies & Series", SourcePillCategory.TORRENT, "Verified community torrent releases with seeds and high health", enabledProviderIds.contains("1337x"), qualityTag = "4K / 1080p Torrent", icon = Icons.Outlined.Hub),
-            UnifiedSourceItem("yts", "YTS / YIFY Movies", SourcePillCategory.TORRENT, "Small file size 720p, 1080p and 4K movie encodes", enabledProviderIds.contains("yts"), qualityTag = "1080p/4K YIFY", icon = Icons.Outlined.Movie),
-            UnifiedSourceItem("torrentgalaxy", "TorrentGalaxy", SourcePillCategory.TORRENT, "High-speed torrent releases with metadata, posters & previews", enabledProviderIds.contains("torrentgalaxy"), qualityTag = "Direct Magnet", icon = Icons.Outlined.CloudDownload)
-        )
-    }
-
     // 8. Cloud & Bunkr Providers
     val cloudItems = remember(enabledProviderIds) {
         listOf(
@@ -308,8 +294,8 @@ fun UnifiedContentSourcesScreen(
     }
 
     // Aggregate all items based on selected pill & search query
-    val allItemsList = remember(normalProviders, adultProviders, vegaItems, vidSrcItems, decryptorItems, tmdbItems, nuvioItems, torrentItems, cloudItems) {
-        normalProviders + adultProviders + vegaItems + vidSrcItems + decryptorItems + tmdbItems + nuvioItems + torrentItems + cloudItems
+    val allItemsList = remember(normalProviders, adultProviders, vegaItems, vidSrcItems, decryptorItems, tmdbItems, nuvioItems, cloudItems) {
+        normalProviders + adultProviders + vegaItems + vidSrcItems + decryptorItems + tmdbItems + nuvioItems + cloudItems
     }
 
     val filteredItems = remember(selectedPill, searchQuery, allItemsList) {
@@ -322,7 +308,6 @@ fun UnifiedContentSourcesScreen(
             SourcePillCategory.DECRYPTOR -> decryptorItems
             SourcePillCategory.TMDB -> tmdbItems
             SourcePillCategory.NUVIO -> nuvioItems
-            SourcePillCategory.TORRENT -> torrentItems
             SourcePillCategory.CLOUD -> cloudItems
         }
 
@@ -435,7 +420,6 @@ fun UnifiedContentSourcesScreen(
                         SourcePillCategory.DECRYPTOR -> decryptorItems.size
                         SourcePillCategory.TMDB -> tmdbItems.size
                         SourcePillCategory.NUVIO -> nuvioItems.size
-                        SourcePillCategory.TORRENT -> torrentItems.size
                         SourcePillCategory.CLOUD -> cloudItems.size
                     }
 
@@ -792,11 +776,6 @@ fun UnifiedContentSourcesScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-                if (selectedPill == SourcePillCategory.TORRENT) {
-                    TextButton(onClick = { onNavigateToCategory?.invoke(SettingsCategory.PROWLARR_INDEXERS) }) {
-                        Text("Open Full Prowlarr Indexers UI", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
             }
         }
 

@@ -450,13 +450,6 @@ fun HomeScreen(
                             )
                         }
 
-                        AppScreen.TORRENT_DEBUG -> {
-                            TorrentDebugScreen(
-                                viewModel = viewModel,
-                                onBackClick = { viewModel.navigateToScreen(AppScreen.SETTINGS) }
-                            )
-                        }
-
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos

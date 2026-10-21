@@ -170,52 +170,32 @@ object TMDBEmbedExtractorEngine {
             }
         }
 
-        // Attempt 3: High-Speed Torrent fallback with HTTP streaming proxy (Never raw magnet to ExoPlayer)
-        if (discoveredStreams.isEmpty() && (request.tmdbId.isNotBlank() || request.title.isNotBlank())) {
-            val reqTitle = request.title.ifBlank { "Cinema Stream" }
+        // Attempt 3: Butterfly-MediaServer Direct Stream Fallback
+        if (discoveredStreams.isEmpty() && request.title.isNotBlank()) {
+            val reqTitle = request.title.trim()
             try {
-                val mediaIdentity = com.example.torrent.provider.MediaIdentity(
-                    title = reqTitle,
-                    mediaType = if (request.isTv) "tv" else "movie",
-                    season = request.season,
-                    episode = request.episode,
-                    tmdbId = request.tmdbId.takeIf { it.all { c -> c.isDigit() } }
+                val epIdx = if (request.isTv) ((request.episode ?: 1) - 1).coerceAtLeast(0) else 0
+                val serverResolution = com.example.vega.VegaProviderClient.resolveFullVegaPlayback(
+                    providerId = "autoEmbed",
+                    linkOrQuery = reqTitle,
+                    episodeIndex = epIdx
                 )
-                val torrentReleases = com.example.torrent.provider.TorrentProviderManager.getInstance()
-                    .searchReleases(reqTitle, mediaIdentity)
-                if (torrentReleases.isNotEmpty()) {
-                    val server = com.example.torrent.server.TorrentHttpServer.getInstance(context)
-                    val assignedPort = server.start()
-                    val engine = com.example.torrent.engine.TorrentEngine.getInstance(context)
-
-                    val primaryRel = torrentReleases.firstOrNull { !it.magnetUrl.startsWith("http://") && !it.magnetUrl.startsWith("https://") }
-                    if (primaryRel != null) {
-                        try {
-                            engine.startSession(primaryRel, streamPort = assignedPort)
-                            Log.i(TAG, "Started torrent fallback session on dynamic port $assignedPort for hash ${primaryRel.infoHash}")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Notice starting torrent session: ${e.message}")
-                        }
-                    }
-
-                    for (rel in torrentReleases.take(8)) {
-                        val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-                        val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
+                if (serverResolution.success && serverResolution.streams.isNotEmpty()) {
+                    for (st in serverResolution.streams) {
                         discoveredStreams.add(
                             ExtractedStream(
-                                title = rel.title,
-                                url = streamUrl,
+                                title = "${reqTitle} [${st.server} • ${st.quality}]",
+                                url = st.url,
                                 source = specificSource ?: TMDBEmbedSource.SHOWBOX,
-                                quality = rel.quality,
-                                sizeText = rel.formattedSize,
-                                seeders = rel.seeders,
-                                isHls = streamUrl.contains(".m3u8")
+                                quality = st.quality,
+                                isHls = st.format == "m3u8" || st.url.contains(".m3u8"),
+                                headers = st.headers
                             )
                         )
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Direct fallback error for TMDB: ${e.message}")
+                Log.w(TAG, "Butterfly-MediaServer fallback note for TMDB: ${e.message}")
             }
         }
 

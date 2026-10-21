@@ -27,9 +27,9 @@ class VegaProviderRepository(private val context: Context) {
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
     init {
-        // Initialize in-app Vega engine and registry with local assets
+        // Initialize Butterfly-MediaServer registry
         try {
-            VegaInAppEngine.init(context)
+            VegaProviderRegistry.initFromAssets(context)
         } catch (_: Exception) {}
 
         // Sync global flag on startup

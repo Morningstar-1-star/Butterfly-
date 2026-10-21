@@ -198,9 +198,6 @@ fun UniversalVideoPlayer(
         com.example.effects.VideoEffectsManager.onVideoChanged(videoId ?: activeStreamData?.videoId)
     }
 
-    val torrentEngine = remember(context) { com.example.torrent.engine.TorrentEngine.getInstance(context) }
-    val torrentStats by torrentEngine.stats.collectAsState()
-
     val seekbarPrefs = remember { com.example.util.SeekbarPreferences.getInstance(context) }
     val enableTopSpeedGesture by seekbarPrefs.enableTopSpeedGesture.collectAsState()
     val enableSlideToSeek by seekbarPrefs.enableSlideToSeek.collectAsState()

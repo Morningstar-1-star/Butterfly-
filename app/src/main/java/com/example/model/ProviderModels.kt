@@ -11,8 +11,7 @@ enum class AppScreen {
     SETTINGS,
     BUNKR,
     CLOUD_SOCIAL_SETTINGS,
-    CLOUD_SOCIAL_LIBRARY,
-    TORRENT_DEBUG
+    CLOUD_SOCIAL_LIBRARY
 }
 
 enum class ProviderType {

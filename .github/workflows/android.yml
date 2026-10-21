@@ -24,10 +24,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-disabled: true
+          cache-disabled: false
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew || true
+
+      - name: Run Unit Tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Extract App Version from Gradle
         id: app_version
@@ -45,43 +48,33 @@ jobs:
           echo "RELEASE_TAG=v${VERSION_NAME}.${VERSION_CODE}" >> $GITHUB_ENV
           echo "Detected App Version: $VERSION_NAME (Code: $VERSION_CODE)"
 
-      - name: Prepare Keystore & Build APK
+      - name: Verify Signing Secrets & Build Signed Release APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           mkdir -p release-apk
-          mkdir -p ~/.android
-          if [ -f "debug.keystore" ]; then
-            cp debug.keystore ~/.android/debug.keystore
-          elif [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > ~/.android/debug.keystore
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Release signing secrets (KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD) are required to publish a signed release APK."
+            exit 1
           fi
-
-          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
-            echo "Found Release Keystore secrets. Building signed Release APK..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
-            export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
-            export STORE_PASSWORD="$STORE_PASSWORD"
-            export KEY_PASSWORD="$KEY_PASSWORD"
-            ./gradlew :app:assembleRelease --stacktrace
-            cp app/build/outputs/apk/release/*.apk release-apk/Butterfly-${VERSION_NAME}.apk
-          else
-            echo "Release signing secrets not found in GitHub repository secrets."
-            echo "Building with repository fixed keystore for consistent signature..."
-            ./gradlew :app:assembleDebug --stacktrace
-            cp app/build/outputs/apk/debug/*.apk release-apk/Butterfly-${VERSION_NAME}.apk
-          fi
+          echo "Found Release Keystore secrets. Building signed Release APK..."
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+          export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
+          export STORE_PASSWORD="$STORE_PASSWORD"
+          export KEY_PASSWORD="$KEY_PASSWORD"
+          ./gradlew :app:assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/*.apk release-apk/Butterfly-${VERSION_NAME}.apk
 
       - name: Generate update.json Metadata
         run: |
           APK_FILE=$(ls release-apk/*.apk | head -n 1)
           APK_NAME=$(basename "$APK_FILE")
-          APK_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE" 2>/dev/null || echo 135000000)
+          APK_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE")
           CURRENT_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          echo "{\"versionName\": \"$VERSION_NAME\", \"versionCode\": $VERSION_CODE, \"tagName\": \"$RELEASE_TAG\", \"downloadUrl\": \"https://github.com/Morningstar-1-star/Butterfly-/releases/download/$RELEASE_TAG/$APK_NAME\", \"apkName\": \"$APK_NAME\", \"apkSize\": $APK_SIZE, \"publishedAt\": \"$CURRENT_DATE\", \"changelog\": [\"Multi-Audio stream persistence: Selected audio language stays locked across seeks and skips\", \"Precise seekbar progress fraction fix: No more false 100% full progress bar on load\", \"Instant related recommendations with zero playback blocking\", \"Cleaned up inactive sources and modernized opening animations\", \"Live download progress notification in Android notification drawer\"]}" > release-apk/update.json
+          echo "{\"versionName\": \"$VERSION_NAME\", \"versionCode\": $VERSION_CODE, \"tagName\": \"$RELEASE_TAG\", \"downloadUrl\": \"https://github.com/Morningstar-1-star/Butterfly-/releases/download/$RELEASE_TAG/$APK_NAME\", \"apkName\": \"$APK_NAME\", \"apkSize\": $APK_SIZE, \"publishedAt\": \"$CURRENT_DATE\", \"changelog\": [\"Connected to Butterfly-MediaServer canonical API\", \"Removed local torrent and bundled JS bloat for lighter APK\", \"Hardened TLS security and Room database migrations\", \"Updated core AndroidX, Compose, Media3, and yt-dlp dependencies\"]}" > release-apk/update.json
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -104,10 +97,9 @@ jobs:
             versionCode: ${{ env.VERSION_CODE }}
 
             ### What's New in v${{ env.VERSION_NAME }}:
-            - Multi-Audio stream fix: Selected audio language stays locked across seeking and skipping
-            - Precise seekbar progress fraction fix: No more false 100% full progress bar on load
-            - Instant related video recommendations with zero playback delay
-            - Cleaned phantom/dead sources for a pristine catalog
-            - Modernized opening animation & live status bar download notifications
+            - Connected directly to Butterfly-MediaServer canonical API
+            - Removed local torrent & bundled JS assets for a significantly smaller, faster APK
+            - Hardened TLS security, Auto Backup exclusions, and Room database migrations
+            - Updated AndroidX, Compose, Media3, NewPipeExtractor, and yt-dlp dependencies
 
             **Commit:** ${{ github.sha }}

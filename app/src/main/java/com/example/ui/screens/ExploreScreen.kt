@@ -123,11 +123,6 @@ fun ExploreScreen(
     var resolvedMediaDetails by remember { mutableStateOf<ExploreMediaItem?>(null) }
     var isResolvingDetails by remember { mutableStateOf(false) }
 
-    var activeTorrentMedia by remember { mutableStateOf<ExploreMediaItem?>(null) }
-    var activeTorrentIdentity by remember { mutableStateOf<com.example.torrent.provider.MediaIdentity?>(null) }
-    val torrentReleases by viewModel.torrentReleases.collectAsState()
-    val isSearchingTorrents by viewModel.isSearchingTorrents.collectAsState()
-
     // Handle back button on hardware / gesture
     BackHandler(enabled = selectedMediaForDetails != null) {
         selectedMediaForDetails = null
@@ -476,22 +471,20 @@ fun ExploreScreen(
                             viewModel.performSearch(codeOrTitle)
                             viewModel.navigateToScreen(AppScreen.HOME)
                         } else {
-                            val mediaIdentity = com.example.torrent.provider.MediaIdentity(
+                            val tmdbId = displayItem.tmdbId ?: displayItem.id
+                            val prefix = if (displayItem.mediaType == ExploreMediaType.TV || displayItem.mediaType == ExploreMediaType.ANIME) "tmdb_tv_" else "tmdb_movie_"
+                            val playId = if (tmdbId.startsWith("tmdb_")) tmdbId else "$prefix$tmdbId"
+                            val videoItem = com.example.model.VideoItem(
+                                id = playId,
                                 title = displayItem.title,
-                                year = displayItem.releaseYear.filter { it.isDigit() }.take(4).ifBlank { null },
-                                imdbId = displayItem.imdbId,
-                                tmdbId = displayItem.tmdbId ?: displayItem.id,
-                                mediaType = when (displayItem.mediaType) {
-                                    ExploreMediaType.TV -> "tv"
-                                    ExploreMediaType.ANIME -> "anime"
-                                    else -> "movie"
-                                },
-                                season = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null,
-                                episode = if (displayItem.mediaType != ExploreMediaType.MOVIE) 1 else null
+                                uploaderName = displayItem.studio ?: displayItem.director ?: "TMDB • Butterfly MediaServer",
+                                thumbnailUrl = displayItem.backdropUrl ?: displayItem.posterUrl,
+                                providerId = "tmdb",
+                                description = displayItem.overview
                             )
-                            activeTorrentMedia = displayItem
-                            activeTorrentIdentity = mediaIdentity
-                            viewModel.searchTorrentReleases(mediaIdentity)
+                            selectedMediaForDetails = null
+                            resolvedMediaDetails = null
+                            viewModel.playVideo(videoIdOrUrl = playId, providerIdHint = "tmdb", initialItem = videoItem)
                         }
                     },
                     onPlayTrailer = { trailerKey ->
@@ -519,58 +512,6 @@ fun ExploreScreen(
                     }
                 )
             }
-        }
-
-        // ==================== BITTORRENT P2P RELEASES SELECTOR MODAL ====================
-        if (activeTorrentIdentity != null && activeTorrentMedia != null) {
-            val curMedia = activeTorrentMedia!!
-            val curIdentity = activeTorrentIdentity!!
-            val seasons: List<com.example.model.SeriesSeason> = remember(curMedia) {
-                if (curMedia.mediaType != ExploreMediaType.MOVIE) {
-                    val epCount = curMedia.episodesCount?.coerceIn(1, 100) ?: 12
-                    listOf(
-                        com.example.model.SeriesSeason(
-                            seasonNumber = 1,
-                            seasonName = "Season 1",
-                            episodes = (1..epCount).map { epNum ->
-                                com.example.model.EpisodeItem(
-                                    id = "${curMedia.id}_s1e$epNum",
-                                    seasonNumber = 1,
-                                    episodeNumber = epNum,
-                                    title = "Episode $epNum"
-                                )
-                            }
-                        )
-                    )
-                } else emptyList()
-            }
-
-            com.example.ui.torrent.TorrentReleasesBottomSheet(
-                mediaIdentity = curIdentity,
-                posterUrl = curMedia.posterUrl ?: curMedia.backdropUrl,
-                seasons = seasons,
-                releases = torrentReleases,
-                isLoading = isSearchingTorrents,
-                onDismiss = {
-                    activeTorrentIdentity = null
-                    activeTorrentMedia = null
-                    viewModel.clearTorrentReleases()
-                },
-                onSelectRelease = { release ->
-                    val identityToPlay = curIdentity
-                    val posterToPlay = curMedia.posterUrl ?: curMedia.backdropUrl
-                    activeTorrentIdentity = null
-                    activeTorrentMedia = null
-                    selectedMediaForDetails = null
-                    resolvedMediaDetails = null
-                    viewModel.playTorrentRelease(release, identityToPlay, posterToPlay)
-                },
-                onSelectEpisode = { seasonNum, epNum ->
-                    val updated = curIdentity.copy(season = seasonNum, episode = epNum)
-                    activeTorrentIdentity = updated
-                    viewModel.searchTorrentReleases(updated)
-                }
-            )
         }
     }
 }

@@ -1385,4 +1385,41 @@ object TMDBHelper {
         }
         return@withContext null
     }
+
+    suspend fun resolveTmdbAndImdb(
+        title: String,
+        mediaType: String = "movie"
+    ): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        try {
+            val clean = cleanTitleForSearch(title)
+            if (clean.isBlank()) return@withContext Pair(null, null)
+            val encoded = URLEncoder.encode(clean, "UTF-8")
+            val endpoint = if (mediaType.equals("tv", ignoreCase = true) || mediaType.equals("series", ignoreCase = true)) "tv" else "movie"
+            val searchUrl = "https://api.themoviedb.org/3/search/$endpoint?api_key=$TMDB_API_KEY&query=$encoded&page=1"
+            val req = Request.Builder().url(searchUrl).header("User-Agent", "Mozilla/5.0").build()
+            val tmdbId = client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) null
+                else {
+                    val json = JSONObject(resp.body?.string() ?: "{}")
+                    val results = json.optJSONArray("results")
+                    if (results != null && results.length() > 0) {
+                        results.optJSONObject(0)?.optInt("id", 0)?.takeIf { it > 0 }?.toString()
+                    } else null
+                }
+            } ?: return@withContext Pair(null, null)
+
+            val extUrl = "https://api.themoviedb.org/3/$endpoint/$tmdbId/external_ids?api_key=$TMDB_API_KEY"
+            val extReq = Request.Builder().url(extUrl).header("User-Agent", "Mozilla/5.0").build()
+            val imdbId = client.newCall(extReq).execute().use { resp ->
+                if (!resp.isSuccessful) null
+                else {
+                    val json = JSONObject(resp.body?.string() ?: "{}")
+                    json.optString("imdb_id").takeIf { it.startsWith("tt") }
+                }
+            }
+            Pair(tmdbId, imdbId)
+        } catch (_: Exception) {
+            Pair(null, null)
+        }
+    }
 }

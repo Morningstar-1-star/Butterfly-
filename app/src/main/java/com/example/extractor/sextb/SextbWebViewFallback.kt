@@ -250,8 +250,8 @@ object SextbWebViewFallback {
                         handler: SslErrorHandler?,
                         error: SslError?
                     ) {
-                        Log.d(TAG, "SEXТB fallback: Proceeding through SSL certificate warning in fallback WebView")
-                        handler?.proceed()
+                        Log.w(TAG, "SEXТB fallback: Cancelling invalid SSL certificate in fallback WebView")
+                        handler?.cancel()
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -546,7 +546,7 @@ object SextbWebViewFallback {
                                     handler: SslErrorHandler?,
                                     error: SslError?
                                 ) {
-                                    handler?.proceed()
+                                    handler?.cancel()
                                 }
 
                                 override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {

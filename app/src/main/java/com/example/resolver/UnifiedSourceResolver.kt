@@ -6,15 +6,11 @@ import com.example.model.MediaIdentity
 import com.example.resolver.dedup.SourceDeduplicator
 import com.example.resolver.health.ProviderIsolationController
 import com.example.resolver.providers.Av123SourceProvider
-import com.example.resolver.providers.CometSourceProvider
 import com.example.resolver.providers.Hanime1SourceProvider
 import com.example.resolver.providers.JableMissAvSourceProvider
 import com.example.resolver.providers.JavPySourceProvider
 import com.example.resolver.providers.JavtifulSourceProvider
-import com.example.resolver.providers.MagnetioSourceProvider
-import com.example.resolver.providers.MediaFusionSourceProvider
 import com.example.resolver.providers.NuvioDirectSourceProvider
-import com.example.resolver.providers.YarrSourceProvider
 import com.example.resolver.embed.TwoEmbedProvider
 import com.example.resolver.embed.VidlinkEmbedProvider
 import com.example.resolver.embed.VidrockEmbedProvider
@@ -52,7 +48,6 @@ class UnifiedSourceResolver(private val context: Context) {
     }
 
     private val vegaAdapter = VegaSourceAdapter(context)
-    private val torrentAdapter = TorrentSourceAdapter()
     private val decryptorProvider = com.example.resolver.providers.DecryptorSourceProvider(context)
     private val nuvioDirectProvider = NuvioDirectSourceProvider()
     private val jableMissAvProvider = JableMissAvSourceProvider()
@@ -62,10 +57,6 @@ class UnifiedSourceResolver(private val context: Context) {
     private val javtifulProvider = JavtifulSourceProvider()
     private val hanime1Provider = Hanime1SourceProvider()
     private val javPyProvider = JavPySourceProvider()
-    private val mediaFusionProvider = MediaFusionSourceProvider()
-    private val cometProvider = CometSourceProvider()
-    private val yarrProvider = YarrSourceProvider()
-    private val magnetioProvider = MagnetioSourceProvider()
     private val bunkrProvider = com.example.resolver.providers.BunkrSourceProvider(context)
     private val telegramProvider = com.example.resolver.providers.TelegramSourceProvider(context)
     private val megaProvider = com.example.resolver.providers.MegaSourceProvider(context)
@@ -90,10 +81,6 @@ class UnifiedSourceResolver(private val context: Context) {
             vidsrcMeProvider,
             decryptorProvider,
             nuvioDirectProvider,
-            mediaFusionProvider,
-            cometProvider,
-            yarrProvider,
-            magnetioProvider,
             bunkrProvider,
             telegramProvider,
             megaProvider,
@@ -104,8 +91,7 @@ class UnifiedSourceResolver(private val context: Context) {
             javtifulProvider,
             hanime1Provider,
             javPyProvider,
-            vegaAdapter,
-            torrentAdapter
+            vegaAdapter
         ).filter { it.isEnabled }.sortedByDescending { it.priority }
 
     /**

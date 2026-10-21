@@ -59,4 +59,73 @@ class BilibiliExtractionTest {
         assertEquals(3723L, BilibiliProvider.parseDurationString("01:02:03"))
         assertEquals(-1L, BilibiliProvider.parseDurationString(""))
     }
+
+    @Test
+    fun testCleanBilibiliStreamUrlP2pAvoidanceAndAkamaiPreference() {
+        val backup = org.json.JSONArray().apply {
+            put("http://d1.mcdn.bilivideo.cn:4483/upgcxcode/36/45/12345/12345.m4s")
+            put("http://upos-sz-mirrorcos.bilivideo.com/upgcxcode/36/45/12345/12345.m4s")
+            put("http://upos-sz-mirrorakam.bilivideo.com/upgcxcode/36/45/12345/12345.m4s")
+        }
+        val rawP2p = "http://d1.mcdn.bilivideo.cn:4483/upgcxcode/36/45/12345/12345.m4s"
+
+        // Should pick Akamai mirror first, upgraded to https
+        val cleaned = BilibiliProvider.cleanBilibiliStreamUrl(rawP2p, backup)
+        assertEquals("https://upos-sz-mirrorakam.bilivideo.com/upgcxcode/36/45/12345/12345.m4s", cleaned)
+    }
+
+    @Test
+    fun testCleanBilibiliStreamUrlPreservesCustomPortWithoutHttpsUpgrade() {
+        // If ONLY P2P/custom port host exists, do NOT upgrade to HTTPS (would break plaintext port)
+        val rawP2p = "http://112.29.13.45:4483/upgcxcode/sample.m4s"
+        val cleaned = BilibiliProvider.cleanBilibiliStreamUrl(rawP2p, null)
+        assertEquals("http://112.29.13.45:4483/upgcxcode/sample.m4s", cleaned)
+    }
+
+    @Test
+    fun testRankAndSelectBilibiliStreamOptionsPrefersH264OverHevcAndAv1() {
+        val options = listOf(
+            com.example.model.PlayableStreamOption(
+                qualityLabel = "1080p 60fps Adaptive (AV1)",
+                format = "video_mp4",
+                isMuxed = false,
+                videoUrl = "https://cdn.example.com/av1_1080p.m4s"
+            ),
+            com.example.model.PlayableStreamOption(
+                qualityLabel = "1080p 60fps Adaptive (HEVC)",
+                format = "video_mp4",
+                isMuxed = false,
+                videoUrl = "https://cdn.example.com/hevc_1080p.m4s"
+            ),
+            com.example.model.PlayableStreamOption(
+                qualityLabel = "1080p Adaptive (H.264)",
+                format = "video_mp4",
+                isMuxed = false,
+                videoUrl = "https://cdn.example.com/h264_1080p.m4s"
+            ),
+            com.example.model.PlayableStreamOption(
+                qualityLabel = "720p Adaptive (H.264)",
+                format = "video_mp4",
+                isMuxed = false,
+                videoUrl = "https://cdn.example.com/h264_720p.m4s"
+            )
+        )
+
+        val (ranked, selected) = BilibiliProvider.rankAndSelectBilibiliStreamOptions(options)
+        assertNotNull(selected)
+        assertEquals("1080p Adaptive (H.264)", selected?.qualityLabel)
+        // First in ranked list should be H.264
+        assertTrue(ranked.first().qualityLabel.contains("H.264"))
+    }
+
+    @Test
+    fun testSecureDnsPrioritizesIpv4() {
+        val v6 = java.net.Inet6Address.getByName("240e:97c:2f:1::50")
+        val v4 = java.net.Inet4Address.getByName("119.29.29.29")
+        val mixed = listOf(v6, v4)
+
+        val sorted = com.example.util.SecureDnsManager.prioritizeIpv4(mixed)
+        assertTrue(sorted[0] is java.net.Inet4Address)
+        assertTrue(sorted[1] is java.net.Inet6Address)
+    }
 }

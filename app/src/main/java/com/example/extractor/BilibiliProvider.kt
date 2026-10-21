@@ -563,16 +563,11 @@ object BilibiliProvider {
             return@withContext null
         }
 
-        val distinctOptions = streamOptions.distinctBy { it.videoUrl ?: it.qualityLabel }
-        val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
-            ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") }
-            ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("MP4 Direct") }
-            ?: distinctOptions.firstOrNull { it.isMuxed }
-            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") && it.qualityLabel.contains("H.264") }
-            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") && it.qualityLabel.contains("H.264") }
-            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
-            ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") }
-            ?: distinctOptions.first()
+        val (rankedOptions, selectedOption) = rankAndSelectBilibiliStreamOptions(streamOptions)
+        if (selectedOption == null) {
+            Log.w(TAG, "No playable streams selected for Bilibili $resolvedBvid")
+            return@withContext null
+        }
 
         StreamData(
             videoId = "https://www.bilibili.com/video/$resolvedBvid",
@@ -585,7 +580,7 @@ object BilibiliProvider {
             viewCount = viewCount,
             likeCount = likeCount,
             captionOptions = captionOptions,
-            availableStreamOptions = distinctOptions,
+            availableStreamOptions = rankedOptions,
             selectedStreamOption = selectedOption,
             providerId = PROVIDER_ID,
             providerType = ProviderType.DIRECT,
@@ -668,34 +663,26 @@ object BilibiliProvider {
             // Try PGC playurl first
             val pgcStreams = fetchBangumiPlayurlStreams(resolvedEpId, bvid, cid, biliHeaders)
             if (pgcStreams.isNotEmpty()) {
-                val distinctOptions = pgcStreams.distinctBy { it.videoUrl ?: it.qualityLabel }
-                val selectedOption = distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") && it.qualityLabel.contains("MP4 Direct") }
-                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") && it.qualityLabel.contains("MP4 Direct") }
-                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("MP4 Direct") }
-                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("720p") }
-                    ?: distinctOptions.firstOrNull { it.isMuxed && it.qualityLabel.contains("1080p") }
-                    ?: distinctOptions.firstOrNull { it.isMuxed }
-                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("720p") }
-                    ?: distinctOptions.firstOrNull { it.qualityLabel.contains("1080p") }
-                    ?: distinctOptions.first()
-
-                return@withContext StreamData(
-                    videoId = "https://www.bilibili.com/bangumi/play/ep$resolvedEpId",
-                    videoUrl = selectedOption.videoUrl ?: "",
-                    title = fullTitle,
-                    channelName = seriesTitle,
-                    channelAvatarUrl = cover,
-                    description = desc,
-                    thumbnailUrl = cover,
-                    viewCount = 0L,
-                    likeCount = 0L,
-                    captionOptions = emptyList(),
-                    availableStreamOptions = distinctOptions,
-                    selectedStreamOption = selectedOption,
-                    providerId = PROVIDER_ID,
-                    providerType = ProviderType.DIRECT,
-                    headers = selectedOption.headers
-                )
+                val (rankedOptions, selectedOption) = rankAndSelectBilibiliStreamOptions(pgcStreams)
+                if (selectedOption != null) {
+                    return@withContext StreamData(
+                        videoId = "https://www.bilibili.com/bangumi/play/ep$resolvedEpId",
+                        videoUrl = selectedOption.videoUrl ?: "",
+                        title = fullTitle,
+                        channelName = seriesTitle,
+                        channelAvatarUrl = cover,
+                        description = desc,
+                        thumbnailUrl = cover,
+                        viewCount = 0L,
+                        likeCount = 0L,
+                        captionOptions = emptyList(),
+                        availableStreamOptions = rankedOptions,
+                        selectedStreamOption = selectedOption,
+                        providerId = PROVIDER_ID,
+                        providerType = ProviderType.DIRECT,
+                        headers = selectedOption.headers
+                    )
+                }
             }
 
             // Fallback to standard video fetch
@@ -935,13 +922,20 @@ object BilibiliProvider {
     // =========================================================================
 
     fun cleanBilibiliStreamUrl(rawUrl: String, backupArr: JSONArray? = null): String {
-        var cleanUrl = rawUrl.trim()
-        if (cleanUrl.isBlank()) return ""
-
-        // Ensure HTTPS for secure and reliable playback across all networks and Android cleartext policies
-        if (cleanUrl.startsWith("http://")) {
-            cleanUrl = "https://" + cleanUrl.removePrefix("http://")
+        val candidates = mutableListOf<String>()
+        val trimmedRaw = rawUrl.trim()
+        if (trimmedRaw.isNotBlank()) {
+            candidates.add(trimmedRaw)
         }
+        if (backupArr != null) {
+            for (b in 0 until backupArr.length()) {
+                val cand = backupArr.optString(b, "").trim()
+                if (cand.isNotBlank() && !candidates.contains(cand)) {
+                    candidates.add(cand)
+                }
+            }
+        }
+        if (candidates.isEmpty()) return ""
 
         fun isP2pHost(u: String): Boolean {
             val lower = u.lowercase()
@@ -952,31 +946,82 @@ object BilibiliProvider {
                     lower.contains("127.0.0.1") || lower.contains("localhost")
         }
 
-        // If backup_url array has official signed mirror candidates, prefer official non-P2P mirror
-        if (backupArr != null && backupArr.length() > 0) {
-            val candidates = mutableListOf<String>()
-            for (b in 0 until backupArr.length()) {
-                var cand = backupArr.optString(b, "").trim()
-                if (cand.isNotBlank()) {
-                    if (cand.startsWith("http://")) cand = "https://" + cand.removePrefix("http://")
-                    candidates.add(cand)
-                }
-            }
-            val bestOfficial = candidates.firstOrNull { cand ->
-                val lower = cand.lowercase()
-                !isP2pHost(cand) && (lower.contains("mirrorcos") || lower.contains("mirrorali") ||
-                        lower.contains("mirrorhw") || lower.contains("akamaized") ||
-                        lower.contains("upos-sz-") || lower.contains("bcache") ||
-                        lower.contains("mirror08c") || lower.contains("mirrorbos"))
-            } ?: candidates.firstOrNull { !isP2pHost(it) }
-
-            if (bestOfficial != null) {
-                cleanUrl = bestOfficial
-            }
+        // 1. Prioritize Akamai / International CDN hosts first (best routing outside China, no packet drop)
+        val akamaiCandidate = candidates.firstOrNull { cand ->
+            !isP2pHost(cand) && (
+                cand.contains("akamaized", ignoreCase = true) ||
+                cand.contains("mirrorakam", ignoreCase = true) ||
+                cand.contains("bstar", ignoreCase = true) ||
+                cand.contains("biliintl", ignoreCase = true)
+            )
         }
 
-        // Preserve signed CDN URL byte-for-byte without breaking HMAC query signature
-        return cleanUrl
+        // 2. Official Cloud CDN mirrors (Tencent COS, Alibaba Cloud, Huawei Cloud, Baidu BOS)
+        val cloudCandidate = candidates.firstOrNull { cand ->
+            !isP2pHost(cand) && (
+                cand.contains("mirrorcos", ignoreCase = true) ||
+                cand.contains("mirrorali", ignoreCase = true) ||
+                cand.contains("mirrorhw", ignoreCase = true) ||
+                cand.contains("mirrorbos", ignoreCase = true) ||
+                cand.contains("mirror08c", ignoreCase = true) ||
+                cand.contains("upos-", ignoreCase = true) ||
+                cand.contains("bcache", ignoreCase = true) ||
+                cand.contains("bilivideo.com", ignoreCase = true)
+            )
+        }
+
+        // 3. Any other non-P2P candidate
+        val nonP2pCandidate = candidates.firstOrNull { !isP2pHost(it) }
+
+        // Pick best available candidate
+        val bestCandidate = akamaiCandidate ?: cloudCandidate ?: nonP2pCandidate ?: candidates.first()
+
+        // Protocol normalization: NEVER upgrade to HTTPS if the host has an explicit custom port or is P2P!
+        val hasCustomPort = Regex(":[0-9]{2,5}(/|$)").containsMatchIn(bestCandidate)
+        return if (hasCustomPort || isP2pHost(bestCandidate)) {
+            bestCandidate
+        } else if (bestCandidate.startsWith("http://", ignoreCase = true)) {
+            "https://" + bestCandidate.removePrefix("http://")
+        } else {
+            bestCandidate
+        }
+    }
+
+    /**
+     * Ranks and selects Bilibili stream options prioritizing maximum hardware compatibility
+     * on Android devices (Muxed Progressive MP4 first, then H.264 / AVC DASH, then HEVC, then AV1).
+     */
+    fun rankAndSelectBilibiliStreamOptions(options: List<PlayableStreamOption>): Pair<List<PlayableStreamOption>, PlayableStreamOption?> {
+        val distinct = options.distinctBy { it.videoUrl ?: it.qualityLabel }
+        if (distinct.isEmpty()) return Pair(emptyList(), null)
+
+        fun scoreOption(opt: PlayableStreamOption): Int {
+            val q = opt.qualityLabel.lowercase()
+            val isMuxed = opt.isMuxed
+            val isH264 = q.contains("h.264") || q.contains("avc") || opt.format.contains("avc")
+            val isHevc = q.contains("hevc") || q.contains("h.265")
+            val isAv1 = q.contains("av1") || q.contains("av01")
+            val resScore = when {
+                q.contains("1080p") -> 40
+                q.contains("720p") -> 30
+                q.contains("480p") -> 20
+                q.contains("360p") -> 10
+                else -> 15
+            }
+
+            val typeScore = when {
+                isMuxed -> 1000 // Muxed MP4 direct is universal on all Android devices
+                isH264 -> 500  // H.264 DASH is hardware accelerated on 100% of devices
+                isHevc -> 200  // HEVC
+                isAv1 -> 50    // AV1 lowest priority due to lack of hardware decode on many phones
+                else -> 300
+            }
+            return typeScore + resScore
+        }
+
+        val sorted = distinct.sortedByDescending { scoreOption(it) }
+        val selected = sorted.firstOrNull()
+        return Pair(sorted, selected)
     }
 
     private suspend fun fetchBangumiPlayurlStreams(

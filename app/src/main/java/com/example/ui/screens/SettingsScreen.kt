@@ -42,8 +42,7 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     PLAYBACK("Playback", "Resolution, speed, seek gestures & Secure DNS", Icons.Outlined.PlayCircle),
     SEEKBAR("Seekbar", "Seek gestures, custom progress & accent colors, DVR & appearance", Icons.Outlined.LinearScale),
     ACCOUNTS_SOURCES("Accounts & Sources", "Tencent Video, YouTube, Google Drive, Crunchyroll, Hotstar & SonyLIV", Icons.Outlined.Hub),
-    PROVIDERS("Content Sources & Providers", "Manage all 100+ sources: Normal, 18+, Vega, VidSrc, Decryptor, TMDB & Torrents", Icons.Outlined.Source),
-    PROWLARR_INDEXERS("Prowlarr & Cardigann Indexers", "Manage Prowlarr V11 YAML indexers, test & sync", Icons.Outlined.Radar),
+    PROVIDERS("Content Sources & Providers", "Manage all 100+ sources: Normal, 18+, Vega, VidSrc, Decryptor & TMDB", Icons.Outlined.Source),
     SUBTITLE_PROVIDERS("Subtitle Providers", "Configure SubDL, OpenSubtitles, SubtitleCat & Bazarr plugins", Icons.Outlined.ClosedCaption),
     CLOUD_SOCIAL("Cloud & Social Sources", "Telegram, MEGA & Bunkr unified media library", Icons.Outlined.Cloud),
     BUNKR("Bunkr Albums & Direct CDN", "Manage Bunkr album URLs, auto-extract & sync", Icons.Outlined.CloudDownload),
@@ -292,12 +291,6 @@ fun SettingsScreen(
                 when (currentCategory) {
                     SettingsCategory.SEEKBAR -> {
                         SeekbarSettingsScreen(
-                            onBackClick = { currentCategory = null }
-                        )
-                    }
-
-                    SettingsCategory.PROWLARR_INDEXERS -> {
-                        TorrentIndexersScreen(
                             onBackClick = { currentCategory = null }
                         )
                     }
@@ -1783,44 +1776,7 @@ fun SettingsScreen(
                                 }
                             }
 
-                            // Torrent Pipeline Debugger Card
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = "TORRENT STREAMING PIPELINE DEBUGGER",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                                Text(
-                                                    text = "Inspect live swarm telemetry, piece buffer window, HTTP 206 server status, and test magnet playback.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.padding(top = 4.dp)
-                                                )
-                                            }
-                                            Button(
-                                                onClick = { viewModel.navigateToScreen(com.example.model.AppScreen.TORRENT_DEBUG) },
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                            ) {
-                                                Text("Open")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Torrentio, Vega & Debrid Card
+                            // Debrid & Streaming Resolvers Card
                             item {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1828,26 +1784,17 @@ fun SettingsScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp)) {
                                         Text(
-                                            text = "TORRENTIO & DEBRID RESOLVERS",
+                                            text = "DEBRID & STREAMING RESOLVERS",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                         Text(
-                                            text = "Configure custom Torrentio endpoints or Stremio Real-Debrid / AllDebrid manifest tokens.\nTip: Users with Real-Debrid can set URL to https://torrentio.strem.fun/realdebrid=YOURAPIKEY or enter API key below.",
+                                            text = "Configure optional Real-Debrid / AllDebrid API tokens for premium cached stream resolution.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(vertical = 6.dp)
                                         )
-                                        OutlinedTextField(
-                                            value = torrentioUrlInput,
-                                            onValueChange = { torrentioUrlInput = it },
-                                            label = { Text("Torrentio Base URL / Manifest") },
-                                            placeholder = { Text("https://torrentio.strem.fun") },
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
                                         OutlinedTextField(
                                             value = debridKeyInput,
                                             onValueChange = { debridKeyInput = it },
@@ -1860,134 +1807,13 @@ fun SettingsScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                                         ) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    com.example.util.AppConfig.setTorrentioBaseUrl(context, com.example.util.AppConfig.DEFAULT_TORRENTIO_BASE_URL)
-                                                    torrentioUrlInput = com.example.util.AppConfig.DEFAULT_TORRENTIO_BASE_URL
-                                                    Toast.makeText(context, "Reset URLs to defaults", Toast.LENGTH_SHORT).show()
-                                                }
-                                            ) {
-                                                Text("Reset Defaults")
-                                            }
                                             Button(
                                                 onClick = {
-                                                    com.example.util.AppConfig.setTorrentioBaseUrl(context, torrentioUrlInput)
                                                     com.example.util.AppConfig.setDebridApiKey(context, debridKeyInput)
                                                     Toast.makeText(context, "Streaming providers saved!", Toast.LENGTH_SHORT).show()
                                                 }
                                             ) {
                                                 Text("Save")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // SOCKS5 BitTorrent Proxy Card
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = "BITTORRENT SOCKS5 PROXY",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                                Text(
-                                                    text = "Bypass ISP DHT & tracker blocking on throttled cellular or regional networks.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Switch(
-                                                checked = proxyEnabled,
-                                                onCheckedChange = { proxyEnabled = it }
-                                            )
-                                        }
-
-                                        if (proxyEnabled) {
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                OutlinedTextField(
-                                                    value = proxyHost,
-                                                    onValueChange = { proxyHost = it },
-                                                    label = { Text("Proxy Host / IP") },
-                                                    placeholder = { Text("127.0.0.1 or proxy.org") },
-                                                    singleLine = true,
-                                                    modifier = Modifier.weight(0.7f)
-                                                )
-                                                OutlinedTextField(
-                                                    value = proxyPortStr,
-                                                    onValueChange = { proxyPortStr = it.filter { ch -> ch.isDigit() } },
-                                                    label = { Text("Port") },
-                                                    placeholder = { Text("1080") },
-                                                    singleLine = true,
-                                                    modifier = Modifier.weight(0.3f)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                OutlinedTextField(
-                                                    value = proxyUser,
-                                                    onValueChange = { proxyUser = it },
-                                                    label = { Text("Username (Optional)") },
-                                                    singleLine = true,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                OutlinedTextField(
-                                                    value = proxyPass,
-                                                    onValueChange = { proxyPass = it },
-                                                    label = { Text("Password (Optional)") },
-                                                    singleLine = true,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.End
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    val portInt = proxyPortStr.toIntOrNull() ?: 1080
-                                                    com.example.util.AppConfig.setTorrentProxyConfig(
-                                                        context = context,
-                                                        enabled = proxyEnabled,
-                                                        host = proxyHost,
-                                                        port = portInt,
-                                                        user = proxyUser,
-                                                        pass = proxyPass
-                                                    )
-                                                    // Apply immediately to running Libtorrent engine
-                                                    if (proxyEnabled && proxyHost.isNotBlank()) {
-                                                        com.example.torrent.core.LibtorrentEngine.getInstance(context)
-                                                            .setProxy(proxyHost, portInt, proxyUser.ifBlank { null }, proxyPass.ifBlank { null })
-                                                        Toast.makeText(context, "SOCKS5 Proxy configured and applied!", Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        com.example.torrent.core.LibtorrentEngine.getInstance(context)
-                                                            .setProxy("", 0)
-                                                        Toast.makeText(context, "Proxy disabled (Direct mode)", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                }
-                                            ) {
-                                                Text("Save Proxy Settings")
                                             }
                                         }
                                     }
@@ -2370,58 +2196,6 @@ fun SettingsScreen(
                                         )
 
                                         Spacer(modifier = Modifier.height(8.dp))
-
-                                        // Magnetio Toggle
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("Magnetio Multi-Indexer", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                                Text("Parallel 1337x & TorrentGalaxy torrent scraper with deduplication", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                            Switch(
-                                                checked = magnetioEnabled,
-                                                onCheckedChange = {
-                                                    magnetioEnabled = it
-                                                    com.example.util.AppConfig.setMagnetioEnabled(context, it)
-                                                }
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(8.dp))
-
-                                        // YARR Toggle & URL
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("YARR Torrent Aggregator", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                                Text("High-performance Stremio torrent aggregation endpoint", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                            Switch(
-                                                checked = yarrEnabled,
-                                                onCheckedChange = {
-                                                    yarrEnabled = it
-                                                    com.example.util.AppConfig.setYarrEnabled(context, it)
-                                                }
-                                            )
-                                        }
-
-                                        if (yarrEnabled) {
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            OutlinedTextField(
-                                                value = yarrServerUrlInput,
-                                                onValueChange = { yarrServerUrlInput = it },
-                                                label = { Text("YARR Server URL") },
-                                                placeholder = { Text(com.example.resolver.providers.YarrSourceProvider.DEFAULT_BASE_URL) },
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
 
                                         Spacer(modifier = Modifier.height(8.dp))
 

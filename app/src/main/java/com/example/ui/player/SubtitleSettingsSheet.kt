@@ -144,31 +144,6 @@ fun SubtitleSettingsSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "AI & Live Captions",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Option: AI Live Captions (Whisper)
-            val isWhisperNativeAvailable = com.example.subtitles.whisper.WhisperJni.isAvailable()
-            SubtitleOptionRow(
-                title = "Whisper AI Live Captions",
-                subtitle = if (isWhisperNativeAvailable) "Activate speech-to-text live captions" else "Speech-to-text (Native whisper.cpp engine not bundled in build)",
-                icon = Icons.Default.GraphicEq,
-                isSelected = isWhisperNativeAvailable && currentSubMode == GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS,
-                enabled = isWhisperNativeAvailable,
-                onClick = {
-                    if (isWhisperNativeAvailable) {
-                        GlobalPlayerManager.setSubtitleMode(GlobalPlayerManager.SubtitleMode.AI_LIVE_CAPTIONS)
-                        onDismiss()
-                    }
-                }
-            )
-
             Spacer(modifier = Modifier.height(24.dp))
         }
     }

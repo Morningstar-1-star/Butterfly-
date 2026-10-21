@@ -151,41 +151,37 @@ object VidSrcStreamExtractor {
             }
         }
 
-        // 4. Real Direct Media & High-Speed P2P Stream Resolution (No webview embeds)
-        if (options.isEmpty()) {
+        // 4. Butterfly-MediaServer Direct Stream Fallback
+        if (options.isEmpty() && title.isNotBlank()) {
             try {
-                val mediaIdentity = com.example.torrent.provider.MediaIdentity(
-                    title = title.ifBlank { cleanId },
-                    mediaType = if (isTv) "tv" else "movie",
-                    season = season,
-                    episode = episode,
-                    tmdbId = cleanId.takeIf { it.all { c -> c.isDigit() } }
+                val epIdx = if (isTv) (episode - 1).coerceAtLeast(0) else 0
+                val serverRes = com.example.vega.VegaProviderClient.resolveFullVegaPlayback(
+                    providerId = "autoEmbed",
+                    linkOrQuery = title,
+                    episodeIndex = epIdx
                 )
-                val torrentReleases = com.example.torrent.provider.TorrentProviderManager.getInstance()
-                    .searchReleases(title.ifBlank { cleanId }, mediaIdentity)
-                for (rel in torrentReleases.take(8)) {
-                    val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-                    val qCat = com.example.util.StreamCategorizer.detectQualityFromText(rel.quality)
-                    val qualitySuffix = if (rel.seeders > 0) " [${rel.seeders} seeds]" else ""
-                    options.add(
-                        PlayableStreamOption(
-                            qualityLabel = "[$providerName] ${rel.quality} • ${rel.provider}$qualitySuffix",
-                            format = if (isDebrid && rel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
-                            isMuxed = true,
-                            videoUrl = rel.magnetUrl,
-                            audioUrl = null,
-                            providerType = if (isDebrid) ProviderType.DIRECT else ProviderType.TORRENT,
-                            sourceName = providerName,
-                            qualityCategory = qCat,
-                            sizeText = rel.formattedSize,
-                            seeders = rel.seeders,
-                            releaseTitle = rel.title,
-                            serverStatus = "Online"
+                if (serverRes.success && serverRes.streams.isNotEmpty()) {
+                    for (st in serverRes.streams) {
+                        val qCat = com.example.util.StreamCategorizer.detectQualityFromText(st.quality)
+                        options.add(
+                            PlayableStreamOption(
+                                qualityLabel = "[$providerName] ${st.quality} • ${st.server}",
+                                format = st.format,
+                                isMuxed = true,
+                                videoUrl = st.url,
+                                audioUrl = null,
+                                providerType = ProviderType.DIRECT,
+                                headers = st.headers,
+                                sourceName = providerName,
+                                qualityCategory = qCat,
+                                releaseTitle = "$title [${st.server}]",
+                                serverStatus = "Online"
+                            )
                         )
-                    )
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Direct stream fallback error for $providerName: ${e.message}")
+                Log.w(TAG, "Butterfly-MediaServer fallback error for $providerName: ${e.message}")
             }
         }
 

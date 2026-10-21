@@ -6,7 +6,7 @@ import androidx.media3.common.VideoFrameProcessingException
 import androidx.media3.common.util.GlProgram
 import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
-import androidx.media3.effect.SingleFrameGlShaderProgram
+import androidx.media3.effect.BaseGlShaderProgram
 import java.io.IOException
 import kotlin.math.max
 
@@ -24,7 +24,7 @@ class ShaderEnhancementProgram(
     private val denoiseAmount: Float = 20f,
     private val antiRinging: Boolean = true,
     private val cfl: Boolean = true
-) : SingleFrameGlShaderProgram(useHdr) {
+) : BaseGlShaderProgram(useHdr, /* texturePoolCapacity= */ 1) {
 
     private val glProgram: GlProgram
     private var currentWidth: Int = 1920

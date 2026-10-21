@@ -469,13 +469,6 @@ object MultiSourceProvider {
         return YouPornProvider.search(query, page, limit)
     }
 
-    // ------------------- 4TUBE -------------------
-    private fun parse4tubeHtml(targetUrl: String, limit: Int): List<VideoItem> {
-        return kotlinx.coroutines.runBlocking {
-            FourTubeProvider.getHome(1, limit)
-        }
-    }
-
     // ------------------- RULE34VIDEO -------------------
     private fun parseRule34Html(targetUrl: String, limit: Int): List<VideoItem> {
         val list = mutableListOf<VideoItem>()

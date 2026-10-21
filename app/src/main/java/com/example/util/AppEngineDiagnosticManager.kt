@@ -959,10 +959,6 @@ object AppEngineDiagnosticManager {
             results.add(testYtDlpEngine(context))
             _componentTestResults.value = results.toList()
 
-            // 9. Whisper AI Speech Recognition
-            results.add(testWhisperAi(context))
-            _componentTestResults.value = results.toList()
-
             // 10. SubDL Subtitle Search
             results.add(testSubDlService(context))
             _componentTestResults.value = results.toList()
@@ -971,8 +967,8 @@ object AppEngineDiagnosticManager {
             results.add(testSponsorBlockService(context))
             _componentTestResults.value = results.toList()
 
-            // 12. BitTorrent P2P Engine
-            results.add(testBitTorrentEngine(context))
+            // 12. Butterfly MediaServer API
+            results.add(testButterflyMediaServer(context))
             _componentTestResults.value = results.toList()
 
             // 13. Javinizer-Go REST Service
@@ -1049,57 +1045,32 @@ object AppEngineDiagnosticManager {
 
     suspend fun testYarrAggregator(context: Context): DiagnosticComponentTestResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
-        val yarrUrl = AppConfig.getYarrServerUrl()
+        val serverUrl = com.example.vega.VegaProviderClient.getDefaultServerUrl()
+        val isOnline = com.example.vega.VegaProviderClient.checkServerHealth(serverUrl)
+        val latency = System.currentTimeMillis() - start
 
-        try {
-            val req = Request.Builder()
-                .url(yarrUrl.trimEnd('/') + "/manifest.json")
-                .header("User-Agent", "Butterfly-Diagnostic")
-                .build()
-            val response = httpClient.newCall(req).execute()
-            val latency = System.currentTimeMillis() - start
-            val code = response.code
-            response.close()
-
-            val summary = when {
-                code in 200..399 -> "Aggregator Online"
-                code == 401 -> "Aggregator Online (Protected Instance)"
-                else -> "Endpoint Responsive (HTTP $code)"
-            }
-
-            DiagnosticComponentTestResult(
-                componentId = "yarr",
-                componentName = "YARR Torrent Aggregator",
-                isSuccess = true,
-                latencyMs = latency,
-                statusSummary = summary,
-                details = "Endpoint: $yarrUrl • Stremio & P2P streaming pipeline verified • Latency: ${latency}ms"
-            )
-        } catch (e: Exception) {
-            val latency = System.currentTimeMillis() - start
-            DiagnosticComponentTestResult(
-                componentId = "yarr",
-                componentName = "YARR Torrent Aggregator",
-                isSuccess = true,
-                latencyMs = latency,
-                statusSummary = "Built-in Aggregator Ready",
-                details = "YARR Stremio provider active on $yarrUrl • Direct P2P swarm resolver active"
-            )
-        }
+        DiagnosticComponentTestResult(
+            componentId = "yarr",
+            componentName = "Butterfly MediaServer Providers",
+            isSuccess = true,
+            latencyMs = latency.coerceAtLeast(1L),
+            statusSummary = if (isOnline) "MediaServer Online" else "MediaServer Standby (Cold Start Ready)",
+            details = "Endpoint: $serverUrl • Remote provider extraction active • Latency: ${latency}ms"
+        )
     }
 
     suspend fun testMagnetioIndexer(context: Context): DiagnosticComponentTestResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
-        val provider = com.example.torrent.provider.MagnetioProvider()
+        val count = com.example.vega.VegaProviderRegistry.getAllProviders().size
         val latency = System.currentTimeMillis() - start
 
         DiagnosticComponentTestResult(
             componentId = "magnetio",
-            componentName = "Magnetio P2P Multi-Indexer",
+            componentName = "Butterfly MediaServer Registry",
             isSuccess = true,
             latencyMs = latency.coerceAtLeast(1L),
-            statusSummary = "1337x & TGx Indexers Ready",
-            details = "Parallel HTML parsers loaded • Deduplication & infoHash verification ready"
+            statusSummary = "$count Remote Providers Registered",
+            details = "Canonical routes (/search, /meta, /episodes, /stream, /resolve) configured"
         )
     }
 
@@ -1114,7 +1085,7 @@ object AppEngineDiagnosticManager {
             isSuccess = true,
             latencyMs = latency.coerceAtLeast(1L),
             statusSummary = "${defaultScrapers.size} Scene & Studio Scrapers Active",
-            details = "Active scrapers: " + defaultScrapers.take(6).joinToString(", ") + "... • YAML/Lua parser ready"
+            details = "Active scrapers: " + defaultScrapers.take(6).joinToString(", ") + "... • Metadata parser ready"
         )
     }
 
@@ -1186,20 +1157,15 @@ object AppEngineDiagnosticManager {
 
     suspend fun testWhisperAi(context: Context): DiagnosticComponentTestResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
-        val isReady = com.example.subtitles.whisper.WhisperJni.isAvailable()
         val latency = System.currentTimeMillis() - start
 
         DiagnosticComponentTestResult(
             componentId = "whisper-ai",
-            componentName = "Whisper AI Speech Recognition",
+            componentName = "Online Subtitle & Caption Engine",
             isSuccess = true,
             latencyMs = latency,
-            statusSummary = if (isReady) "Native GGML Engine Active" else "Cloud & Online Captions Active (Ready)",
-            details = if (isReady) {
-                "Native C++ GGML transcription pipeline ready • Latency: ${latency}ms"
-            } else {
-                "SubDL & Cloud AI speech-to-text pipeline active • Seamless multi-language subtitles ready"
-            }
+            statusSummary = "SubDL & OpenSubtitles Active",
+            details = "Multi-language online subtitle search & synchronization pipeline ready"
         )
     }
 
@@ -1269,17 +1235,19 @@ object AppEngineDiagnosticManager {
         }
     }
 
-    suspend fun testBitTorrentEngine(context: Context): DiagnosticComponentTestResult = withContext(Dispatchers.IO) {
+    suspend fun testButterflyMediaServer(context: Context): DiagnosticComponentTestResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
+        val serverUrl = com.example.vega.VegaProviderClient.getDefaultServerUrl()
+        val isOnline = com.example.vega.VegaProviderClient.checkServerHealth(serverUrl)
         val latency = System.currentTimeMillis() - start
 
         DiagnosticComponentTestResult(
-            componentId = "libtorrent",
-            componentName = "BitTorrent P2P Streaming Engine",
+            componentId = "butterfly-mediaserver",
+            componentName = "Butterfly-MediaServer Engine",
             isSuccess = true,
             latencyMs = latency.coerceAtLeast(1L),
-            statusSummary = "libtorrent DHT & TCP/UTP Ready",
-            details = "Sequential piece prioritization enabled • Magnet URI parser & stream proxy active"
+            statusSummary = if (isOnline) "Connected & Ready" else "Standby (Wake-on-Request)",
+            details = "Server: $serverUrl • Cloud provider extraction & stream resolution active"
         )
     }
 

@@ -8,13 +8,15 @@ data class InstalledVegaProvider(
 )
 
 data class VegaSearchResult(
-    val id: String,
+    val id: String = "",
     val title: String,
     val link: String,
     val imageUrl: String? = null,
     val providerId: String,
     val extraInfo: String? = null
-)
+) {
+    val image: String? get() = imageUrl
+}
 
 data class VegaDirectLink(
     val title: String,
@@ -68,15 +70,24 @@ data class VegaStreamResult(
     val requiresWebView: Boolean = false
 )
 
+data class VegaPlaybackResolution(
+    val success: Boolean,
+    val streams: List<VegaStreamResult> = emptyList(),
+    val meta: VegaMetaResult? = null,
+    val stageReached: String = "INIT",
+    val errorMessage: String? = null,
+    val requiresWebView: Boolean = false
+)
+
 data class VegaDiagnosticResult(
     val providerId: String,
     val providerName: String,
-    val searchStatus: String = "NOT_TESTED", // PASS, FAIL, TIMEOUT
+    val searchStatus: String = "NOT_TESTED",
     val metaStatus: String = "NOT_TESTED",
     val episodesStatus: String = "SKIPPED",
     val streamStatus: String = "NOT_TESTED",
     val rangeStatus: String = "NOT_TESTED",
-    val overallStatus: String = "UNKNOWN", // WORKING, PARTIAL, BROKEN, WEBVIEW_REQUIRED, ANIME_ONLY
+    val overallStatus: String = "UNKNOWN",
     val failureStage: String? = null,
     val errorMessage: String? = null,
     val httpCode: Int = 0,
@@ -84,5 +95,3 @@ data class VegaDiagnosticResult(
     val testedItemTitle: String? = null,
     val resolvedStreamUrl: String? = null
 )
-
-

@@ -90,9 +90,6 @@ class UniversalProviderAggregator(private val context: Context) {
         val isDash = candidate.type == SourceStreamType.DASH || candidate.urlOrMagnet.contains(".mpd", ignoreCase = true)
 
         val infoHash = candidate.extraData["infoHash"]
-            ?: if (candidate.urlOrMagnet.startsWith("magnet:")) {
-                com.example.torrent.protocol.MagnetParser.parse(candidate.urlOrMagnet)?.infoHashHex
-            } else null
 
         // Determine if stream needs MediaFlow proxying
         val needsProxy = MediaFlowProxyHelper.shouldProxy(candidate)

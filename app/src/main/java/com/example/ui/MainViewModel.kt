@@ -3178,36 +3178,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val deferredList = batch.map { prov ->
                         this.async(Dispatchers.IO) {
                             try {
+                                val currentServer = vegaRepository.getServerUrl()
                                 val baseUrl = com.example.vega.VegaProviderRegistry.getBaseUrl(prov.id).trim()
                                 if (baseUrl.isBlank()) {
                                     map[prov.id] = "UNKNOWN (No Endpoint)"
                                 } else {
-                                    val res = com.example.vega.VegaInAppEngine.search(prov.id, "2024")
+                                    val res = com.example.vega.VegaProviderClient.search(prov.id, "2024", currentServer)
                                     if (res.isNotEmpty()) {
                                         map[prov.id] = "READY (${res.size} items)"
                                     } else {
-                                        val altRes = com.example.vega.VegaInAppEngine.search(prov.id, "spider")
+                                        val altRes = com.example.vega.VegaProviderClient.search(prov.id, "spider", currentServer)
                                         if (altRes.isNotEmpty()) {
                                             map[prov.id] = "READY (${altRes.size} items)"
                                         } else {
-                                            // Perform an actual HTTP probe to the baseUrl to determine if server is online
-                                            val probeReq = okhttp3.Request.Builder()
-                                                .url(baseUrl)
-                                                .header("User-Agent", "Mozilla/5.0")
-                                                .head()
-                                                .build()
-                                            val resp = try {
-                                                com.example.util.NetworkManager.scraperClient.newCall(probeReq).execute()
-                                            } catch (_: Exception) {
-                                                val getReq = okhttp3.Request.Builder().url(baseUrl).header("User-Agent", "Mozilla/5.0").build()
-                                                com.example.util.NetworkManager.scraperClient.newCall(getReq).execute()
-                                            }
-                                            if (resp.isSuccessful) {
-                                                map[prov.id] = "READY"
-                                            } else {
-                                                map[prov.id] = "HTTP_ERROR (${resp.code})"
-                                            }
-                                            resp.close()
+                                            val isHealthy = com.example.vega.VegaProviderClient.checkServerHealth(currentServer)
+                                            map[prov.id] = if (isHealthy) "READY" else "STANDBY (Server Waking)"
                                         }
                                     }
                                 }
@@ -5937,101 +5922,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activePlaybackJob = viewModelScope.launch(playbackDispatcher) {
             try {
                 val result = if (cleanIdOrUrl.startsWith("torrent_") || targetProviderId == "torrent" || initialVideoItem.providerId == "torrent") {
-                    val torrentTitle = initialVideoItem.title
-                    val cleanTitle = torrentTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
-                    val identity = com.example.torrent.provider.MediaIdentity(
-                        title = cleanTitle,
-                        mediaType = if (cleanIdOrUrl.contains("tv_") || cleanIdOrUrl.contains("series")) "tv" else "movie",
-                        tmdbId = Regex("""\d+""").find(cleanIdOrUrl)?.value
+                    val movieOrSeriesTitle = initialVideoItem.title
+                    val cleanTitle = movieOrSeriesTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
+                    val isTv = cleanIdOrUrl.contains("tv_") || cleanIdOrUrl.contains("series")
+                    val mediaType = if (isTv) "tv" else "movie"
+                    val resolvedTmdbId = Regex("""\d+""").find(cleanIdOrUrl)?.value
+                        ?: com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanTitle, mediaType).first
+                        ?: ""
+                    val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                        tmdbId = resolvedTmdbId,
+                        mediaType = mediaType,
+                        title = cleanTitle
                     )
-                    val releases = com.example.torrent.provider.TorrentProviderManager.getInstance().searchReleases(cleanTitle, identity)
-                    if (releases.isNotEmpty()) {
-                        val assignedPort = getOrStartTorrentServer()
-
-                        // Clean deduplication: distinct by quality, codec, hdr, provider, seeders
-                        val deduplicatedReleases = releases
-                            .distinctBy { "${it.quality}_${it.codec}_${it.hdr}_${it.formattedSize}_${it.provider}_${it.seeders}" }
-                            .sortedWith(
-                                compareByDescending<com.example.torrent.model.TorrentRelease> { it.seeders > 0 }
-                                    .thenByDescending { it.seeders }
-                                    .thenByDescending { it.qualityScore }
-                            )
-
-                        val topRelease = deduplicatedReleases.first()
-                        if (!topRelease.magnetUrl.startsWith("http://") && !topRelease.magnetUrl.startsWith("https://")) {
-                            torrentEngine.startSession(topRelease, streamPort = assignedPort)
-                        }
-
-                        deduplicatedReleases.forEach { rel ->
-                            val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-                            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
-                            activeTorrentReleasesMap[streamUrl] = rel
-                            activeTorrentReleasesMap[rel.infoHash] = rel
-                        }
-
-                        val options = deduplicatedReleases.map { rel: com.example.torrent.model.TorrentRelease ->
-                            val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-                            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
-                            val label = buildString {
-                                append(rel.quality)
-                                if (rel.codec.isNotBlank()) append(" • ").append(rel.codec)
-                                if (rel.hdr.isNotBlank()) append(" • ").append(rel.hdr)
-                                if (rel.formattedSize.isNotBlank()) append(" (").append(rel.formattedSize).append(")")
-                                append(" [${rel.provider} • ${rel.seeders} seeds]")
-                            }
-                            val src = when {
-                                rel.provider.contains("torrentio", true) -> "Torrentio"
-                                rel.provider.contains("seedr", true) -> "Seedr"
-                                rel.provider.contains("vidsrc", true) -> "VidSrc"
-                                rel.provider.contains("yts", true) -> "YTS"
-                                rel.provider.contains("eztv", true) -> "EZTV"
-                                rel.provider.contains("nyaa", true) -> "Nyaa"
-                                rel.provider.contains("1337x", true) -> "1337x"
-                                rel.provider.isNotBlank() -> rel.provider
-                                else -> "Torrentio"
-                            }
-                            val isDv = rel.hdr.contains("Dolby Vision", true) || rel.hdr.contains("DV", true) || rel.quality.contains("DV", true)
-                            val isHdr = rel.hdr.contains("HDR", true)
-                            val qCat = com.example.util.StreamCategorizer.detectQualityFromText(rel.quality, isDv, isHdr)
-                            PlayableStreamOption(
-                                qualityLabel = label,
-                                format = if (isDebrid && rel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
-                                isMuxed = true,
-                                videoUrl = streamUrl,
-                                audioUrl = null,
-                                providerType = if (isDebrid) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT,
-                                headers = mapOf("Accept-Ranges" to "bytes"),
-                                sourceName = src,
-                                qualityCategory = qCat,
-                                sizeText = rel.formattedSize,
-                                seeders = rel.seeders,
-                                isDolbyVision = isDv,
-                                isHdr = isHdr,
-                                codec = rel.codec,
-                                releaseTitle = rel.title
+                    val directOptions = mutableListOf<PlayableStreamOption>()
+                    try {
+                        directOptions.addAll(
+                            com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(getApplication(), tmdbReq)
+                        )
+                        if (nuvioRepository.isMasterEnabled.value) {
+                            directOptions.addAll(
+                                com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(getApplication(), tmdbReq)
                             )
                         }
-                        val studio = com.example.util.StudioDetector.detectStudio(initialVideoItem.title, cleanIdOrUrl.contains("tv"))
+                    } catch (_: Exception) {}
+
+                    if (directOptions.isEmpty()) {
+                        val serverRes = com.example.vega.VegaProviderClient.resolveFullVegaPlayback("autoEmbed", cleanTitle)
+                        if (serverRes.success) {
+                            serverRes.streams.forEach { st ->
+                                directOptions.add(
+                                    PlayableStreamOption(
+                                        qualityLabel = "${st.quality} • ${st.server}",
+                                        format = st.format.lowercase(),
+                                        isMuxed = true,
+                                        videoUrl = st.url,
+                                        providerType = com.example.model.ProviderType.VEGA,
+                                        headers = st.headers,
+                                        sourceName = st.server
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    if (directOptions.isNotEmpty()) {
+                        val studio = com.example.util.StudioDetector.detectStudio(initialVideoItem.title, isTv)
                         val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, initialVideoItem.title).logoUrls.firstOrNull()
                         val streamData = StreamData(
                             videoId = cleanIdOrUrl,
                             title = initialVideoItem.title,
                             channelName = studio,
                             channelAvatarUrl = studioLogo,
-                            description = "Native BitTorrent Stream • Size: ${topRelease.formattedSize} • Seeds: ${topRelease.seeders}",
-                            availableStreamOptions = options,
-                            selectedStreamOption = options.first(),
-                            providerId = "torrent",
-                            providerType = com.example.model.ProviderType.TORRENT
+                            description = initialVideoItem.description,
+                            availableStreamOptions = directOptions,
+                            selectedStreamOption = directOptions.first(),
+                            providerId = "tmdb",
+                            providerType = com.example.model.ProviderType.DIRECT
                         )
                         YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                     } else {
                         YouTubeExtractorHelper.ExtractionResult.Error(
                             ExtractorErrorDetails(
                                 errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
-                                message = "No active torrent releases found with seeds for $torrentTitle",
-                                rawExceptionName = "TorrentReleaseException",
-                                fullStackTrace = "TorrentProviderManager searched Torrentio, YTS, EZTV, Nyaa",
+                                message = "No playable streams found on Butterfly-MediaServer for $movieOrSeriesTitle",
+                                rawExceptionName = "StreamResolutionException",
+                                fullStackTrace = "Searched Butterfly-MediaServer, TMDBEmbed, and Nuvio",
                                 urlOrId = cleanIdOrUrl
                             )
                         )
@@ -6070,7 +6025,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                         val resolvedMeta = resolution.meta
                         val updatedTitle = resolvedMeta?.title?.ifBlank { null } ?: initialVideoItem.title
-                        val updatedThumbnail = resolvedMeta?.poster ?: resolvedMeta?.image ?: initialVideoItem.thumbnailUrl
                         val updatedDescription = resolvedMeta?.synopsis ?: initialVideoItem.description
                         val isTv = cleanIdOrUrl.contains("tv") || cleanIdOrUrl.contains("series")
                         val studio = com.example.util.StudioDetector.detectStudio(updatedTitle, isTv)
@@ -6090,8 +6044,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                     } else {
-                        // Vega direct link extraction did not find direct host streams (e.g. ad-shortener/expired token).
-                        // Seamlessly fallback to real high-speed media stream so user never experiences playback failure!
                         val movieOrSeriesTitle = initialVideoItem.title.ifBlank {
                             parts.getOrNull(1)?.substringAfterLast("/")?.replace("-", " ")?.replace("/", "") ?: ""
                         }
@@ -6102,16 +6054,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 movieOrSeriesTitle.contains("s0", ignoreCase = true)
                         val mediaType = if (isTv) "tv" else "movie"
 
-                        val mediaIdentity = com.example.torrent.provider.MediaIdentity(
-                            title = cleanSearchTitle.ifBlank { movieOrSeriesTitle },
-                            mediaType = mediaType
-                        )
-                        val releases = com.example.torrent.provider.TorrentProviderManager.getInstance()
-                            .searchReleases(cleanSearchTitle.ifBlank { movieOrSeriesTitle }, mediaIdentity)
-
                         val directOptions = mutableListOf<PlayableStreamOption>()
                         try {
-                            val resolvedTmdbId = mediaIdentity.tmdbId ?: Regex("""\b(\d{3,8})\b""").find(cleanIdOrUrl)?.value ?: ""
+                            val resolvedTmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanSearchTitle.ifBlank { movieOrSeriesTitle }, mediaType).first
+                                ?: Regex("""\b(\d{3,8})\b""").find(cleanIdOrUrl)?.value
+                                ?: ""
                             val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
                                 tmdbId = resolvedTmdbId,
                                 mediaType = mediaType,
@@ -6121,8 +6068,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             cinemaStreams.forEach { opt ->
                                 directOptions.add(
                                     opt.copy(
-                                        qualityLabel = "[Vega Cloud] ${opt.qualityLabel}",
-                                        sourceName = "Vega Cloud"
+                                        qualityLabel = "[Butterfly Server] ${opt.qualityLabel}",
+                                        sourceName = "Butterfly Server"
                                     )
                                 )
                             }
@@ -6131,52 +6078,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 directOptions.addAll(nuvioStreams)
                             }
                         } catch (e: Exception) {
-                            Log.w("MainViewModel", "Vega direct cinema fallback note: ${e.message}")
+                            Log.w("MainViewModel", "Butterfly Server cinema fallback note: ${e.message}")
                         }
 
-                        if (directOptions.isNotEmpty() || releases.isNotEmpty()) {
-                            val assignedPort = getOrStartTorrentServer()
-                            val torrentOptions = releases.map { rel ->
-                                val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-                                val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${rel.infoHash}"
-                                activeTorrentReleasesMap[streamUrl] = rel
-                                activeTorrentReleasesMap[rel.infoHash] = rel
-                                val label = "${rel.quality} • ${rel.provider} [${rel.seeders} seeds]"
-                                PlayableStreamOption(
-                                    qualityLabel = label,
-                                    format = if (isDebrid && rel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
-                                    isMuxed = true,
-                                    videoUrl = streamUrl,
-                                    providerType = if (isDebrid) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT,
-                                    sourceName = rel.provider,
-                                    qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(rel.quality),
-                                    sizeText = rel.formattedSize,
-                                    seeders = rel.seeders,
-                                    releaseTitle = rel.title
-                                )
-                            }
-
-                            val allCombinedOptions = directOptions + torrentOptions
-                            val topRel = releases.firstOrNull()
-                            if (topRel != null && !topRel.magnetUrl.startsWith("http") && directOptions.isEmpty()) {
-                                torrentEngine.startSession(topRel, streamPort = assignedPort)
-                            }
-
+                        if (directOptions.isNotEmpty()) {
                             val streamData = StreamData(
                                 videoId = cleanIdOrUrl,
-                                title = initialVideoItem.title.ifBlank { topRel?.title ?: movieOrSeriesTitle },
-                                channelName = "Vega HD Stream",
+                                title = initialVideoItem.title.ifBlank { movieOrSeriesTitle },
+                                channelName = "Butterfly MediaServer",
                                 channelAvatarUrl = initialVideoItem.uploaderAvatarUrl,
-                                description = if (directOptions.isNotEmpty()) "Direct Cloud Media Stream • Full HD" else "Direct Video Stream • Seeds: ${topRel?.seeders} • Size: ${topRel?.formattedSize}",
-                                availableStreamOptions = allCombinedOptions,
-                                selectedStreamOption = allCombinedOptions.first(),
+                                description = "Direct Cloud Media Stream • Full HD",
+                                availableStreamOptions = directOptions,
+                                selectedStreamOption = directOptions.first(),
                                 providerId = targetProviderId ?: "vega_$rawProv",
-                                providerType = if (directOptions.isNotEmpty()) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT
+                                providerType = com.example.model.ProviderType.DIRECT
                             )
                             YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                         } else {
                             val errMsg = resolution?.errorMessage
-                                ?: "[Vega Stream Unavailable] Could not extract direct video streams for '$movieOrSeriesTitle'."
+                                ?: "[Butterfly MediaServer] Could not extract direct video streams for '$movieOrSeriesTitle'."
                             YouTubeExtractorHelper.ExtractionResult.Error(
                                 ExtractorErrorDetails(
                                     errorType = ExtractorErrorType.NO_PLAYABLE_STREAMS,
@@ -6422,55 +6342,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return
             }
 
-            if (option.providerType == com.example.model.ProviderType.TORRENT || url.contains("/stream") || url.startsWith("magnet:")) {
-                val assignedPort = getOrStartTorrentServer()
-                var matchingRelease = activeTorrentReleasesMap[url]
-                    ?: activeTorrentReleasesMap.values.firstOrNull { it.infoHash.isNotBlank() && url.contains(it.infoHash, ignoreCase = true) }
-                    ?: activeTorrentReleasesMap.values.firstOrNull { option.qualityLabel.contains(it.quality) && option.qualityLabel.contains(it.provider) }
-
-                if (matchingRelease == null && url.startsWith("magnet:")) {
-                    val hashMatch = Regex("(?i)btih:([a-f0-9]{40}|[a-z2-7]{32})").find(url)?.groupValues?.get(1)?.lowercase() ?: ""
-                    matchingRelease = com.example.torrent.model.TorrentRelease(
-                        title = option.releaseTitle.ifBlank { option.qualityLabel },
-                        magnetUrl = url,
-                        infoHash = hashMatch,
-                        quality = option.qualityCategory,
-                        sizeBytes = 0L,
-                        formattedSize = option.sizeText,
-                        seeders = option.seeders.coerceAtLeast(1),
-                        provider = option.sourceName.ifBlank { "Torrent" }
-                    )
-                    activeTorrentReleasesMap[url] = matchingRelease
-                }
-
-                if (matchingRelease != null) {
-                    val streamUrl = if (matchingRelease.magnetUrl.startsWith("http")) matchingRelease.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${matchingRelease.infoHash}"
-                    activeTorrentReleasesMap[streamUrl] = matchingRelease
-                    if (!matchingRelease.magnetUrl.startsWith("http")) {
-                        torrentEngine.startSession(matchingRelease, streamPort = assignedPort)
-                    }
-                    val directOpt = option.copy(
-                        videoUrl = streamUrl,
-                        format = if (streamUrl.contains(".mp4")) "mp4" else "mkv"
-                    )
-                    val directData = ext.streamData.copy(
-                        selectedStreamOption = directOpt,
-                        availableStreamOptions = ext.streamData.availableStreamOptions.map { if (it == option) directOpt else it }
-                    )
-                    _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(directData)
-                    _selectedStreamOption.value = directOpt
-                    com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
-                        context = getApplication(),
-                        streamData = directData,
-                        streamOption = directOpt,
-                        hlsUrl = null,
-                        captionOption = _selectedCaptionOption.value,
-                        initialPos = currentPos
-                    )
-                    return
-                }
-            }
-
             // Handle Vega stream resolution if url is encoded with vega_
             if (url.startsWith("vega_") || url.startsWith("vega://") || (!url.startsWith("http") && option.providerType == com.example.model.ProviderType.VEGA)) {
                 viewModelScope.launch(Dispatchers.IO) {
@@ -6482,7 +6353,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val targetLink = if (parts.size >= 3) parts[2] else postLink
 
                         withContext(Dispatchers.Main) {
-                            android.widget.Toast.makeText(getApplication(), "Connecting to Vega stream ($provId)...", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(getApplication(), "Connecting to Butterfly-MediaServer ($provId)...", android.widget.Toast.LENGTH_SHORT).show()
                         }
 
                         val currentServer = vegaRepository.getServerUrl()
@@ -6514,65 +6385,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                             }
                         } else {
-                            // Direct Vega link expired or required captcha: Fallback to high-speed direct media stream
-                            val currentTitle = (_extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.title.orEmpty()
-                            val cleanTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(currentTitle)
-                            val mediaIdentity = com.example.torrent.provider.MediaIdentity(
-                                title = cleanTitle.ifBlank { currentTitle },
-                                mediaType = "movie"
-                            )
-                            val releases = com.example.torrent.provider.TorrentProviderManager.getInstance()
-                                .searchReleases(cleanTitle.ifBlank { currentTitle }, mediaIdentity)
-                            val topRel = releases.firstOrNull()
-                            if (topRel != null) {
-                                val assignedPort = getOrStartTorrentServer()
-                                val isDebrid = topRel.magnetUrl.startsWith("http")
-                                val streamUrl = if (isDebrid) topRel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=${topRel.infoHash}"
-                                activeTorrentReleasesMap[streamUrl] = topRel
-                                activeTorrentReleasesMap[topRel.infoHash] = topRel
-                                if (!isDebrid) {
-                                    torrentEngine.startSession(topRel, streamPort = assignedPort)
-                                }
-                                val fallbackOption = PlayableStreamOption(
-                                    qualityLabel = "Vega Mirror • ${topRel.quality} [${topRel.seeders} seeds]",
-                                    format = if (isDebrid && topRel.magnetUrl.contains(".mp4")) "mp4" else "mkv",
-                                    isMuxed = true,
-                                    videoUrl = streamUrl,
-                                    providerType = if (isDebrid) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT,
-                                    sourceName = "Vega Mirror",
-                                    qualityCategory = com.example.util.StreamCategorizer.detectQualityFromText(topRel.quality),
-                                    sizeText = topRel.formattedSize,
-                                    seeders = topRel.seeders,
-                                    releaseTitle = topRel.title
-                                )
-                                withContext(Dispatchers.Main) {
-                                    _selectedStreamOption.value = fallbackOption
-                                    val freshSuccess = _extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success
-                                    if (freshSuccess != null) {
-                                        val freshData = freshSuccess.streamData.copy(
-                                            selectedStreamOption = fallbackOption,
-                                            availableStreamOptions = listOf(fallbackOption) + freshSuccess.streamData.availableStreamOptions
-                                        )
-                                        _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(freshData)
-                                        com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
-                                            context = getApplication(),
-                                            streamData = freshData,
-                                            streamOption = fallbackOption,
-                                            hlsUrl = null,
-                                            captionOption = _selectedCaptionOption.value,
-                                            initialPos = currentPos
-                                        )
-                                    }
-                                }
-                            } else {
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(getApplication(), "Vega stream error: ${res?.errorMessage ?: "Direct stream link expired"}", android.widget.Toast.LENGTH_LONG).show()
-                                }
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(getApplication(), "Butterfly-MediaServer stream note: ${res?.errorMessage ?: "Direct stream link expired"}", android.widget.Toast.LENGTH_LONG).show()
                             }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            android.widget.Toast.makeText(getApplication(), "Could not play Vega stream: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(getApplication(), "Could not play stream: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
                 }
@@ -6614,7 +6433,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // 1. Resolve TMDB / IMDB ID if missing
                 val (resolvedTmdb, resolvedImdb) = if (tmdbId.isNullOrBlank()) {
-                    com.example.torrent.provider.TorrentProviderManager.getInstance().resolveTmdbAndImdb(
+                    com.example.util.TMDBHelper.resolveTmdbAndImdb(
                         title = cleanSearch,
                         mediaType = mediaType
                     )
@@ -6903,74 +6722,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 2. Search and play episode via torrent / resolver
+        // 2. Search and play episode via resolver
         val title = currentStream?.title ?: _activeVideoItem.value?.title ?: ""
         val cleanTitle = com.example.util.TMDBHelper.cleanTitleForSearch(title)
-
-        val mediaIdentity = com.example.torrent.provider.MediaIdentity(
-            title = cleanTitle,
-            mediaType = "tv",
-            season = episode.seasonNumber,
-            episode = episode.episodeNumber,
-            imdbId = currentStream?.videoId?.takeIf { it.startsWith("tt") }
-        )
-        searchTorrentReleases(mediaIdentity)
 
         val epVideoItem = VideoItem(
             id = episode.id,
             title = "$cleanTitle - S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.title}",
             uploaderName = currentStream?.channelName ?: "TV Series",
             thumbnailUrl = episode.thumbnailUrl ?: currentStream?.thumbnailUrl,
-            providerId = provider.ifBlank { "torrent" }
+            providerId = provider.ifBlank { "tmdb" }
         )
         _activeVideoItem.value = epVideoItem
-        playVideo(episode.id, provider.ifBlank { "torrent" })
-    }
-
-    // --- BitTorrent Native Engine & P2P Stream Pipeline ---
-    private val torrentEngine by lazy { com.example.torrent.engine.TorrentEngine.getInstance(app) }
-    private var torrentHttpServer: com.example.torrent.server.TorrentHttpServer? = null
-    private val activeTorrentReleasesMap = java.util.concurrent.ConcurrentHashMap<String, com.example.torrent.model.TorrentRelease>()
-
-    private fun getOrStartTorrentServer(): Int {
-        val server = torrentHttpServer ?: com.example.torrent.server.TorrentHttpServer.getInstance(app).also {
-            torrentHttpServer = it
-        }
-        return server.start()
-    }
-
-    val torrentEngineStats: StateFlow<com.example.torrent.model.TorrentEngineStats> by lazy { torrentEngine.stats }
-
-    private val _torrentReleases = MutableStateFlow<List<com.example.torrent.model.TorrentRelease>>(emptyList())
-    val torrentReleases: StateFlow<List<com.example.torrent.model.TorrentRelease>> = _torrentReleases.asStateFlow()
-
-    private val _isSearchingTorrents = MutableStateFlow(false)
-    val isSearchingTorrents: StateFlow<Boolean> = _isSearchingTorrents.asStateFlow()
-
-    private var torrentSearchJob: Job? = null
-
-    fun searchTorrentReleases(identity: com.example.torrent.provider.MediaIdentity) {
-        torrentSearchJob?.cancel()
-        _isSearchingTorrents.value = true
-        _torrentReleases.value = emptyList()
-
-        torrentSearchJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val manager = com.example.torrent.provider.TorrentProviderManager.getInstance()
-                val results = manager.searchReleases(identity.title, identity)
-                _torrentReleases.value = results
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "Error searching torrents: ${e.message}")
-                _torrentReleases.value = emptyList()
-            } finally {
-                _isSearchingTorrents.value = false
-            }
-        }
-    }
-
-    fun clearTorrentReleases() {
-        _torrentReleases.value = emptyList()
-        _isSearchingTorrents.value = false
+        playVideo(episode.id, provider.ifBlank { "tmdb" })
     }
 
     private suspend fun fetchTorrentTrendingFeed(): List<VideoItem> {
@@ -7077,217 +6841,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun playTorrentRelease(
-        release: com.example.torrent.model.TorrentRelease,
-        identity: com.example.torrent.provider.MediaIdentity,
-        posterUrl: String? = null
-    ) {
-        // 1. Immediately cancel previous job and stop prior playback
-        activePlaybackJob?.cancel()
-        com.example.ui.player.GlobalPlayerManager.stopAndClear()
-        torrentEngine.stopSession(clearCache = false)
-
-        // 2. Start local HTTP Range bridge server on free port
-        val assignedPort = getOrStartTorrentServer()
-
-        // 3. Start torrent session
-        val session = torrentEngine.startSession(release, streamPort = assignedPort)
-
-        // 4. Construct stream options & media data with hash-qualified URLs
-        val currentReleases = _torrentReleases.value.ifEmpty { listOf(release) }
-        currentReleases.forEach { rel ->
-            val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-            val normHash = rel.infoHash.lowercase().trim()
-            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=$normHash"
-            activeTorrentReleasesMap[streamUrl] = rel
-            activeTorrentReleasesMap[normHash] = rel
-        }
-
-        val options = currentReleases.map { rel ->
-            val isDebrid = rel.magnetUrl.startsWith("http://") || rel.magnetUrl.startsWith("https://")
-            val normHash = rel.infoHash.lowercase().trim()
-            val streamUrl = if (isDebrid) rel.magnetUrl else "http://127.0.0.1:$assignedPort/stream?hash=$normHash"
-            val label = buildString {
-                append(rel.quality)
-                if (rel.codec.isNotBlank()) append(" • ").append(rel.codec)
-                if (rel.hdr.isNotBlank()) append(" • ").append(rel.hdr)
-                if (rel.formattedSize.isNotBlank()) append(" (").append(rel.formattedSize).append(")")
-                append(" [${rel.provider} • ${rel.seeders} seeds]")
-            }
-            val src = when {
-                rel.provider.contains("torrentio", true) -> "Torrentio"
-                rel.provider.contains("seedr", true) -> "Seedr"
-                rel.provider.contains("vidsrc", true) -> "VidSrc"
-                rel.provider.contains("yts", true) -> "YTS"
-                rel.provider.contains("eztv", true) -> "EZTV"
-                rel.provider.contains("nyaa", true) -> "Nyaa"
-                rel.provider.contains("1337x", true) -> "1337x"
-                rel.provider.isNotBlank() -> rel.provider
-                else -> "Torrentio"
-            }
-            val isDv = rel.hdr.contains("Dolby Vision", true) || rel.hdr.contains("DV", true) || rel.quality.contains("DV", true)
-            val isHdr = rel.hdr.contains("HDR", true)
-            val qCat = com.example.util.StreamCategorizer.detectQualityFromText(rel.quality, isDv, isHdr)
-            PlayableStreamOption(
-                qualityLabel = label,
-                format = "mkv",
-                isMuxed = true,
-                videoUrl = streamUrl,
-                audioUrl = null,
-                providerType = if (isDebrid) com.example.model.ProviderType.DIRECT else com.example.model.ProviderType.TORRENT,
-                headers = mapOf("Accept-Ranges" to "bytes"),
-                sourceName = src,
-                qualityCategory = qCat,
-                sizeText = rel.formattedSize,
-                seeders = rel.seeders,
-                isDolbyVision = isDv,
-                isHdr = isHdr,
-                codec = rel.codec,
-                releaseTitle = rel.title
-            )
-        }
-
-        val targetHash = release.infoHash.lowercase().trim()
-        val primaryOption = options.firstOrNull { it.videoUrl?.contains(targetHash) == true } ?: options.first()
-
-        val displayTitle = if (release.title.isNotBlank()) release.title else identity.title
-        val isTv = identity.mediaType.equals("tv", ignoreCase = true)
-        val studio = com.example.util.StudioDetector.detectStudio(displayTitle, isTv)
-        val studioLogo = posterUrl ?: com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, displayTitle).logoUrls.firstOrNull()
-        val desc = "Native BitTorrent Stream • Size: ${release.formattedSize} • Studio: $studio"
-
-        val videoItem = VideoItem(
-            id = "torrent_${targetHash}",
-            title = displayTitle,
-            uploaderName = studio,
-            uploaderAvatarUrl = studioLogo,
-            thumbnailUrl = posterUrl,
-            providerId = "torrent"
-        )
-        _activeVideoItem.value = videoItem
-        _activeVideoId.value = videoItem.id
-        recordVideoView(videoItem)
-
-        val streamData = StreamData(
-            videoId = videoItem.id,
-            title = displayTitle,
-            channelName = studio,
-            channelAvatarUrl = studioLogo,
-            description = desc,
-            availableStreamOptions = options,
-            selectedStreamOption = primaryOption,
-            providerId = "torrent",
-            providerType = com.example.model.ProviderType.TORRENT
-        )
-
-        _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(streamData)
-        _selectedStreamOption.value = primaryOption
-        _isPlaying.value = true
-        unifiedPlayback.setActiveCandidate(null)
-        com.example.ui.player.GlobalPlayerManager.resetFirstFrameState()
-
-        val cleanMediaTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(displayTitle)
-        if (cleanMediaTitle.isNotBlank()) {
-            fetchVegaAndDirectOptionsForTitle(
-                title = cleanMediaTitle,
-                tmdbId = identity.tmdbId,
-                mediaType = identity.mediaType ?: "movie",
-                season = identity.season,
-                episode = identity.episode
-            ) { extraOptions ->
-                val currentExt = _extractionResult.value
-                if (currentExt is YouTubeExtractorHelper.ExtractionResult.Success && _activeVideoId.value == videoItem.id) {
-                    val currentList = currentExt.streamData.availableStreamOptions
-                    val merged = (currentList + extraOptions).distinctBy { it.videoUrl ?: it.qualityLabel }
-                    val updatedStreamData = currentExt.streamData.copy(availableStreamOptions = merged)
-                    _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(updatedStreamData)
-                }
-            }
-        }
-
-        // 5. Navigate to Player screen
-        _currentScreen.value = AppScreen.PLAYER
-
-        // 6. Launch coroutine to await metadata & initial header buffer before ExoPlayer starts
-        activePlaybackJob = viewModelScope.launch(Dispatchers.IO) {
-            var waitMs = 0
-            val maxWait = 30000
-            while (torrentEngine.getActiveFileLength() <= 0 && waitMs < maxWait && isActive) {
-                delay(300)
-                waitMs += 300
-            }
-
-            if (torrentEngine.getActiveFileLength() <= 0) {
-                Log.w("ButterflyTorrent", "Metadata resolution timed out for $targetHash")
-                withContext(Dispatchers.Main) {
-                    _unifiedStatusMessage.value = "Failed to retrieve swarm metadata for release"
-                }
-                return@launch
-            }
-
-            // Await initial piece range buffer (first 512 KB) so Media3 can parse headers smoothly
-            torrentEngine.awaitRangeAvailable(0, 512 * 1024, timeoutMs = 15000L)
-
-            if (!isActive) return@launch
-
-            withContext(Dispatchers.Main) {
-                com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
-                    context = getApplication(),
-                    streamData = streamData,
-                    streamOption = primaryOption,
-                    hlsUrl = null,
-                    captionOption = null
-                )
-            }
-        }
-    }
-
-    fun playTorrentMagnetDirect(magnetUrl: String, title: String = "Torrent Stream Test") {
-        val parsed = com.example.torrent.protocol.MagnetParser.parse(magnetUrl)
-        val infoHash = parsed?.infoHashHex ?: ""
-        val release = com.example.torrent.model.TorrentRelease(
-            title = title,
-            infoHash = infoHash,
-            magnetUrl = magnetUrl,
-            provider = "Direct Torrent Test",
-            seeders = 10,
-            leechers = 2,
-            sizeBytes = 0L,
-            formattedSize = "Streaming"
-        )
-        val identity = com.example.torrent.provider.MediaIdentity(
-            title = title,
-            mediaType = "movie"
-        )
-        playTorrentRelease(release, identity)
-    }
-
-    fun stopTorrentSession(clearCache: Boolean = false) {
-        torrentEngine.stopSession(clearCache = clearCache)
-        com.example.ui.player.GlobalPlayerManager.stopAndClear()
-    }
-
-    fun seekTorrentStream(fraction: Float) {
-        val totalLen = torrentEngine.getActiveFileLength()
-        if (totalLen > 0L) {
-            val targetOffset = (totalLen * fraction).toLong()
-            torrentEngine.onPlaybackSeek(targetOffset)
-            val durationMs = com.example.ui.player.GlobalPlayerManager.durationMs.value
-            if (durationMs > 0L) {
-                com.example.ui.player.GlobalPlayerManager.seekTo((durationMs * fraction).toLong())
-            }
-        }
-    }
-
     override fun onCleared() {
         super.onCleared()
-        torrentEngine.stopSession(clearCache = false)
-        torrentHttpServer?.stop()
-        torrentHttpServer = null
         unifiedPlayback.release()
     }
 
-    // --- Unified Source Resolver (Vega + BitTorrent) ---
+    // --- Unified Source Resolver (Butterfly-MediaServer + Direct Providers) ---
     private val unifiedResolver by lazy { com.example.resolver.UnifiedSourceResolver.getInstance(app) }
     private val unifiedPlayback by lazy { com.example.resolver.UnifiedPlaybackResolver.getInstance(app) }
 
@@ -7306,25 +6865,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var unifiedResolutionJob: Job? = null
 
     fun resolveUnifiedSourcesForMedia(identity: com.example.model.MediaIdentity, force: Boolean = false) {
-        val activeProv = _activeVideoItem.value?.providerId ?: ""
-        val titleLower = identity.title.lowercase()
         val isJav = com.example.metadata.JavIdParser.isJavCode(identity.title) || com.example.metadata.JavIdParser.isJavCode(identity.rawQueryOrUrl)
-        val isMultiSourceMedia = true
-
-        if (!isMultiSourceMedia) {
-            _isResolvingUnifiedSources.value = false
-            return
-        }
 
         unifiedResolutionJob?.cancel()
         _isResolvingUnifiedSources.value = true
         _unifiedCandidates.value = emptyList()
-        _unifiedStatusMessage.value = if (isJav) "Resolving JAV streams & swarms..." else "Searching Vega, Debrid & Torrent swarms..."
+        _unifiedStatusMessage.value = if (isJav) "Resolving JAV streams..." else "Searching Butterfly-MediaServer & Direct sources..."
 
         unifiedResolutionJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val effectiveIdentity = if (identity.tmdbId.isNullOrBlank() && identity.imdbId.isNullOrBlank() && identity.title.isNotBlank()) {
-                    val (tmdb, imdb) = com.example.torrent.provider.TorrentProviderManager.getInstance().resolveTmdbAndImdb(
+                    val (tmdb, imdb) = com.example.util.TMDBHelper.resolveTmdbAndImdb(
                         title = identity.title,
                         mediaType = if (identity.mediaType == com.example.model.MediaType.TV) "tv" else "movie"
                     )

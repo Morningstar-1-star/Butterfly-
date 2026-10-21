@@ -75,11 +75,6 @@ class MainApplication : Application() {
                 Log.w("MainApplication", "PlaybackResumeManager warmup note: ${e.message}")
             }
             try {
-                com.example.torrent.cardigann.manager.CardigannManager.getInstance(this@MainApplication).initialize()
-            } catch (e: Exception) {
-                Log.w("MainApplication", "CardigannManager init note: ${e.message}")
-            }
-            try {
                 // Pre-warm DNS queries in background thread for instant thumbnail & media streaming
                 java.net.InetAddress.getAllByName("i.ytimg.com")
                 java.net.InetAddress.getAllByName("yt3.ggpht.com")

@@ -1,21 +1,8 @@
-# Application Models, Extractors, Resolvers & Database
+# Application Models, Database & Serialization
 -keep class com.example.model.** { *; }
 -keep class com.example.db.** { *; }
--keep class com.example.extractor.** { *; }
--keep class com.example.resolver.** { *; }
--keep class com.example.decryptor.** { *; }
--keep class com.example.torrent.** { *; }
 -keep class com.example.vega.** { *; }
--keep class com.example.subtitles.** { *; }
 -keep class com.example.supabase.** { *; }
--keep class com.example.bunkr.** { *; }
--keep class com.example.smartskip.** { *; }
--keep class com.example.effects.** { *; }
--keep class com.example.downloader.** { *; }
--keep class com.example.cloudsocial.** { *; }
--keep class com.example.vault.** { *; }
--keep class com.example.ui.models.** { *; }
--keep class com.example.ui.player.** { *; }
 
 # Chaquopy / Python runtime
 -keep class com.chaquo.python.** { *; }
@@ -27,25 +14,18 @@
 -keep class org.mozilla.javascript.** { *; }
 -dontwarn org.mozilla.javascript.**
 
-# Media3 ExoPlayer
--keep class androidx.media3.** { *; }
+# Media3 ExoPlayer (keep JNI / reflection entry points only)
+-keepclasseswithmembers class androidx.media3.** {
+    native <methods>;
+    public <init>(...);
+}
 -dontwarn androidx.media3.**
 
-# OkHttp & JSoup
--keep class okhttp3.** { *; }
+# OkHttp & JSoup warnings
 -dontwarn okhttp3.**
--keep class org.jsoup.** { *; }
+-dontwarn okio.**
 -dontwarn org.jsoup.**
-
-# ML Kit OCR & Google Play Services
--keep class com.google.mlkit.** { *; }
--keep class com.google.android.gms.vision.** { *; }
--dontwarn com.google.mlkit.**
-
-# libtorrent4j
--keep class org.libtorrent4j.swig.libtorrent_jni { *; }
--keep class org.libtorrent4j.** { *; }
--dontwarn org.libtorrent4j.**
+-dontwarn coil.**
 
 # Room Database
 -keep class * extends androidx.room.RoomDatabase
@@ -59,27 +39,17 @@
     @com.squareup.moshi.JsonClass *;
 }
 
-# yt-dlp
--keep class dev.ffmpegkit_maintained.ytdlp.** { *; }
--dontwarn dev.ffmpegkit_maintained.ytdlp.**
+# yt-dlp / youtubedl-android
+-keep class com.yausername.youtubedl_android.** { *; }
+-dontwarn com.yausername.youtubedl_android.**
 
-# Whisper & Native C++ JNI bindings
+# Native C++ JNI bindings
 -keepclassmembers class * {
     native <methods>;
 }
-
-# SnakeYAML
--keep class org.yaml.snakeyaml.** { *; }
--dontwarn org.yaml.snakeyaml.**
-
-# Coil Image Loader
--keep class coil.** { *; }
--dontwarn coil.**
 
 # Kotlin Coroutines & Reflection
 -keepclassmembers class kotlinx.coroutines.** {
     volatile <fields>;
 }
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
-
-

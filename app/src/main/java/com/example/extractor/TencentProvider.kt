@@ -304,7 +304,7 @@ object TencentProvider {
      * Fetches video items from Tencent Video's official broadcast catalog.
      * Guarantees 100% real playable stream IDs and verified durations so duration badges are always displayed.
      */
-    fun fetchTopicItems(topic: String, limitPerTopic: Int = 10): List<VideoItem> {
+    suspend fun fetchTopicItems(topic: String, limitPerTopic: Int = 10): List<VideoItem> {
         val itemsList = mutableListOf<VideoItem>()
         try {
             YouTubeExtractorHelper.ensureNewPipeInitialized()
@@ -357,9 +357,7 @@ object TencentProvider {
 
         if (itemsList.isEmpty()) {
             try {
-                val innertubeItems = kotlinx.coroutines.runBlocking {
-                    searchYouTubeInnertube(topic, limitPerTopic)
-                }
+                val innertubeItems = searchYouTubeInnertube(topic, limitPerTopic)
                 itemsList.addAll(innertubeItems)
             } catch (_: Exception) {}
         }

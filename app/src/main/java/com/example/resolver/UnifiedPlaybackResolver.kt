@@ -9,9 +9,6 @@ import com.example.remote.MediaFlowProxyHelper
 import com.example.resolver.health.FailureType
 import com.example.resolver.health.ProviderHealthManager
 import com.example.resolver.mirror.MirrorManager
-import com.example.torrent.engine.TorrentEngine
-import com.example.torrent.model.TorrentRelease
-import com.example.torrent.server.TorrentHttpServer
 import com.example.ui.player.GlobalPlayerManager
 import com.example.util.AppConfig
 import kotlinx.coroutines.*
@@ -24,8 +21,7 @@ data class ResolvedPlayback(
     val mediaUri: String,
     val headers: Map<String, String> = emptyMap(),
     val format: String = "mp4",
-    val isTorrentStream: Boolean = false,
-    val torrentServer: TorrentHttpServer? = null
+    val isTorrentStream: Boolean = false
 )
 
 /**
@@ -52,9 +48,6 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
             }
         }
     }
-
-    private val torrentEngine = TorrentEngine.getInstance(context)
-    private var activeTorrentServer: TorrentHttpServer? = null
 
     private val _activeCandidate = MutableStateFlow<SourceCandidate?>(null)
     val activeCandidate: StateFlow<SourceCandidate?> = _activeCandidate.asStateFlow()
@@ -355,9 +348,8 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         val isDirectHttpUrl = candidate.urlOrMagnet.startsWith("http://", ignoreCase = true) ||
                               candidate.urlOrMagnet.startsWith("https://", ignoreCase = true)
 
-        if (candidate.isTorrent && !isDirectHttpUrl) {
-            onStatus("Initializing BitTorrent Swarm...")
-            return resolveTorrentCandidate(candidate, onStatus)
+        if (!isDirectHttpUrl) {
+            return null
         }
 
         val isHls = candidate.type == SourceStreamType.HLS || candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true)
@@ -394,111 +386,11 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
         )
     }
 
-    private suspend fun resolveTorrentCandidate(
-        candidate: SourceCandidate,
-        onStatus: (String) -> Unit
-    ): ResolvedPlayback? = withContext(Dispatchers.IO) {
-        try {
-            // Clean up previous torrent server if active
-            activeTorrentServer?.stop()
-            activeTorrentServer = null
-            torrentEngine.stopSession(clearCache = false)
-
-            // Create HTTP server on dynamic port (port 0 = auto-assign free ephemeral port)
-            val server = TorrentHttpServer(torrentEngine, port = 0)
-            activeTorrentServer = server
-            server.start()
-
-            val parsedMagnet = com.example.torrent.protocol.MagnetParser.parse(candidate.urlOrMagnet)
-            val infoHash = candidate.extraData["infoHash"]?.takeIf { it.isNotBlank() }
-                ?: parsedMagnet?.infoHashHex
-                ?: ""
-
-            val magnetUrl = if (candidate.urlOrMagnet.startsWith("magnet:?", ignoreCase = true)) {
-                candidate.urlOrMagnet
-            } else if (infoHash.isNotBlank()) {
-                com.example.torrent.protocol.MagnetParser.buildMagnetUrl(
-                    infoHash,
-                    candidate.title,
-                    parsedMagnet?.trackers ?: com.example.torrent.protocol.MagnetParser.DEFAULT_TRACKERS
-                )
-            } else {
-                candidate.urlOrMagnet
-            }
-
-            val release = TorrentRelease(
-                title = candidate.title,
-                infoHash = infoHash.lowercase().trim(),
-                magnetUrl = magnetUrl,
-                provider = candidate.providerName,
-                seeders = candidate.seeders,
-                leechers = candidate.leechers,
-                sizeBytes = candidate.sizeBytes,
-                formattedSize = candidate.formattedSize,
-                quality = candidate.quality,
-                codec = candidate.extraData["codec"] ?: "",
-                hdr = candidate.extraData["hdr"] ?: "",
-                audioChannels = candidate.extraData["audio"] ?: "",
-                trackerUrls = parsedMagnet?.trackers ?: com.example.torrent.protocol.MagnetParser.DEFAULT_TRACKERS
-            )
-
-            onStatus("Connecting to BitTorrent swarm (${candidate.seeders} seeds)...")
-            torrentEngine.startSession(release, streamPort = server.assignedPort)
-
-            var metadataWaitMs = 0
-            val maxWaitMs = 30000
-            while (torrentEngine.getActiveFileLength() <= 0 && metadataWaitMs < maxWaitMs) {
-                delay(400)
-                metadataWaitMs += 400
-                val stats = torrentEngine.stats.value
-                val peerCount = stats.connectedPeers
-                val dhtNodes = stats.dhtNodes
-                if (peerCount > 0) {
-                    onStatus("Discovered $peerCount peers ($dhtNodes DHT nodes), loading torrent metadata...")
-                } else if (dhtNodes > 0) {
-                    onStatus("Searching DHT swarm ($dhtNodes nodes active)...")
-                } else {
-                    onStatus("Connecting to trackers & DHT network...")
-                }
-            }
-
-            if (torrentEngine.getActiveFileLength() <= 0) {
-                Log.w(TAG, "Torrent metadata fetch timed out after $maxWaitMs ms for $infoHash")
-                onStatus("Timed out connecting to swarm (no seeders found)")
-                return@withContext null
-            }
-
-            onStatus("Torrent metadata ready, buffering initial video header...")
-
-            // Pre-buffer initial head pieces so ExoPlayer can parse container header instantly
-            torrentEngine.awaitRangeAvailable(0, 512 * 1024, timeoutMs = 15000L)
-
-            val normalizedHash = infoHash.lowercase().trim()
-            val dynamicStreamUrl = "http://127.0.0.1:${server.assignedPort}/stream?hash=$normalizedHash"
-            Log.i("ButterflyTorrent", "Torrent stream ready at: $dynamicStreamUrl (Port: ${server.assignedPort})")
-
-            ResolvedPlayback(
-                candidate = candidate,
-                mediaUri = dynamicStreamUrl,
-                headers = mapOf("Accept-Ranges" to "bytes"),
-                format = "mkv",
-                isTorrentStream = true,
-                torrentServer = server
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resolving torrent stream: ${e.message}", e)
-            null
-        }
-    }
-
     fun setActiveCandidate(candidate: SourceCandidate?) {
         _activeCandidate.value = candidate
     }
 
     fun release() {
-        activeTorrentServer?.stop()
-        activeTorrentServer = null
-        torrentEngine.stopSession(clearCache = false)
         _activeCandidate.value = null
     }
 }

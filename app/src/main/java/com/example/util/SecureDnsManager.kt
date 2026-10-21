@@ -49,6 +49,13 @@ object SecureDnsManager {
     private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InetAddress>>>()
     private const val DNS_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes TTL
 
+    fun prioritizeIpv4(addresses: List<InetAddress>): List<InetAddress> {
+        if (addresses.isEmpty()) return addresses
+        val v4 = addresses.filterIsInstance<java.net.Inet4Address>()
+        val v6 = addresses.filterIsInstance<java.net.Inet6Address>()
+        return if (v4.isNotEmpty()) v4 + v6 else addresses
+    }
+
     val bilibiliDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val now = System.currentTimeMillis()
@@ -58,9 +65,9 @@ object SecureDnsManager {
                 }
             }
 
-            // 1. Try System DNS first (optimal for geo-located CDN routing)
+            // 1. Try System DNS first (optimal for geo-located CDN routing) with IPv4 sorted first
             val sysResult = try {
-                Dns.SYSTEM.lookup(hostname)
+                prioritizeIpv4(Dns.SYSTEM.lookup(hostname))
             } catch (_: Exception) {
                 emptyList()
             }
@@ -69,8 +76,8 @@ object SecureDnsManager {
                 return sysResult
             }
 
-            // 2. Fallback to resilient DNS lookup
-            val fallback = fallbackLookup(hostname)
+            // 2. Fallback to resilient DNS lookup with IPv4 prioritized
+            val fallback = prioritizeIpv4(fallbackLookup(hostname))
             if (fallback.isNotEmpty()) {
                 dnsCache[hostname] = Pair(now, fallback)
             }
@@ -87,7 +94,9 @@ object SecureDnsManager {
                 lowerHost.contains("hdslb") || lowerHost.contains("szbdyd") ||
                 lowerHost.contains("mcdn") || lowerHost.contains("upgcxcode") ||
                 lowerHost.contains("upos") || lowerHost.contains("bcache") ||
-                lowerHost.contains("biliapi") ||
+                lowerHost.contains("biliapi") || lowerHost.contains("mirrorakam") ||
+                lowerHost.contains("akamaized") || lowerHost.contains("bstar") ||
+                lowerHost.contains("biliintl") ||
                 lowerHost.contains("qq.com") || lowerHost.contains("tencent") ||
                 lowerHost.contains("qpic.cn") || lowerHost.contains("gtimg.com") ||
                 lowerHost.contains("myqcloud.com") || lowerHost.contains("wetv.vip") ||
@@ -121,15 +130,15 @@ object SecureDnsManager {
 
     private fun fallbackLookup(hostname: String): List<InetAddress> {
         return try {
-            Dns.SYSTEM.lookup(hostname)
+            prioritizeIpv4(Dns.SYSTEM.lookup(hostname))
         } catch (e: Exception) {
             try {
-                InetAddress.getAllByName(hostname).toList()
+                prioritizeIpv4(InetAddress.getAllByName(hostname).toList())
             } catch (fallbackError: Exception) {
                 try {
                     val primaryDns = delegateDns
                     if (primaryDns != Dns.SYSTEM) {
-                        primaryDns.lookup(hostname)
+                        prioritizeIpv4(primaryDns.lookup(hostname))
                     } else {
                         // Attempt fallback to standard public DNS if system DNS is corrupted on mobile ISP
                         val bootstrapHosts = listOf("223.5.5.5", "8.8.8.8", "1.1.1.1")

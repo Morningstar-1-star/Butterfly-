@@ -12,9 +12,6 @@ import com.example.resolver.health.HealthStatus
 import com.example.resolver.health.ProviderHealthManager
 import com.example.resolver.mirror.MirrorConfig
 import com.example.resolver.mirror.MirrorManager
-import com.example.resolver.registry.ProviderCategory
-import com.example.resolver.registry.ProviderDescriptor
-import com.example.resolver.registry.ProviderRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -157,27 +154,6 @@ class SourceAndDownloadEngineTest {
 
         val ranked = SourceRankingEngine.rank(listOf(failing1080p, healthy720p))
         assertEquals("c2", ranked.first().id)
-    }
-
-    @Test
-    fun testProviderRegistry_RegistrationAndLookup() {
-        val testDesc = ProviderDescriptor(
-            id = "custom_test_stream",
-            displayName = "Custom Test Stream",
-            category = ProviderCategory.ADULT,
-            baseDomain = "https://customstream.test",
-            mirrors = listOf("https://customstream.test", "https://customstream.mirror"),
-            priority = 98
-        )
-        ProviderRegistry.register(testDesc)
-
-        val retrieved = ProviderRegistry.get("custom_test_stream")
-        assertNotNull(retrieved)
-        assertEquals("Custom Test Stream", retrieved?.displayName)
-        assertEquals(2, retrieved?.mirrors?.size)
-
-        val active = ProviderRegistry.getActiveProviders()
-        assertTrue(active.any { it.id == "custom_test_stream" })
     }
 
     @Test

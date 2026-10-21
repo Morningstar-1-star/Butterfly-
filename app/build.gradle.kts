@@ -22,21 +22,8 @@ android {
       abiFilters += listOf("x86_64", "arm64-v8a")
     }
 
-    externalNativeBuild {
-      cmake {
-        cppFlags += "-std=c++17"
-      }
-    }
-
     val poTokenUrl: String = (project.findProperty("PO_TOKEN_SERVER_URL") as String?) ?: "http://127.0.0.1:4416"
     buildConfigField("String", "PO_TOKEN_SERVER_URL", "\"$poTokenUrl\"")
-  }
-
-  externalNativeBuild {
-    cmake {
-      path = file("src/main/cpp/CMakeLists.txt")
-      version = "3.22.1"
-    }
   }
 
   packaging {
@@ -147,7 +134,6 @@ dependencies {
 
   implementation(libs.newpipe.extractor)
   implementation(libs.jsoup)
-  implementation(libs.snakeyaml)
 
   implementation(libs.yt.dlp.android)
   implementation(libs.yt.dlp.android.compat)
@@ -159,11 +145,6 @@ dependencies {
   implementation(libs.googleid)
   implementation(libs.okhttp)
   implementation(libs.okhttp.dnsoverhttps)
-  implementation(libs.logging.interceptor)
-  implementation(libs.moshi.kotlin)
-  implementation(libs.libtorrent4j)
-  implementation(libs.libtorrent4j.android.arm64)
-  implementation(libs.libtorrent4j.android.x64)
 
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
@@ -188,5 +169,4 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.work.runtime.ktx)
-  "ksp"(libs.moshi.kotlin.codegen)
 }
